@@ -3,6 +3,32 @@
 ## System Overview
 The Micro Cold Spray system is an automated manufacturing solution that controls hardware equipment for material deposition processes.
 
+## Development Environment
+
+### Python Environment
+1. Virtual Environment Setup:
+   ```bash
+   python -m venv .venv
+   source .venv/Scripts/activate  # Windows with Git Bash
+   # OR
+   .venv\Scripts\activate        # Windows CMD
+   # OR
+   source .venv/bin/activate     # Linux/Mac
+   ```
+
+2. Package Installation:
+   ```bash
+   pip install -r requirements.txt
+   pip install -e .  # Install package in development mode
+   ```
+
+3. Running the Application:
+   ```bash
+   python -m micro_cold_spray
+   # OR
+   python src/micro_cold_spray/__main__.py
+   ```
+
 ## Core Components
 
 ### State Management
@@ -24,7 +50,7 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
   - `config/process.yaml`: Process-specific parameters
   - `config/state.yaml`: State machine definitions
   - `config/tags.yaml`: Tag definitions
-  - `config/ui.yaml`: UI configuration (not yet implemented)
+  - `config/ui.yaml`: UI configuration
 
 ### Hardware Control
 - **EquipmentController**: Manages hardware equipment
@@ -74,13 +100,6 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
      - Power on/off
    - State tracked internally
 
-3. Tag Access:
-   - All components use "tag/set" and "tag/get"
-   - No translation between PLC and internal names
-   - Direct mapping to hardware tags
-   - Clear hardware tag documentation
-   - Consistent naming across system
-
 ## Core Manager Access Patterns
 
 1. ConfigManager
@@ -105,84 +124,7 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
      - Status monitoring
      - Error reporting
 
-4. Component Communication Flow:
-   - UI/Component -> MessageBroker -> Controller
-   - Controller -> MessageBroker -> TagManager
-   - TagManager -> Client -> Hardware
-   - Hardware -> Client -> TagManager -> MessageBroker -> Components
-
-## Architecture Principles
-
-### Single Source of Truth
-1. **TagManager**
-   - Purpose: Central registry for all system tags
-   - Ensures consistent tag naming and usage
-   - Is the only component that can read tags from the hardware
-   - Also maintains all internal tags used by the software
-
-2. **ConfigManager**
-   - Purpose: Unified configuration management
-   - Prevents duplicate or conflicting configurations
-   - Manages all YAML configuration files
-
-3. **MessageBroker**
-   - Purpose: Centralized message handling
-   - Manages all publish/subscribe operations
-   - Ensures consistent message routing
-   - Loads with a direct connection to its config file but then establishes a pub/sub relationship with the MessageBroker
-
-4. **UIUpdateManager**
-   - Purpose: Unified UI state management
-   - Controls all UI updates
-   - Maintains UI consistency
-
-5. **DataManager**
-   - Purpose: Data collection and storage
-   - Manages all data collection and storage
-
-### Data Flow
-1. Configuration data flows from YAML files through ConfigManager
-2. State changes are managed by StateManager and updated through the MessageBroker to the TagManager
-3. Hardware operations are coordinated through controllers and updated through the MessageBroker to the TagManager
-4. Process execution follows validated sequences
-
-### Hardware Communication Flow
-
-1. Command Path (Write):
-   UI/Component -> MessageBroker -> Controller -> MessageBroker -> TagManager -> Client -> Hardware
-   
-   Example:
-   ```
-   UI sends: "motion/command/move" -> MotionController
-   Controller validates and sends: "tag/set" with "motion.command.move" -> TagManager
-   TagManager uses appropriate client to write to hardware
-   ```
-
-2. Status Path (Read):
-   Hardware -> Client -> TagManager -> MessageBroker -> Components
-   
-   Example:
-   ```
-   Hardware updates position
-   Client reads hardware
-   TagManager polls client
-   TagManager publishes updates via MessageBroker
-   Components receive "motion/position" updates
-   ```
-
-3. Validation Layers:
-   - Controllers: Basic hardware limit validation
-   - ProcessValidator: Process-level validation
-   - TagManager: Hardware interface validation
-   - Hardware: Physical limits and interlocks
-
-4. Status Monitoring:
-   - Components request status via "tag/get"
-   - TagManager maintains current values
-   - Updates published via MessageBroker
-   - Error conditions broadcast to all subscribers
-
-## Development Guidelines
+## Project Organization
 
 ### Code Organization
 - Core functionality in `src/micro_cold_spray/core/`
@@ -223,190 +165,21 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
    - Includes timeout handling
    - Returns response or raises exception
 
-### Hardware Control Architecture
+## Dependencies
 
-1. Equipment Control:
-   - Gas System Management:
-     ```
-     UI -> equipment/gas/flow -> EquipmentController -> tag/set -> TagManager -> PLC
-     UI -> equipment/gas/valve -> EquipmentController -> tag/set -> TagManager -> PLC
-     ```
+### Core Dependencies
+- PySide6: Qt6 GUI framework
+- PyYAML: YAML configuration handling
+- paramiko: SSH communication
+- productivity: PLC communication
+- loguru: Enhanced logging
 
-   - Vacuum System Management:
-     ```
-     UI -> equipment/vacuum/pump -> EquipmentController -> tag/set (momentary) -> TagManager -> PLC
-     UI -> equipment/vacuum/valve -> EquipmentController -> tag/set -> TagManager -> PLC
-     ```
-
-   - Powder Feed System:
-     ```
-     UI -> equipment/feeder -> EquipmentController -> tag/set -> TagManager -> SSH
-     UI -> equipment/deagglomerator -> EquipmentController -> tag/set -> TagManager -> PLC
-     ```
-
-2. Motion Control:
-   ```
-   UI -> motion/command/move -> MotionController -> tag/set -> TagManager -> PLC
-   UI -> motion/command/home -> MotionController -> tag/set -> TagManager -> PLC
-   ```
-
-3. Hardware Clients:
-   - PLC Client:
-     - All critical hardware I/O
-     - Regular status polling
-     - Synchronous communication
-   - SSH Client:
-     - Powder feeder only
-     - No status polling
-     - Simple command interface
-
-# Qt Style Constants
-
-## Frame Styles
-Use proper Qt6 enum classes for frame styles:
-```python
-# Correct:
-frame.setFrameShape(QFrame.Shape.StyledPanel)
-frame.setFrameShadow(QFrame.Shadow.Raised)
-
-# Incorrect:
-frame.setFrameShape(QFrame.StyledPanel)  # Qt5 style
-frame.setFrameShadow(QFrame.Raised)      # Qt5 style
-```
-
-## Alignment Flags
-Use proper Qt6 alignment flag enums:
-```python
-# Correct:
-label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-# Incorrect:
-label.setAlignment(Qt.AlignCenter)  # Qt5 style
-```
-
-## Size Policies
-Use proper Qt6 size policy enums:
-```python
-# Correct:
-widget.setSizePolicy(
-    QSizePolicy.Policy.Expanding,
-    QSizePolicy.Policy.Fixed
-)
-
-# Incorrect:
-widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # Qt5 style
-```
-
-## ComboBox Policies
-Use proper Qt6 combo box enums:
-```python
-# Correct:
-combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
-
-# Incorrect:
-combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)  # Qt5 style
-```
-
-# Message Patterns
-
-## MessageBroker Communication
-
-1. **Publish/Subscribe Pattern**
-   ```python
-   # Publishing
-   await message_broker.publish("topic", data)
-   
-   # Subscribing
-   message_broker.subscribe("topic", callback)
-   ```
-
-2. **Request/Response Pattern**
-   ```python
-   # Making a request
-   response = await message_broker.request("topic", data, timeout=5.0)
-   
-   # Handling responses
-   if response:
-       value = response.get('value')
-   ```
-
-3. **Message Structure**
-   - Request Messages:
-     ```python
-     {
-         "request_id": "unique_id",
-         "timestamp": "iso_timestamp",
-         "tag": "tag_name",  # or other request-specific data
-         ...
-     }
-     ```
-   - Response Messages:
-     ```python
-     {
-         "request_id": "matching_id",
-         "value": response_data,
-         "timestamp": "iso_timestamp",
-         ...
-     }
-     ```
-
-4. **Response Topics**
-   - Format: "{original_topic}_response"
-   - Example: "tag/get" -> "tag/get_response"
-   - Automatically handled by MessageBroker
-
-5. **Timeouts**
-   - Default: 5.0 seconds
-   - Configurable per request
-   - Returns None on timeout
-   - Cleanup handled automatically
-
-# Dependency and Error Handling Patterns
-
-## None Checks
-1. Message Broker Operations:
-```python
-if self._message_broker is None:
-    logger.error("Cannot perform operation - no message broker")
-    return
-```
-
-2. Widget Cleanup Chain:
-```python
-if hasattr(self, '_widget') and self._widget is not None:
-    if hasattr(self._widget, 'cleanup') and callable(self._widget.cleanup):
-        await self._widget.cleanup()
-```
-
-3. Super Cleanup:
-```python
-await super(CurrentClass, self).cleanup()
-```
-
-## Configuration Access
-1. Core Services:
-- Direct access to ConfigManager allowed
-- Must handle missing configs gracefully
-- Must publish config changes through MessageBroker
-
-2. UI Components:
-- No direct ConfigManager access
-- Must use UIUpdateManager for all config operations
-- Must subscribe to config updates they care about
-
-## Message Flow
-1. Config Changes:
-```
-UI Widget -> UIUpdateManager -> MessageBroker -> ConfigManager
-                                             -> Subscribers
-```
-
-2. Hardware Commands:
-```
-UI Widget -> UIUpdateManager -> MessageBroker -> TagManager -> Hardware
-```
-
-3. Status Updates:
-```
-Hardware -> TagManager -> MessageBroker -> UIUpdateManager -> UI Widgets
-```
+### Development Tools
+- pytest: Testing framework
+- pytest-asyncio: Async testing support
+- pytest-qt: Qt testing support
+- mypy: Type checking
+- black: Code formatting
+- pylint: Code linting
+- pytest-cov: Test coverage
+- pytest-mock: Mocking support

@@ -1,9 +1,12 @@
+# Build Dependencies
+setuptools>=69.0.0  # Package building and installation
+
 # Core Dependencies
 PySide6>=6.0.0  # Qt6 GUI framework
 PyYAML>=6.0     # YAML configuration handling
 paramiko>=3.0.0  # SSH communication
 productivity>=0.13.0  # PLC communication (latest stable version)
-asyncio>=3.4.3  # Async support
+loguru>=0.7.0  # Better logging
 
 # Development Dependencies
 pytest>=7.0.0  # Testing framework
