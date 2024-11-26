@@ -1,0 +1,18 @@
+# Core Dependencies
+PySide6>=6.0.0  # Qt6 GUI framework
+PyYAML>=6.0     # YAML configuration handling
+paramiko>=3.0.0  # SSH communication
+productivity>=0.13.0  # PLC communication (latest stable version)
+asyncio>=3.4.3  # Async support
+
+# Development Dependencies
+pytest>=7.0.0  # Testing framework
+pytest-asyncio>=0.21.0  # Async testing support
+pytest-qt>=4.2.0  # Qt testing support
+mypy>=1.0.0  # Type checking
+black>=23.0.0  # Code formatting
+pylint>=2.17.0  # Code linting
+
+# Optional Development Tools
+pytest-cov>=4.1.0  # Test coverage
+pytest-mock>=3.10.0  # Mocking support
