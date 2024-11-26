@@ -1,0 +1,65 @@
+version: "1.0.0"
+
+messaging:
+  message_types:
+    # System Events
+    STATE_CHANGE: "state_change"
+    STATE_REQUEST: "state_request"
+    HARDWARE_EVENT: "hardware_event"
+    PROCESS_UPDATE: "process_update"
+    UI_UPDATE: "ui_update"
+    ERROR: "error"
+    TAG_UPDATE: "tag_update"
+    
+    # Config Updates
+    CONFIG_UPDATE: "config_update"
+    CONFIG_UPDATE_HARDWARE: "config/update/hardware"
+    CONFIG_UPDATE_PROCESS: "config/update/process"
+    CONFIG_UPDATE_OPERATION: "config/update/operation"
+    CONFIG_UPDATE_STATE: "config/update/state"
+    CONFIG_UPDATE_MESSAGING: "config/update/messaging"
+    CONFIG_UPDATE_TAGS: "config/update/tags"
+    CONFIG_UPDATE_APPLICATION: "config/update/application"
+    
+    # State Events
+    STATE_TRANSITION: "state/transition"
+    STATE_ERROR: "state/error"
+    STATE_RECOVERY: "state/recovery"
+    
+    # Tag Updates
+    TAG_UPDATE_MOTION: "tag/update/motion"
+    TAG_UPDATE_EQUIPMENT: "tag/update/equipment"
+    
+    # Control Messages
+    SEQUENCE_CONTROL: "sequence_control"
+    ACTION_CONTROL: "action_control"
+    PARAMETER_UPDATE: "parameter_update"
+    
+    # Status Updates
+    SEQUENCE_STATUS: "sequence_status"
+    ACTION_STATUS: "action_status"
+    VALIDATION_STATUS: "validation_status"
+    
+    # Pattern Events
+    PATTERN_CREATED: "patterns/created"
+    PATTERN_UPDATED: "patterns/updated"
+    PATTERN_DELETED: "patterns/deleted"
+    PATTERN_ERROR: "patterns/error"
+    
+    # Sequence Events
+    SEQUENCE_LOADED: "sequence/loaded"
+    SEQUENCE_STARTED: "sequence/started"
+    SEQUENCE_COMPLETED: "sequence/completed"
+    SEQUENCE_ERROR: "sequence/error"
+    
+    # Parameter Events
+    PARAMETER_CREATED: "parameters/created"
+    PARAMETER_UPDATED: "parameters/updated"
+    PARAMETER_DELETED: "parameters/deleted"
+    PARAMETER_ERROR: "parameters/error"
+    
+    # Hardware Events
+    MOTION_COMPLETE: "hardware/motion/complete"
+    MOTION_ERROR: "hardware/motion/error"
+    EQUIPMENT_STATUS: "hardware/equipment/status"
+    EQUIPMENT_ERROR: "hardware/equipment/error"

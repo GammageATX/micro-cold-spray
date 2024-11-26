@@ -1,0 +1,261 @@
+# Project Architecture Rules
+
+## Core Principles
+- Single Source of Truth (SSOT):
+  - TagManager: Only component that uses hardware clients (ProductivityPLC and paramiko)
+  - ConfigManager: Handles all configurations
+  - MessageBroker: Controls all pub/sub messaging
+  - UIUpdateManager: Manages all UI updates
+
+## Hardware Client Requirements
+1. PLC Communication:
+   - Must use productivity library (from productivity import ProductivityPLC)
+   - Must use async/await pattern
+   - Must use CSV tag file for definitions
+   - Must implement regular polling
+
+2. SSH Communication:
+   - Must use paramiko library (import paramiko)
+   - Write-only commands
+   - No polling required
+   - Simple command interface
+
+## Access Patterns
+
+1. Direct Access Components:
+   - ConfigManager:
+     - Direct access allowed for all components
+     - Used for static configuration loading
+     - Runtime updates received via MessageBroker
+
+2. MessageBroker Communication:
+   - Required for all runtime communication
+   - Required for all hardware commands
+   - Required for all state changes
+   - Required for all configuration updates
+   - Required for all error reporting
+   - Used for tag value updates and requests
+   - Handles command/response patterns via request/response
+
+3. Hardware Communication:
+   - Controllers:
+     - Send commands via MessageBroker to TagManager
+     - Use "tag/set" for commands
+     - Use "tag/get" for status
+     - Never access hardware directly
+   
+   - TagManager:
+     - Only component to use hardware clients (PLC and SSH)
+     - Uses exact PLC tag names from hardware
+     - No internal tag name translations
+     - Manages all hardware read/write operations
+     - Publishes hardware updates via MessageBroker
+     - All components must use MessageBroker to access tags
+
+   - PLC Client:
+     - Handles all critical hardware I/O
+     - Used for motion control
+     - Used for pressure/flow control
+     - Used for valve states
+     - Simple protocol implementation
+
+   - SSH Client:
+     - Only handles powder feeder commands
+     - Simple on/off and P-value control
+     - No status polling needed
+     - State tracked internally
+
+3. Tag Access:
+   - All components must use "tag/set" and "tag/get" messages
+   - "tag/set" for writing values
+   - "tag/get" for reading values
+   - "tag_update" for receiving value changes
+   - "tag_get_response" for request/response pattern
+
+3. Hardware Control:
+   - Equipment Controller:
+     - Gas System:
+       - Flow setpoints (main and feeder)
+       - Valve control (main and feeder)
+     - Vacuum System:
+       - Pump control (momentary start/stop)
+       - Valve control (gate and vent)
+     - Powder Feed System:
+       - Feeder frequency
+       - Deagglomerator control
+       - Nozzle selection
+     - Chamber Control:
+       - Shutter control
+
+   - Motion Controller:
+     - Position control
+     - Speed control
+     - Homing
+     - Status monitoring
+
+## Code Quality Standards
+1. Implementation Requirements:
+   - Write complete implementations (no placeholders)
+   - Provide full code examples
+   - Only modify existing code when justified
+
+2. Naming Conventions:
+   - Use clear, descriptive variable names
+   - Function/class names reflect responsibilities
+   - Each class/function has single responsibility
+
+3. Configuration Management:
+   - Use ConfigManager for static config
+   - Preserve existing YAML configurations
+   - Never delete from YAML files
+   - Runtime changes through MessageBroker
+
+## Testing Standards
+1. Test File Requirements:
+   - Begin with comment block containing:
+     - Test command
+     - Description of tests
+   - Write comprehensive test cases
+   - Test both static and runtime configurations
+
+## Documentation
+- Maintain clear documentation in README.md
+- Keep TODO.md updated with pending tasks
+- Document architectural decisions and rationale
+- Document message patterns and topics
+
+## Version Control
+- Follow .gitignore guidelines
+- Respect .cursorignore rules
+
+# Qt Style Rules
+
+## Frame Style Constants
+- Must use QFrame.Shape.* for frame shapes
+- Must use QFrame.Shadow.* for frame shadows
+- Must use proper Qt6 enum classes for all Qt constants
+
+## Alignment Constants
+- Must use Qt.AlignmentFlag.* for alignments
+- No direct use of Qt5-style constants (Qt.AlignCenter etc.)
+
+## Size Policy Constants
+- Must use QSizePolicy.Policy.* for size policies
+- Must use proper enum classes for all policy settings
+
+## Examples:
+```python
+# Correct:
+frame.setFrameShape(QFrame.Shape.StyledPanel)
+frame.setFrameShadow(QFrame.Shadow.Raised)
+label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+widget.setSizePolicy(QSizePolicy.Policy.Expanding)
+
+# Incorrect:
+frame.setFrameShape(QFrame.StyledPanel)
+frame.setFrameShadow(QFrame.Raised)
+label.setAlignment(Qt.AlignCenter)
+widget.setSizePolicy(QSizePolicy.Expanding)
+```
+
+## MessageBroker Communication Rules
+
+1. Request/Response Pattern:
+   - Must use request() for querying data:
+     ```python
+     # Correct:
+     response = await message_broker.request("tag/get", data)
+     if response:
+         value = response.get('value')
+     
+     # Incorrect:
+     response = await message_broker.publish("tag/get", data)  # Wrong pattern
+     ```
+
+   - Must handle None responses:
+     ```python
+     # Correct:
+     if response is None:
+         logger.error("No response received")
+         return default_value
+     
+     # Incorrect:
+     value = response.get('value')  # May raise AttributeError
+     ```
+
+   - Must include timeout handling:
+     ```python
+     # Correct:
+     response = await message_broker.request("topic", data, timeout=5.0)
+     
+     # Incorrect:
+     response = await message_broker.request("topic", data)  # No timeout specified
+     ```
+
+2. Message Structure:
+   - Request messages must include:
+     ```python
+     {
+         "request_id": "unique_id",  # Required
+         "timestamp": "iso_timestamp",  # Required
+         "tag": "tag_name",  # Topic-specific data
+     }
+     ```
+   - Response messages must include:
+     ```python
+     {
+         "request_id": "matching_id",  # Must match request
+         "value": response_data,  # Required
+         "timestamp": "iso_timestamp",  # Required
+     }
+     ```
+
+3. Topic Naming:
+   - Response topics must follow "{topic}_response" format
+   - Must use standardized topic names from messaging.yaml
+   - Must document new topics in messaging.yaml
+
+4. Error Handling:
+   - Must wrap all message operations in try/except
+   - Must log errors with appropriate level
+   - Must provide fallback values on error
+   - Must clean up resources in finally blocks
+
+5. Async/Await:
+   - Must use async/await with request()
+   - Must use async/await with publish()
+   - Must handle coroutine functions properly:
+     ```python
+     # Correct:
+     if asyncio.iscoroutinefunction(callback):
+         await callback(data)
+     else:
+         callback(data)
+     
+     # Incorrect:
+     callback(data)  # May not work with coroutines
+     ```
+
+# Error Handling Rules
+
+## None Checks Required
+- All MessageBroker operations
+- All cleanup chains
+- All widget references
+- All manager references
+
+## Async/Await Required
+- All cleanup methods
+- All UI update handlers
+- All message operations
+- All hardware operations
+
+## Config Access Rules
+- Core services may access ConfigManager directly
+- UI components must use UIUpdateManager
+- Config changes must be published through MessageBroker
+
+## Error Logging Rules
+- All exceptions must be caught and logged
+- All error messages must be descriptive
+- All error handlers must include context

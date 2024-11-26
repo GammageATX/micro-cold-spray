@@ -1,0 +1,68 @@
+# Keep pytest configuration
+!pytest.ini
+
+# Python build artifacts and cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.mypy_cache/
+.pytest_cache/
+.pytype/
+.coverage
+htmlcov/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.env
+.venv
+
+# Build and distribution directories
+build/
+dist/
+*.egg-info/
+
+# IDE specific
+.vscode/
+.idea/
+*.swp
+*.swo
+.spyderproject
+.spyproject
+.ropeproject
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Documentation builds
+docs/_build/
+site/
+
+# Logs and data
+*.log
+logs/
+data/runs/*
+!data/runs/.gitkeep
+data/parameters/*
+!data/parameters/.gitkeep
+data/patterns/*
+!data/patterns/.gitkeep
+data/sequences/*
+!data/sequences/.gitkeep
+
+# Databases
+*.sqlite3
+*.db
+
+# OS specific
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# Local development
+local_settings.py
+*.env.*

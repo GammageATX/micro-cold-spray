@@ -1,0 +1,204 @@
+version: "1.0.0"
+operation:
+  # 1. Action Management
+  actions:
+    # Action Timeouts and Retries
+    timeouts:
+      motion: 30.0
+      gas_flow: 10.0
+      powder_feed: 5.0
+      shutter: 2.0
+    retry:
+      max_attempts: 3
+      delay: 1.0
+
+    # Standard Actions
+    standard_actions:
+      motion:
+        move_to_trough:
+          sequence:
+            - move_to_safe_z
+            - move_xy_to_trough
+            - move_to_collection_height
+          validation:
+            - check_motion_enabled
+            - check_position_limits
+        
+        move_to_home:
+          sequence:
+            - move_to_safe_z
+            - move_xy_to_home
+            - move_to_home_z
+          validation:
+            - check_motion_enabled
+            - check_position_limits
+
+      gas:
+        start_gas_flow:
+          sequence:
+            - open_main_valve
+            - set_main_flow
+            - wait_for_stability
+          validation:
+            - check_pressure_ok
+            - check_flow_limits
+        
+        stop_gas_flow:
+          sequence:
+            - zero_flows
+            - close_valves
+          validation:
+            - check_valve_states
+
+      powder:
+        start_powder_feed:
+          sequence:
+            - verify_gas_flow
+            - start_deagglomerator
+            - start_feeder
+            - wait_for_stability
+          validation:
+            - check_gas_flow_stable
+            - check_feeder_ready
+        
+        stop_powder_feed:
+          sequence:
+            - stop_deagglomerator
+            - stop_feeder
+          validation:
+            - check_feeder_stopped
+
+      shutter:
+        engage_shutter:
+          sequence:
+            - activate_solenoid
+            - verify_engagement
+          validation:
+            - check_shutter_state
+        
+        disengage_shutter:
+          sequence:
+            - deactivate_solenoid
+            - verify_disengagement
+          validation:
+            - check_shutter_state
+
+      verification:
+        verify_vacuum:
+          sequence:
+            - check_chamber_pressure
+            - check_vacuum_stability
+          validation:
+            - pressure_below_threshold
+            - stability_duration_met
+
+        verify_gas_supply:
+          sequence:
+            - check_main_pressure
+            - check_regulator_pressure
+            - check_line_pressures
+          validation:
+            - pressure_margins_ok
+            - supply_pressure_ok
+
+      monitoring:
+        monitor_pressures:
+          sequence:
+            - log_chamber_pressure
+            - log_gas_pressures
+            - check_stability
+          validation:
+            - within_limits
+            - stability_maintained
+
+        monitor_flows:
+          sequence:
+            - log_main_flow
+            - log_feeder_flow
+            - check_stability
+          validation:
+            - within_setpoints
+            - stability_maintained
+
+        monitor_position:
+          sequence:
+            - log_xyz_position
+            - check_motion_status
+          validation:
+            - within_pattern
+            - velocity_ok
+
+      system:
+        prepare_system:
+          sequence:
+            - verify_vacuum
+            - verify_gas_supply
+            - move_to_home
+          validation:
+            - all_systems_ready
+
+        cleanup_system:
+          sequence:
+            - stop_powder_feed
+            - stop_gas_flow
+            - move_to_safe_z
+            - move_to_home
+          validation:
+            - all_systems_stopped
+
+    # 2. Parameter Management
+    parameters:
+      validation:
+        material:
+          required_fields:
+            - "type"
+            - "size"
+            - "manufacturer"
+            - "lot"
+          optional_fields:
+            - "notes"
+            - "certifications"
+        process:
+          required_fields:
+            - "nozzle"
+            - "chamber"
+            - "gas_flows"
+            - "powder_feed"
+          optional_fields:
+            - "notes"
+            - "modifications"
+
+    # 3. Pattern Management
+    patterns:
+      validation:
+        required_fields:
+          - "type"
+          - "params"
+          - "metadata"
+        preview:
+          points_per_segment: 100
+          show_approach: true
+          show_retract: true
+      defaults:
+        speed: 20.0
+        acceleration: 100.0
+        z_height: 30.0
+
+    # 4. Sequence Management
+    sequences:
+      timeouts:
+        step: 60.0
+        pattern: 300.0
+        total: 3600.0
+      validation:
+        required_fields:
+          - "metadata"
+          - "steps"
+        step_fields:
+          - "name"
+          - "hardware_set"
+          - "pattern"
+          - "parameters"
+      preview:
+        show_transitions: true
+        estimate_durations: true
