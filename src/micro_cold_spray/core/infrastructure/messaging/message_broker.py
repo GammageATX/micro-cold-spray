@@ -7,149 +7,197 @@ Special Note:
     2. ConfigManager needs MessageBroker to publish updates
     3. Other components still use ConfigManager as the source of truth
 """
-from typing import Any, Callable, Dict, List, Optional, Awaitable
-import logging
-import yaml
-from pathlib import Path
+from typing import Dict, Any, Callable, Awaitable, Optional
+from collections import defaultdict
 import asyncio
-from datetime import datetime
+from loguru import logger
 
-logger = logging.getLogger(__name__)
+from ...exceptions import MessageBrokerError
+
+MessageHandler = Callable[[Dict[str, Any]], Awaitable[None]]
 
 class MessageBroker:
-    """Singleton message broker for system-wide messaging."""
-    
-    _instance = None
-    _initialized = False
-    
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(MessageBroker, cls).__new__(cls)
-        return cls._instance
-    
+    """
+    Handles all pub/sub messaging for the application.
+    Provides a central communication hub for all components.
+    """
+
     def __init__(self):
-        if not self._initialized:
-            self._subscribers: Dict[str, List[Callable]] = {}
-            self._message_types = {}
-            self._response_futures: Dict[str, asyncio.Future] = {}
-            
-            # Load initial config
-            self._load_config()
-            
-            # Subscribe to our own config updates
-            self.subscribe('config/update/messaging', self._handle_config_update)
-            
-            self._initialized = True
-            logger.info("Message broker initialized")
-            
-    def _load_config(self) -> None:
-        """Load message types from config."""
+        """Initialize the message broker."""
+        self._subscribers: Dict[str, set[MessageHandler]] = defaultdict(set)
+        self._running = False
+        self._message_queue: asyncio.Queue[tuple[str, Dict[str, Any]]] = asyncio.Queue()
+        self._processing_task: Optional[asyncio.Task] = None
+        logger.info("MessageBroker initialized")
+
+    async def start(self) -> None:
+        """Start the message processing loop."""
         try:
-            config_path = Path("config/messaging.yaml")
-            if config_path.exists():
-                with open(config_path, 'r') as f:
-                    config = yaml.safe_load(f)
-                    self._message_types = config.get('messaging', {}).get('message_types', {})
-                    logger.info("Message types loaded from messaging.yaml")
-            else:
-                logger.error("messaging.yaml not found")
+            if self._running:
+                logger.warning("MessageBroker already running")
+                return
+
+            self._running = True
+            self._processing_task = asyncio.create_task(self._process_messages())
+            logger.info("MessageBroker started")
+
         except Exception as e:
-            logger.error(f"Error loading message types: {e}")
-            
-    def _handle_config_update(self, data: Dict[str, Any]) -> None:
-        """Handle messaging config updates."""
+            logger.exception("Failed to start MessageBroker")
+            raise MessageBrokerError("Failed to start message broker") from e
+
+    async def shutdown(self) -> None:
+        """Gracefully shutdown the message broker."""
         try:
-            if 'message_types' in data:
-                self._message_types.update(data['message_types'])
-                logger.info("Message types updated from config")
-        except Exception as e:
-            logger.error(f"Error handling config update: {e}")
+            logger.info("Shutting down MessageBroker")
+            self._running = False
             
-    def subscribe(self, topic: str, callback: Callable) -> None:
-        """Subscribe to a message topic."""
-        if topic not in self._subscribers:
-            self._subscribers[topic] = []
-        self._subscribers[topic].append(callback)
-        logger.info(f"Subscribed to topic: {topic}")
-        
-    async def publish(self, topic: str, data: Any) -> None:
-        """Publish a message to subscribers."""
-        if topic in self._subscribers:
-            for callback in self._subscribers[topic]:
-                if asyncio.iscoroutinefunction(callback):
-                    await callback(data)
-                else:
-                    callback(data)
-        logger.info(f"Published to topic: {topic} with data: {data}")
-    
-    def async_subscribe(self, topic: str, callback: Callable) -> None:
-        """Subscribe to a topic with an async callback."""
-        if not asyncio.iscoroutinefunction(callback):
-            raise ValueError("Callback must be an async function")
-        self.subscribe(topic, callback)
-    
-    async def request(self, topic: str, data: Dict[str, Any], timeout: float = 5.0) -> Optional[Dict[str, Any]]:
-        """Send a request and wait for response.
+            if self._processing_task:
+                self._processing_task.cancel()
+                try:
+                    await self._processing_task
+                except asyncio.CancelledError:
+                    pass
+
+            # Clear any remaining messages
+            while not self._message_queue.empty():
+                try:
+                    self._message_queue.get_nowait()
+                    self._message_queue.task_done()
+                except asyncio.QueueEmpty:
+                    break
+
+            self._subscribers.clear()
+            logger.info("MessageBroker shutdown complete")
+
+        except Exception as e:
+            logger.exception("Error during MessageBroker shutdown")
+            raise MessageBrokerError("Failed to shutdown message broker") from e
+
+    async def subscribe(self, topic: str, handler: MessageHandler) -> None:
+        """
+        Subscribe to a topic with a message handler.
         
         Args:
-            topic: Message topic
-            data: Request data
-            timeout: Timeout in seconds
-            
-        Returns:
-            Response data or None if timeout/error
+            topic: The topic to subscribe to
+            handler: Async callback function to handle messages
         """
         try:
-            # Create unique request ID
-            request_id = f"{topic}_{datetime.now().timestamp()}"
+            if not callable(handler):
+                raise ValueError("Handler must be callable")
             
-            # Create future for response
-            response_future = asyncio.Future()
-            self._response_futures[request_id] = response_future
+            self._subscribers[topic].add(handler)
+            logger.debug(f"Subscribed to topic: {topic}")
+
+        except Exception as e:
+            logger.error(f"Failed to subscribe to topic {topic}: {e}")
+            raise MessageBrokerError(f"Subscription failed: {str(e)}") from e
+
+    async def unsubscribe(self, topic: str, handler: MessageHandler) -> None:
+        """
+        Unsubscribe a handler from a topic.
+        
+        Args:
+            topic: The topic to unsubscribe from
+            handler: The handler to remove
+        """
+        try:
+            if topic in self._subscribers:
+                self._subscribers[topic].discard(handler)
+                if not self._subscribers[topic]:
+                    del self._subscribers[topic]
+                logger.debug(f"Unsubscribed from topic: {topic}")
+
+        except Exception as e:
+            logger.error(f"Failed to unsubscribe from topic {topic}: {e}")
+            raise MessageBrokerError(f"Unsubscribe failed: {str(e)}") from e
+
+    async def publish(self, topic: str, message: Dict[str, Any]) -> None:
+        """
+        Publish a message to a topic.
+        
+        Args:
+            topic: The topic to publish to
+            message: The message data to publish
+        """
+        try:
+            await self._message_queue.put((topic, message))
+            logger.debug(f"Published message to topic: {topic}")
+
+        except Exception as e:
+            logger.error(f"Failed to publish to topic {topic}: {e}")
+            raise MessageBrokerError(f"Publish failed: {str(e)}") from e
+
+    async def _process_messages(self) -> None:
+        """Process messages from the queue and distribute to subscribers."""
+        try:
+            while self._running:
+                try:
+                    topic, message = await self._message_queue.get()
+                    
+                    if topic in self._subscribers:
+                        subscriber_tasks = []
+                        for handler in self._subscribers[topic]:
+                            task = asyncio.create_task(self._safe_handle_message(handler, message))
+                            subscriber_tasks.append(task)
+                        
+                        if subscriber_tasks:
+                            await asyncio.gather(*subscriber_tasks)
+                    
+                    self._message_queue.task_done()
+
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    logger.error(f"Error processing message: {e}")
+                    await asyncio.sleep(0.1)  # Brief pause on error
+
+        except asyncio.CancelledError:
+            logger.info("Message processing loop cancelled")
+            raise
+        except Exception as e:
+            logger.exception("Fatal error in message processing loop")
+            raise MessageBrokerError("Message processing loop failed") from e
+
+    async def _safe_handle_message(self, handler: MessageHandler, message: Dict[str, Any]) -> None:
+        """Safely execute a message handler with error handling."""
+        try:
+            await handler(message)
+        except Exception as e:
+            logger.error(f"Error in message handler: {e}")
+            # Don't re-raise to prevent breaking the message loop
+
+    async def request(self, topic: str, message: Dict[str, Any], timeout: float = 5.0) -> Dict[str, Any]:
+        """
+        Send a request and wait for a response.
+        
+        Args:
+            topic: The request topic
+            message: The request message
+            timeout: Maximum time to wait for response in seconds
             
-            # Add request ID to data
-            request_data = {
-                **data,
-                "timestamp": datetime.now().isoformat()
-            }
+        Returns:
+            The response message
+        """
+        try:
+            response_future: asyncio.Future = asyncio.Future()
             
-            # Subscribe to response topic
-            response_topic = f"{topic}_response"
+            async def response_handler(response_msg: Dict[str, Any]) -> None:
+                if not response_future.done():
+                    response_future.set_result(response_msg)
             
-            async def handle_response(response_data: Dict[str, Any]) -> None:
-                if topic == "tag/get":
-                    tag = data.get("tag")
-                    # Simulate getting the tag value from a tag manager or similar component
-                    value = self._tag_manager.get_tag(tag)
-                    response_data = {
-                        "request_id": request_id,
-                        "value": value
-                    }
-                    if not response_future.done():
-                        response_future.set_result(response_data)
-                if response_data.get("request_id") == request_id:
-                    if not response_future.done():
-                        response_future.set_result(response_data)
-            
-            self.subscribe(response_topic, handle_response)
+            response_topic = f"{topic}/response"
+            await self.subscribe(response_topic, response_handler)
             
             try:
-                # Publish request
-                await self.publish(topic, request_data)
-                
-                # Wait for response with timeout
-                response = await asyncio.wait_for(response_future, timeout)
-                return response
-                
-            except asyncio.TimeoutError:
-                logger.error(f"Request timeout for topic {topic}")
-                return None
+                await self.publish(topic, message)
+                return await asyncio.wait_for(response_future, timeout)
                 
             finally:
-                # Clean up
-                if request_id in self._response_futures:
-                    del self._response_futures[request_id]
-                    
+                await self.unsubscribe(response_topic, response_handler)
+
+        except asyncio.TimeoutError:
+            logger.error(f"Request timeout for topic {topic}")
+            raise MessageBrokerError(f"Request timeout: {topic}")
         except Exception as e:
-            logger.error(f"Error in request: {e}")
-            return None
+            logger.error(f"Request failed for topic {topic}: {e}")
+            raise MessageBrokerError(f"Request failed: {str(e)}") from e

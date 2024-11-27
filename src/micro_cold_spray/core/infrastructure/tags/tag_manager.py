@@ -1,146 +1,207 @@
 from typing import Dict, Any, Optional
-import logging
+from loguru import logger
 import asyncio
 from datetime import datetime
 
-from ...config.config_manager import ConfigManager
 from ..messaging.message_broker import MessageBroker
+from ...config.config_manager import ConfigManager
 from ...hardware.communication.plc_client import PLCClient
 from ...hardware.communication.ssh_client import SSHClient
-
-logger = logging.getLogger(__name__)
+from ...exceptions import TagOperationError
 
 class TagManager:
-    """Manages system tags and their values."""
+    """
+    Manages system tags and hardware communication.
+    Single Source of Truth for all hardware interactions.
+    """
     
-    def __init__(self, config_manager: ConfigManager, message_broker: MessageBroker):
-        self._config_manager = config_manager
+    def __init__(
+        self,
+        message_broker: MessageBroker,
+        config_manager: ConfigManager
+    ):
+        """Initialize with required dependencies."""
         self._message_broker = message_broker
-        self._plc_client = PLCClient(config_manager.get_config('plc'))
-        self._ssh_client = SSHClient(config_manager.get_config('ssh'))
+        self._config_manager = config_manager
         
-        # Subscribe to relevant topics
-        self._message_broker.subscribe("tag/set", self._handle_tag_set)
-        self._message_broker.subscribe("tag/get", self._handle_tag_get)
+        # Hardware clients
+        self._plc_client: Optional[PLCClient] = None
+        self._ssh_client: Optional[SSHClient] = None
+        
+        # Tag management
+        self._tag_config = {}  # Full tag configuration from tags.yaml
+        self._tag_values: Dict[str, Any] = {}  # Current tag values
+        self._plc_tag_map: Dict[str, str] = {}  # Maps system tags to PLC tags
+        self._polling_task: Optional[asyncio.Task] = None
+        self._is_initialized = False
         
         logger.info("TagManager initialized")
 
-    async def _handle_tag_set(self, data: Dict[str, Any]) -> None:
-        """Handle setting a tag value."""
-        tag = data.get("tag")
-        value = data.get("value")
-        # Logic to set the tag value
-        logger.info(f"Tag set: {tag} = {value}")
+    async def initialize(self) -> None:
+        """Initialize tag manager and hardware connections."""
+        try:
+            if self._is_initialized:
+                return
 
-    async def _handle_tag_get(self, data: Dict[str, Any]) -> None:
-        """Handle getting a tag value."""
-        tag = data.get("tag")
-        # Logic to get the tag value
-        value = ...  # Retrieve the value
-        await self._message_broker.publish("tag/get/response", {"tag": tag, "value": value})
-        logger.info(f"Tag get: {tag} = {value}")
+            # Load tag configuration
+            self._tag_config = self._config_manager.get_config('tags')
+            self._build_tag_maps()
 
-    def set_tag(self, tag: str, value: Any) -> None:
-        """Set a tag value."""
-        # Logic to set the tag value
-        logger.info(f"Tag set: {tag} = {value}")
+            # Create hardware clients
+            hw_config = self._config_manager.get_config('hardware')
+            self._plc_client = PLCClient(hw_config)
+            self._ssh_client = SSHClient(hw_config)
 
-    def get_tag(self, tag: str) -> Any:
-        """Get a tag value."""
-        # Logic to get the tag value
-        value = ...  # Retrieve the value
-        logger.info(f"Tag get: {tag} = {value}")
-        return value
+            # Connect SSH client (PLC doesn't need explicit connection)
+            await self._ssh_client.connect()
 
-    async def _publish_connection_states(self) -> None:
-        """Publish current connection states through MessageBroker."""
-        if self._message_broker is None:
-            logger.error("Cannot publish connection states - no message broker")
-            return
-        
-        await self._message_broker.publish('hardware_status', {
-            'plc_connected': self.is_plc_connected(),
-            'ssh_connected': self.is_ssh_connected(),
-            'timestamp': datetime.now().isoformat()
-        })
+            # Subscribe to tag operations
+            await self._message_broker.subscribe("tag/set", self._handle_tag_set)
+            await self._message_broker.subscribe("tag/get", self._handle_tag_get)
 
-    async def _poll_hardware_tags(self) -> None:
-        """Poll hardware for tag updates."""
-        last_plc_state = None
-        last_ssh_state = None
-        
+            # Start polling
+            self._polling_task = asyncio.create_task(self._poll_tags())
+            
+            self._is_initialized = True
+            logger.info("TagManager initialization complete")
+
+        except Exception as e:
+            logger.exception("Failed to initialize TagManager")
+            raise TagOperationError(f"TagManager initialization failed: {str(e)}") from e
+
+    def _build_tag_maps(self) -> None:
+        """Build mappings from tag configuration."""
+        def process_group(group: Dict[str, Any], prefix: str = ""):
+            for name, config in group.items():
+                full_name = f"{prefix}.{name}" if prefix else name
+                
+                if isinstance(config, dict):
+                    if config.get('mapped') and config.get('plc_tag'):
+                        self._plc_tag_map[full_name] = config['plc_tag']
+                    elif 'ssh' in config:
+                        # SSH tags are handled directly
+                        pass
+                    elif not config.get('internal', False):
+                        process_group(config, full_name)
+
+        process_group(self._tag_config.get('tag_groups', {}))
+
+    async def _poll_tags(self) -> None:
+        """Poll PLC tags and publish updates."""
         while True:
             try:
-                # Check for connection state changes
-                plc_state = self.is_plc_connected()
-                ssh_state = self.is_ssh_connected()
+                # Get all PLC tags
+                plc_tags = await self._plc_client.get_all_tags()
                 
-                if plc_state != last_plc_state or ssh_state != last_ssh_state:
-                    await self._publish_connection_states()
-                    last_plc_state = plc_state
-                    last_ssh_state = ssh_state
-                
-                # Only poll PLC tags - they contain all critical hardware status
-                if self._plc_client and self._plc_client.is_connected:
-                    for group, tags in self._tag_definitions.items():
-                        for tag_name, tag_def in tags.items():
-                            if tag_def.get('mapped') and tag_def.get('plc_tag'):
-                                value = await self._plc_client.read_tag(tag_def['plc_tag'])
-                                await self._update_tag(f"{group}.{tag_name}", value)
+                # Update mapped tag values
+                for sys_tag, plc_tag in self._plc_tag_map.items():
+                    if plc_tag in plc_tags:
+                        value = plc_tags[plc_tag]
+                        if self._tag_values.get(sys_tag) != value:
+                            self._tag_values[sys_tag] = value
+                            await self._message_broker.publish(
+                                "tag/update",
+                                {sys_tag: value}
+                            )
                 
                 await asyncio.sleep(0.1)  # Poll rate
-                
+
             except Exception as e:
-                logger.error(f"Error polling hardware tags: {e}")
+                logger.error(f"Error polling tags: {e}")
+                await self._message_broker.publish(
+                    "hardware/connection",
+                    {"connected": False}
+                )
                 await asyncio.sleep(1.0)  # Error recovery delay
 
-    async def _update_tag(self, tag_name: str, value: Any) -> None:
-        """Update tag value and publish change."""
-        if self._message_broker is None:
-            logger.error("Cannot update tag - no message broker")
-            return
-        
-        if self._tag_values.get(tag_name) != value:
-            self._tag_values[tag_name] = value
-            await self._message_broker.publish('tag_update', {tag_name: value})
-
-    def _get_tag_definition(self, tag_name: str) -> Dict[str, Any]:
-        """Get tag definition from config."""
-        if '.' in tag_name:
-            group, name = tag_name.split('.', 1)
-            return self._tag_definitions.get(group, {}).get(name, {})
-        return {}
-
-    def _validate_tag_value(self, value: Any, tag_def: Dict[str, Any]) -> bool:
-        """Validate tag value against its definition."""
-        tag_type = tag_def.get('type')
-        if tag_type == 'string':
-            return isinstance(value, str)
-        elif tag_type == 'float':
-            return isinstance(value, (int, float))
-        elif tag_type == 'bool':
-            return isinstance(value, bool)
-        return True  # Allow unknown types
-
-    def is_plc_connected(self) -> bool:
-        """Check if PLC connection is active."""
-        return self._plc_client is not None and self._plc_client.is_connected
-
-    def is_ssh_connected(self) -> bool:
-        """Check if SSH connection is active."""
-        return self._ssh_client is not None and self._ssh_client.is_connected
-
-    async def attempt_reconnect(self) -> None:
-        """Attempt to reconnect to hardware clients."""
+    async def _handle_tag_set(self, data: Dict[str, Any]) -> None:
+        """Handle tag set requests."""
         try:
-            if self._plc_client:
-                await self._plc_client.connect()
-            if self._ssh_client:
-                await self._ssh_client.connect()
+            tag_name = data.get('tag')
+            value = data.get('value')
             
-            # Publish updated connection states after reconnection attempt
-            await self._publish_connection_states()
-            
+            if not tag_name:
+                raise ValueError("Missing tag name")
+
+            # Get tag configuration
+            tag_path = tag_name.split('.')
+            current = self._tag_config.get('tag_groups', {})
+            for part in tag_path:
+                current = current.get(part, {})
+
+            # Handle PLC tags
+            if current.get('mapped') and current.get('plc_tag'):
+                plc_tag = current['plc_tag']
+                await self._plc_client.write_tag(plc_tag, value)
+                self._tag_values[tag_name] = value
+                
+            # Handle SSH feeder commands
+            elif 'ssh' in current:
+                ssh_config = current['ssh']
+                freq_var = ssh_config['freq_var']
+                time_var = ssh_config['time_var']
+                start_var = ssh_config['start_var']
+                
+                # Set frequency
+                await self._ssh_client.write_command(f"set {freq_var}={value}")
+                # Set time
+                await self._ssh_client.write_command(f"set {time_var}={ssh_config['default_time']}")
+                # Start feeder
+                await self._ssh_client.write_command(f"set {start_var}={ssh_config['start_val']}")
+                
+            # Handle internal tags
+            elif current.get('internal', False):
+                self._tag_values[tag_name] = value
+                await self._message_broker.publish(
+                    "tag/update",
+                    {tag_name: value}
+                )
+                
+            else:
+                raise ValueError(f"Unknown tag: {tag_name}")
+
         except Exception as e:
-            logger.error(f"Error during reconnection attempt: {e}")
-            raise
+            logger.error(f"Error setting tag {tag_name}: {e}")
+            raise TagOperationError(f"Failed to set tag: {str(e)}") from e
+
+    async def _handle_tag_get(self, data: Dict[str, Any]) -> None:
+        """Handle tag get requests."""
+        try:
+            tag_name = data.get('tag')
+            if not tag_name:
+                raise ValueError("Missing tag name")
+
+            if tag_name not in self._tag_values:
+                raise ValueError(f"Unknown tag: {tag_name}")
+
+            await self._message_broker.publish(
+                "tag/get/response",
+                {
+                    "tag": tag_name,
+                    "value": self._tag_values[tag_name]
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"Error getting tag {tag_name}: {e}")
+            raise TagOperationError(f"Failed to get tag: {str(e)}") from e
+
+    async def shutdown(self) -> None:
+        """Shutdown tag manager."""
+        try:
+            if self._polling_task:
+                self._polling_task.cancel()
+                try:
+                    await self._polling_task
+                except asyncio.CancelledError:
+                    pass
+
+            if self._ssh_client:
+                await self._ssh_client.disconnect()
+
+            self._is_initialized = False
+            logger.info("TagManager shutdown complete")
+
+        except Exception as e:
+            logger.exception("Error during TagManager shutdown")
+            raise TagOperationError(f"TagManager shutdown failed: {str(e)}") from e

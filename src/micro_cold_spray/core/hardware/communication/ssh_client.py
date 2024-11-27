@@ -1,131 +1,55 @@
-from typing import Dict, Any, Optional
-import logging
-from datetime import datetime
-import asyncio
+from typing import Dict, Any
+from loguru import logger
 import paramiko
+import asyncio
 
-logger = logging.getLogger(__name__)
+from ...exceptions import HardwareConnectionError
 
 class SSHClient:
     """Client for SSH communication with motion controller."""
     
-    def __init__(
-        self,
-        config_manager,
-        message_broker
-    ):
-        self._config = config_manager
-        self._broker = message_broker
+    def __init__(self, config: Dict[str, Any]):
+        """Initialize SSH client with configuration."""
+        ssh_config = config.get('hardware', {}).get('network', {}).get('ssh', {})
+        self._host = ssh_config.get('host')
+        self._port = ssh_config.get('port', 22)
+        self._username = ssh_config.get('username')
+        self._password = ssh_config.get('password')
+        self._client = paramiko.SSHClient()
+        self._client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         
-        # Get SSH config
-        hw_config = self._config.get_config('hardware')['hardware']
-        self._ssh_config = hw_config['network']['ssh']
-        self._motion_config = hw_config['motion']
-        
-        self._connected = False
-        self._connection = None
-        self._command_queue = asyncio.Queue()
-        logger.info("SSH client initialized")
+        logger.info(f"SSHClient initialized for {self._username}@{self._host}")
 
-    @property
-    def is_connected(self) -> bool:
-        """Check if client is connected.
-        
-        Returns:
-            bool: True if connected, False otherwise
-        """
-        return self._connected and self._connection is not None
-        
     async def connect(self) -> None:
-        """Connect to motion controller via SSH."""
+        """Connect to motion controller and wait for welcome message."""
         try:
-            # Connection logic using self._ssh_config
-            self._connected = True
-            await self._publish_status(True)
-            
-            # Start command processor
-            asyncio.create_task(self._process_commands())
+            self._client.connect(
+                hostname=self._host,
+                port=self._port,
+                username=self._username,
+                password=self._password
+            )
+            # Wait for system to be ready
+            await asyncio.sleep(5)  # Simple delay for system initialization
             logger.info("Connected to motion controller")
             
         except Exception as e:
-            logger.error(f"Error connecting to motion controller: {e}")
-            self._connected = False
-            await self._publish_status(False)
-            raise
+            logger.error(f"Failed to connect: {e}")
+            raise HardwareConnectionError("Failed to connect to motion controller") from e
 
     async def disconnect(self) -> None:
         """Disconnect from motion controller."""
         try:
-            if self._connected:
-                # Disconnection logic
-                self._connected = False
-                await self._publish_status(False)
-                logger.info("Disconnected from motion controller")
-                
+            self._client.close()
+            logger.info("Disconnected from motion controller")
         except Exception as e:
-            logger.error(f"Error disconnecting from motion controller: {e}")
-            raise
+            logger.error(f"Error during disconnect: {e}")
+            raise HardwareConnectionError("Failed to disconnect from motion controller") from e
 
-    async def send_command(self, command: str) -> str:
-        """Send command to motion controller."""
+    async def write_command(self, command: str) -> None:
+        """Write command to motion controller."""
         try:
-            if not self._connected:
-                raise ConnectionError("Not connected to motion controller")
-                
-            # Queue command
-            await self._command_queue.put(command)
-            
-            # Wait for response
-            # Actual implementation would handle response correlation
-            response = "OK"  # Replace with actual response
-            
-            await self._publish_command_result(command, response)
-            return response
-            
+            self._client.exec_command(command)
         except Exception as e:
-            logger.error(f"Error sending command: {e}")
-            raise
-
-    async def _process_commands(self) -> None:
-        """Process commands from queue."""
-        while self._connected:
-            try:
-                command = await self._command_queue.get()
-                
-                # Command execution logic here
-                logger.debug(f"Processing command: {command}")
-                
-                self._command_queue.task_done()
-                
-            except Exception as e:
-                logger.error(f"Error processing command: {e}")
-                await asyncio.sleep(0.1)
-
-    async def _publish_status(self, connected: bool) -> None:
-        """Publish connection status update."""
-        try:
-            await self._broker.publish(
-                "ssh/status",
-                {
-                    "connected": connected,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-            
-        except Exception as e:
-            logger.error(f"Error publishing status: {e}")
-
-    async def _publish_command_result(self, command: str, result: str) -> None:
-        """Publish command execution result."""
-        try:
-            await self._broker.publish(
-                "ssh/command_result",
-                {
-                    "command": command,
-                    "result": result,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-            
-        except Exception as e:
-            logger.error(f"Error publishing command result: {e}")
+            logger.error(f"Failed to send command: {e}")
+            raise HardwareConnectionError(f"Failed to send command: {str(e)}") from e

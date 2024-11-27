@@ -100,28 +100,28 @@ class MotionController:
             await self._message_broker.publish(
                 "tag/set",
                 {
-                    "tag": f"{plc_axis}Axis.Target",
+                    "tag": f"motion_control.relative_move.{axis}_move.parameters.target",
                     "value": distance
                 }
             )
             await self._message_broker.publish(
                 "tag/set",
                 {
-                    "tag": f"{plc_axis}Axis.Velocity",
+                    "tag": f"motion_control.relative_move.{axis}_move.parameters.velocity",
                     "value": velocity
                 }
             )
             await self._message_broker.publish(
                 "tag/set",
                 {
-                    "tag": f"{plc_axis}Axis.Accel",
+                    "tag": f"motion_control.relative_move.{axis}_move.parameters.acceleration",
                     "value": data.get('acceleration')
                 }
             )
             await self._message_broker.publish(
                 "tag/set",
                 {
-                    "tag": f"{plc_axis}Axis.Decel",
+                    "tag": f"motion_control.relative_move.{axis}_move.parameters.deceleration",
                     "value": data.get('deceleration')
                 }
             )
@@ -130,7 +130,7 @@ class MotionController:
             await self._message_broker.publish(
                 "tag/set",
                 {
-                    "tag": f"Move{plc_axis}",
+                    "tag": f"motion_control.relative_move.{axis}_move.trigger",
                     "value": True
                 }
             )
@@ -168,28 +168,28 @@ class MotionController:
             await self._message_broker.publish(
                 "tag/set",
                 {
-                    "tag": "XYMove.LINVelocity",
+                    "tag": "motion_control.coordinated_move.xy_move.parameters.velocity",
                     "value": velocity
                 }
             )
             await self._message_broker.publish(
                 "tag/set",
                 {
-                    "tag": "XYMove.LINRamps",
+                    "tag": "motion_control.coordinated_move.xy_move.parameters.ramps",
                     "value": ramps
                 }
             )
             await self._message_broker.publish(
                 "tag/set",
                 {
-                    "tag": "XYMove.XPosition",
+                    "tag": "motion_control.coordinated_move.xy_move.parameters.x_position",
                     "value": x_distance
                 }
             )
             await self._message_broker.publish(
                 "tag/set",
                 {
-                    "tag": "XYMove.YPosition",
+                    "tag": "motion_control.coordinated_move.xy_move.parameters.y_position",
                     "value": y_distance
                 }
             )
@@ -198,7 +198,7 @@ class MotionController:
             await self._message_broker.publish(
                 "tag/set",
                 {
-                    "tag": "MoveXY",
+                    "tag": "motion_control.coordinated_move.xy_move.trigger",
                     "value": True
                 }
             )
@@ -221,7 +221,7 @@ class MotionController:
             await self._message_broker.publish(
                 "tag/set",
                 {
-                    "tag": "SetHome",
+                    "tag": "motion_control.set_home",
                     "value": True
                 }
             )

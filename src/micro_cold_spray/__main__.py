@@ -1,19 +1,18 @@
 # src/micro_cold_spray/__main__.py
 import sys
 import asyncio
-import logging
 from pathlib import Path
 
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt
+from loguru import logger
 
 from micro_cold_spray.core.config.config_manager import ConfigManager
+from micro_cold_spray.core.exceptions import SystemInitializationError
 from micro_cold_spray.core.infrastructure.tags.tag_manager import TagManager
 from micro_cold_spray.core.components.ui.windows.main_window import MainWindow
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
 from micro_cold_spray.core.components.ui.managers.ui_update_manager import UIUpdateManager
-
-logger = logging.getLogger(__name__)
 
 def get_project_root() -> Path:
     """Get the absolute path to the project root directory."""
@@ -21,13 +20,23 @@ def get_project_root() -> Path:
     return Path(__file__).parent.parent.parent
 
 def setup_logging() -> None:
-    """Configure basic logging for development."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(),
-        ]
+    """Configure loguru for application logging."""
+    logger.remove()  # Remove default handler
+    logger.add(
+        sys.stderr,
+        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+        level="INFO",
+        enqueue=True  # Enable async logging
+    )
+    
+    # Add file logging
+    logger.add(
+        "logs/micro_cold_spray.log",
+        rotation="1 day",
+        retention="30 days",
+        compression="zip",
+        level="DEBUG",
+        enqueue=True
     )
 
 def ensure_directories() -> None:
@@ -53,63 +62,67 @@ def ensure_directories() -> None:
 
 async def initialize_minimal_system() -> tuple[ConfigManager, MessageBroker, TagManager, UIUpdateManager]:
     """Initialize minimal system components."""
+    logger.info("Starting system initialization")
+    
     try:
         # Create message broker first
+        logger.debug("Initializing MessageBroker")
         message_broker = MessageBroker()
         if message_broker is None:
-            raise ValueError("Failed to create MessageBroker")
+            raise ValueError("MessageBroker initialization failed")
         
         # Create config manager with message broker
+        logger.debug("Initializing ConfigManager")
         config_manager = ConfigManager(message_broker)
         if config_manager is None:
-            raise ValueError("Failed to create ConfigManager")
+            raise ValueError("ConfigManager initialization failed")
         
-        # Create tag manager
-        tag_manager = TagManager()
+        # Create tag manager with proper dependencies
+        logger.debug("Initializing TagManager")
+        tag_manager = TagManager(
+            message_broker=message_broker,
+            config_manager=config_manager
+        )
         if tag_manager is None:
-            raise ValueError("Failed to create TagManager")
-            
-        tag_manager.set_message_broker(message_broker)
-        tag_manager.load_config(config_manager)
+            raise ValueError("TagManager initialization failed")
+        
+        # Initialize hardware connections through TagManager
+        await tag_manager.initialize_hardware()
         
         # Create and start UI manager
+        logger.debug("Initializing UIUpdateManager")
         ui_manager = UIUpdateManager(
             message_broker=message_broker,
             config_manager=config_manager
         )
         if ui_manager is None:
-            raise ValueError("Failed to create UIUpdateManager")
+            raise ValueError("UIUpdateManager initialization failed")
             
         await ui_manager.start()
         
+        logger.info("System initialization complete")
         return config_manager, message_broker, tag_manager, ui_manager
         
     except Exception as e:
-        logger.error(f"Error initializing system: {e}")
-        raise
-
-async def initialize_system():
-    config_manager = ConfigManager()
-    message_broker = MessageBroker()
-    tag_manager = TagManager(config_manager, message_broker)
-    # Other initializations...
+        logger.exception("Critical error during system initialization")
+        raise SystemInitializationError(f"Failed to initialize system: {str(e)}") from e
 
 async def main() -> None:
-    """Minimal application entry point."""
+    """Application entry point with proper cleanup chains."""
     app = None
+    system_components = None
+    
     try:
-        # Setup logging
         setup_logging()
         ensure_directories()
-        logger.info("Starting Micro Cold Spray application (Minimal Version)")
+        logger.info("Starting Micro Cold Spray application")
         
-        # Create QApplication
         app = QApplication(sys.argv)
         
-        # Initialize minimal system
-        config_manager, message_broker, tag_manager, ui_manager = await initialize_minimal_system()
+        # Initialize system
+        system_components = await initialize_minimal_system()
+        config_manager, message_broker, tag_manager, ui_manager = system_components
         
-        # Create and show main window with all dependencies
         window = MainWindow(
             config_manager=config_manager,
             message_broker=message_broker,
@@ -118,32 +131,36 @@ async def main() -> None:
         )
         window.show()
         
-        # Use the asyncio event loop to process Qt events and UI updates
         while not window.is_closing:
             app.processEvents()
-            await asyncio.sleep(0.01)  # Allow other coroutines to run
-            
-            # Check if window was closed
+            await asyncio.sleep(0.01)
             if not window.isVisible():
                 break
-        
-        logger.info("Application shutdown initiated")
-            
-    except asyncio.CancelledError:
-        logger.info("Application cancelled")
+                
     except Exception as e:
-        logger.error(f"Application error: {e}")
+        logger.exception("Critical application error")
+        raise
     finally:
+        # Proper cleanup chain
         try:
-            # Clean shutdown sequence
+            if system_components:
+                config_manager, message_broker, tag_manager, ui_manager = system_components
+                
+                logger.info("Shutting down system components")
+                await ui_manager.shutdown()
+                await tag_manager.shutdown()
+                await message_broker.shutdown()
+                
             if app:
+                logger.info("Shutting down Qt application")
                 app.quit()
                 app.processEvents()
+                
         except Exception as e:
-            logger.error(f"Error during cleanup: {e}")
+            logger.exception("Error during cleanup")
         finally:
             logger.info("Application shutdown complete")
             sys.exit(0)
 
 if __name__ == "__main__":
-    asyncio.run(initialize_system())
+    asyncio.run(main())

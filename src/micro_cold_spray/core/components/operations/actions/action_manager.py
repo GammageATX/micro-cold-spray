@@ -1,16 +1,16 @@
 """Action management component."""
 from typing import Dict, Any, Optional
-import logging
-import time
+from loguru import logger
+import asyncio
+from datetime import datetime
 
-from ....infrastructure.messaging.message_broker import MessageBroker, Message, MessageType
+from ....infrastructure.messaging.message_broker import MessageBroker
 from ....infrastructure.tags.tag_manager import TagManager
 from ....config.config_manager import ConfigManager
 from ....hardware.controllers.motion_controller import MotionController
 from ....hardware.controllers.equipment_controller import EquipmentController
 from ....components.process.validation.process_validator import ProcessValidator
-
-logger = logging.getLogger(__name__)
+from ....exceptions import OperationError
 
 class ActionManager:
     """Manages execution of atomic actions."""
@@ -19,48 +19,69 @@ class ActionManager:
         self,
         config_manager: ConfigManager,
         tag_manager: TagManager,
+        message_broker: MessageBroker,
         motion_controller: MotionController,
         equipment_controller: EquipmentController,
         process_validator: ProcessValidator
     ):
+        """Initialize with required dependencies."""
         self._config = config_manager
         self._tag_manager = tag_manager
+        self._message_broker = message_broker
         self._motion = motion_controller
         self._equipment = equipment_controller
         self._validator = process_validator
-        self._message_broker = MessageBroker()
-        
-        self._message_broker.subscribe("action_control", self._handle_action_control)
-        self._message_broker.subscribe("action_control", self._handle_action_control)
+        self._is_initialized = False
         
         logger.info("Action manager initialized")
 
-    async def _handle_action_control(self, message: Message) -> None:
+    async def initialize(self) -> None:
+        """Initialize action manager."""
+        try:
+            if self._is_initialized:
+                return
+                
+            # Subscribe to action-related messages
+            await self._message_broker.subscribe(
+                "action/control",
+                self._handle_action_control
+            )
+            
+            self._is_initialized = True
+            logger.info("Action manager initialization complete")
+            
+        except Exception as e:
+            logger.exception("Failed to initialize action manager")
+            raise OperationError(f"Action manager initialization failed: {str(e)}") from e
+
+    async def shutdown(self) -> None:
+        """Shutdown action manager."""
+        try:
+            self._is_initialized = False
+            logger.info("Action manager shutdown complete")
+            
+        except Exception as e:
+            logger.exception("Error during action manager shutdown")
+            raise OperationError(f"Action manager shutdown failed: {str(e)}") from e
+
+    async def _handle_action_control(self, data: Dict[str, Any]) -> None:
         """Handle action control messages."""
         try:
-            command = message.get('command')
+            command = data.get('command')
             if command == 'execute':
                 await self.execute_action(
-                    message.data['action_type'],
-                    message.data['parameters']
+                    data['action_type'],
+                    data['parameters']
                 )
+                
         except Exception as e:
             logger.error(f"Error handling action control: {e}")
-            # Use TagManager for state/status
-            self._tag_manager.set_tag(
-                "action.error",
+            await self._message_broker.publish(
+                "action/error",
                 {
                     "error": str(e),
-                    "timestamp": time.time()
+                    "timestamp": datetime.now().isoformat()
                 }
-            )
-            # Use MessageBroker for system-wide error notification
-            self._message_broker.publish(
-                Message(
-                    topic="action/error",
-                    type=MessageType.ERROR,
-                    data={"error": str(e)}
-                )
             )
 
     async def execute_action(self, action_type: str, parameters: Dict[str, Any]) -> None:
@@ -70,26 +91,24 @@ class ActionManager:
             await self._validator.validate_action(action_type, parameters)
             
             # Update state through TagManager
-            self._tag_manager.set_tag(
+            await self._tag_manager.set_tag(
                 "action.status",
                 {
                     "type": action_type,
                     "state": "running",
                     "parameters": parameters,
-                    "timestamp": time.time()
+                    "timestamp": datetime.now().isoformat()
                 }
             )
             
             # Notify system through MessageBroker
-            self._message_broker.publish(
-                Message(
-                    topic="action/started",
-                    type=MessageType.ACTION_STATUS,
-                    data={
-                        "type": action_type,
-                        "parameters": parameters
-                    }
-                )
+            await self._message_broker.publish(
+                "action/started",
+                {
+                    "type": action_type,
+                    "parameters": parameters,
+                    "timestamp": datetime.now().isoformat()
+                }
             )
             
             # Execute action
@@ -97,54 +116,53 @@ class ActionManager:
                 await self._execute_move(parameters)
             elif action_type == "spray":
                 await self._execute_spray(parameters)
+            else:
+                raise ValueError(f"Unknown action type: {action_type}")
             
             # Update completion through TagManager
-            self._tag_manager.set_tag(
+            await self._tag_manager.set_tag(
                 "action.status",
                 {
                     "type": action_type,
                     "state": "completed",
                     "parameters": parameters,
-                    "timestamp": time.time()
+                    "timestamp": datetime.now().isoformat()
                 }
             )
             
             # Notify completion through MessageBroker
-            self._message_broker.publish(
-                Message(
-                    topic="action/completed",
-                    type=MessageType.ACTION_STATUS,
-                    data={
-                        "type": action_type,
-                        "parameters": parameters
-                    }
-                )
+            await self._message_broker.publish(
+                "action/completed",
+                {
+                    "type": action_type,
+                    "parameters": parameters,
+                    "timestamp": datetime.now().isoformat()
+                }
             )
             
         except Exception as e:
+            logger.error(f"Error executing action: {e}")
             # Update error state through TagManager
-            self._tag_manager.set_tag(
+            await self._tag_manager.set_tag(
                 "action.status",
                 {
                     "type": action_type,
                     "state": "error",
                     "error": str(e),
-                    "timestamp": time.time()
+                    "timestamp": datetime.now().isoformat()
                 }
             )
             
             # Notify error through MessageBroker
-            self._message_broker.publish(
-                Message(
-                    topic="action/error",
-                    type=MessageType.ERROR,
-                    data={
-                        "type": action_type,
-                        "error": str(e)
-                    }
-                )
+            await self._message_broker.publish(
+                "action/error",
+                {
+                    "type": action_type,
+                    "error": str(e),
+                    "timestamp": datetime.now().isoformat()
+                }
             )
-            raise
+            raise OperationError(f"Action execution failed: {str(e)}") from e
 
     async def _execute_move(self, parameters: Dict[str, Any]) -> None:
         """Execute a move action."""
@@ -159,7 +177,7 @@ class ActionManager:
             
         except Exception as e:
             logger.error(f"Move action failed: {e}")
-            raise
+            raise OperationError(f"Move action failed: {str(e)}") from e
 
     async def _execute_spray(self, parameters: Dict[str, Any]) -> None:
         """Execute a spray action."""
@@ -172,11 +190,14 @@ class ActionManager:
                 
             await self._equipment.set_pressure(pressure)
             await self._equipment.start_spray()
-            await time.sleep(duration)
+            await asyncio.sleep(duration)
             await self._equipment.stop_spray()
             
         except Exception as e:
             logger.error(f"Spray action failed: {e}")
             # Ensure spray is stopped on error
-            await self._equipment.stop_spray()
-            raise
+            try:
+                await self._equipment.stop_spray()
+            except Exception as stop_error:
+                logger.error(f"Failed to stop spray on error: {stop_error}")
+            raise OperationError(f"Spray action failed: {str(e)}") from e
