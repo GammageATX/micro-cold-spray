@@ -52,15 +52,39 @@ class TagManager:
             self._plc_client = PLCClient(hw_config)
             self._ssh_client = SSHClient(hw_config)
 
-            # Connect SSH client (PLC doesn't need explicit connection)
-            await self._ssh_client.connect()
+            # Try to connect SSH client, but continue if it fails
+            try:
+                await self._ssh_client.connect()
+                logger.info("Connected to motion controller")
+                await self._message_broker.publish(
+                    "hardware/connection",
+                    {"device": "motion_controller", "connected": True}
+                )
+            except Exception as e:
+                logger.warning(f"Failed to connect to motion controller: {e}")
+                await self._message_broker.publish(
+                    "hardware/connection",
+                    {"device": "motion_controller", "connected": False}
+                )
 
             # Subscribe to tag operations
             await self._message_broker.subscribe("tag/set", self._handle_tag_set)
             await self._message_broker.subscribe("tag/get", self._handle_tag_get)
 
-            # Start polling
-            self._polling_task = asyncio.create_task(self._poll_tags())
+            # Start polling only if PLC client is available
+            try:
+                await self._plc_client.get_all_tags()  # Test connection
+                self._polling_task = asyncio.create_task(self._poll_tags())
+                await self._message_broker.publish(
+                    "hardware/connection",
+                    {"device": "plc", "connected": True}
+                )
+            except Exception as e:
+                logger.warning(f"Failed to connect to PLC: {e}")
+                await self._message_broker.publish(
+                    "hardware/connection",
+                    {"device": "plc", "connected": False}
+                )
             
             self._is_initialized = True
             logger.info("TagManager initialization complete")

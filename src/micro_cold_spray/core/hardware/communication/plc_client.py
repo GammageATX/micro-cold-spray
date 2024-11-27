@@ -2,6 +2,7 @@
 from typing import Dict, Any
 from loguru import logger
 from pathlib import Path
+import asyncio
 
 from productivity import ProductivityPLC
 
@@ -23,6 +24,10 @@ class PLCClient:
         """Get all tag values from PLC using CSV definitions."""
         try:
             return await self._plc.read_all_tags()
+        except asyncio.CancelledError:
+            # Suppress cancelled connection attempts
+            logger.debug("PLC connection attempt cancelled")
+            return {}
         except Exception as e:
             logger.error(f"Failed to read tags: {e}")
             raise HardwareConnectionError("Failed to read tags") from e

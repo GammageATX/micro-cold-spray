@@ -41,9 +41,12 @@ dist/
 docs/_build/
 site/
 
-# Logs and data
+# Logs
 *.log
 logs/
+
+# Data - Allow test files but exclude runtime data
+data/*
 data/runs/*
 !data/runs/.gitkeep
 data/parameters/*
@@ -52,6 +55,9 @@ data/patterns/*
 !data/patterns/.gitkeep
 data/sequences/*
 !data/sequences/.gitkeep
+!data/parameters/library/.gitkeep
+!data/patterns/library/.gitkeep
+!data/sequences/library/.gitkeep
 
 # Databases
 *.sqlite3

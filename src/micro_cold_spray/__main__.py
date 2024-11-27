@@ -3,7 +3,7 @@ import sys
 import asyncio
 from pathlib import Path
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QProgressDialog
 from PySide6.QtCore import Qt
 from loguru import logger
 
@@ -60,8 +60,8 @@ def ensure_directories() -> None:
     for directory in directories:
         (project_root / directory).mkdir(parents=True, exist_ok=True)
 
-async def initialize_minimal_system() -> tuple[ConfigManager, MessageBroker, TagManager, UIUpdateManager]:
-    """Initialize minimal system components."""
+async def initialize_system() -> tuple[ConfigManager, MessageBroker, TagManager, UIUpdateManager]:
+    """Initialize all system components."""
     logger.info("Starting system initialization")
     
     try:
@@ -77,6 +77,9 @@ async def initialize_minimal_system() -> tuple[ConfigManager, MessageBroker, Tag
         if config_manager is None:
             raise ValueError("ConfigManager initialization failed")
         
+        # Initialize config manager
+        await config_manager.initialize()
+        
         # Create tag manager with proper dependencies
         logger.debug("Initializing TagManager")
         tag_manager = TagManager(
@@ -86,8 +89,8 @@ async def initialize_minimal_system() -> tuple[ConfigManager, MessageBroker, Tag
         if tag_manager is None:
             raise ValueError("TagManager initialization failed")
         
-        # Initialize hardware connections through TagManager
-        await tag_manager.initialize_hardware()
+        # Initialize tag manager
+        await tag_manager.initialize()
         
         # Create and start UI manager
         logger.debug("Initializing UIUpdateManager")
@@ -98,7 +101,7 @@ async def initialize_minimal_system() -> tuple[ConfigManager, MessageBroker, Tag
         if ui_manager is None:
             raise ValueError("UIUpdateManager initialization failed")
             
-        await ui_manager.start()
+        await ui_manager.initialize()
         
         logger.info("System initialization complete")
         return config_manager, message_broker, tag_manager, ui_manager
@@ -107,10 +110,41 @@ async def initialize_minimal_system() -> tuple[ConfigManager, MessageBroker, Tag
         logger.exception("Critical error during system initialization")
         raise SystemInitializationError(f"Failed to initialize system: {str(e)}") from e
 
+class SplashScreen(QProgressDialog):
+    """Splash screen for initialization."""
+    def __init__(self):
+        super().__init__("Initializing System...", None, 0, 0)
+        self.setWindowTitle("Micro Cold Spray")
+        self.setWindowModality(Qt.WindowModality.ApplicationModal)
+        self.setAutoClose(True)
+        self.setAutoReset(True)
+        self.setMinimumDuration(0)
+        self.setStyleSheet("""
+            QProgressDialog {
+                background-color: #f5f5f5;
+                border: 1px solid #cccccc;
+                border-radius: 4px;
+                padding: 20px;
+            }
+            QLabel {
+                color: #2c3e50;
+                font-size: 12px;
+            }
+            QProgressBar {
+                border: 1px solid #bdc3c7;
+                border-radius: 3px;
+                text-align: center;
+            }
+            QProgressBar::chunk {
+                background-color: #3498db;
+            }
+        """)
+
 async def main() -> None:
     """Application entry point with proper cleanup chains."""
     app = None
     system_components = None
+    window = None
     
     try:
         setup_logging()
@@ -119,16 +153,30 @@ async def main() -> None:
         
         app = QApplication(sys.argv)
         
+        # Show splash screen
+        splash = SplashScreen()
+        splash.show()
+        app.processEvents()
+        
         # Initialize system
-        system_components = await initialize_minimal_system()
+        splash.setLabelText("Initializing System Components...")
+        app.processEvents()
+        system_components = await initialize_system()
         config_manager, message_broker, tag_manager, ui_manager = system_components
         
+        # Create and initialize main window
+        splash.setLabelText("Initializing User Interface...")
+        app.processEvents()
         window = MainWindow(
             config_manager=config_manager,
             message_broker=message_broker,
             ui_manager=ui_manager,
             tag_manager=tag_manager
         )
+        await window.initialize()
+        
+        # Show main window and close splash
+        splash.close()
         window.show()
         
         while not window.is_closing:

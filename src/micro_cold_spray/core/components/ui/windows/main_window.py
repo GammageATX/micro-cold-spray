@@ -5,7 +5,7 @@ from loguru import logger
 from PySide6.QtWidgets import (
     QMainWindow, QTabWidget, QWidget, 
     QVBoxLayout, QHBoxLayout, QLabel,
-    QFrame, QStatusBar
+    QFrame, QStatusBar, QProgressDialog
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QCloseEvent
@@ -138,7 +138,7 @@ class MainWindow(QMainWindow):
             if self._is_initialized:
                 return
 
-            # Initialize all tabs
+            # Initialize tabs
             await self.dashboard_tab.initialize()
             await self.motion_tab.initialize()
             await self.editor_tab.initialize()

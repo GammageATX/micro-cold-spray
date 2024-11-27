@@ -24,10 +24,12 @@ class ConfigManager:
         """
         self._configs: Dict[str, Dict[str, Any]] = {}
         self._message_broker = message_broker
-        self._config_path = Path("config")
+        self._config_path = Path(__file__).parent.parent.parent.parent.parent / "config"
         self._is_initialized = False
         
-        logger.info("ConfigManager initialized")
+        logger.info(f"ConfigManager initialized with config path: {self._config_path.absolute()}")
+        logger.debug(f"Config path exists: {self._config_path.exists()}")
+        logger.debug(f"Config path contents: {list(self._config_path.glob('*.yaml'))}")
 
     async def initialize(self) -> None:
         """Initialize configuration system."""
@@ -72,18 +74,20 @@ class ConfigManager:
         """
         try:
             config_file = self._config_path / f"{config_type}.yaml"
+            logger.debug(f"Attempting to load config from: {config_file.absolute()}")
+            
             if not config_file.exists():
-                logger.warning(f"Config file not found: {config_file}")
+                logger.warning(f"Config file not found: {config_file.absolute()}")
                 self._configs[config_type] = {}
                 return
 
             with open(config_file, 'r') as f:
                 self._configs[config_type] = yaml.safe_load(f) or {}
 
-            logger.debug(f"Loaded configuration: {config_type}")
+            logger.info(f"Loaded configuration: {config_type} from {config_file.absolute()}")
 
         except Exception as e:
-            logger.error(f"Error loading config {config_type}: {e}")
+            logger.error(f"Error loading config {config_type} from {config_file.absolute()}: {e}")
             raise ConfigurationError(f"Failed to load {config_type} configuration") from e
 
     async def _handle_config_update(self, data: Dict[str, Any]) -> None:
