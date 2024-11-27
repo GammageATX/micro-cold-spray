@@ -3,7 +3,6 @@ import logging
 from typing import Dict, Any
 
 from ...infrastructure.messaging.message_broker import MessageBroker
-from ...infrastructure.messaging.interfaces import Message
 from ...infrastructure.tags.tag_manager import TagManager
 from ...config.config_manager import ConfigManager
 
@@ -24,7 +23,7 @@ class ProcessMonitor:
         self._config_manager = ConfigManager()
         
         # Load message types from config
-        self._message_types = self._config_manager.get_config('messaging.yaml').get('messaging', {}).get('message_types', {})
+        self._message_types = self._config_manager.get_config('messaging').get('message_types', {})
         
         # Subscribe to process-related messages
         self._message_broker.subscribe(
@@ -34,7 +33,7 @@ class ProcessMonitor:
         
         logger.info("Process monitor initialized")
 
-    def _handle_process_status(self, data: Dict[str, Any]) -> None:
+    async def _handle_process_status(self, data: Dict[str, Any]) -> None:
         """Handle process status updates."""
         try:
             # Update process status tags
@@ -42,7 +41,7 @@ class ProcessMonitor:
                 self._tag_manager.set_tag(f"process.status.{parameter}", value)
                 
             # Publish consolidated status
-            self._message_broker.publish(
+            await self._message_broker.publish(
                 "process/status/updated",
                 {
                     "status": data,

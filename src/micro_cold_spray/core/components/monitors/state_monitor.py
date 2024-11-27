@@ -1,17 +1,16 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 import logging
 import asyncio
 from datetime import datetime
 
 from ...infrastructure.state.state_manager import StateManager
 from ...infrastructure.tags.tag_manager import TagManager
-from ...infrastructure.messaging.interfaces import Subscriber, Message
-from ...infrastructure.messaging.message_broker import MessageBroker, MessageType
+from ...infrastructure.messaging.message_broker import MessageBroker
 from ...config.config_manager import ConfigManager
 
 logger = logging.getLogger(__name__)
 
-class StateMonitor(Subscriber):
+class StateMonitor:
     """Monitors overall system state using pub/sub."""
     
     def __init__(
@@ -40,22 +39,22 @@ class StateMonitor(Subscriber):
         self._last_update = datetime.now()
         
         # Subscribe to state-related topics through MessageBroker
-        self._message_broker.subscribe(MessageType.STATE_CHANGE, self.on_message)
-        self._message_broker.subscribe(MessageType.STATE_ERROR, self.on_message)
-        self._message_broker.subscribe(MessageType.HARDWARE_EVENT, self.on_message)
-        self._message_broker.subscribe(MessageType.PROCESS_UPDATE, self.on_message)
+        self._message_broker.subscribe("state/change", self.on_message)
+        self._message_broker.subscribe("state/error", self.on_message)
+        self._message_broker.subscribe("hardware/event", self.on_message)
+        self._message_broker.subscribe("process/update", self.on_message)
         
         logger.info("State monitor initialized")
 
-    async def on_message(self, message: Message) -> None:
+    async def on_message(self, message: Dict[str, Any]) -> None:
         """Handle received messages."""
         try:
-            if message.topic == "state/change":
-                await self._handle_state_change(message.data)
-            elif message.topic == "state/error":
-                await self._handle_error_state(message.data)
-            elif message.topic.startswith(("hardware/", "process/", "safety/")):
-                await self._handle_component_update(message.data)
+            if message['topic'] == "state/change":
+                await self._handle_state_change(message['data'])
+            elif message['topic'] == "state/error":
+                await self._handle_error_state(message['data'])
+            elif message['topic'].startswith(("hardware/", "process/", "safety/")):
+                await self._handle_component_update(message['data'])
                 
         except Exception as e:
             logger.error(f"Error handling message: {e}")

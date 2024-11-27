@@ -23,7 +23,7 @@ class HardwareMonitor:
         self._config_manager = ConfigManager()
         
         # Load message types from config
-        self._message_types = self._config_manager.get_config('messaging.yaml').get('messaging', {}).get('message_types', {})
+        self._message_types = self._config_manager.get_config('messaging').get('message_types', {})
         
         # Subscribe to hardware-related messages
         self._message_broker.subscribe(

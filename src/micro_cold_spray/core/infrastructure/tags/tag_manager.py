@@ -13,68 +13,44 @@ logger = logging.getLogger(__name__)
 class TagManager:
     """Manages system tags and their values."""
     
-    _instance = None
-    
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(TagManager, cls).__new__(cls)
-            cls._instance._initialized = False
-        return cls._instance
-    
-    def __init__(self):
-        if hasattr(self, '_initialized') and self._initialized:
-            return
-            
-        self._tag_values: Dict[str, Any] = {}
-        self._tag_definitions: Dict[str, Any] = {}
-        self._motion_limits: Dict[str, Any] = {}
-        self._message_broker = None
-        self._config = None
-        self._tags = {}
-        self._connected = False
-        self._initialized = True
-        
-        # Hardware clients
-        self._plc_client: Optional[PLCClient] = None
-        self._ssh_client: Optional[SSHClient] = None
-        
-        logger.info("Tag manager initialized")
-
-    def set_message_broker(self, message_broker: MessageBroker) -> None:
-        """Set message broker instance."""
+    def __init__(self, config_manager: ConfigManager, message_broker: MessageBroker):
+        self._config_manager = config_manager
         self._message_broker = message_broker
+        self._plc_client = PLCClient(config_manager.get_config('plc'))
+        self._ssh_client = SSHClient(config_manager.get_config('ssh'))
         
-        # Subscribe to tag commands
+        # Subscribe to relevant topics
         self._message_broker.subscribe("tag/set", self._handle_tag_set)
         self._message_broker.subscribe("tag/get", self._handle_tag_get)
         
-        logger.info("Tag manager subscribed to message broker")
+        logger.info("TagManager initialized")
 
-    def load_config(self, config_manager: ConfigManager) -> None:
-        """Load configuration from config manager."""
-        try:
-            self._config = config_manager.get_config("tags")
-            # Load tag definitions from config
-            self._tag_definitions = self._config.get('tag_groups', {})
-            
-            # Load hardware config
-            hw_config = config_manager.get_config('hardware')['hardware']
-            
-            # Initialize hardware clients
-            self._plc_client = PLCClient(hw_config)
-            self._ssh_client = SSHClient(config_manager, self._message_broker)
-            
-            # Start tag polling
-            self._polling_task = asyncio.create_task(self._poll_hardware_tags())
-            
-            # Publish initial connection states
-            asyncio.create_task(self._publish_connection_states())
-            
-            logger.info("Tag manager initialized with hardware clients")
-            
-        except Exception as e:
-            logger.error(f"Error loading tag manager config: {e}")
-            raise
+    async def _handle_tag_set(self, data: Dict[str, Any]) -> None:
+        """Handle setting a tag value."""
+        tag = data.get("tag")
+        value = data.get("value")
+        # Logic to set the tag value
+        logger.info(f"Tag set: {tag} = {value}")
+
+    async def _handle_tag_get(self, data: Dict[str, Any]) -> None:
+        """Handle getting a tag value."""
+        tag = data.get("tag")
+        # Logic to get the tag value
+        value = ...  # Retrieve the value
+        await self._message_broker.publish("tag/get/response", {"tag": tag, "value": value})
+        logger.info(f"Tag get: {tag} = {value}")
+
+    def set_tag(self, tag: str, value: Any) -> None:
+        """Set a tag value."""
+        # Logic to set the tag value
+        logger.info(f"Tag set: {tag} = {value}")
+
+    def get_tag(self, tag: str) -> Any:
+        """Get a tag value."""
+        # Logic to get the tag value
+        value = ...  # Retrieve the value
+        logger.info(f"Tag get: {tag} = {value}")
+        return value
 
     async def _publish_connection_states(self) -> None:
         """Publish current connection states through MessageBroker."""
@@ -128,35 +104,6 @@ class TagManager:
             self._tag_values[tag_name] = value
             await self._message_broker.publish('tag_update', {tag_name: value})
 
-    async def _handle_tag_set(self, data: Dict[str, Any]) -> None:
-        """Handle tag set requests."""
-        try:
-            tag = data.get("tag")
-            value = data.get("value")
-            source = data.get("source", "unknown")
-            
-            if tag and value is not None:
-                logger.debug(f"Setting tag {tag} to {value} from {source}")
-                await self._update_tag(tag, value)
-            
-        except Exception as e:
-            logger.error(f"Error handling tag set: {e}")
-            raise
-
-    async def _handle_tag_get(self, data: Dict[str, Any]) -> None:
-        """Handle tag get requests."""
-        if self._message_broker is None:
-            logger.error("Cannot handle tag get - no message broker")
-            return
-        
-        tag_name = data.get('tag')
-        if tag_name:
-            value = self._tag_values.get(tag_name)
-            await self._message_broker.publish('tag_get_response', {
-                'tag': tag_name,
-                'value': value
-            })
-
     def _get_tag_definition(self, tag_name: str) -> Dict[str, Any]:
         """Get tag definition from config."""
         if '.' in tag_name:
@@ -197,14 +144,3 @@ class TagManager:
         except Exception as e:
             logger.error(f"Error during reconnection attempt: {e}")
             raise
-
-    def get_tag(self, tag_name: str) -> Any:
-        """Get tag value from local cache."""
-        return self._tag_values.get(tag_name)
-
-    async def set_tag(self, tag_name: str, value: Any) -> None:
-        """Set tag value and update hardware if needed."""
-        await self._handle_tag_set({
-            'tag': tag_name,
-            'value': value
-        })

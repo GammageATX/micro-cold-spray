@@ -70,28 +70,17 @@ class MessageBroker:
         if topic not in self._subscribers:
             self._subscribers[topic] = []
         self._subscribers[topic].append(callback)
-        logger.debug(f"New subscriber for topic {topic}: {callback.__qualname__}")
-        logger.debug(f"Total subscribers for {topic}: {len(self._subscribers[topic])}")
+        logger.info(f"Subscribed to topic: {topic}")
         
     async def publish(self, topic: str, data: Any) -> None:
         """Publish a message to subscribers."""
         if topic in self._subscribers:
-            subscriber_count = len(self._subscribers[topic])
-            logger.debug(f"Publishing to {topic} ({subscriber_count} subscribers) with data: {data}")
             for callback in self._subscribers[topic]:
-                try:
-                    logger.debug(f"Calling subscriber {callback.__qualname__} for {topic}")
-                    if asyncio.iscoroutinefunction(callback):
-                        await callback(data)
-                    else:
-                        callback(data)
-                    logger.debug(f"Successfully called {callback.__qualname__}")
-                except Exception as e:
-                    logger.error(f"Error in subscriber callback {callback.__qualname__}: {e}")
-        else:
-            logger.warning(f"No subscribers for topic: {topic}")
-            # Log all current subscriptions for debugging
-            logger.debug(f"Current subscriptions: {list(self._subscribers.keys())}")
+                if asyncio.iscoroutinefunction(callback):
+                    await callback(data)
+                else:
+                    callback(data)
+        logger.info(f"Published to topic: {topic} with data: {data}")
     
     def async_subscribe(self, topic: str, callback: Callable) -> None:
         """Subscribe to a topic with an async callback."""
@@ -121,7 +110,6 @@ class MessageBroker:
             # Add request ID to data
             request_data = {
                 **data,
-                "request_id": request_id,
                 "timestamp": datetime.now().isoformat()
             }
             
@@ -129,6 +117,16 @@ class MessageBroker:
             response_topic = f"{topic}_response"
             
             async def handle_response(response_data: Dict[str, Any]) -> None:
+                if topic == "tag/get":
+                    tag = data.get("tag")
+                    # Simulate getting the tag value from a tag manager or similar component
+                    value = self._tag_manager.get_tag(tag)
+                    response_data = {
+                        "request_id": request_id,
+                        "value": value
+                    }
+                    if not response_future.done():
+                        response_future.set_result(response_data)
                 if response_data.get("request_id") == request_id:
                     if not response_future.done():
                         response_future.set_result(response_data)

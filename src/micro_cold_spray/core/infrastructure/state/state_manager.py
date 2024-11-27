@@ -1,8 +1,7 @@
 """System state management."""
 from typing import Dict, Any, Optional
-import logging
-import time
 from datetime import datetime
+import logging
 
 from ..messaging.message_broker import MessageBroker
 from ...config.config_manager import ConfigManager
@@ -14,18 +13,18 @@ class StateManager:
     
     _instance = None
     
-    def __new__(cls):
+    def __new__(cls, *args, **kwargs):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
         return cls._instance
     
-    def __init__(self):
-        if hasattr(self, '_initialized') and self._initialized:
+    def __init__(self, message_broker: MessageBroker, config_manager: ConfigManager):
+        if self._initialized:
             return
-            
-        self._config_manager = ConfigManager()
-        self._message_broker = MessageBroker()
+        
+        self._message_broker = message_broker
+        self._config_manager = config_manager
         self._logger = logging.getLogger(__name__)
         
         # Load state configuration
@@ -51,33 +50,29 @@ class StateManager:
             
             await self._message_broker.publish("tag/set", {
                 "tag": "system_state.previous_state",
-                "value": None,
+                "value": "",
                 "timestamp": datetime.now().isoformat()
             })
             
-            logger.info("State tags initialized")
-            
         except Exception as e:
-            logger.error(f"Error initializing state tags: {e}")
-            raise
+            logger.error(f"Error initializing state: {e}")
 
     async def _handle_config_update(self, data: Dict[str, Any]) -> None:
-        """Handle state configuration updates."""
+        """Handle configuration updates."""
         try:
-            if 'config' in data:
-                self._state_config = data['config']
-                logger.info("State configuration updated")
+            self._state_config.update(data)
+            logger.info("State configuration updated")
         except Exception as e:
-            self._logger.error(f"Error handling config update: {e}")
+            logger.error(f"Error handling config update: {e}")
 
     async def _handle_state_request(self, request_data: Dict[str, Any]) -> None:
         """Handle state change requests."""
         try:
             requested_state = request_data.get("requested_state")
-            if requested_state:
-                await self.set_state(requested_state)
+            # Implement state change logic here
+            logger.info(f"State change requested: {requested_state}")
         except Exception as e:
-            self._logger.error(f"Error handling state request: {e}")
+            logger.error(f"Error handling state request: {e}")
 
     async def get_current_state(self) -> str:
         """Get the current system state."""

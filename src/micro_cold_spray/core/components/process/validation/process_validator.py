@@ -10,9 +10,9 @@ logger = logging.getLogger(__name__)
 class ProcessValidator:
     """Validates process parameters and configurations."""
     
-    def __init__(self, message_broker: MessageBroker):
+    def __init__(self, message_broker: MessageBroker, config_manager: ConfigManager):
         self._message_broker = message_broker
-        self._config_manager = ConfigManager()
+        self._config_manager = config_manager
         
         # Subscribe to validation requests
         self._message_broker.subscribe("parameters/validate", self._handle_validation_request)

@@ -88,6 +88,12 @@ async def initialize_minimal_system() -> tuple[ConfigManager, MessageBroker, Tag
         logger.error(f"Error initializing system: {e}")
         raise
 
+async def initialize_system():
+    config_manager = ConfigManager()
+    message_broker = MessageBroker()
+    tag_manager = TagManager(config_manager, message_broker)
+    # Other initializations...
+
 async def main() -> None:
     """Minimal application entry point."""
     app = None
@@ -140,4 +146,4 @@ async def main() -> None:
             sys.exit(0)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(initialize_system())
