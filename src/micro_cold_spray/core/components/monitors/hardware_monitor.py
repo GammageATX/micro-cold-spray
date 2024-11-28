@@ -9,45 +9,58 @@ from ...infrastructure.tags.tag_manager import TagManager
 from ...exceptions import MonitorError
 
 class HardwareMonitor:
-    """Monitors hardware status and publishes updates."""
+    """Monitors hardware connections and status."""
 
-    def __init__(self, tag_manager: TagManager, message_broker: MessageBroker):
+    def __init__(self, message_broker: MessageBroker, tag_manager: TagManager):
         """
         Initialize monitor.
         
         Args:
-            tag_manager: Tag manager instance
             message_broker: Message broker instance
+            tag_manager: Tag manager instance
         """
-        self._tag_manager = tag_manager
         self._message_broker = message_broker
+        self._tag_manager = tag_manager
         self._monitoring_task: Optional[asyncio.Task] = None
         self._is_running = False
         
         logger.info("Hardware monitor initialized")
 
     async def start(self) -> None:
-        """Start monitoring hardware status."""
+        """Start hardware monitoring."""
         try:
-            if self._is_running:
-                logger.warning("Hardware monitor already running")
-                return
-
+            # Test initial connections
+            connection_status = await self._tag_manager.test_connections()
+            
+            # Publish initial status
+            for device, connected in connection_status.items():
+                await self._message_broker.publish(
+                    "hardware/connection",
+                    {
+                        "device": device,
+                        "connected": connected,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+                
+            if not all(connection_status.values()):
+                logger.warning("Not all hardware devices connected")
+                await self._message_broker.publish("error", {
+                    "error": "Hardware initialization incomplete",
+                    "topic": "hardware/init",
+                    "details": connection_status
+                })
+            
             self._is_running = True
+            logger.info("Hardware monitor started")
             
-            # Subscribe to hardware-related messages
-            await self._message_broker.subscribe(
-                "hardware/status",
-                self._handle_hardware_status
-            )
-            
-            # Start monitoring task
-            self._monitoring_task = asyncio.create_task(self._monitor_hardware())
-            logger.info("Hardware monitoring started")
-
         except Exception as e:
-            logger.exception("Failed to start hardware monitoring")
-            raise MonitorError(f"Hardware monitor start failed: {str(e)}") from e
+            logger.error(f"Failed to start hardware monitor: {e}")
+            await self._message_broker.publish("error", {
+                "error": str(e),
+                "topic": "hardware/monitor",
+                "action": "start"
+            })
 
     async def stop(self) -> None:
         """Stop monitoring hardware status."""
