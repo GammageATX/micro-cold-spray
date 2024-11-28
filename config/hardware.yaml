@@ -120,33 +120,14 @@ hardware:
       limit_check: true
       require_safe_z_for_xy: true
 
-
-  # 5. Measurement Scales
-  measurement_scales:
-    chamber_pressure:
-      range: [0.01, 1000.0]
-      bits: 12
-      linear: true
-
-plc:
-  data_types:
-    BOOL: "BOOL"
-    INT: "INT"
-    REAL: "REAL"
-    STRING: "STRING"
-  
-  tags:
-    # Define PLC tags with their types and properties
-    motion:
-      x_position:
-        type: "REAL"
-        address: "DB100.DBD0"
-        read_only: false
-      y_position:
-        type: "REAL"
-        address: "DB100.DBD4"
-        read_only: false
-      z_position:
-        type: "REAL"
-        address: "DB100.DBD8"
-        read_only: false
+    gas:
+      main_pressure:
+        min: 70.0  # PSI - minimum for safe operation
+        warning: 80.0  # PSI - warning threshold
+        error: 60.0  # PSI - emergency stop threshold
+      regulator_pressure:
+        min: 40.0  # PSI - minimum for powder transport
+        max: 80.0  # PSI - maximum for nozzle safety
+      feeder_pressure:
+        min: 5.0  # PSI - minimum for powder flow
+        max: 20.0  # PSI - maximum for powder control

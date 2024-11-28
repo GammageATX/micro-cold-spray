@@ -9,11 +9,10 @@ from .config.config_manager import ConfigManager
 from .infrastructure.messaging.message_broker import MessageBroker
 from .infrastructure.tags.tag_manager import TagManager
 from .infrastructure.state.state_manager import StateManager
-from .components.monitors.hardware_monitor import HardwareMonitor
 from .components.ui.managers.ui_update_manager import UIUpdateManager
 from .components.ui.windows.main_window import MainWindow
 
-async def initialize_system() -> tuple[ConfigManager, MessageBroker, TagManager, StateManager, HardwareMonitor]:
+async def initialize_system() -> tuple[ConfigManager, MessageBroker, TagManager, StateManager]:
     """Initialize all system components."""
     logger.info("Starting system initialization")
     
@@ -51,14 +50,8 @@ async def initialize_system() -> tuple[ConfigManager, MessageBroker, TagManager,
         )
         await state_manager.start()
         
-        # Create and start hardware monitor
-        hardware_monitor = HardwareMonitor(
-            message_broker=message_broker,
-            tag_manager=tag_manager
-        )
-        await hardware_monitor.start()
         
-        return config_manager, message_broker, tag_manager, state_manager, hardware_monitor
+        return config_manager, message_broker, tag_manager, state_manager
         
     except Exception as e:
         logger.exception("Failed to initialize system")
@@ -72,7 +65,7 @@ def main() -> None:
         
         # Run async initialization
         loop = asyncio.get_event_loop()
-        config_manager, message_broker, tag_manager, state_manager, hardware_monitor = \
+        config_manager, message_broker, tag_manager, state_manager = \
             loop.run_until_complete(initialize_system())
         
         # Create and show main window

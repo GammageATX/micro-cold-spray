@@ -7,20 +7,19 @@ application:
     description: "Control system for micro cold spray deposition"
 
   # Layer Configuration Files
-  layers:
-    config: "config/config.yaml"      # Configuration layer
-    hardware: "config/hardware.yaml"   # Hardware layer
-    process: "config/process.yaml"     # Process layer
-    operation: "config/operation.yaml" # Operation layer
-    state: "config/state.yaml"        # State layer
-    tags: "config/tags.yaml"          # Tag definitions
+  config_files:
+    application: "config/application.yaml"
+    hardware: "config/hardware.yaml"
+    operations: "config/operations.yaml"
+    process: "config/process.yaml"
+    state: "config/state.yaml"
+    tags: "config/tags.yaml"
+    ui: "config/ui.yaml"
 
   # Core Paths
   paths:
     config:
       root: "config/"
-      schemas: "config/schemas/"
-      backups: "config/backups/"
     
     data:
       root: "data/"
@@ -39,7 +38,9 @@ application:
       runs: "data/runs/"
     
     logs: "logs/"
-    resources: "resources/"
+
+    resources: "resources/"    
+    tags: "resources/tags/"
 
   # Runtime Environment
   environment:
@@ -50,28 +51,35 @@ application:
 
   # Core Services
   services:
+    message_broker:
+      topics:
+        tag_operations: ["tag/set", "tag/get", "tag/update", "tag/get/response"]
+        state_operations: ["state/request", "state/change", "state/error"]
+        config_operations: ["config/update/*", "config/update/response"]
+        pattern_operations: ["patterns/created", "patterns/updated", "patterns/deleted", "patterns/error"]
+        action_operations: ["action/execute", "action/status", "action/complete", "action/error"]
+        validation_operations: ["validation/request", "validation/response"]
+        ui_operations: ["ui/widget/registered", "ui/widget/unregistered", "ui/update", "ui/error"]
+        error_topic: "error"
+
     config_manager:
-      cache_enabled: true
-      backup_enabled: true
       validation_enabled: true
-    
+      backup_enabled: true
+      backup_interval: 3600
+      
+    tag_manager:
+      poll_rate: 100
+      cache_enabled: true
+      cache_timeout: 1000
+      
     state_manager:
       history_enabled: true
       history_length: 1000
-    
-    data_manager:
-      auto_backup: true
-      compression_enabled: true
-    
-    logging:
-      console:
-        enabled: true
-        format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-      file:
-        enabled: true
-        path: "logs/mcs.log"
-        max_size: 10485760  # 10MB
-        backup_count: 5
+      transition_timeout: 5000
+      
+    ui_manager:
+      update_rate: 100
+      error_display_timeout: 5000
 
   # Development Tools
   development:
@@ -81,12 +89,50 @@ application:
       enabled: false
       coverage: false
 
+# Window Configuration
 window:
-  title: "Micro Cold Spray (Minimal)"
-  x: 100
-  y: 100
-  width: 800
-  height: 600
+  title: "Micro Cold Spray Control System"
+  geometry:
+    x: 100
+    y: 100
+    width: 1280  # Standard desktop width
+    height: 800  # Standard desktop height
+    
+  layout:
+    main:
+      - dashboard  # System overview
+      - motion     # Motion control
+      - process    # Process control
+      - editor     # Pattern/sequence editor
+      - system     # System configuration
+      - diagnostics # System diagnostics
+      
+  style:
+    theme: "system"  # Use system theme
+    font:
+      family: "Segoe UI"
+      size: 10
+    
+  widgets:
+    dashboard:
+      - status_panel
+      - control_panel
+    motion:
+      - chamber_view
+      - motion_control
+    process:
+      - parameter_editor
+      - process_display
+    editor:
+      - pattern_editor
+      - sequence_builder
+      - sequence_visualizer
+    system:
+      - config_editor
+      - hardware_setup
+    diagnostics:
+      - tag_monitor
+      - validation_panel
 
 # Add only the specific configurations needed for your tab/widget
 

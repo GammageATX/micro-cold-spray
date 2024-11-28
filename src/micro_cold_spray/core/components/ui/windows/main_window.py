@@ -108,10 +108,13 @@ class MainWindow(QMainWindow):
         config_manager: ConfigManager,
         message_broker: MessageBroker,
         ui_manager: UIUpdateManager,
-        tag_manager: TagManager
+        tag_manager: TagManager,
+        ui_config: Dict[str, Any]
     ) -> None:
         """Initialize with required dependencies."""
         super().__init__()
+        
+        self._config = ui_config
         
         # Validate dependencies
         if not all([config_manager, message_broker, ui_manager, tag_manager]):
@@ -161,9 +164,26 @@ class MainWindow(QMainWindow):
     def _init_ui(self) -> None:
         """Initialize the main window UI."""
         try:
-            # Set fixed window size
-            self.setFixedSize(1200, 900)
-            self.setWindowTitle('Micro Cold Spray')
+            # Use config for window setup
+            geometry = self._config.get("geometry", {})
+            self.setGeometry(
+                geometry.get("x", 100),
+                geometry.get("y", 100),
+                geometry.get("width", 1280),
+                geometry.get("height", 800)
+            )
+            self.setWindowTitle(self._config.get("title", "Micro Cold Spray"))
+            
+            # Use config for style
+            style = self._config.get("style", {})
+            font = style.get("font", {})
+            if font:
+                self.setStyleSheet(f"""
+                    * {{
+                        font-family: {font.get("family", "Segoe UI")};
+                        font-size: {font.get("size", 10)}px;
+                    }}
+                """)
             
             # Create central widget and main layout
             central_widget = QWidget()

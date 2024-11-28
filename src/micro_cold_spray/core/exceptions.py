@@ -18,10 +18,6 @@ class ConfigurationError(Exception):
     """Raised when configuration operations fail."""
     pass
 
-class MonitorError(Exception):
-    """Raised when monitor operations fail."""
-    pass
-
 class OperationError(Exception):
     """Raised when operation management fails."""
     pass

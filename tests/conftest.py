@@ -29,7 +29,7 @@ pytest.mark.tryfirst
 class TestOrder:
     """Test execution order markers."""
     INFRASTRUCTURE = pytest.mark.dependency(name="infrastructure")
-    PROCESS = pytest.mark.dependency(name="process", depends=["infrastructure"])
+    PROCESS = pytest.mark.dependency(depends=["infrastructure"])
     UI = pytest.mark.dependency(name="ui", depends=["infrastructure", "process"])
 
 @pytest.fixture(scope="function")
@@ -38,29 +38,18 @@ async def message_broker() -> AsyncGenerator[MessageBroker, None]:
     broker = MessageBroker()
     broker._subscribers = defaultdict(set)
     broker._subscribers.update({
-        # Monitor topics from .cursorrules
-        "hardware/status/motion": set(),
-        "hardware/status/equipment": set(),
-        "hardware/status/connection": set(),
-        "process/status/chamber": set(),
-        "process/status/gas": set(),
-        "process/status/powder": set(),
-        "state/change": set(),
-        "hardware/error": set(),
-        "process/error": set(),
-        "state/error": set(),
-        
-        # Required topics
+        # Core topics from .cursorrules
         "tag/update": set(),
-        "tag/get": set(),
+        "tag/get": set(), 
         "tag/set": set(),
         "tag/get/response": set(),
         "state/request": set(),
-        "hardware/connection": set(),
+        "state/change": set(),
+        "state/error": set(),
         "error": set()
     })
     
-    await broker.start()  # Start before yielding
+    await broker.start()
     yield broker
     await broker.shutdown()
 

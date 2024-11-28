@@ -13,6 +13,7 @@ from micro_cold_spray.core.infrastructure.tags.tag_manager import TagManager
 from micro_cold_spray.core.components.ui.windows.main_window import MainWindow
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
 from micro_cold_spray.core.components.ui.managers.ui_update_manager import UIUpdateManager
+from micro_cold_spray.core.infrastructure.state.state_manager import StateManager
 
 def get_project_root() -> Path:
     """Get the absolute path to the project root directory."""
@@ -60,7 +61,7 @@ def ensure_directories() -> None:
     for directory in directories:
         (project_root / directory).mkdir(parents=True, exist_ok=True)
 
-async def initialize_system() -> tuple[ConfigManager, MessageBroker, TagManager, UIUpdateManager]:
+async def initialize_system() -> tuple[ConfigManager, MessageBroker, TagManager, StateManager, UIUpdateManager]:
     """Initialize all system components."""
     logger.info("Starting system initialization")
     
@@ -92,19 +93,39 @@ async def initialize_system() -> tuple[ConfigManager, MessageBroker, TagManager,
         # Initialize tag manager
         await tag_manager.initialize()
         
-        # Create and start UI manager
-        logger.debug("Initializing UIUpdateManager")
+        # Create and initialize state manager
+        logger.debug("Initializing StateManager")
+        state_manager = StateManager(
+            message_broker=message_broker,
+            config_manager=config_manager
+        )
+        if state_manager is None:
+            raise ValueError("StateManager initialization failed")
+            
+        await state_manager.initialize()
+        
+        # Get UI config
+        ui_config = config_manager.get_config("application").get("window", {})
+        
+        # Create and start UI manager with config
         ui_manager = UIUpdateManager(
             message_broker=message_broker,
             config_manager=config_manager
         )
-        if ui_manager is None:
-            raise ValueError("UIUpdateManager initialization failed")
-            
         await ui_manager.initialize()
         
+        # Create main window with config
+        window = MainWindow(
+            config_manager=config_manager,
+            message_broker=message_broker,
+            ui_manager=ui_manager,
+            tag_manager=tag_manager,
+            ui_config=ui_config  # Pass UI config
+        )
+        await window.initialize()
+        
         logger.info("System initialization complete")
-        return config_manager, message_broker, tag_manager, ui_manager
+        return config_manager, message_broker, tag_manager, state_manager, ui_manager
         
     except Exception as e:
         logger.exception("Critical error during system initialization")
@@ -162,7 +183,7 @@ async def main() -> None:
         splash.setLabelText("Initializing System Components...")
         app.processEvents()
         system_components = await initialize_system()
-        config_manager, message_broker, tag_manager, ui_manager = system_components
+        config_manager, message_broker, tag_manager, state_manager, ui_manager = system_components
         
         # Create and initialize main window
         splash.setLabelText("Initializing User Interface...")
@@ -192,7 +213,7 @@ async def main() -> None:
         # Proper cleanup chain
         try:
             if system_components:
-                config_manager, message_broker, tag_manager, ui_manager = system_components
+                config_manager, message_broker, tag_manager, state_manager, ui_manager = system_components
                 
                 logger.info("Shutting down system components")
                 await ui_manager.shutdown()

@@ -37,13 +37,14 @@ async def message_broker() -> AsyncGenerator[MessageBroker, None]:
     """Provide a MessageBroker instance."""
     broker = MessageBroker()
     broker._subscribers = {
-        # Pattern topics from messaging.yaml
+        # Pattern topics
         "patterns/created": set(),
         "patterns/updated": set(),
         "patterns/deleted": set(),
         "patterns/error": set(),
         
-        # Required topics
+        # Core topics
+        "tag/update": set(),
         "validation/request": set(),
         "validation/response": set(),
         "error": set()

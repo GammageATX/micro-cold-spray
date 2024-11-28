@@ -267,23 +267,3 @@ process:
       set_change:
         rule: "at_trough_position"
         message: "Must be at trough position to change hardware sets"
-
-  # 3. Safety Rules
-  safety:
-    interlocks:
-      # Define only the interlocks you actually have
-      # Example:
-      # emergency_stop: "EmergencyStop"
-      # pressure_ok: "PressureOK"
-    
-    limits:
-      # Define any safety limits you need to monitor
-      # Example:
-      # pressure:
-      #   tag: "SystemPressure"
-      #   min: 0.0
-      #   max: 100.0
-      # temperature:
-      #   tag: "SystemTemperature"
-      #   min: 10.0
-      #   max: 50.0

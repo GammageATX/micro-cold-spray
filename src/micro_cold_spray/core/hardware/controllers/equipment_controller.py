@@ -46,8 +46,20 @@ class EquipmentController:
             flow_type = message.get('type')  # 'main' or 'feeder'
             value = message.get('value')
             
-            if not flow_type or value is None:
-                raise ValueError("Missing required parameters")
+            # Get safety limits from config
+            safety_limits = self._hw_config["safety"]["gas"]
+            
+            # Validate against limits
+            if flow_type == "main":
+                if value < safety_limits["main_pressure"]["min"]:
+                    raise ValueError(
+                        f"Main flow too low: {value} PSI (min {safety_limits['main_pressure']['min']} PSI)"
+                    )
+            elif flow_type == "feeder":
+                if value < safety_limits["feeder_pressure"]["min"]:
+                    raise ValueError(
+                        f"Feeder flow too low: {value} PSI (min {safety_limits['feeder_pressure']['min']} PSI)"
+                    )
 
             await self._message_broker.publish(
                 "tag/set",

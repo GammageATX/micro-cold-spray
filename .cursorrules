@@ -27,32 +27,6 @@
    - Must document purpose of each dependency
    - Must maintain minimum Python version compatibility
 
-## Message Patterns
-1. Tag Operations:
-   - Must use "tag/set" for setting values
-   - Must use "tag/get" for requesting values
-   - Must use "tag/update" for receiving updates
-   - Must use "tag/get/response" for get responses
-   - Must use "error" for operation errors
-
-2. State Operations:
-   - Must use "state/request" for requesting state changes
-   - Must use "state/change" for observing state updates
-   - Must use "state/error" for state operation errors
-   - Must get state directly from StateManager
-   - Must not store state in tags
-
-3. Config Operations:
-   - Must use "config/update/*" for updates
-   - Must use "config/update/response" for responses
-   - Must publish all runtime changes
-
-4. Error Handling:
-   - Must publish all errors to "error" topic
-   - Must include error context
-   - Must include source topic
-   - Must include timestamp
-
 ## UI Component Rules
 1. Widget Requirements:
    - Must register with UIUpdateManager
@@ -104,11 +78,7 @@
      - ConfigManager
      - TagManager
      - StateManager
-   - Monitor tests must run after infrastructure:
-     - HardwareMonitor
-     - ProcessMonitor
-     - StateMonitor
-   - Process tests must run after monitors:
+   - Process tests:
      - ProcessValidator
      - ParameterManager
      - PatternManager
@@ -142,22 +112,3 @@
    - All exceptions must be caught and logged
    - All error messages must be descriptive
    - All error handlers must include context
-
-## Monitor Rules
-1. Monitor Requirements:
-   - Must use MessageBroker for all communication
-   - Must not access hardware directly
-   - Must handle connection loss gracefully
-   - Must publish status updates
-
-2. Status Updates:
-   - Must include timestamps
-   - Must use standardized topics
-   - Must handle errors properly
-   - Must publish error context
-
-3. Monitor Topics:
-   - Must use "hardware/status/*" for hardware
-   - Must use "process/status/*" for process
-   - Must use "state/change" for state
-   - Must use "*/error" for errors

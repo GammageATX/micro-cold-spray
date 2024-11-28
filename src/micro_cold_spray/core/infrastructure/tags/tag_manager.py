@@ -38,12 +38,7 @@ class TagManager:
         logger.info("TagManager initialized")
 
     async def test_connections(self) -> Dict[str, bool]:
-        """Test connections to all hardware clients.
-        
-        Returns:
-            Dict with connection status for each client
-            Example: {"plc": True, "motion_controller": False}
-        """
+        """Test connections to all hardware clients."""
         results = {
             "plc": False,
             "motion_controller": False
@@ -52,10 +47,15 @@ class TagManager:
         # Test PLC connection
         if self._plc_client:
             try:
-                await self._plc_client.get_all_tags()  # Simple read test
+                await self._plc_client.get_all_tags()
                 results["plc"] = True
             except Exception as e:
-                logger.debug(f"PLC connection test failed: {e}")
+                logger.error(f"PLC connection test failed: {e}")
+                await self._message_broker.publish("error", {
+                    "error": str(e),
+                    "context": "plc_connection_test",
+                    "timestamp": datetime.now().isoformat()
+                })
         
         # Test SSH connection
         if self._ssh_client:
@@ -64,7 +64,20 @@ class TagManager:
                 response = await self._ssh_client.read_response()
                 results["motion_controller"] = response is not None
             except Exception as e:
-                logger.debug(f"Motion controller connection test failed: {e}")
+                logger.error(f"Motion controller connection test failed: {e}")
+                await self._message_broker.publish("error", {
+                    "error": str(e),
+                    "context": "motion_controller_connection_test",
+                    "timestamp": datetime.now().isoformat()
+                })
+        
+        # Publish connection status
+        for device, connected in results.items():
+            await self._message_broker.publish("tag/update", {
+                "tag": f"hardware.{device}.connected",
+                "value": connected,
+                "timestamp": datetime.now().isoformat()
+            })
         
         return results
 
@@ -78,49 +91,30 @@ class TagManager:
             self._tag_config = self._config_manager.get_config('tags')
             self._build_tag_maps()
 
-            # Create hardware clients if not already set (allows for mocking)
+            # Create hardware clients
             hw_config = self._config_manager.get_config('hardware')
             if self._plc_client is None:
                 self._plc_client = PLCClient(hw_config.get('plc', {}))
             if self._ssh_client is None:
                 self._ssh_client = SSHClient(hw_config.get('motion_controller', {}))
 
-            # Test connections and publish status
-            connection_status = await self.test_connections()
-            for device, connected in connection_status.items():
-                await self._message_broker.publish(
-                    "hardware/connection",
-                    {
-                        "device": device,
-                        "connected": connected,
-                        "timestamp": datetime.now().isoformat()
-                    }
-                )
-
             # Subscribe to tag operations
             await self._message_broker.subscribe("tag/set", self._handle_tag_set)
             await self._message_broker.subscribe("tag/get", self._handle_tag_get)
 
-            # Start polling only if PLC client is available
-            try:
-                await self._plc_client.get_all_tags()  # Test connection
-                self._polling_task = asyncio.create_task(self._poll_tags())
-                await self._message_broker.publish(
-                    "hardware/connection",
-                    {"device": "plc", "connected": True}
-                )
-            except Exception as e:
-                logger.warning(f"Failed to connect to PLC: {e}")
-                await self._message_broker.publish(
-                    "hardware/connection",
-                    {"device": "plc", "connected": False}
-                )
-            
+            # Start polling task
+            self._polling_task = asyncio.create_task(self._poll_loop())  # Create polling task
+
             self._is_initialized = True
             logger.info("TagManager initialization complete")
 
         except Exception as e:
             logger.exception("Failed to initialize TagManager")
+            await self._message_broker.publish("error", {
+                "error": str(e),
+                "context": "tag_manager_init",
+                "timestamp": datetime.now().isoformat()
+            })
             raise TagOperationError(f"TagManager initialization failed: {str(e)}") from e
 
     def _build_tag_maps(self) -> None:
@@ -140,6 +134,20 @@ class TagManager:
 
         process_group(self._tag_config.get('tag_groups', {}))
 
+    async def _poll_loop(self) -> None:
+        """Continuous polling loop."""
+        while True:
+            try:
+                await self._poll_tags()
+            except Exception as e:
+                logger.error(f"Error in polling loop: {e}")
+                await self._message_broker.publish("error", {
+                    "error": str(e),
+                    "context": "tag_polling",
+                    "timestamp": datetime.now().isoformat()
+                })
+            await asyncio.sleep(0.1)  # Poll interval
+
     async def _poll_tags(self) -> None:
         """Poll PLC tags and publish updates."""
         try:
@@ -153,32 +161,14 @@ class TagManager:
                     if system_tag not in self._tag_values or self._tag_values[system_tag] != new_value:
                         self._tag_values[system_tag] = new_value
                         await self._message_broker.publish("tag/update", {
-                            system_tag: new_value,
+                            "tag": system_tag,
+                            "value": new_value,
                             "timestamp": datetime.now().isoformat()
                         })
                     
-            # Update connection status
-            await self._message_broker.publish(
-                "hardware/connection",
-                {
-                    "device": "plc",
-                    "connected": True,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-            
         except Exception as e:
-            logger.error(f"Error polling tags: {e}")
-            # Report disconnected status
-            await self._message_broker.publish(
-                "hardware/connection",
-                {
-                    "device": "plc",
-                    "connected": False,
-                    "error": str(e),
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
+            # Re-raise to be caught by _poll_loop
+            raise TagOperationError(f"Failed to poll tags: {str(e)}") from e
 
     async def _handle_tag_set(self, data: Dict[str, Any]) -> None:
         """Handle tag set requests."""

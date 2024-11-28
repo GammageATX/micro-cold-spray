@@ -31,26 +31,102 @@ class StateManager:
 
     async def initialize(self) -> None:
         """Initialize state manager subscriptions."""
-        # Subscribe to state requests and hardware status
-        await self._message_broker.subscribe("state/request", self._handle_state_request)
-        await self._message_broker.subscribe("hardware/status/plc", self._handle_hardware_status)
-        await self._message_broker.subscribe("hardware/status/motion", self._handle_motion_status)
+        try:
+            # Subscribe to state requests and tag updates
+            await self._message_broker.subscribe("state/request", self._handle_state_request)
+            await self._message_broker.subscribe("tag/update", self._handle_tag_update)
+            
+            # Load state config
+            config = self._config_manager.get_config("state")
+            logger.debug(f"Loaded state config: {config}")
+            
+            # Convert list-based transitions to dict format
+            transitions = {}
+            for state, next_states in config.get("transitions", {}).items():
+                transitions[state] = {
+                    "next_states": next_states if isinstance(next_states, list) else next_states.get("next_states", []),
+                    "conditions": next_states.get("conditions", []) if isinstance(next_states, dict) else []
+                }
+            self._state_config = transitions
+            
+            # Start in INITIALIZING state
+            self._current_state = "INITIALIZING"
+            self._previous_state = ""
+            
+            # Initialize condition tracking
+            self._conditions = {
+                "hardware.connected": False,
+                "config.loaded": True,  # Set by ConfigManager
+                "hardware.enabled": False,
+                "sequence.active": False
+            }
+            
+            # Subscribe to hardware status
+            await self._message_broker.subscribe("hardware/status/plc", self._handle_hardware_status)
+            await self._message_broker.subscribe("hardware/status/motion", self._handle_hardware_status)
+            
+            logger.info("State manager initialization complete")
+            
+        except Exception as e:
+            logger.exception("Failed to initialize state manager")
+            raise StateError(f"State manager initialization failed: {str(e)}") from e
 
-    async def _handle_hardware_status(self, data: Dict[str, Any]) -> None:
-        """Handle hardware status updates."""
-        self._hardware_ready = data.get("connected", False)
-        await self._check_ready()
+    async def _handle_tag_update(self, data: Dict[str, Any]) -> None:
+        """Handle tag updates and check conditions."""
+        try:
+            tag = data.get("tag")
+            value = data.get("value")
+            logger.debug(f"Handling tag update: {tag} = {value}")
+            
+            # Update condition based on tag
+            if tag == "hardware.connected":
+                self._conditions["hardware.connected"] = value
+                logger.debug(f"Updated hardware.connected to {value}")
+                await self._check_conditions()
+                
+            elif tag == "hardware.enabled":
+                self._conditions["hardware.enabled"] = value
+                logger.debug(f"Updated hardware.enabled to {value}")
+                await self._check_conditions()
+                
+            elif tag == "sequence.active":
+                self._conditions["sequence.active"] = value
+                logger.debug(f"Updated sequence.active to {value}")
+                await self._check_conditions()
+                
+        except Exception as e:
+            logger.error(f"Error handling tag update: {e}")
+            await self._message_broker.publish("error", {
+                "error": str(e),
+                "topic": "tag/update",
+                "context": "tag_update",
+                "timestamp": datetime.now().isoformat()
+            })
 
-    async def _handle_motion_status(self, data: Dict[str, Any]) -> None:
-        """Handle motion status updates."""
-        self._motion_ready = data.get("connected", False)
-        await self._check_ready()
-
-    async def _check_ready(self) -> None:
-        """Check if system is ready for READY state."""
-        if self._hardware_ready and self._motion_ready:
+    async def _check_conditions(self) -> None:
+        """Check if conditions are met for state transition."""
+        try:
+            logger.debug(f"Checking conditions: {self._conditions}")
+            
+            # Check INITIALIZING -> READY transition
             if self._current_state == "INITIALIZING":
-                await self.set_state("READY")
+                if self._conditions.get("hardware.connected") and self._conditions.get("config.loaded"):
+                    logger.debug("Conditions met for READY transition")
+                    
+                    # Request state change
+                    await self._message_broker.publish("state/request", {
+                        "state": "READY",
+                        "timestamp": datetime.now().isoformat()
+                    })
+                    
+        except Exception as e:
+            logger.error(f"Error checking conditions: {e}")
+            await self._message_broker.publish("error", {
+                "error": str(e),
+                "topic": "state/conditions",
+                "context": "condition_check",
+                "timestamp": datetime.now().isoformat()
+            })
 
     async def set_state(self, new_state: str) -> None:
         """Set system state."""
@@ -99,22 +175,56 @@ class StateManager:
     async def _handle_state_request(self, data: Dict[str, Any]) -> None:
         """Handle state change requests."""
         try:
-            requested_state = data.get("requested_state")
-            if not requested_state:
-                raise ValueError("No state requested")
-            await self.set_state(requested_state)
+            # Check both keys for compatibility
+            requested_state = data.get("state") or data.get("requested_state")
+            logger.debug(f"Handling state request: {requested_state}")
             
+            if not requested_state:
+                error_msg = f"Invalid state request - no state specified: {data}"
+                logger.error(error_msg)
+                await self._message_broker.publish("error", {
+                    "error": error_msg,
+                    "topic": "state/request",
+                    "context": "state_request",
+                    "timestamp": datetime.now().isoformat()
+                })
+                return
+            
+            # Get current state config
+            current_state_config = self._state_config.get(self._current_state, {})
+            valid_transitions = current_state_config.get("next_states", [])
+            
+            # Validate transition
+            if requested_state in valid_transitions:
+                self._previous_state = self._current_state
+                self._current_state = requested_state
+                
+                # Publish state change
+                await self._message_broker.publish("state/change", {
+                    "state": self._current_state,
+                    "previous": self._previous_state,
+                    "timestamp": datetime.now().isoformat()
+                })
+                logger.info(f"State changed from {self._previous_state} to {self._current_state}")
+                
+            else:
+                error_msg = f"Invalid state transition from {self._current_state} to {requested_state}"
+                logger.error(error_msg)
+                await self._message_broker.publish("error", {
+                    "error": error_msg,
+                    "topic": "state/transition",
+                    "context": "state_transition",
+                    "timestamp": datetime.now().isoformat()
+                })
+                
         except Exception as e:
             logger.error(f"Error handling state request: {e}")
-            await self._message_broker.publish(
-                "error",
-                {
-                    "error": str(e),
-                    "context": "state request",
-                    "topic": "state/request",
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
+            await self._message_broker.publish("error", {
+                "error": str(e),
+                "topic": "state/request",
+                "context": "state_request",
+                "timestamp": datetime.now().isoformat()
+            })
 
     def _is_valid_transition(self, new_state: str) -> bool:
         """Check if state transition is valid."""
@@ -135,9 +245,29 @@ class StateManager:
         """Shutdown state manager."""
         try:
             await self._message_broker.unsubscribe("state/request", self._handle_state_request)
-            await self._message_broker.unsubscribe("hardware/status/plc", self._handle_hardware_status)
-            await self._message_broker.unsubscribe("hardware/status/motion", self._handle_motion_status)
+            await self._message_broker.unsubscribe("tag/update", self._handle_tag_update)
             logger.info("State manager shutdown complete")
         except Exception as e:
             logger.error(f"Error during shutdown: {e}")
             raise
+
+    async def _handle_hardware_status(self, data: Dict[str, Any]) -> None:
+        """Handle hardware status updates."""
+        try:
+            logger.debug(f"Handling hardware status: {data}")
+            if isinstance(data, dict) and data.get("connected"):
+                # Convert hardware status to tag update
+                await self._handle_tag_update({
+                    "tag": "hardware.connected",
+                    "value": True,
+                    "timestamp": datetime.now().isoformat()
+                })
+                
+        except Exception as e:
+            logger.error(f"Error handling hardware status: {e}")
+            await self._message_broker.publish("error", {
+                "error": str(e),
+                "topic": "hardware/status",
+                "context": "hardware_status",
+                "timestamp": datetime.now().isoformat()
+            })

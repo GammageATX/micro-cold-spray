@@ -51,6 +51,11 @@ class BaseWidget(QWidget):
         self._ui_manager = ui_manager
         self._update_tags = update_tags or []
         
+        # Get widget config from UI manager
+        widget_config = ui_manager.get_widget_config(widget_id)
+        if widget_config:
+            self._apply_widget_config(widget_config)
+        
         # Schedule async initialization
         asyncio.create_task(self.initialize())
     

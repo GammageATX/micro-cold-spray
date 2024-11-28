@@ -32,18 +32,10 @@ class ProcessValidator:
             if self._is_initialized:
                 return
 
-            # Subscribe to validation requests
+            # Subscribe to validation requests - using standard topic
             await self._message_broker.subscribe(
-                "parameters/validate",
+                "validation/request",
                 self._handle_validation_request
-            )
-            await self._message_broker.subscribe(
-                "pattern/validate",
-                self._handle_pattern_validation
-            )
-            await self._message_broker.subscribe(
-                "sequence/validate",
-                self._handle_sequence_validation
             )
             
             self._is_initialized = True
@@ -64,37 +56,37 @@ class ProcessValidator:
             raise ValidationError(f"Process validator shutdown failed: {str(e)}") from e
 
     async def _handle_validation_request(self, data: Dict[str, Any]) -> None:
-        """Handle parameter validation requests."""
+        """Handle validation requests."""
         try:
-            parameters = data.get("parameters", {})
-            if not parameters:
-                # Invalid request - publish to error topic
+            validation_type = data.get("type")
+            if not validation_type:
                 await self._message_broker.publish("error", {
-                    "error": "No parameters provided",
-                    "context": "parameter_validation",
-                    "topic": "validation/request",
+                    "error": "No validation type provided",
+                    "context": "validation_request",
                     "timestamp": datetime.now().isoformat()
                 })
                 return
-            
-            # Check for invalid parameter structure
-            if not any(key in parameters for key in ["motion", "process"]):
-                # Invalid parameters - publish to error topic
+
+            # Route to appropriate validation method
+            if validation_type == "parameters":
+                result = await self.validate_parameters(data.get("parameters", {}))
+            elif validation_type == "pattern":
+                result = await self.validate_pattern(data.get("pattern_type"), data.get("pattern_data", {}))
+            elif validation_type == "sequence":
+                result = await self.validate_sequence(data.get("sequence_data", {}))
+            else:
                 await self._message_broker.publish("error", {
-                    "error": "Invalid parameter structure",
-                    "context": "parameter_validation",
-                    "parameters": parameters,
-                    "topic": "validation/request",
+                    "error": f"Unknown validation type: {validation_type}",
+                    "context": "validation_request",
                     "timestamp": datetime.now().isoformat()
                 })
                 return
-            
-            # Valid structure - validate parameters
-            validation_result = await self.validate_parameters(parameters)
+
+            # Publish validation result
             await self._message_broker.publish(
-                "validation/result",
+                "validation/response",
                 {
-                    "result": validation_result,
+                    "result": result,
                     "request_id": data.get("request_id"),
                     "timestamp": datetime.now().isoformat()
                 }
@@ -112,7 +104,10 @@ class ProcessValidator:
     async def validate_parameters(self, parameters: Dict[str, Any]) -> ValidationResult:
         """Validate process parameters against configuration limits."""
         try:
-            process_config = self._config_manager.get_config("process")
+            # Get safety limits from hardware config
+            hw_config = self._config_manager.get_config("hardware")
+            safety_limits = hw_config["safety"]["gas"]
+            
             validation_result: ValidationResult = {
                 "valid": True,
                 "errors": [],
@@ -120,28 +115,18 @@ class ProcessValidator:
                 "timestamp": datetime.now().isoformat()
             }
             
-            # Validate motion parameters
-            if "motion" in parameters:
-                motion_params = parameters["motion"]
-                limits = process_config.get("limits", {}).get("motion", {})
-                
-                # Check distance
-                if "distance" in motion_params:
-                    if motion_params["distance"] < 0:
-                        validation_result["errors"].append("Distance cannot be negative")
-                        validation_result["valid"] = False
-                        
-                # Check velocity
-                if "velocity" in motion_params:
-                    if motion_params["velocity"] < 0 or motion_params["velocity"] > 1000:
-                        validation_result["errors"].append("Velocity out of range (0-1000)")
-                        validation_result["valid"] = False
-                        
-                # Check acceleration
-                if "acceleration" in motion_params:
-                    if motion_params["acceleration"] < 0:
-                        validation_result["errors"].append("Acceleration cannot be negative")
-                        validation_result["valid"] = False
+            # Validate gas pressures
+            if "main_pressure" in parameters:
+                main_pressure = parameters["main_pressure"]
+                if main_pressure < safety_limits["main_pressure"]["min"]:
+                    validation_result["errors"].append(
+                        f"Main pressure too low: {main_pressure} PSI (min {safety_limits['main_pressure']['min']} PSI)"
+                    )
+                    validation_result["valid"] = False
+                elif main_pressure < safety_limits["main_pressure"]["warning"]:
+                    validation_result["warnings"].append(
+                        f"Main pressure low: {main_pressure} PSI (warning at {safety_limits['main_pressure']['warning']} PSI)"
+                    )
             
             return validation_result
             

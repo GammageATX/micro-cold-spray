@@ -85,6 +85,73 @@ class ActionManager:
             )
 
     async def execute_action(self, action_type: str, parameters: Dict[str, Any]) -> None:
+        """Execute an action - either atomic or compound."""
+        try:
+            # Get action definition from config
+            action_config = self._config.get_config("operation")["actions"]["standard_actions"]
+            
+            # Check if this is a compound action
+            if action_type in action_config:
+                await self._execute_compound_action(action_type, parameters)
+            else:
+                await self._execute_atomic_action(action_type, parameters)
+                
+        except Exception as e:
+            logger.error(f"Error executing action {action_type}: {e}")
+            await self._message_broker.publish(
+                "action/error",
+                {
+                    "action": action_type,
+                    "error": str(e),
+                    "parameters": parameters,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+            raise OperationError(f"Action execution failed: {str(e)}") from e
+
+    async def _execute_compound_action(self, action_type: str, parameters: Dict[str, Any]) -> None:
+        """Execute a compound action from config."""
+        try:
+            action_def = self._config.get_config("operation")["actions"]["standard_actions"][action_type]
+            
+            # Execute each step in sequence
+            for step in action_def["sequence"]:
+                if step.startswith("wait_for"):
+                    await self._wait_for_condition(step, parameters)
+                else:
+                    await self._execute_atomic_action(step, parameters)
+                    
+        except Exception as e:
+            logger.error(f"Error executing compound action {action_type}: {e}")
+            await self._message_broker.publish(
+                "action/error",
+                {
+                    "action": action_type,
+                    "step": step,
+                    "error": str(e),
+                    "parameters": parameters,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+            raise OperationError(f"Compound action execution failed: {str(e)}") from e
+
+    async def _wait_for_condition(self, condition: str, parameters: Dict[str, Any]) -> None:
+        """Wait for a condition to be met."""
+        if condition == "wait_for_stability":
+            # Get stability thresholds from config
+            stability_config = self._config.get_config("hardware")["safety"]["gas"]
+            
+            while True:
+                # Check relevant tags
+                flow = await self._tag_manager.get_tag_value("gas.main.flow")
+                pressure = await self._tag_manager.get_tag_value("gas.main.pressure")
+                
+                if self._check_stability(flow, pressure, stability_config):
+                    break
+                    
+                await asyncio.sleep(0.1)
+
+    async def _execute_atomic_action(self, action_type: str, parameters: Dict[str, Any]) -> None:
         """Execute an atomic action."""
         try:
             # Validate action

@@ -1,17 +1,10 @@
 """Tag Manager test suite.
 
-Tests hardware interface according to .cursorrules:
+Tests hardware interface according to architecture rules:
 - TagManager is only component using hardware clients
 - All components use MessageBroker for tag access
-- Must follow tag operation message patterns
 - Must handle connection loss gracefully
-
-Tag Operations:
-- Must use "tag/set" for setting values
-- Must use "tag/get" for requesting values
-- Must use "tag/update" for receiving updates
-- Must use "tag/get/response" for get responses
-- Must use "error" for operation errors
+- Must follow tag operation message patterns
 
 Run with:
     pytest tests/test_tag_manager.py -v --asyncio-mode=auto
@@ -22,7 +15,6 @@ from typing import AsyncGenerator, Dict, Any
 from unittest.mock import AsyncMock, MagicMock
 import asyncio
 from datetime import datetime
-from collections import defaultdict
 from tests.conftest import TestOrder
 
 from micro_cold_spray.core.infrastructure.tags.tag_manager import TagManager
@@ -163,27 +155,121 @@ class TestTagManager:
         assert tag_manager._is_initialized
         assert tag_manager._plc_client is not None
 
-@pytest.mark.asyncio
-async def test_tag_manager_plc_read(tag_manager):
-    """Test PLC tag reading."""
-    # Track tag updates
-    updates = []
-    async def collect_updates(data: Dict[str, Any]) -> None:
-        updates.append(data)
-    await tag_manager._message_broker.subscribe("tag/get/response", collect_updates)
-    
-    # Request tag value using valid tag from tags.yaml
-    await tag_manager._message_broker.publish(
-        "tag/get",
-        {
-            "tag": "motion.position.x_position",
-            "timestamp": datetime.now().isoformat()
+    @pytest.mark.asyncio
+    async def test_tag_manager_connection_test(self, tag_manager, mock_plc_client, mock_ssh_client):
+        """Test connection testing."""
+        # Setup mocks
+        mock_plc_client.get_all_tags.return_value = {"test": 1.0}
+        mock_ssh_client.write_command.return_value = None
+        mock_ssh_client.read_response.return_value = "OK"
+
+        # Test connections
+        status = await tag_manager.test_connections()
+        assert status["plc"] is True
+        assert status["motion_controller"] is True
+
+    @pytest.mark.asyncio
+    async def test_tag_manager_connection_failure(self, tag_manager, mock_plc_client):
+        """Test connection failure handling."""
+        # Simulate connection failure
+        mock_plc_client.get_all_tags.side_effect = Exception("Connection failed")
+
+        # Test connections
+        status = await tag_manager.test_connections()
+        assert status["plc"] is False
+
+        # Verify error published
+        errors = []
+        async def collect_errors(data: Dict[str, Any]) -> None:
+            errors.append(data)
+        await tag_manager._message_broker.subscribe("error", collect_errors)
+
+        await tag_manager.initialize()
+        await asyncio.sleep(0.1)
+
+        assert len(errors) > 0
+        assert "Connection failed" in str(errors[0]["error"])
+
+    @pytest.mark.asyncio
+    async def test_tag_manager_polling(self, tag_manager, mock_plc_client):
+        """Test tag polling and updates."""
+        # Set up tag mapping
+        tag_manager._plc_tag_map = {
+            "motion.x.position": "AMC.Ax1Position",
+            "motion.y.position": "AMC.Ax2Position"
         }
-    )
-    await asyncio.sleep(0.1)
-    
-    # Verify response
-    assert len(updates) > 0
-    assert "value" in updates[0]
-    assert "timestamp" in updates[0]
-    assert "tag" in updates[0]
+
+        updates = []
+        async def collect_updates(data: Dict[str, Any]) -> None:
+            updates.append(data)
+        await tag_manager._message_broker.subscribe("tag/update", collect_updates)
+
+        # Simulate tag changes
+        mock_plc_client.get_all_tags.return_value = {
+            "AMC.Ax1Position": 100.0,
+            "AMC.Ax2Position": 200.0
+        }
+
+        await tag_manager.initialize()
+        await asyncio.sleep(0.2)  # Give time for polling
+
+        assert len(updates) > 0
+        assert "motion.x.position" in updates[0]["tag"]
+
+    @pytest.mark.asyncio
+    async def test_tag_manager_polling_error(self, tag_manager, mock_plc_client):
+        """Test polling error handling."""
+        errors = []
+        async def collect_errors(data: Dict[str, Any]) -> None:
+            errors.append(data)
+        await tag_manager._message_broker.subscribe("error", collect_errors)
+
+        # Set up tag mapping
+        tag_manager._plc_tag_map = {
+            "motion.x.position": "AMC.Ax1Position"
+        }
+
+        # Simulate polling failure
+        mock_plc_client.get_all_tags.side_effect = Exception("Poll failed")
+
+        await tag_manager.initialize()
+        await asyncio.sleep(0.2)  # Give time for polling error
+
+        assert len(errors) > 0
+        assert "Poll failed" in str(errors[0]["error"])
+
+    @pytest.mark.asyncio
+    async def test_tag_manager_set_tag(self, tag_manager, mock_plc_client):
+        """Test tag setting."""
+        # Test setting PLC tag
+        await tag_manager._message_broker.publish(
+            "tag/set",
+            {
+                "tag": "motion.position.x_position",
+                "value": 100.0
+            }
+        )
+        await asyncio.sleep(0.1)
+
+        mock_plc_client.write_tag.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_tag_manager_get_tag(self, tag_manager, mock_plc_client):
+        """Test tag getting."""
+        responses = []
+        async def collect_responses(data: Dict[str, Any]) -> None:
+            responses.append(data)
+        await tag_manager._message_broker.subscribe("tag/get/response", collect_responses)
+
+        # Request tag value
+        await tag_manager._message_broker.publish(
+            "tag/get",
+            {
+                "tag": "motion.position.x_position"
+            }
+        )
+        await asyncio.sleep(0.1)
+
+        assert len(responses) > 0
+        assert "value" in responses[0]
+        assert "timestamp" in responses[0]

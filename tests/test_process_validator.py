@@ -31,7 +31,7 @@ from micro_cold_spray.core.exceptions import ValidationError
 
 @TestOrder.PROCESS
 class TestProcessValidator:
-    """Process validation tests run after monitors."""
+    """Process Validator test suite."""
     
     @pytest.mark.asyncio
     async def test_process_validator_initialization(self, process_validator):
