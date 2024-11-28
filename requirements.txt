@@ -7,6 +7,7 @@ PyYAML>=6.0     # YAML configuration handling
 paramiko>=3.0.0  # SSH communication
 productivity>=0.13.0  # PLC communication (latest stable version)
 loguru>=0.7.0  # Better logging
+asyncio>=3.4.3  # Asyncio library
 
 # Development Dependencies
 pytest>=7.0.0  # Testing framework

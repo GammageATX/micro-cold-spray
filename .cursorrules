@@ -2,10 +2,11 @@
 
 ## Core Principles
 - Single Source of Truth (SSOT):
-  - TagManager: Only component that uses hardware clients (ProductivityPLC and paramiko)
+  - TagManager: Only component that uses hardware clients
   - ConfigManager: Handles all configurations
   - MessageBroker: Controls all pub/sub messaging
   - UIUpdateManager: Manages all UI updates
+  - StateManager: Manages all system state
 
 ## Python Environment Requirements
 1. Virtual Environment:
@@ -26,72 +27,51 @@
    - Must document purpose of each dependency
    - Must maintain minimum Python version compatibility
 
-## Hardware Client Requirements
-1. PLC Communication:
-   - Must use productivity library (from productivity import ProductivityPLC)
-   - Must use async/await pattern
-   - Must use CSV tag file for definitions
-   - Must implement regular polling
+## Message Patterns
+1. Tag Operations:
+   - Must use "tag/set" for setting values
+   - Must use "tag/get" for requesting values
+   - Must use "tag/update" for receiving updates
+   - Must use "tag/get/response" for get responses
+   - Must use "error" for operation errors
 
-2. SSH Communication:
-   - Must use paramiko library (import paramiko)
-   - Write-only commands
-   - No polling required
-   - Simple command interface
+2. State Operations:
+   - Must use "state/request" for requesting state changes
+   - Must use "state/change" for observing state updates
+   - Must use "state/error" for state operation errors
+   - Must get state directly from StateManager
+   - Must not store state in tags
 
-## Access Patterns
+3. Config Operations:
+   - Must use "config/update/*" for updates
+   - Must use "config/update/response" for responses
+   - Must publish all runtime changes
 
-1. Direct Access Components:
-   - ConfigManager:
-     - Direct access allowed for all components
-     - Used for static configuration loading
-     - Runtime updates received via MessageBroker
+4. Error Handling:
+   - Must publish all errors to "error" topic
+   - Must include error context
+   - Must include source topic
+   - Must include timestamp
 
-2. MessageBroker Communication:
-   - Required for all runtime communication
-   - Required for all hardware commands
-   - Required for all state changes
-   - Required for all configuration updates
-   - Required for all error reporting
-   - Used for tag value updates and requests
-   - Handles command/response patterns via request/response
+## UI Component Rules
+1. Widget Requirements:
+   - Must register with UIUpdateManager
+   - Must implement update() method
+   - Must handle async operations
+   - Must cleanup on destroy
 
-3. Hardware Communication:
-   - Controllers:
-     - Send commands via MessageBroker to TagManager
-     - Use "tag/set" for commands
-     - Use "tag/get" for status
-     - Never access hardware directly
-   
-   - TagManager:
-     - Only component to use hardware clients (PLC and SSH)
-     - Uses exact PLC tag names from hardware
-     - No internal tag name translations
-     - Manages all hardware read/write operations
-     - Publishes hardware updates via MessageBroker
-     - All components must use MessageBroker to access tags
-
-## Logging Standards
-1. Logger Usage:
-   - Must use loguru for all logging
-   - Must include context in log messages
-   - Must use appropriate log levels
-   - Must handle async logging properly
-
-## Qt Style Rules
-
-1. Frame Style Constants:
+2. Frame Style Constants:
    - Must use QFrame.Shape.* for frame shapes
    - Must use QFrame.Shadow.* for frame shadows
-   - Must use proper Qt6 enum classes for all Qt constants
+   - Must use proper Qt6 enum classes
 
-2. Alignment Constants:
+3. Alignment Constants:
    - Must use Qt.AlignmentFlag.* for alignments
    - No direct use of Qt5-style constants
 
-3. Size Policy Constants:
+4. Size Policy Constants:
    - Must use QSizePolicy.Policy.* for size policies
-   - Must use proper enum classes for all policy settings
+   - Must use proper enum classes
 
 ## Testing Standards
 1. Test Requirements:
@@ -100,22 +80,17 @@
    - Must use pytest-qt for UI tests
    - Must maintain test coverage standards
 
-## Code Quality Standards
-1. Implementation Requirements:
-   - Write complete implementations (no placeholders)
-   - Provide full code examples
-   - Only modify existing code when justified
+2. Test Fixtures:
+   - Must initialize required message topics
+   - Must provide proper cleanup
+   - Must handle async operations
+   - Must mock hardware clients
 
-2. Formatting:
-   - Must use black for code formatting
-   - Must use pylint for code linting
-   - Must use mypy for type checking
-
-3. Documentation:
-   - Must maintain up-to-date docstrings
-   - Must document all public interfaces
-   - Must include type hints
-   - Must document async behavior
+3. Test Patterns:
+   - Must test error conditions
+   - Must verify message publishing
+   - Must check state transitions
+   - Must validate UI updates
 
 ## Error Handling Rules
 1. Required Checks:
@@ -130,12 +105,7 @@
    - All message operations
    - All hardware operations
 
-3. Config Access:
-   - Core services may access ConfigManager directly
-   - UI components must use UIUpdateManager
-   - Config changes must be published through MessageBroker
-
-4. Error Logging:
+3. Error Logging:
    - All exceptions must be caught and logged
    - All error messages must be descriptive
    - All error handlers must include context

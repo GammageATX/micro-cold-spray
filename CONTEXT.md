@@ -165,6 +165,13 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
    - Includes timeout handling
    - Returns response or raises exception
 
+3. State Operations:
+   - Must use "state/request" for requesting state changes
+   - Must use "state/change" for observing state updates
+   - Must use "state/error" for state operation errors
+   - Must get state directly from StateManager
+   - Must not store state in tags
+
 ## Dependencies
 
 ### Core Dependencies
@@ -183,3 +190,44 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
 - pylint: Code linting
 - pytest-cov: Test coverage
 - pytest-mock: Mocking support
+
+## Access Patterns
+
+1. Direct Access Components:
+   - ConfigManager:
+     - Direct access allowed for all components
+     - Used for static configuration loading
+     - Runtime updates received via MessageBroker
+   - StateManager:
+     - Direct access for state queries
+     - State changes via set_state()
+     - State updates observed via state/change
+
+2. MessageBroker Communication:
+   - Required for all runtime communication
+   - Required for all hardware commands
+   - Required for all configuration updates
+   - Required for all error reporting
+   - Used for observing state changes
+   - Handles command/response patterns
+
+3. State Management:
+   - StateManager is single source of truth
+   - Components get state directly from StateManager
+   - Components observe state changes via state/change
+   - Invalid transitions publish to error topic
+   - State not stored in tags
+
+4. Hardware Communication:
+   - TagManager:
+     - Only component to use hardware clients
+     - Manages all hardware read/write operations
+     - Publishes hardware updates via MessageBroker
+     - Uses exact PLC tag names from hardware
+
+5. UI Updates:
+   - UIUpdateManager:
+     - Manages all UI component updates
+     - Handles widget registration
+     - Routes updates to widgets
+     - Forwards config updates to UI

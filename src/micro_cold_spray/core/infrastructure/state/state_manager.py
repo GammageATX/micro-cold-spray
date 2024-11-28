@@ -10,41 +10,26 @@ from ...exceptions import StateError
 class StateManager:
     """Manages system state transitions."""
     
-    _instance = None
-    
-    def __new__(cls, *args, **kwargs):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
-        return cls._instance
-    
     def __init__(self, message_broker: MessageBroker, config_manager: ConfigManager):
-        if self._initialized:
-            return
-        
         self._message_broker = message_broker
         self._config_manager = config_manager
         self._state_config = self._config_manager.get_config('state')
+        self._current_state = "INITIALIZING"
+        self._previous_state = ""
         self._initialized = True
         logger.info("State manager initialized")
 
     async def start(self) -> None:
-        """Initialize state tags and subscriptions."""
+        """Initialize state manager."""
         try:
             # Subscribe to messages
             await self._message_broker.subscribe("state/request", self._handle_state_request)
             await self._message_broker.subscribe("config/update/state", self._handle_config_update)
             
-            # Initialize state tags
-            await self._message_broker.publish("tag/set", {
-                "tag": "system_state.state",
-                "value": "INITIALIZING",
-                "timestamp": datetime.now().isoformat()
-            })
-            
-            await self._message_broker.publish("tag/set", {
-                "tag": "system_state.previous_state",
-                "value": "",
+            # Publish initial state (for other components to observe)
+            await self._message_broker.publish("state/change", {
+                "previous_state": self._previous_state,
+                "current_state": self._current_state,
                 "timestamp": datetime.now().isoformat()
             })
             
@@ -104,83 +89,45 @@ class StateManager:
 
     async def get_current_state(self) -> str:
         """Get the current system state."""
-        try:
-            response = await self._message_broker.request(
-                "tag/get",
-                {
-                    "tag": "system_state.state"
-                }
-            )
-            return response.get('value', 'ERROR')
-            
-        except Exception as e:
-            logger.error(f"Error getting current state: {e}")
-            return 'ERROR'
+        return self._current_state
 
-    async def get_previous_state(self) -> Optional[str]:
+    async def get_previous_state(self) -> str:
         """Get the previous system state."""
-        try:
-            response = await self._message_broker.request(
-                "tag/get",
-                {
-                    "tag": "system_state.previous_state"
-                }
-            )
-            return response.get('value')
-            
-        except Exception as e:
-            logger.error(f"Error getting previous state: {e}")
-            return None
+        return self._previous_state
 
     async def set_state(self, new_state: str) -> None:
         """Set the system state."""
         try:
-            current_state = await self.get_current_state()
+            logger.debug(f"Attempting state transition: {self._current_state} -> {new_state}")
             
             # Don't update if state hasn't changed
-            if current_state == new_state:
+            if self._current_state == new_state:
+                logger.debug("State unchanged, skipping transition")
                 return
                 
             # Check if transition is allowed
             if not await self.can_transition_to(new_state):
-                logger.error(f"Invalid state transition from {current_state} to {new_state}")
+                logger.warning(f"Invalid state transition from {self._current_state} to {new_state}")
                 await self._message_broker.publish("error", {
-                    "error": f"Invalid state transition: {current_state} -> {new_state}",
+                    "error": f"Invalid state transition: {self._current_state} -> {new_state}",
                     "topic": "state/transition",
-                    "from": current_state,
+                    "from": self._current_state,
                     "to": new_state
                 })
                 return
                 
-            # Update state tags
-            timestamp = datetime.now().isoformat()
-            
-            await self._message_broker.publish("tag/set", {
-                "tag": "system_state.previous_state",
-                "value": current_state,
-                "timestamp": timestamp
-            })
-            
-            await self._message_broker.publish("tag/set", {
-                "tag": "system_state.state",
-                "value": new_state,
-                "timestamp": timestamp
-            })
-            
-            await self._message_broker.publish("tag/set", {
-                "tag": "system_state.state_changed",
-                "value": timestamp,
-                "timestamp": timestamp
-            })
+            # Update internal state
+            self._previous_state = self._current_state
+            self._current_state = new_state
             
             # Publish state change event
             await self._message_broker.publish("state/change", {
-                "previous_state": current_state,
-                "current_state": new_state,
-                "timestamp": timestamp
+                "previous_state": self._previous_state,
+                "current_state": self._current_state,
+                "timestamp": datetime.now().isoformat()
             })
             
-            logger.info(f"State changed from {current_state} to {new_state}")
+            logger.info(f"State changed from {self._previous_state} to {self._current_state}")
             
         except Exception as e:
             logger.error(f"Error setting state: {e}")
