@@ -1,0 +1,92 @@
+version: "1.0.0"
+application:
+  # Core Application Info
+  info:
+    name: "Micro Cold Spray Control System"
+    version: "1.0.0"
+    description: "Control system for micro cold spray deposition"
+
+  # Layer Configuration Files
+  layers:
+    config: "config/config.yaml"      # Configuration layer
+    hardware: "config/hardware.yaml"   # Hardware layer
+    process: "config/process.yaml"     # Process layer
+    operation: "config/operation.yaml" # Operation layer
+    state: "config/state.yaml"        # State layer
+    tags: "config/tags.yaml"          # Tag definitions
+
+  # Core Paths
+  paths:
+    config:
+      root: "config/"
+      schemas: "config/schemas/"
+      backups: "config/backups/"
+    
+    data:
+      root: "data/"
+      parameters:
+        library:
+          materials: "data/parameters/library/materials/"
+          process: "data/parameters/library/process/"
+        history: "data/parameters/history/"
+      patterns:
+        library: "data/patterns/library/"
+        custom: "data/patterns/custom/"
+        history: "data/patterns/history/"
+      sequences:
+        library: "data/sequences/library/"
+        history: "data/sequences/history/"
+      runs: "data/runs/"
+    
+    logs: "logs/"
+    resources: "resources/"
+
+  # Runtime Environment
+  environment:
+    mode: "development"  # development/production
+    debug: true
+    async_mode: true
+    log_level: "INFO"
+
+  # Core Services
+  services:
+    config_manager:
+      cache_enabled: true
+      backup_enabled: true
+      validation_enabled: true
+    
+    state_manager:
+      history_enabled: true
+      history_length: 1000
+    
+    data_manager:
+      auto_backup: true
+      compression_enabled: true
+    
+    logging:
+      console:
+        enabled: true
+        format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+      file:
+        enabled: true
+        path: "logs/mcs.log"
+        max_size: 10485760  # 10MB
+        backup_count: 5
+
+  # Development Tools
+  development:
+    mock_hardware: true
+    profiling: false
+    testing:
+      enabled: false
+      coverage: false
+
+window:
+  title: "Micro Cold Spray (Minimal)"
+  x: 100
+  y: 100
+  width: 800
+  height: 600
+
+# Add only the specific configurations needed for your tab/widget
+
