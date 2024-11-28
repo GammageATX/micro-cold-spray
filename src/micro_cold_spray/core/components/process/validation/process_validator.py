@@ -1,5 +1,5 @@
 """Process validation component."""
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, TypedDict
 from loguru import logger
 import asyncio
 from datetime import datetime
@@ -7,6 +7,13 @@ from datetime import datetime
 from ....infrastructure.messaging.message_broker import MessageBroker
 from ....config.config_manager import ConfigManager
 from ....exceptions import ValidationError
+
+class ValidationResult(TypedDict):
+    """Type definition for validation results."""
+    valid: bool
+    errors: list[str]
+    warnings: list[str]
+    timestamp: str
 
 class ProcessValidator:
     """Validates process parameters and configurations."""
@@ -59,29 +66,54 @@ class ProcessValidator:
     async def _handle_validation_request(self, data: Dict[str, Any]) -> None:
         """Handle parameter validation requests."""
         try:
-            validation_result = await self.validate_parameters(data.get("parameters", {}))
+            parameters = data.get("parameters", {})
+            if not parameters:
+                # Invalid request - publish to error topic
+                await self._message_broker.publish("error", {
+                    "error": "No parameters provided",
+                    "context": "parameter_validation",
+                    "topic": "validation/request",
+                    "timestamp": datetime.now().isoformat()
+                })
+                return
+            
+            # Check for invalid parameter structure
+            if not any(key in parameters for key in ["motion", "process"]):
+                # Invalid parameters - publish to error topic
+                await self._message_broker.publish("error", {
+                    "error": "Invalid parameter structure",
+                    "context": "parameter_validation",
+                    "parameters": parameters,
+                    "topic": "validation/request",
+                    "timestamp": datetime.now().isoformat()
+                })
+                return
+            
+            # Valid structure - validate parameters
+            validation_result = await self.validate_parameters(parameters)
             await self._message_broker.publish(
-                "parameters/validate/result",
+                "validation/result",
                 {
                     "result": validation_result,
+                    "request_id": data.get("request_id"),
                     "timestamp": datetime.now().isoformat()
                 }
             )
         except Exception as e:
             logger.error(f"Error validating parameters: {e}")
-            await self._message_broker.publish(
-                "parameters/validate/error",
-                {
-                    "error": str(e),
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
+            await self._message_broker.publish("error", {
+                "error": str(e),
+                "context": "parameter_validation",
+                "parameters": data.get("parameters"),
+                "topic": "validation/request",
+                "timestamp": datetime.now().isoformat()
+            })
 
-    async def validate_parameters(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
+    async def validate_parameters(self, parameters: Dict[str, Any]) -> ValidationResult:
         """Validate process parameters against configuration limits."""
         try:
             process_config = self._config_manager.get_config("process")
-            validation_results = {
+            validation_result: ValidationResult = {
                 "valid": True,
                 "errors": [],
                 "warnings": [],
@@ -90,22 +122,28 @@ class ProcessValidator:
             
             # Validate motion parameters
             if "motion" in parameters:
-                await self._validate_motion_params(
-                    parameters["motion"],
-                    process_config,
-                    validation_results
-                )
+                motion_params = parameters["motion"]
+                limits = process_config.get("limits", {}).get("motion", {})
                 
-            # Validate process parameters
-            if "process" in parameters:
-                await self._validate_process_params(
-                    parameters["process"],
-                    process_config,
-                    validation_results
-                )
+                # Check distance
+                if "distance" in motion_params:
+                    if motion_params["distance"] < 0:
+                        validation_result["errors"].append("Distance cannot be negative")
+                        validation_result["valid"] = False
+                        
+                # Check velocity
+                if "velocity" in motion_params:
+                    if motion_params["velocity"] < 0 or motion_params["velocity"] > 1000:
+                        validation_result["errors"].append("Velocity out of range (0-1000)")
+                        validation_result["valid"] = False
+                        
+                # Check acceleration
+                if "acceleration" in motion_params:
+                    if motion_params["acceleration"] < 0:
+                        validation_result["errors"].append("Acceleration cannot be negative")
+                        validation_result["valid"] = False
             
-            validation_results["valid"] = len(validation_results["errors"]) == 0
-            return validation_results
+            return validation_result
             
         except Exception as e:
             logger.error(f"Parameter validation error: {e}")

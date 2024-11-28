@@ -1,0 +1,5 @@
+patterns:
+  test_pattern:
+    parameters:
+      duration: 10
+    type: spray

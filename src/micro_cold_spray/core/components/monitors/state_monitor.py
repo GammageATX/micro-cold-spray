@@ -82,28 +82,17 @@ class StateMonitor:
             raise MonitorError(f"State monitor stop failed: {str(e)}") from e
 
     async def _handle_state_change(self, data: Dict[str, Any]) -> None:
-        """Handle system state changes."""
+        """Handle state change events."""
         try:
-            state_type = data.get("type", "system")
-            new_state = data.get("state")
-            old_state = self._current_states.get(state_type)
-            
-            if not self._validate_transition(state_type, old_state, new_state):
-                raise ValueError(f"Invalid state transition: {old_state} -> {new_state}")
-                
-            self._current_states[state_type] = new_state
-            
-            await self._tag_manager.set_tag(
-                f"{state_type}.state",
+            # Forward state change
+            await self._message_broker.publish(
+                "state/change",
                 {
-                    "current": new_state,
-                    "previous": old_state,
+                    "state": data["state"],
+                    "type": data["type"],
                     "timestamp": datetime.now().isoformat()
                 }
             )
-            
-            logger.info(f"{state_type} state transition: {old_state} -> {new_state}")
-            
         except Exception as e:
             logger.error(f"Error handling state change: {e}")
             await self._message_broker.publish("state/change/error", {

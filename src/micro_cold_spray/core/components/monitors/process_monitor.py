@@ -70,11 +70,7 @@ class ProcessMonitor:
     async def _handle_process_status(self, data: Dict[str, Any]) -> None:
         """Handle process status updates."""
         try:
-            # Update process status tags
-            for parameter, value in data.items():
-                await self._tag_manager.set_tag(f"process.status.{parameter}", value)
-                
-            # Publish consolidated status
+            # Publish status update directly
             await self._message_broker.publish(
                 "process/status/updated",
                 {
@@ -82,7 +78,6 @@ class ProcessMonitor:
                     "timestamp": datetime.now().isoformat()
                 }
             )
-            
         except Exception as e:
             logger.error(f"Error handling process status: {e}")
             await self._message_broker.publish("process/status/error", {

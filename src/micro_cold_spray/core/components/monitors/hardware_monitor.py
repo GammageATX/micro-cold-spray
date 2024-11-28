@@ -83,11 +83,7 @@ class HardwareMonitor:
     async def _handle_hardware_status(self, data: Dict[str, Any]) -> None:
         """Handle hardware status updates."""
         try:
-            # Update hardware status tags
-            for component, status in data.items():
-                await self._tag_manager.set_tag(f"hardware.status.{component}", status)
-                
-            # Publish consolidated status
+            # Publish status update directly
             await self._message_broker.publish(
                 "hardware/status/updated",
                 {
@@ -95,7 +91,6 @@ class HardwareMonitor:
                     "timestamp": datetime.now().isoformat()
                 }
             )
-            
         except Exception as e:
             logger.error(f"Error handling hardware status: {e}")
             await self._message_broker.publish("hardware/status/error", {

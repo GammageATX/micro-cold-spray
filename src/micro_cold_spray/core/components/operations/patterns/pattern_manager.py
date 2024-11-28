@@ -3,9 +3,9 @@ from typing import Dict, Any, Optional
 from loguru import logger
 import asyncio
 from datetime import datetime
+from pathlib import Path
 
 from ....infrastructure.messaging.message_broker import MessageBroker
-from ....infrastructure.tags.tag_manager import TagManager
 from ....config.config_manager import ConfigManager
 from ....components.process.validation.process_validator import ProcessValidator
 from ....exceptions import OperationError
@@ -15,19 +15,16 @@ class PatternManager:
     
     def __init__(
         self,
-        config_manager: ConfigManager,
-        tag_manager: TagManager,
         message_broker: MessageBroker,
+        config_manager: ConfigManager,
         process_validator: ProcessValidator
     ):
         """Initialize with required dependencies."""
-        self._config = config_manager
-        self._tag_manager = tag_manager
         self._message_broker = message_broker
+        self._config_manager = config_manager
         self._validator = process_validator
         self._patterns: Dict[str, Dict[str, Any]] = {}
         self._is_initialized = False
-        
         logger.info("Pattern manager initialized")
 
     async def initialize(self) -> None:
@@ -37,27 +34,40 @@ class PatternManager:
                 return
                 
             # Load patterns from config
-            patterns_config = self._config.get_config('patterns')
+            patterns_config = self._config_manager.get_config('patterns')
             self._patterns = patterns_config.get('patterns', {})
             
             # Subscribe to pattern-related messages
             await self._message_broker.subscribe(
+                "pattern/create",
+                self._handle_pattern_create
+            )
+            await self._message_broker.subscribe(
                 "pattern/update",
                 self._handle_pattern_update
+            )
+            await self._message_broker.subscribe(
+                "pattern/delete",
+                self._handle_pattern_delete
             )
             
             self._is_initialized = True
             logger.info("Pattern manager initialization complete")
             
         except Exception as e:
-            logger.exception("Failed to initialize pattern manager")
+            logger.error(f"Failed to initialize pattern manager: {e}")
+            await self._message_broker.publish("error", {
+                "error": str(e),
+                "topic": "pattern/init",
+                "timestamp": datetime.now().isoformat()
+            })
             raise OperationError(f"Pattern manager initialization failed: {str(e)}") from e
 
     async def shutdown(self) -> None:
         """Shutdown pattern manager."""
         try:
             # Save patterns to config if needed
-            await self._config.update_config('patterns', {'patterns': self._patterns})
+            await self._config_manager.update_config('patterns', {'patterns': self._patterns})
             self._is_initialized = False
             logger.info("Pattern manager shutdown complete")
             
@@ -92,21 +102,12 @@ class PatternManager:
             if pattern_name not in self._patterns:
                 raise KeyError(f"Pattern not found: {pattern_name}")
                 
-            # Update pattern access tag
-            await self._tag_manager.set_tag(
-                "patterns.access",
-                {
-                    "pattern_name": pattern_name,
-                    "action": "read",
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-            
             # Publish pattern access event
             await self._message_broker.publish(
                 "patterns/accessed",
                 {
                     "pattern_name": pattern_name,
+                    "action": "read",
                     "timestamp": datetime.now().isoformat()
                 }
             )
@@ -141,19 +142,9 @@ class PatternManager:
             self._patterns[pattern_name].update(updates)
             
             # Update through config manager to persist changes
-            await self._config.update_config(
+            await self._config_manager.update_config(
                 'patterns',
                 {'patterns': {pattern_name: self._patterns[pattern_name]}}
-            )
-            
-            # Update pattern change tag
-            await self._tag_manager.set_tag(
-                "patterns.change",
-                {
-                    "pattern_name": pattern_name,
-                    "updates": updates,
-                    "timestamp": datetime.now().isoformat()
-                }
             )
             
             # Publish pattern update event
@@ -195,7 +186,7 @@ class PatternManager:
             self._patterns[pattern_name] = pattern_data
             
             # Update through config manager to persist
-            await self._config.update_config(
+            await self._config_manager.update_config(
                 'patterns',
                 {'patterns': {pattern_name: pattern_data}}
             )
@@ -243,7 +234,7 @@ class PatternManager:
             del self._patterns[pattern_name]
             
             # Update through config manager to persist
-            await self._config.update_config(
+            await self._config_manager.update_config(
                 'patterns',
                 {'patterns': self._patterns}
             )
@@ -281,3 +272,123 @@ class PatternManager:
     def list_patterns(self) -> Dict[str, Dict[str, Any]]:
         """Get all patterns."""
         return self._patterns.copy()
+
+    async def _handle_pattern_create(self, data: Dict[str, Any]) -> None:
+        """Handle pattern creation requests."""
+        try:
+            pattern_name = data.get("name")
+            pattern_data = data.get("pattern")
+            
+            if not pattern_name or not pattern_data:
+                raise OperationError("Missing pattern name or data")
+            
+            # Validate pattern parameters
+            validation_result = await self._validator.validate_parameters(pattern_data.get("parameters", {}))
+            if not validation_result["valid"]:
+                await self._message_broker.publish("error", {
+                    "error": "Invalid pattern parameters",
+                    "context": validation_result["errors"],
+                    "topic": "pattern/create",
+                    "timestamp": datetime.now().isoformat()
+                })
+                return
+            
+            # Store pattern
+            self._patterns[pattern_name] = pattern_data
+            
+            # Publish success
+            await self._message_broker.publish(
+                "pattern/create/response",
+                {
+                    "name": pattern_name,
+                    "success": True,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"Error creating pattern: {e}")
+            await self._message_broker.publish("error", {
+                "error": str(e),
+                "context": "pattern_create",
+                "topic": "pattern/create",
+                "timestamp": datetime.now().isoformat()
+            })
+
+    async def _handle_pattern_update(self, data: Dict[str, Any]) -> None:
+        """Handle pattern update requests."""
+        try:
+            pattern_name = data.get("name")
+            pattern_data = data.get("pattern")
+            
+            if not pattern_name or not pattern_data:
+                raise OperationError("Missing pattern name or data")
+            
+            if pattern_name not in self._patterns:
+                raise OperationError(f"Pattern not found: {pattern_name}")
+            
+            # Validate updated parameters
+            validation_result = await self._validator.validate_parameters(pattern_data.get("parameters", {}))
+            if not validation_result["valid"]:
+                await self._message_broker.publish("error", {
+                    "error": "Invalid pattern parameters",
+                    "context": validation_result["errors"],
+                    "topic": "pattern/update",
+                    "timestamp": datetime.now().isoformat()
+                })
+                return
+            
+            # Update pattern
+            self._patterns[pattern_name].update(pattern_data)
+            
+            # Publish success
+            await self._message_broker.publish(
+                "pattern/update/response",
+                {
+                    "name": pattern_name,
+                    "success": True,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"Error updating pattern: {e}")
+            await self._message_broker.publish("error", {
+                "error": str(e),
+                "context": "pattern_update",
+                "topic": "pattern/update",
+                "timestamp": datetime.now().isoformat()
+            })
+
+    async def _handle_pattern_delete(self, data: Dict[str, Any]) -> None:
+        """Handle pattern deletion requests."""
+        try:
+            pattern_name = data.get("name")
+            
+            if not pattern_name:
+                raise OperationError("Missing pattern name")
+            
+            if pattern_name not in self._patterns:
+                raise OperationError(f"Pattern not found: {pattern_name}")
+            
+            # Delete pattern
+            del self._patterns[pattern_name]
+            
+            # Publish success
+            await self._message_broker.publish(
+                "pattern/delete/response",
+                {
+                    "name": pattern_name,
+                    "success": True,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"Error deleting pattern: {e}")
+            await self._message_broker.publish("error", {
+                "error": str(e),
+                "context": "pattern_delete",
+                "topic": "pattern/delete",
+                "timestamp": datetime.now().isoformat()
+            })

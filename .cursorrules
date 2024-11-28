@@ -109,3 +109,22 @@
    - All exceptions must be caught and logged
    - All error messages must be descriptive
    - All error handlers must include context
+
+## Monitor Rules
+1. Monitor Requirements:
+   - Must use MessageBroker for all communication
+   - Must not access hardware directly
+   - Must handle connection loss gracefully
+   - Must publish status updates
+
+2. Status Updates:
+   - Must include timestamps
+   - Must use standardized topics
+   - Must handle errors properly
+   - Must publish error context
+
+3. Monitor Topics:
+   - Must use "hardware/status/*" for hardware
+   - Must use "process/status/*" for process
+   - Must use "state/change" for state
+   - Must use "*/error" for errors

@@ -231,3 +231,33 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
      - Handles widget registration
      - Routes updates to widgets
      - Forwards config updates to UI
+
+### Monitor Components
+1. Hardware Monitor:
+   - Purpose: Monitor hardware status
+   - Reports connection status
+   - Reports hardware errors
+   - Uses MessageBroker for all communication
+   - Topics: hardware/status/*, hardware/error
+
+2. Process Monitor:
+   - Purpose: Monitor process parameters
+   - Reports process status
+   - Reports process errors
+   - Uses MessageBroker for all communication
+   - Topics: process/status/*, process/error
+
+3. State Monitor:
+   - Purpose: Monitor state transitions
+   - Reports state changes
+   - Reports invalid transitions
+   - Uses MessageBroker for all communication
+   - Topics: state/change, state/error
+
+### Message Patterns (Updated)
+4. Monitor Operations:
+   - Must use "hardware/status/*" for hardware updates
+   - Must use "process/status/*" for process updates
+   - Must use "state/change" for state updates
+   - Must include timestamps in all messages
+   - Must include error context in error messages
