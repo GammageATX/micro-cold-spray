@@ -1,12 +1,15 @@
 # Project Context
 
 ## System Overview
+
 The Micro Cold Spray system is an automated manufacturing solution that controls hardware equipment for material deposition processes.
 
 ## Development Environment
 
 ### Python Environment
+
 1. Virtual Environment Setup:
+
    ```bash
    python -m venv .venv
    source .venv/Scripts/activate  # Windows with Git Bash
@@ -15,14 +18,14 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
    # OR
    source .venv/bin/activate     # Linux/Mac
    ```
-
 2. Package Installation:
+
    ```bash
    pip install -r requirements.txt
    pip install -e .  # Install package in development mode
    ```
-
 3. Running the Application:
+
    ```bash
    python -m micro_cold_spray
    # OR
@@ -32,6 +35,7 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
 ## Core Components
 
 ### State Management
+
 - **StateManager**: Maintains the system's state machine
 - **Location**: `src/micro_cold_spray/core/infrastructure/state/state_manager.py`
 - **Configuration**: `config/state.yaml`
@@ -40,6 +44,7 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
 - **ProcessMonitor**: `src/micro_cold_spray/core/infrastructure/state/process_monitor.py`
 
 ### Configuration System
+
 - **ConfigManager**: Central configuration handler
 - **Location**: `src/micro_cold_spray/core/config/config_manager.py`
 - **Configuration Files**:
@@ -53,6 +58,7 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
   - `config/ui.yaml`: UI configuration
 
 ### Hardware Control
+
 - **EquipmentController**: Manages hardware equipment
 - **MotionController**: Handles motion control systems
 - **Locations**:
@@ -60,6 +66,7 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
   - `src/micro_cold_spray/core/hardware/controllers/motion_controller.py`
 
 ### Process Management
+
 - **ProcessValidator**: Validates process parameters and configurations
 - **ParameterManager**: Handles operation parameters
 - **SequenceManager**: Controls operation sequences
@@ -73,12 +80,14 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
   - `src/micro_cold_spray/core/components/process/actions/action_manager.py`
 
 ### Tag Management
+
 - **TagManager**: Central registry for all system tags
 - **Location**: `src/micro_cold_spray/core/infrastructure/tags/tag_manager.py`
 
 ### Hardware Tag Management
 
 1. PLC Tags:
+
    - Use exact tag names from CSV file
    - Regular polling required
    - Async communication pattern
@@ -91,8 +100,8 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
      - MainSwitch, FeederSwitch, VentSwitch
      - MainFlowRate, FeederFlowRate
      - ChamberPressure
-
 2. SSH Tags (Powder Feeder):
+
    - Simple command interface via paramiko
    - No polling required
    - Commands:
@@ -103,19 +112,20 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
 ## Core Manager Access Patterns
 
 1. ConfigManager
+
    - Purpose: Provides static configuration access
    - Direct Access: Allowed for all components
    - Usage: Constructor injection for initial setup
    - Runtime Updates: Received via MessageBroker
-
 2. TagManager
+
    - Purpose: Hardware communication management
    - Direct Access: None - all components use MessageBroker
    - Only component that uses hardware clients
    - Manages all tag reads/writes through clients
    - Publishes updates via MessageBroker
-
 3. MessageBroker
+
    - Purpose: System-wide communication
    - Used by all components for:
      - Hardware commands (through TagManager)
@@ -127,6 +137,7 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
 ## Project Organization
 
 ### Code Organization
+
 - Core functionality in `src/micro_cold_spray/core/`
 - Configuration files in `config/`
 - Run data stored in `data/runs`
@@ -137,35 +148,39 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
 - Program log in `logs/`
 
 ### Testing Requirements
+
 - All new features require corresponding tests
 - Test files must include command and description headers
 - Integration tests should verify component interactions
 
 ### Documentation Standards
+
 - Keep README.md updated with setup and usage instructions
 - Maintain TODO.md for tracking development tasks
 - Document architectural decisions in commit messages
 
 ### Version Control
+
 - Follow .gitignore for excluding files
 - Respect .cursorignore patterns
-- Commit messages should reference relevant issues/tasks 
+- Commit messages should reference relevant issues/tasks
 
 ### Message Patterns
 
 1. Tag Access:
+
    - Write: Components send "tag/set" with {tag, value}
    - Read: Components send "tag/get" with {tag}
    - Updates: Components receive "tag_update" with {tag: value}
    - Responses: Components receive "tag_get_response" with {tag, value}
-
 2. Command/Response:
+
    - Components can use MessageBroker.request() for synchronous operations
    - Used for status monitoring and value retrieval
    - Includes timeout handling
    - Returns response or raises exception
-
 3. State Operations:
+
    - Must use "state/request" for requesting state changes
    - Must use "state/change" for observing state updates
    - Must use "state/error" for state operation errors
@@ -175,6 +190,7 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
 ## Dependencies
 
 ### Core Dependencies
+
 - PySide6: Qt6 GUI framework
 - PyYAML: YAML configuration handling
 - paramiko: SSH communication
@@ -182,6 +198,7 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
 - loguru: Enhanced logging
 
 ### Development Tools
+
 - pytest: Testing framework
 - pytest-asyncio: Async testing support
 - pytest-qt: Qt testing support
@@ -194,6 +211,7 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
 ## Access Patterns
 
 1. Direct Access Components:
+
    - ConfigManager:
      - Direct access allowed for all components
      - Used for static configuration loading
@@ -202,30 +220,30 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
      - Direct access for state queries
      - State changes via set_state()
      - State updates observed via state/change
-
 2. MessageBroker Communication:
+
    - Required for all runtime communication
    - Required for all hardware commands
    - Required for all configuration updates
    - Required for all error reporting
    - Used for observing state changes
    - Handles command/response patterns
-
 3. State Management:
+
    - StateManager is single source of truth
    - Components get state directly from StateManager
    - Components observe state changes via state/change
    - Invalid transitions publish to error topic
    - State not stored in tags
-
 4. Hardware Communication:
+
    - TagManager:
      - Only component to use hardware clients
      - Manages all hardware read/write operations
      - Publishes hardware updates via MessageBroker
      - Uses exact PLC tag names from hardware
-
 5. UI Updates:
+
    - UIUpdateManager:
      - Manages all UI component updates
      - Handles widget registration
@@ -233,21 +251,23 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
      - Forwards config updates to UI
 
 ### Monitor Components
+
 1. Hardware Monitor:
+
    - Purpose: Monitor hardware status
    - Reports connection status
    - Reports hardware errors
    - Uses MessageBroker for all communication
    - Topics: hardware/status/*, hardware/error
-
 2. Process Monitor:
+
    - Purpose: Monitor process parameters
    - Reports process status
    - Reports process errors
    - Uses MessageBroker for all communication
    - Topics: process/status/*, process/error
-
 3. State Monitor:
+
    - Purpose: Monitor state transitions
    - Reports state changes
    - Reports invalid transitions
@@ -255,9 +275,49 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
    - Topics: state/change, state/error
 
 ### Message Patterns (Updated)
+
 4. Monitor Operations:
+
    - Must use "hardware/status/*" for hardware updates
    - Must use "process/status/*" for process updates
    - Must use "state/change" for state updates
    - Must include timestamps in all messages
    - Must include error context in error messages
+   - 
+
+   + ## Test Organization
+   + 
+   + ### Test Execution Order
+   + 1. Infrastructure Layer:
+   + - MessageBroker tests
+   + - ConfigManager tests
+   + - TagManager tests
+   + - StateManager tests
+   + Purpose: Verify core infrastructure functionality
+   + 
+   + 2. Monitor Layer:
+   + - HardwareMonitor tests
+   + - ProcessMonitor tests
+   + - StateMonitor tests
+   + Purpose: Verify system monitoring functionality
+   + 
+   + 3. Process Layer:
+   + - ProcessValidator tests
+   + - ParameterManager tests
+   + - PatternManager tests
+   + - ActionManager tests
+   + - SequenceManager tests
+   + Purpose: Verify process control functionality
+   + 
+   + 4. UI Layer:
+   + - UIUpdateManager tests
+   + - Widget tests
+   + Purpose: Verify user interface functionality
+   + 
+   + ### Test Dependencies
+   + - All tests must use TestOrder marks
+   + - All tests must follow component dependency chain
+   + - All tests must use proper async patterns
+   + - All tests must include proper cleanup
+   + - All tests must mock hardware access
+   + - All tests must prevent config file modifications

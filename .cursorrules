@@ -92,6 +92,39 @@
    - Must check state transitions
    - Must validate UI updates
 
+4. Test Organization:
+   - Must use class-based structure
+   - Must follow component dependency order
+   - Must import TestOrder from conftest.py
+   - Must mark classes with correct dependency
+
+5. Test Dependencies:
+   - Infrastructure tests must run first:
+     - MessageBroker
+     - ConfigManager
+     - TagManager
+     - StateManager
+   - Monitor tests must run after infrastructure:
+     - HardwareMonitor
+     - ProcessMonitor
+     - StateMonitor
+   - Process tests must run after monitors:
+     - ProcessValidator
+     - ParameterManager
+     - PatternManager
+     - ActionManager
+     - SequenceManager
+   - UI tests must run last:
+     - UIUpdateManager
+     - Widget tests
+
+6. Test File Structure:
+   - Must include descriptive docstring header
+   - Must document test requirements
+   - Must document test patterns
+   - Must document message patterns
+   - Must include run instructions
+
 ## Error Handling Rules
 1. Required Checks:
    - All MessageBroker operations

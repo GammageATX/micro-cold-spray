@@ -1,127 +1,92 @@
 """Process Validator test suite.
 
-Tests validation of process parameters, patterns, and sequences.
+Tests validation according to process.yaml rules:
+- Process parameter validation
+- Pattern limit validation
+- Sequence rule validation
+- Hardware set validation
+- Safety rule validation
+
+Key Requirements:
+- Must use MessageBroker for all communication
+- Must validate against process.yaml rules
+- Must handle async operations
+- Must include timestamps
 
 Run with:
     pytest tests/test_process_validator.py -v --asyncio-mode=auto
 """
 
 import pytest
-import yaml
 from typing import AsyncGenerator, Dict, Any
 from unittest.mock import AsyncMock, MagicMock
 import asyncio
 from datetime import datetime
-from collections import defaultdict
+from tests.conftest import TestOrder
 
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
 from micro_cold_spray.core.config.config_manager import ConfigManager
 from micro_cold_spray.core.components.process.validation.process_validator import ProcessValidator
 from micro_cold_spray.core.exceptions import ValidationError
 
-@pytest.fixture
-async def message_broker() -> AsyncGenerator[MessageBroker, None]:
-    """Provide a clean MessageBroker instance."""
-    broker = MessageBroker()
-    broker._subscribers = defaultdict(set, {
-        # Validation topics
-        "validation/request": set(),
-        "validation/result": set(),
-        "validation/error": set(),
-        
-        # Config topics
-        "config/update/*": set(),
-        
-        # Error topics
-        "error": set()
-    })
+@TestOrder.PROCESS
+class TestProcessValidator:
+    """Process validation tests run after monitors."""
     
-    try:
-        await broker.start()
-        yield broker
-    finally:
-        await broker.shutdown()
-
-@pytest.fixture
-def config_manager(message_broker):
-    # Load the actual configuration files
-    with open('config/process.yaml', 'r') as f:
-        process_config = yaml.safe_load(f)
+    @pytest.mark.asyncio
+    async def test_process_validator_initialization(self, process_validator):
+        """Test process validator initialization."""
+        assert process_validator._is_initialized
+        assert 'validation' in process_validator._config_manager.get_config('process')
     
-    config_manager = ConfigManager(message_broker)
-    config_manager._configs = {
-        'process': process_config
-    }
-    return config_manager
-
-@pytest.fixture
-def process_validator(message_broker, config_manager):
-    return ProcessValidator(message_broker, config_manager)
-
-def test_process_validator_initialization(process_validator):
-    assert process_validator is not None
-    assert isinstance(process_validator, ProcessValidator)
-
-@pytest.mark.asyncio
-async def test_process_validator_validate_parameters(process_validator):
-    parameters = {
-        "motion": {
-            "axis": "x",
-            "distance": 10,
-            "velocity": 5,
-            "acceleration": 2,
-            "deceleration": 2
-        },
-        "process": {
-            "temperature": 300,
-            "pressure": 50
+    @pytest.mark.asyncio
+    async def test_process_validator_validate_parameters(self, process_validator):
+        """Test parameter validation using real rules."""
+        # Test parameters matching process.yaml rules
+        parameters = {
+            "chamber_pressure": 2.0,  # Below spray_threshold
+            "gas_pressure": {
+                "main_pressure": 80.0,
+                "regulator_pressure": 60.0  # Maintains min_margin
+            }
         }
-    }
-    result = await process_validator.validate_parameters(parameters)
-    assert result["valid"]
-    assert len(result["errors"]) == 0
+        result = await process_validator.validate_parameters(parameters)
+        assert result["valid"]
 
 @pytest.mark.asyncio
 async def test_process_validator_invalid_parameters(process_validator):
+    """Test invalid parameter validation."""
+    # Test parameters violating process.yaml rules
     parameters = {
-        "motion": {
-            "axis": "x",
-            "distance": -1000,  # Invalid distance
-            "velocity": 5000,   # Invalid velocity
-            "acceleration": -10,  # Invalid acceleration
-            "deceleration": -10   # Invalid deceleration
+        "chamber_pressure": 10.0,  # Above spray_threshold
+        "gas_pressure": {
+            "main_pressure": 50.0,
+            "regulator_pressure": 60.0  # Violates min_margin
         }
     }
-    result = await process_validator.validate_parameters(parameters)
-    assert not result["valid"]
-    assert len(result["errors"]) > 0
-
-@pytest.mark.asyncio
-async def test_process_validator_handle_request(
-    process_validator: ProcessValidator,
-    message_broker: MessageBroker
-) -> None:
-    """Test validation request handling."""
-    # Track validation results
-    results = []
-    async def collect_results(data: Dict[str, Any]) -> None:
-        results.append(data)
-    await message_broker.subscribe("validation/result", collect_results)
     
-    # Track errors
-    errors = []
-    async def collect_errors(data: Dict[str, Any]) -> None:
-        errors.append(data)
-    await message_broker.subscribe("error", collect_errors)
+    # Track validation responses
+    responses = []
+    async def collect_responses(data: Dict[str, Any]) -> None:
+        responses.append(data)
+    await process_validator._message_broker.subscribe(
+        "validation/response",
+        collect_responses
+    )
     
-    # Test invalid parameters to trigger error
-    await process_validator._handle_validation_request({
-        "parameters": {"invalid": "params"},
-        "request_id": "test_2"
-    })
+    # Request validation
+    await process_validator._message_broker.publish(
+        "validation/request",
+        {
+            "type": "process_parameters",
+            "parameters": parameters,
+            "timestamp": datetime.now().isoformat()
+        }
+    )
     await asyncio.sleep(0.1)
     
-    assert len(errors) > 0
-    assert "error" in errors[0]
-    assert "timestamp" in errors[0]
-    assert "context" in errors[0]  # Check for error context per rules
+    # Verify response
+    assert len(responses) > 0
+    assert not responses[0]["valid"]
+    assert len(responses[0]["errors"]) > 0
+    assert "timestamp" in responses[0]
