@@ -5,6 +5,7 @@ import asyncio
 from datetime import datetime
 from enum import Enum
 from PySide6.QtWidgets import QWidget
+from collections import defaultdict
 
 from ....infrastructure.messaging.message_broker import MessageBroker
 from ....config.config_manager import ConfigManager
@@ -51,81 +52,110 @@ class UIUpdateManager:
         # Widget registration tracking
         self._registered_widgets: Dict[str, Dict[str, Any]] = {}
         self._widget_id_registry: Dict[int, str] = {}
-        self._tag_subscriptions: Dict[str, Set[str]] = {}
-        self._is_initialized = False
+        self._tag_subscriptions: Dict[str, Set[str]] = defaultdict(set)
+        self._running = False
+        self._processing_task: asyncio.Task | None = None
         
         logger.info("UI update manager initialized")
 
-    async def initialize(self) -> None:
-        """Initialize UI update manager."""
+    async def start(self) -> None:
+        """Start the UI update manager."""
         try:
-            if self._is_initialized:
+            if self._running:
+                logger.warning("UI update manager already running")
                 return
 
-            # Subscribe to relevant topics
-            await self._message_broker.subscribe(
-                "config/update/*",
-                self._handle_config_update
-            )
-            await self._message_broker.subscribe(
-                "config/status",
-                self._handle_config_status
-            )
-            await self._message_broker.subscribe(
-                "config/validation",
-                self._handle_config_validation
-            )
+            self._running = True
             
-            self._is_initialized = True
-            logger.info("UI update manager initialization complete")
+            # Subscribe to config updates
+            await self._message_broker.subscribe("config/update/*", self._handle_config_update)
+            # Subscribe to tag updates
+            await self._message_broker.subscribe("tag/update", self._handle_tag_update)
             
+            # Start processing task if needed
+            if not self._processing_task:
+                self._processing_task = asyncio.create_task(self._process_updates())
+            
+            logger.info("UI update manager started")
+
         except Exception as e:
-            logger.exception("Failed to initialize UI update manager")
-            raise UIError(f"UI update manager initialization failed: {str(e)}") from e
+            logger.exception("Failed to start UI update manager")
+            raise UIError("Failed to start UI update manager") from e
 
     async def shutdown(self) -> None:
-        """Shutdown UI update manager."""
+        """Shutdown the UI update manager."""
         try:
-            # Unregister all widgets
-            for widget_id in list(self._registered_widgets.keys()):
-                try:
-                    await self.unregister_widget(widget_id)
-                except Exception as e:
-                    logger.error(f"Error unregistering widget {widget_id}: {e}")
+            logger.info("Shutting down UI update manager")
+            self._running = False
             
-            # Clear subscription tracking
+            if self._processing_task:
+                self._processing_task.cancel()
+                try:
+                    await self._processing_task
+                except asyncio.CancelledError:
+                    pass
+                self._processing_task = None
+
+            # Clear registrations
+            self._registered_widgets.clear()
             self._tag_subscriptions.clear()
             
-            self._is_initialized = False
             logger.info("UI update manager shutdown complete")
-            
+
         except Exception as e:
             logger.exception("Error during UI update manager shutdown")
-            raise UIError(f"UI update manager shutdown failed: {str(e)}") from e
+            raise UIError("Failed to shutdown UI update manager") from e
+
+    async def _process_updates(self) -> None:
+        """Process UI updates."""
+        try:
+            while self._running:
+                try:
+                    await asyncio.sleep(0.1)  # Prevent tight loop
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    logger.error(f"Error in update processing: {e}")
+                    await asyncio.sleep(1.0)  # Longer pause on error
+
+        except asyncio.CancelledError:
+            logger.info("Update processing cancelled")
+            raise
+        except Exception as e:
+            logger.exception("Fatal error in update processing")
+            raise UIError("Update processing failed") from e
 
     async def _handle_config_update(self, data: Dict[str, Any]) -> None:
-        """Handle configuration updates from MessageBroker."""
+        """Handle configuration updates from MessageBroker.
+        
+        Args:
+            data: Configuration update data containing config_type and data
+        """
         try:
             config_type = data.get("config_type")
             config_data = data.get("data", {})
             
-            # Forward config update to relevant widgets
+            # Forward config update to UI components
             await self.send_update(
-                f"config.{config_type}",
+                "ui/update",  # This matches the test's subscription
                 {
-                    "type": config_type,
+                    "type": "config",  # Indicate this is a config update
+                    "config_type": config_type,
                     "data": config_data,
                     "timestamp": datetime.now().isoformat()
                 }
             )
             
+            logger.debug(f"Forwarded config update for type {config_type}")
+            
         except Exception as e:
             logger.error(f"Error handling config update: {e}")
             await self._message_broker.publish(
-                "ui/error",
+                "error",
                 {
                     "error": str(e),
-                    "timestamp": datetime.now().isoformat()
+                    "topic": "config/update",
+                    "data": data
                 }
             )
 
@@ -239,3 +269,53 @@ class UIUpdateManager:
         except Exception as e:
             logger.error(f"Error sending UI update: {e}")
             raise UIError(f"Failed to send UI update: {str(e)}") from e
+
+    async def _handle_tag_update(self, data: Dict[str, Any]) -> None:
+        """Handle tag updates from MessageBroker.
+        
+        Args:
+            data: Tag update data containing tag name and value
+        """
+        try:
+            tag = data.get("tag")
+            value = data.get("value")
+            
+            if tag is None:
+                logger.error("Received tag update without tag name")
+                return
+            
+            # Find widgets subscribed to this tag
+            if tag in self._tag_subscriptions:
+                for widget_id in self._tag_subscriptions[tag]:
+                    if widget_id in self._registered_widgets:
+                        widget = self._registered_widgets[widget_id]
+                        if hasattr(widget, 'update'):
+                            try:
+                                await widget.update(tag, value)
+                            except Exception as e:
+                                logger.error(f"Error updating widget {widget_id} for tag {tag}: {e}")
+                                await self._message_broker.publish(
+                                    "error",
+                                    {
+                                        "error": str(e),
+                                        "topic": "tag/update",
+                                        "widget": widget_id,
+                                        "tag": tag,
+                                        "value": value
+                                    }
+                                )
+                        else:
+                            logger.warning(f"Widget {widget_id} has no update method")
+                    else:
+                        logger.warning(f"Widget {widget_id} subscribed to tag {tag} but not registered")
+                    
+        except Exception as e:
+            logger.error(f"Error handling tag update: {e}")
+            await self._message_broker.publish(
+                "error",
+                {
+                    "error": str(e),
+                    "topic": "tag/update",
+                    "data": data
+                }
+            )

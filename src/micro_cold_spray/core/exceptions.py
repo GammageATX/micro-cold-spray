@@ -36,4 +36,8 @@ class UIError(Exception):
 
 class MessageBrokerError(Exception):
     """Raised when message broker operations fail."""
+    pass
+
+class StateError(Exception):
+    """Raised when state management operations fail."""
     pass 

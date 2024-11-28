@@ -7,7 +7,7 @@ Special Note:
     2. ConfigManager needs MessageBroker to publish updates
     3. Other components still use ConfigManager as the source of truth
 """
-from typing import Dict, Any, Callable, Awaitable, Optional
+from typing import Dict, Any, Callable, Awaitable, Optional, List
 from collections import defaultdict
 import asyncio
 from loguru import logger
@@ -103,10 +103,7 @@ class MessageBroker:
         try:
             if topic in self._subscribers:
                 self._subscribers[topic].discard(handler)
-                if not self._subscribers[topic]:
-                    del self._subscribers[topic]
                 logger.debug(f"Unsubscribed from topic: {topic}")
-
         except Exception as e:
             logger.error(f"Failed to unsubscribe from topic {topic}: {e}")
             raise MessageBrokerError(f"Unsubscribe failed: {str(e)}") from e
@@ -134,14 +131,18 @@ class MessageBroker:
                 try:
                     topic, message = await self._message_queue.get()
                     
-                    if topic in self._subscribers:
-                        subscriber_tasks = []
-                        for handler in self._subscribers[topic]:
-                            task = asyncio.create_task(self._safe_handle_message(handler, message))
-                            subscriber_tasks.append(task)
-                        
-                        if subscriber_tasks:
-                            await asyncio.gather(*subscriber_tasks)
+                    # Find matching topics including wildcards
+                    matching_topics = self._get_matching_topics(topic)
+                    
+                    for match in matching_topics:
+                        if match in self._subscribers:
+                            subscriber_tasks = []
+                            for handler in self._subscribers[match]:
+                                task = asyncio.create_task(self._safe_handle_message(handler, message))
+                                subscriber_tasks.append(task)
+                            
+                            if subscriber_tasks:
+                                await asyncio.gather(*subscriber_tasks)
                     
                     self._message_queue.task_done()
 
@@ -158,13 +159,91 @@ class MessageBroker:
             logger.exception("Fatal error in message processing loop")
             raise MessageBrokerError("Message processing loop failed") from e
 
+    def _get_matching_topics(self, topic: str) -> List[str]:
+        """Get all subscription topics that match a published topic.
+        
+        Handles wildcard matching:
+        - 'topic/*' matches 'topic/subtopic'
+        - '*' matches any single level
+        - '#' matches zero or more levels
+        
+        Args:
+            topic: The published topic to match against
+            
+        Returns:
+            List of matching subscription topics
+        """
+        matching = []
+        topic_parts = topic.split('/')
+        
+        for subscription in self._subscribers:
+            sub_parts = subscription.split('/')
+            
+            # Exact match
+            if subscription == topic:
+                matching.append(subscription)
+                continue
+            
+            # Wildcard match
+            if '*' in sub_parts or '#' in sub_parts:
+                if self._topic_matches(topic_parts, sub_parts):
+                    matching.append(subscription)
+                
+        return matching
+
+    def _topic_matches(self, topic_parts: List[str], pattern_parts: List[str]) -> bool:
+        """Check if a topic matches a pattern with wildcards.
+        
+        Args:
+            topic_parts: Parts of the published topic
+            pattern_parts: Parts of the subscription pattern
+            
+        Returns:
+            True if the topic matches the pattern
+        """
+        # Handle # wildcard
+        if '#' in pattern_parts:
+            pound_idx = pattern_parts.index('#')
+            # Everything before # must match exactly
+            return self._parts_match(topic_parts[:pound_idx], pattern_parts[:pound_idx])
+        
+        # Handle * wildcards
+        if len(topic_parts) != len(pattern_parts):
+            return False
+        
+        return self._parts_match(topic_parts, pattern_parts)
+
+    def _parts_match(self, topic_parts: List[str], pattern_parts: List[str]) -> bool:
+        """Check if topic parts match pattern parts with * wildcards.
+        
+        Args:
+            topic_parts: Parts of the published topic
+            pattern_parts: Parts of the subscription pattern
+            
+        Returns:
+            True if parts match
+        """
+        return all(
+            t == p or p == '*'
+            for t, p in zip(topic_parts, pattern_parts)
+        )
+
     async def _safe_handle_message(self, handler: MessageHandler, message: Dict[str, Any]) -> None:
         """Safely execute a message handler with error handling."""
         try:
             await handler(message)
         except Exception as e:
             logger.error(f"Error in message handler: {e}")
-            # Don't re-raise to prevent breaking the message loop
+            # Publish error to error topic
+            error_message = {
+                "error": str(e),
+                "topic": message.get("topic", "unknown"),
+                "message": message
+            }
+            try:
+                await self.publish("error", error_message)
+            except Exception as publish_error:
+                logger.error(f"Failed to publish error message: {publish_error}")
 
     async def request(self, topic: str, message: Dict[str, Any], timeout: float = 5.0) -> Dict[str, Any]:
         """
