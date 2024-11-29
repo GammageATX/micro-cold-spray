@@ -8,7 +8,7 @@ import yaml
 
 from ....infrastructure.messaging.message_broker import MessageBroker
 from ....infrastructure.config.config_manager import ConfigManager
-from ....exceptions import SequenceError
+from ....exceptions import OperationError, ValidationError
 
 class SequenceManager:
     """Manages sequence execution and control."""
@@ -61,7 +61,10 @@ class SequenceManager:
             
         except Exception as e:
             logger.exception("Failed to initialize sequence manager")
-            raise SequenceError(f"Sequence manager initialization failed: {str(e)}") from e
+            raise OperationError("Failed to initialize sequence manager", "sequence", {
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            })
 
     async def shutdown(self) -> None:
         """Shutdown sequence manager."""
@@ -73,14 +76,19 @@ class SequenceManager:
             
         except Exception as e:
             logger.exception("Error during sequence manager shutdown")
-            raise SequenceError(f"Sequence manager shutdown failed: {str(e)}") from e
+            raise OperationError("Error during sequence manager shutdown", "sequence", {
+                "error": str(e)
+            })
 
     async def handle_load_request(self, data: Dict[str, Any]) -> None:
         """Handle sequence load request."""
         try:
             filename = data.get("filename")
             if not filename:
-                raise SequenceError("No filename specified in load request")
+                raise OperationError("No filename specified in load request", "sequence", {
+                    "error": "No filename specified in load request",
+                    "timestamp": datetime.now().isoformat()
+                })
                 
             sequence = await self.load_sequence(filename)
             
@@ -107,7 +115,9 @@ class SequenceManager:
         """Handle sequence start request."""
         try:
             if not self._current_sequence:
-                raise SequenceError("No sequence loaded")
+                raise OperationError("No sequence loaded", "sequence", {
+                    "error": "No sequence loaded"
+                })
                 
             await self.execute_sequence(self._current_sequence)
             
@@ -188,14 +198,18 @@ class SequenceManager:
             
         except Exception as e:
             logger.error(f"Error loading sequence: {e}")
-            raise SequenceError(f"Failed to load sequence: {str(e)}") from e
+            raise OperationError("Failed to load sequence", "sequence", {
+                "error": str(e)
+            })
 
     async def execute_sequence(self, sequence: Dict[str, Any]) -> None:
         """Execute loaded sequence."""
         try:
             # Validate sequence first
             if "sequence" not in sequence or "steps" not in sequence["sequence"]:
-                raise SequenceError("Invalid sequence format")
+                raise OperationError("Invalid sequence format", "sequence", {
+                    "error": "Invalid sequence format"
+                })
             
             self._is_running = True
             self._is_paused = False
@@ -219,13 +233,17 @@ class SequenceManager:
                     
                 # Validate step format
                 if "name" not in step:
-                    raise SequenceError("Invalid step format - missing name")
+                    raise OperationError("Invalid step format - missing name", "sequence", {
+                        "step": step["name"]
+                    })
                     
                 # Validate step action exists
                 action_config = await self._config_manager.get_config("process")
                 if (step["name"] not in action_config.get("atomic_actions", {}) and 
                     step["name"] not in action_config.get("action_groups", {})):
-                    raise SequenceError(f"Invalid action: {step['name']}")
+                    raise OperationError(f"Invalid action: {step['name']}", "sequence", {
+                        "action": step["name"]
+                    })
                     
                 await self._execute_step(step)
                 
@@ -253,13 +271,17 @@ class SequenceManager:
                 }
             )
             
-            raise SequenceError(f"Sequence execution failed: {str(e)}") from e
+            raise OperationError("Sequence execution failed", "sequence", {
+                "error": str(e)
+            })
 
     async def pause_sequence(self) -> None:
         """Pause sequence execution."""
         try:
             if not self._is_running:
-                raise SequenceError("No sequence running")
+                raise OperationError("No sequence running", "sequence", {
+                    "error": "No sequence running"
+                })
                 
             self._is_paused = True
             
@@ -273,13 +295,17 @@ class SequenceManager:
             
         except Exception as e:
             logger.error(f"Error pausing sequence: {e}")
-            raise SequenceError(f"Failed to pause sequence: {str(e)}") from e
+            raise OperationError("Failed to pause sequence", "sequence", {
+                "error": str(e)
+            })
 
     async def resume_sequence(self) -> None:
         """Resume sequence execution."""
         try:
             if not self._is_running:
-                raise SequenceError("No sequence running")
+                raise OperationError("No sequence running", "sequence", {
+                    "error": "No sequence running"
+                })
                 
             self._is_paused = False
             
@@ -293,7 +319,9 @@ class SequenceManager:
             
         except Exception as e:
             logger.error(f"Error resuming sequence: {e}")
-            raise SequenceError(f"Failed to resume sequence: {str(e)}") from e
+            raise OperationError("Failed to resume sequence", "sequence", {
+                "error": str(e)
+            })
 
     async def stop_sequence(self) -> None:
         """Stop sequence execution."""
@@ -311,7 +339,9 @@ class SequenceManager:
             
         except Exception as e:
             logger.error(f"Error stopping sequence: {e}")
-            raise SequenceError(f"Failed to stop sequence: {str(e)}") from e
+            raise OperationError("Failed to stop sequence", "sequence", {
+                "error": str(e)
+            })
 
     async def _execute_step(self, step: Dict[str, Any]) -> None:
         """Execute single sequence step."""
@@ -354,7 +384,10 @@ class SequenceManager:
             
         except Exception as e:
             logger.error(f"Error executing step {step['name']}: {e}")
-            raise SequenceError(f"Step execution failed: {str(e)}") from e
+            raise OperationError("Step execution failed", "sequence", {
+                "step": step["name"],
+                "error": str(e)
+            })
 
     def _generate_visualization_data(self, sequence: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Generate visualization data for sequence."""
@@ -374,4 +407,101 @@ class SequenceManager:
             
         except Exception as e:
             logger.error(f"Error generating visualization data: {e}")
-            raise SequenceError(f"Visualization generation failed: {str(e)}") from e
+            raise OperationError("Visualization generation failed", "sequence", {
+                "error": str(e)
+            })
+
+    async def _validate_sequence(self, sequence_data: Dict[str, Any]) -> None:
+        """Validate sequence against rules."""
+        try:
+            # Get validation rules from process config
+            process_config = await self._config_manager.get_config("process")
+            validation_rules = process_config.get("validation", {}).get("sequences", {})
+            
+            errors = []
+            
+            # Check required sequence fields
+            required_fields = validation_rules.get("required_fields", {})
+            for field in required_fields.get("fields", []):
+                if field not in sequence_data:
+                    errors.append(required_fields["message"])
+                    break
+            
+            # Validate each step
+            if "steps" in sequence_data:
+                step_rules = validation_rules.get("step_fields", {})
+                required_step_fields = step_rules.get("required_fields", {})
+                optional_step_fields = step_rules.get("optional_fields", {})
+                
+                for i, step in enumerate(sequence_data["steps"]):
+                    # Check required step fields
+                    for field in required_step_fields.get("fields", []):
+                        if field not in step:
+                            errors.append(f"Step {i+1}: {required_step_fields['message']}")
+                            break
+                    
+                    # Check for unknown fields
+                    for field in step.keys():
+                        if (field not in required_step_fields.get("fields", []) and 
+                            field not in optional_step_fields.get("fields", [])):
+                            errors.append(f"Step {i+1}: {optional_step_fields['message']}")
+                            break
+                    
+                    # Validate action if present
+                    if "action" in step:
+                        try:
+                            await self._action_manager._validate_action(
+                                step["action"],
+                                step.get("parameters", {})
+                            )
+                        except OperationError as e:
+                            errors.append(f"Step {i+1}: {str(e)}")
+            
+            if errors:
+                raise ValidationError("\n".join(errors), {
+                    "sequence": sequence_data
+                })
+                
+        except Exception as e:
+            logger.error(f"Sequence validation failed: {e}")
+            raise OperationError("Failed to validate sequence", "sequence", {
+                "error": str(e)
+            })
+
+    async def _validate_step(self, step: Dict[str, Any]) -> None:
+        """Validate sequence step."""
+        try:
+            # Get validation rules
+            process_config = await self._config_manager.get_config("process")
+            step_rules = process_config.get("validation", {}).get("sequences", {}).get("step_fields", {})
+            
+            # Check required fields
+            required_fields = step_rules.get("required_fields", {})
+            for field in required_fields.get("fields", []):
+                if field not in step:
+                    raise OperationError(required_fields["message"], "sequence", {
+                        "step": step["name"]
+                    })
+            
+            # Check for unknown fields
+            optional_fields = step_rules.get("optional_fields", {})
+            for field in step.keys():
+                if (field not in required_fields.get("fields", []) and 
+                    field not in optional_fields.get("fields", [])):
+                    raise OperationError(optional_fields["message"], "sequence", {
+                        "step": step["name"]
+                    })
+            
+            # Validate action if present
+            if "action" in step:
+                await self._action_manager._validate_action(
+                    step["action"],
+                    step.get("parameters", {})
+                )
+                
+        except Exception as e:
+            logger.error(f"Step validation failed: {e}")
+            raise OperationError("Failed to validate step", "sequence", {
+                "step": step["name"],
+                "error": str(e)
+            })

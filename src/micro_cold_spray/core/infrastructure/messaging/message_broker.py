@@ -11,8 +11,9 @@ from typing import Dict, Any, Callable, Awaitable, Optional, List
 from collections import defaultdict
 import asyncio
 from loguru import logger
+from datetime import datetime
 
-from ...exceptions import MessageBrokerError
+from ...exceptions import MessageError
 
 MessageHandler = Callable[[Dict[str, Any]], Awaitable[None]]
 
@@ -44,7 +45,7 @@ class MessageBroker:
 
         except Exception as e:
             logger.exception("Failed to start MessageBroker")
-            raise MessageBrokerError("Failed to start message broker") from e
+            raise MessageError("Failed to start message broker") from e
 
     async def shutdown(self) -> None:
         """Gracefully shutdown the message broker."""
@@ -73,7 +74,7 @@ class MessageBroker:
 
         except Exception as e:
             logger.exception("Error during MessageBroker shutdown")
-            raise MessageBrokerError("Failed to shutdown message broker") from e
+            raise MessageError("Failed to shutdown message broker") from e
 
     async def subscribe(self, topic: str, handler: MessageHandler) -> None:
         """
@@ -98,7 +99,7 @@ class MessageBroker:
 
         except Exception as e:
             logger.error(f"Failed to subscribe to topic {topic}: {e}")
-            raise MessageBrokerError(f"Subscription failed: {str(e)}") from e
+            raise MessageError(f"Subscription failed: {str(e)}") from e
 
     async def unsubscribe(self, topic: str, handler: MessageHandler) -> None:
         """
@@ -117,7 +118,7 @@ class MessageBroker:
                 logger.debug(f"Unsubscribed from wildcard topic: {topic}")
         except Exception as e:
             logger.error(f"Failed to unsubscribe from topic {topic}: {e}")
-            raise MessageBrokerError(f"Unsubscribe failed: {str(e)}") from e
+            raise MessageError(f"Unsubscribe failed: {str(e)}") from e
 
     async def publish(self, topic: str, message: Dict[str, Any]) -> None:
         """
@@ -130,10 +131,13 @@ class MessageBroker:
         try:
             await self._message_queue.put((topic, message))
             logger.debug(f"Published message to topic: {topic}")
-
         except Exception as e:
-            logger.error(f"Failed to publish to topic {topic}: {e}")
-            raise MessageBrokerError(f"Publish failed: {str(e)}") from e
+            error_context = {
+                "topic": topic,
+                "context": "publish"
+            }
+            logger.error(f"Failed to publish: {error_context}")
+            raise MessageError("Publish failed", error_context) from e
 
     async def _process_messages(self) -> None:
         """Process messages from the queue and distribute to subscribers."""
@@ -166,7 +170,7 @@ class MessageBroker:
             raise
         except Exception as e:
             logger.exception("Fatal error in message processing loop")
-            raise MessageBrokerError("Message processing loop failed") from e
+            raise MessageError("Message processing loop failed") from e
 
     def _get_matching_topics(self, topic: str) -> List[str]:
         """Get all subscription topics that match a published topic.
@@ -242,12 +246,11 @@ class MessageBroker:
         try:
             await handler(message)
         except Exception as e:
-            logger.error(f"Error in message handler: {e}")
-            # Publish error to error topic
             error_message = {
                 "error": str(e),
                 "topic": message.get("topic", "unknown"),
-                "message": message
+                "message": message,
+                "timestamp": datetime.now().isoformat()
             }
             try:
                 await self.publish("error", error_message)
@@ -284,8 +287,16 @@ class MessageBroker:
                 await self.unsubscribe(response_topic, response_handler)
 
         except asyncio.TimeoutError:
-            logger.error(f"Request timeout for topic {topic}")
-            raise MessageBrokerError(f"Request timeout: {topic}")
+            error_context = {
+                "topic": topic,
+                "timeout": timeout
+            }
+            logger.error(f"Request timeout: {error_context}")
+            raise MessageError("Request timeout", error_context)
         except Exception as e:
-            logger.error(f"Request failed for topic {topic}: {e}")
-            raise MessageBrokerError(f"Request failed: {str(e)}") from e
+            error_context = {
+                "topic": topic,
+                "context": "request"
+            }
+            logger.error(f"Request failed: {error_context}")
+            raise MessageError("Request failed", error_context) from e

@@ -120,15 +120,21 @@ class StateManager:
     async def set_state(self, new_state: str) -> None:
         """Set system state and publish change."""
         try:
-            # Validate transition
             if not self._is_valid_transition(new_state):
-                raise StateError(f"Invalid state transition from {self._current_state} to {new_state}")
-            
+                error_msg = {
+                    "error": f"Invalid state transition from {self._current_state} to {new_state}",
+                    "context": "state_transition",
+                    "current_state": self._current_state,
+                    "requested_state": new_state,
+                    "timestamp": datetime.now().isoformat()
+                }
+                await self._message_broker.publish("error", error_msg)
+                raise StateError("Invalid state transition", error_msg)
+
             # Update state
             self._previous_state = self._current_state
             self._current_state = new_state
             
-            # Publish state change
             await self._message_broker.publish(
                 "state/change",
                 {
@@ -139,13 +145,15 @@ class StateManager:
             )
             
         except Exception as e:
-            logger.error(f"Error setting state: {e}")
-            await self._message_broker.publish("error", {
+            error_msg = {
                 "error": str(e),
-                "context": "state transition",
-                "topic": "state/transition",
+                "context": "state_transition",
+                "current_state": self._current_state,
+                "requested_state": new_state,
                 "timestamp": datetime.now().isoformat()
-            })
+            }
+            logger.error(f"Error setting state: {error_msg}")
+            await self._message_broker.publish("error", error_msg)
             raise
 
     async def _handle_state_request(self, data: Dict[str, Any]) -> None:

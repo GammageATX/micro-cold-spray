@@ -611,4 +611,86 @@ process:
       shutter_motion:
         delay: 0.5
         description: Wait for shutter to complete motion
-version: 1.0.0
+    parameters:
+      material:
+        required_fields:
+          message: "Missing required material fields"
+          fields:
+            - "type"
+            - "size"
+            - "manufacturer"
+            - "lot"
+        optional_fields:
+          message: "Unknown material field"
+          fields:
+            - "notes"
+            - "certifications"
+      process:
+        required_fields:
+          message: "Missing required process fields"
+          fields:
+            - "nozzle"
+            - "chamber"
+            - "gas_flows"
+            - "powder_feed"
+        optional_fields:
+          message: "Unknown process field"
+          fields:
+            - "notes"
+            - "modifications"
+  patterns:
+    serpentine:
+      required_fields:
+        message: "Missing required serpentine pattern fields"
+        fields:
+          - "origin"
+          - "length"
+          - "spacing"
+          - "speed"
+      optional_fields:
+        message: "Unknown serpentine pattern field"
+        fields:
+          - "direction"
+          - "acceleration"
+    spiral:
+      required_fields:
+        message: "Missing required spiral pattern fields"
+        fields:
+          - "origin"
+          - "diameter"
+          - "pitch"
+          - "speed"
+      optional_fields:
+        message: "Unknown spiral pattern field"
+        fields:
+          - "acceleration"
+  sequences:
+    required_fields:
+      message: "Missing required sequence fields"
+      fields:
+        - "metadata"
+        - "steps"
+    step_fields:
+      required_fields:
+        message: "Missing required step fields"
+        fields:
+          - "action"
+          - "parameters"
+      optional_fields:
+        message: "Unknown step field"
+        fields:
+          - "description"
+          - "timeout"
+  hardware_sets:
+    required_fields:
+      message: "Missing required hardware set fields"
+      fields:
+        - "nozzle"
+        - "feeder"
+        - "deagglomerator"
+    optional_fields:
+      message: "Unknown hardware set field"
+      fields:
+        - "offset_x"
+        - "notes"
+

@@ -2,54 +2,150 @@ from typing import Dict, Any
 from loguru import logger
 import paramiko
 import asyncio
+from datetime import datetime
+import platform
+import subprocess
 
-from ...exceptions import HardwareConnectionError
+from ...exceptions import HardwareError
 
 class SSHClient:
-    """Client for SSH communication with motion controller."""
+    """Client for SSH communication with feeder controllers."""
     
     def __init__(self, config: Dict[str, Any]):
         """Initialize SSH client with configuration."""
-        ssh_config = config.get('hardware', {}).get('network', {}).get('ssh', {})
-        self._host = ssh_config.get('host')
-        self._port = ssh_config.get('port', 22)
-        self._username = ssh_config.get('username')
-        self._password = ssh_config.get('password')
-        self._client = paramiko.SSHClient()
-        self._client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        
-        logger.info(f"SSHClient initialized for {self._username}@{self._host}")
+        try:
+            ssh_config = config.get('hardware', {}).get('network', {}).get('ssh', {})
+            self._host = ssh_config.get('host')
+            self._port = ssh_config.get('port', 22)
+            self._username = ssh_config.get('username')
+            self._password = ssh_config.get('password')
+            self._connected = False
+            
+            if not all([self._host, self._username, self._password]):
+                raise HardwareError(
+                    "Missing required SSH configuration",
+                    "feeder",
+                    {"config": ssh_config}
+                )
+            
+            self._client = paramiko.SSHClient()
+            self._client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            
+            logger.info(f"SSHClient initialized for {self._username}@{self._host}")
+            
+        except Exception as e:
+            raise HardwareError(
+                "Failed to initialize SSH client",
+                "feeder",
+                {"error": str(e)}
+            )
+
+    async def test_connection(self) -> bool:
+        """Test if feeder controller is reachable without attempting full connection."""
+        try:
+            # Platform specific ping command
+            if platform.system().lower() == "windows":
+                ping_cmd = ["ping", "-n", "1", "-w", "1000", self._host]
+            else:
+                ping_cmd = ["ping", "-c", "1", "-W", "1", self._host]
+            
+            # Run ping command
+            process = await asyncio.create_subprocess_exec(
+                *ping_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            
+            await process.communicate()
+            self._connected = process.returncode == 0
+            
+            if self._connected:
+                logger.debug(f"Feeder controller at {self._host} is reachable")
+            else:
+                logger.warning(f"Feeder controller at {self._host} is not reachable")
+            
+            return self._connected
+            
+        except Exception as e:
+            logger.error(f"Error testing feeder controller connection: {e}")
+            self._connected = False
+            return False
 
     async def connect(self) -> None:
-        """Connect to motion controller and wait for welcome message."""
+        """Connect to feeder controller."""
         try:
+            if not await self.test_connection():
+                raise HardwareError(
+                    "Feeder controller not reachable",
+                    "feeder",
+                    {
+                        "host": self._host,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+                
             self._client.connect(
                 hostname=self._host,
                 port=self._port,
                 username=self._username,
                 password=self._password
             )
-            # Wait for system to be ready
-            await asyncio.sleep(5)  # Simple delay for system initialization
-            logger.info("Connected to motion controller")
+            self._connected = True
+            logger.info("Connected to feeder controller")
             
         except Exception as e:
-            logger.error(f"Failed to connect: {e}")
-            raise HardwareConnectionError("Failed to connect to motion controller") from e
+            self._connected = False
+            logger.error(f"SSH connection failed: {e}")
+            raise HardwareError(
+                "Failed to connect to feeder controller",
+                "feeder",
+                {
+                    "host": self._host,
+                    "port": self._port,
+                    "error": str(e),
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
 
     async def disconnect(self) -> None:
-        """Disconnect from motion controller."""
+        """Disconnect from feeder controller."""
         try:
             self._client.close()
-            logger.info("Disconnected from motion controller")
+            self._connected = False
+            logger.info("Disconnected from feeder controller")
         except Exception as e:
             logger.error(f"Error during disconnect: {e}")
-            raise HardwareConnectionError("Failed to disconnect from motion controller") from e
+            raise HardwareError(
+                "Failed to disconnect from feeder controller",
+                "feeder",
+                {
+                    "host": self._host,
+                    "port": self._port,
+                    "error": str(e),
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
 
     async def write_command(self, command: str) -> None:
-        """Write command to motion controller."""
+        """Write command to feeder controller."""
         try:
+            if not self._connected:
+                if not await self.test_connection():
+                    raise HardwareError(
+                        "Cannot send command - feeder controller not connected",
+                        "feeder"
+                    )
             self._client.exec_command(command)
         except Exception as e:
             logger.error(f"Failed to send command: {e}")
-            raise HardwareConnectionError(f"Failed to send command: {str(e)}") from e
+            raise HardwareError(
+                f"Failed to send command: {str(e)}",
+                "feeder",
+                {
+                    "host": self._host,
+                    "port": self._port,
+                    "command": command,
+                    "error": str(e),
+                    "timestamp": datetime.now().isoformat()
+                }
+            )

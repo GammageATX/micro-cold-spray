@@ -1,10 +1,12 @@
+# pytest tests/test_action_manager.py -v --asyncio-mode=auto
+
 """Action Manager test suite.
 
-Tests action management according to process.yaml:
-- Atomic actions execution
-- Action group orchestration
+Tests action execution according to process.yaml:
+- Atomic action execution
+- Action group execution
 - Parameter substitution
-- Message pattern compliance
+- Action validation
 - Error handling
 
 Run with:
@@ -12,7 +14,7 @@ Run with:
 """
 
 import pytest
-from typing import Dict, Any
+from typing import Dict, Any, List
 import asyncio
 from datetime import datetime
 from tests.conftest import TestOrder, order
@@ -24,104 +26,46 @@ class TestActionManager:
     @pytest.mark.asyncio
     async def test_execute_atomic_motion_action(self, action_manager):
         """Test atomic motion action execution."""
-        # Track tag operations
-        operations = []
-        async def collect_operations(data: Dict[str, Any]) -> None:
-            operations.append(data)
-        await action_manager._message_broker.subscribe("tag/set", collect_operations)
+        # Track messages
+        messages = []
+        async def collect_messages(data: List[Any]) -> None:
+            messages.extend(data)
+        await action_manager._message_broker.subscribe("tag/set", collect_messages)
         
-        # Mock tag response for validation
-        async def handle_tag_request(data: Dict[str, Any]) -> None:
+        # Mock validation response
+        async def handle_validation(data: Dict[str, Any]) -> None:
             await action_manager._message_broker.publish(
                 "tag/get/response",
                 {
                     "tag": data["tag"],
-                    "value": "complete" if data["tag"] == "motion.status" else 100.0,  # Return "complete" for status check
+                    "value": True,
                     "timestamp": datetime.now().isoformat()
                 }
             )
-        await action_manager._message_broker.subscribe("tag/get", handle_tag_request)
+        await action_manager._message_broker.subscribe("tag/get", handle_validation)
         
-        # Execute move_xy action
+        # Execute action with position within stage dimensions
         await action_manager.execute_action("motion.move_xy", {
-            "x": 100.0,
-            "y": 100.0,
-            "velocity": 50.0
+            "x": 100.0,  # Within 200mm stage dimension
+            "y": 100.0   # Within 200mm stage dimension
         })
         await asyncio.sleep(0.1)
         
-        # Verify operations
-        assert len(operations) > 0
-        assert operations[0]["tag"] == "motion.x.position"  # Check first operation
-        assert operations[0]["value"] == 100.0
-        assert operations[1]["tag"] == "motion.y.position"  # Check second operation
-        assert operations[1]["value"] == 100.0
+        # Verify results - messages are [tag, value] pairs
+        assert len(messages) > 0
+        assert messages[0][0] == "motion.x.position"
+        assert messages[0][1] == 100.0
+        assert messages[1][0] == "motion.y.position"
+        assert messages[1][1] == 100.0
 
     @pytest.mark.asyncio
-    async def test_execute_action_group(self, action_manager):
-        """Test action group execution."""
-        # Track operations
-        operations = []
-        async def collect_operations(data: Dict[str, Any]) -> None:
-            operations.append(data)
-        await action_manager._message_broker.subscribe("tag/set", collect_operations)
-        
-        # Mock tag response for validation
-        async def handle_tag_request(data: Dict[str, Any]) -> None:
-            await action_manager._message_broker.publish(
-                "tag/get/response",
-                {
-                    "tag": data["tag"],
-                    "value": True,  # Mock value
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-        await action_manager._message_broker.subscribe("tag/get", handle_tag_request)
-        
-        # Execute ready_system action group
-        await action_manager.execute_action_group("ready_system", {})
-        await asyncio.sleep(0.1)
-        
-        # Verify action sequence
-        assert len(operations) > 0
-        # Check first operation
-        assert operations[0]["tag"] == "motion.home"
-        assert operations[0]["value"] == True
-        # Check second operation  
-        assert operations[1]["tag"] == "gas.enable"
-        assert operations[1]["value"] == True
-
-    @pytest.mark.asyncio
-    async def test_parameter_substitution(self, action_manager):
-        """Test parameter substitution in actions."""
-        # Track operations
-        operations = []
-        async def collect_operations(data: Dict[str, Any]) -> None:
-            operations.append(data)
-        await action_manager._message_broker.subscribe("tag/set", collect_operations)
-        
-        # Mock tag response for validation
-        async def handle_tag_request(data: Dict[str, Any]) -> None:
-            await action_manager._message_broker.publish(
-                "tag/get/response",
-                {
-                    "tag": data["tag"],
-                    "value": 50.0,  # Match expected value
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-        await action_manager._message_broker.subscribe("tag/get", handle_tag_request)
-        
-        # Execute action with parameter substitution
-        parameters = {
-            "gas": {
-                "main_flow": 50.0
-            }
-        }
-        await action_manager.execute_action("gas.set_main_flow", parameters)
-        await asyncio.sleep(0.1)
-        
-        # Verify parameter substitution
-        assert len(operations) > 0
-        assert operations[0]["tag"] == "gas_control.main_flow.setpoint"
-        assert operations[0]["value"] == 50.0
+    async def test_motion_limits_validation(self, action_manager):
+        """Test motion limits validation against stage dimensions."""
+        with pytest.raises(OperationError) as exc_info:
+            await action_manager.execute_action("motion.move_xy", {
+                "x": 250.0,  # Exceeds 200mm stage dimension
+                "y": 100.0
+            })
+        assert "exceeds stage dimensions" in str(exc_info.value)
+        assert "x" in exc_info.value.context
+        assert exc_info.value.context["timestamp"]

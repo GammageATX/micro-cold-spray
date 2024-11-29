@@ -91,15 +91,12 @@ class ConfigManager:
     async def update_config(self, config_type: str, new_data: Dict[str, Any]) -> None:
         """Update configuration and notify subscribers."""
         try:
-            # Update internal config
             if config_type not in self._configs:
                 self._configs[config_type] = {}
             self._configs[config_type].update(new_data)
             
-            # Save to file
             await self._save_config(config_type)
             
-            # Publish update
             await self._message_broker.publish(
                 f"config/update/{config_type}",
                 {
@@ -109,11 +106,16 @@ class ConfigManager:
                 }
             )
             
-            logger.info(f"Configuration updated: {config_type}")
-                
         except Exception as e:
-            logger.exception(f"Failed to update configuration: {config_type}")
-            raise ConfigurationError(f"Configuration update failed: {str(e)}") from e
+            error_msg = {
+                "error": str(e),
+                "context": "config_update",
+                "config_type": config_type,
+                "timestamp": datetime.now().isoformat()
+            }
+            logger.error(f"Failed to update configuration: {error_msg}")
+            await self._message_broker.publish("error", error_msg)
+            raise ConfigurationError("Configuration update failed", error_msg)
 
     async def _save_config(self, config_type: str) -> None:
         """Save configuration to file."""
@@ -141,3 +143,26 @@ class ConfigManager:
         except Exception as e:
             logger.exception("Error during ConfigManager shutdown")
             raise ConfigurationError(f"Shutdown failed: {str(e)}") from e
+
+    async def _handle_config_update(self, data: Dict[str, Any]) -> None:
+        """Handle configuration update requests."""
+        try:
+            config_type = data.get("config_type")
+            new_data = data.get("data")
+            
+            if not config_type or not new_data:
+                error_context = {
+                    "received_data": data,
+                    "timestamp": datetime.now().isoformat()
+                }
+                raise ConfigurationError("Invalid config update request - missing required fields", error_context)
+            
+            await self.update_config(config_type, new_data)
+            
+        except Exception as e:
+            error_context = {
+                "data": data,
+                "timestamp": datetime.now().isoformat()
+            }
+            logger.error(f"Error handling config update: {error_context}")
+            raise ConfigurationError("Failed to handle config update", error_context) from e

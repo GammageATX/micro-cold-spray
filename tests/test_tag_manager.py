@@ -122,6 +122,20 @@ def mock_ssh_client() -> MagicMock:
     client.disconnect = AsyncMock()
     return client
 
+@pytest.fixture(autouse=True)
+async def cleanup_tasks():
+    """Cleanup any pending tasks after each test."""
+    yield
+    # Get all tasks
+    tasks = [t for t in asyncio.all_tasks() if not t.done()]
+    for task in tasks:
+        if not task.done():
+            task.cancel()
+            try:
+                await asyncio.wait_for(task, timeout=0.1)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+
 @pytest.fixture
 async def tag_manager(
     message_broker: MessageBroker,
@@ -170,6 +184,16 @@ class TestTagManager:
         """Test TagManager initialization."""
         assert tag_manager._is_initialized
         assert tag_manager._plc_client is not None
+        assert tag_manager._tag_definitions == {
+            "motion": {
+                "position": {
+                    "x_position": {
+                        "mapped": True,
+                        "plc_tag": "AMC.Ax1Position"
+                    }
+                }
+            }
+        }
 
     @pytest.mark.asyncio
     async def test_tag_manager_connection_test(self, tag_manager, mock_plc_client, mock_ssh_client):

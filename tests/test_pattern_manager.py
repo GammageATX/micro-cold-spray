@@ -19,27 +19,47 @@ Run with:
 """
 
 import pytest
-from typing import Dict, Any
+from typing import Dict, Any, AsyncGenerator
 import asyncio
 from datetime import datetime
 from pathlib import Path
 import yaml
 from tests.conftest import TestOrder, order
+from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
+from micro_cold_spray.core.infrastructure.config.config_manager import ConfigManager
+from micro_cold_spray.core.components.process.validation.process_validator import ProcessValidator
+from micro_cold_spray.core.components.operations.patterns.pattern_manager import PatternManager
+from micro_cold_spray.core.components.operations.exceptions import OperationError
 
 @pytest.fixture
-async def pattern_manager(
-    message_broker,
-    config_manager,
-    process_validator
-):
+async def pattern_manager(message_broker: MessageBroker, config_manager: ConfigManager, process_validator: ProcessValidator) -> AsyncGenerator[PatternManager, None]:
     """Provide PatternManager instance."""
-    from micro_cold_spray.core.components.operations.patterns.pattern_manager import PatternManager
+    # Add motion config to hardware config
+    config_manager._configs['hardware'] = {
+        'plc': {
+            'ip': '127.0.0.1',
+            'port': 44818,
+            'timeout': 1.0
+        },
+        'motion': {
+            'limits': {
+                'x': {'min': -500.0, 'max': 500.0},
+                'y': {'min': -500.0, 'max': 500.0},
+                'z': {'min': 0.0, 'max': 200.0},
+                'velocity': {'max': 500.0},
+                'acceleration': {'max': 2000.0}
+            },
+            'physical': {
+                'sprayable_area': {
+                    'x': {'min': -400.0, 'max': 400.0},
+                    'y': {'min': -400.0, 'max': 400.0},
+                    'z': {'min': 5.0, 'max': 150.0}
+                }
+            }
+        }
+    }
     
-    manager = PatternManager(
-        message_broker=message_broker,
-        config_manager=config_manager,
-        pattern_path=Path("data/patterns/library")
-    )
+    manager = PatternManager(message_broker, config_manager, process_validator)
     try:
         await manager.initialize()
         yield manager
@@ -96,42 +116,25 @@ class TestPatternManager:
 
     @pytest.mark.asyncio
     async def test_pattern_validation(self, pattern_manager):
-        """Test pattern validation against process.yaml rules."""
-        # Create pattern that exceeds sprayable area
+        """Test pattern validation against stage dimensions."""
         pattern_data = {
             "pattern": {
                 "type": "serpentine",
                 "params": {
-                    "origin": [0.0, 0.0],  # Outside sprayable area
-                    "length": 600.0,       # Exceeds limits
+                    "origin": [0.0, 0.0],
+                    "length": 250.0,  # Exceeds 200mm stage dimension
                     "spacing": 2.0,
-                    "speed": 20.0,
-                    "z_height": 10.0,
-                    "acceleration": 1000.0,
-                    "direction": "x_first"
+                    "speed": 20.0
                 }
             }
         }
         
-        # Track validation responses
-        responses = []
-        async def collect_responses(data: Dict[str, Any]) -> None:
-            responses.append(data)
-        await pattern_manager._message_broker.subscribe(
-            "patterns/error",
-            collect_responses
-        )
-        await asyncio.sleep(0.1)  # Added sleep after subscribe
-        
-        # Attempt to validate invalid pattern
-        with pytest.raises(Exception):
-            await pattern_manager._validate_sprayable_area(pattern_data)
-        await asyncio.sleep(0.1)  # Added sleep after validation
-        
-        # Verify error response
-        assert len(responses) > 0
-        assert "Pattern exceeds sprayable area" in str(responses[0]["error"])
-        assert "timestamp" in responses[0]
+        with pytest.raises(OperationError) as exc_info:
+            await pattern_manager.save_pattern(pattern_data, "test_pattern.yaml")
+        assert "exceeds stage dimensions" in str(exc_info.value)
+        assert exc_info.value.context["timestamp"]
+        assert exc_info.value.context["pattern_bounds"]
+        assert exc_info.value.context["stage_dims"]
 
     @pytest.mark.asyncio
     async def test_load_custom_pattern(self, pattern_manager, tmp_path):

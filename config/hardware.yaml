@@ -1,21 +1,10 @@
 hardware:
-  motion:
-    limits:
-      x:
-        max: 500
-        min: 0
-      y:
-        max: 500
-        min: 0
-      z:
-        max: 200
-        min: 0
   network:
     connection:
       timeout: 30.0
     plc:
       address: "192.168.0.130"
-      tag_file: "resources/tags/plc_tags.csv"
+      tag_file: "resources/tags/MicroColdSpray_basic.csv"
       polling_interval: 1.0
       retry:
         delay: 1.0

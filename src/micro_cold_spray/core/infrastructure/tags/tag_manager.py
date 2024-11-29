@@ -3,11 +3,14 @@ from loguru import logger
 import asyncio
 from datetime import datetime
 
+from ...exceptions import HardwareError
+from ...exceptions import ValidationError
+
 from ..messaging.message_broker import MessageBroker
 from ...infrastructure.config.config_manager import ConfigManager
 from ...hardware.communication.plc_client import PLCClient
 from ...hardware.communication.ssh_client import SSHClient
-from ...exceptions import TagOperationError
+from ...exceptions import HardwareError
 
 class TagManager:
     """
@@ -41,35 +44,16 @@ class TagManager:
         """Test connections to all hardware clients."""
         results = {
             "plc": False,
-            "motion_controller": False
+            "feeder": False
         }
         
         # Test PLC connection
         if self._plc_client:
-            try:
-                await self._plc_client.get_all_tags()
-                results["plc"] = True
-            except Exception as e:
-                logger.error(f"PLC connection test failed: {e}")
-                await self._message_broker.publish("error", {
-                    "error": str(e),
-                    "context": "plc_connection_test",
-                    "timestamp": datetime.now().isoformat()
-                })
+            results["plc"] = await self._plc_client.test_connection()
         
         # Test SSH connection
         if self._ssh_client:
-            try:
-                await self._ssh_client.write_command("echo test")
-                response = await self._ssh_client.read_response()
-                results["motion_controller"] = response is not None
-            except Exception as e:
-                logger.error(f"Motion controller connection test failed: {e}")
-                await self._message_broker.publish("error", {
-                    "error": str(e),
-                    "context": "motion_controller_connection_test",
-                    "timestamp": datetime.now().isoformat()
-                })
+            results["feeder"] = await self._ssh_client.test_connection()
         
         # Publish connection status
         for device, connected in results.items():
@@ -87,16 +71,20 @@ class TagManager:
             # Get hardware config
             hw_config = await self._config_manager.get_config("hardware")
             if not hw_config:
-                raise TagOperationError("No hardware configuration found")
+                raise HardwareError("No hardware configuration found", "tags")
 
-            # Only initialize PLC client if not already set (allows mocking)
+            # Initialize PLC client
             if not self._plc_client:
                 self._plc_client = PLCClient(hw_config)
+            
+            # Initialize SSH client
+            if not self._ssh_client:
+                self._ssh_client = SSHClient(hw_config)
             
             # Initialize tag definitions
             tag_config = await self._config_manager.get_config("tags")
             if not tag_config:
-                raise TagOperationError("No tag configuration found")
+                raise HardwareError("No tag configuration found", "tags")
             
             self._tag_definitions = tag_config.get("groups", {})
             
@@ -104,7 +92,7 @@ class TagManager:
             await self._message_broker.subscribe("tag/set", self._handle_tag_set)
             await self._message_broker.subscribe("tag/get", self._handle_tag_get)
             
-            # Start polling loop instead of single poll task
+            # Start polling loop
             self._polling_task = asyncio.create_task(self._poll_loop())
             
             self._is_initialized = True
@@ -112,7 +100,7 @@ class TagManager:
             
         except Exception as e:
             logger.error(f"Failed to initialize TagManager: {e}")
-            raise TagOperationError(f"TagManager initialization failed: {str(e)}") from e
+            raise HardwareError(f"TagManager initialization failed: {str(e)}", "tags") from e
 
     def _build_tag_maps(self) -> None:
         """Build mappings from tag configuration."""
@@ -134,33 +122,31 @@ class TagManager:
     async def _poll_loop(self) -> None:
         """Continuous polling loop."""
         try:
-            while True:
+            while self._is_initialized:  # Check flag
                 try:
                     await self._poll_tags()
                     await asyncio.sleep(0.1)  # Poll interval
                 except asyncio.CancelledError:
-                    # Clean shutdown
                     logger.debug("Polling loop cancelled")
                     break
                 except Exception as e:
-                    logger.error(f"Error in polling loop: {e}")
-                    await self._message_broker.publish("error", {
-                        "error": str(e),
-                        "context": "tag_polling",
-                        "timestamp": datetime.now().isoformat()
-                    })
-                    # Brief delay before retrying after error
-                    await asyncio.sleep(1.0)
+                    if self._is_initialized:  # Only log if still running
+                        logger.error(f"Error in polling loop: {e}")
+                        await asyncio.sleep(1.0)
+                    else:
+                        break
         except asyncio.CancelledError:
-            # Handle outer cancellation
             logger.debug("Polling loop cancelled during error recovery")
-            raise
         finally:
             logger.debug("Polling loop shutdown complete")
 
     async def _poll_tags(self) -> None:
         """Poll PLC tags and publish updates."""
         try:
+            # Skip polling if not connected
+            if not self._plc_client._connected:
+                return
+            
             # Get all PLC tags
             plc_tags = await self._plc_client.get_all_tags()
             
@@ -177,13 +163,13 @@ class TagManager:
                         })
                     
         except Exception as e:
-            # Publish error and re-raise
-            await self._message_broker.publish("error", {
+            error_msg = {
                 "error": str(e),
                 "context": "tag_polling",
                 "timestamp": datetime.now().isoformat()
-            })
-            raise TagOperationError(f"Failed to poll tags: {str(e)}") from e
+            }
+            await self._message_broker.publish("error", error_msg)
+            raise HardwareError("Failed to poll tags", "plc", error_msg)
 
     async def _handle_tag_set(self, data: Dict[str, Any]) -> None:
         """Handle tag set requests."""
@@ -196,12 +182,15 @@ class TagManager:
                 await self._plc_client.write_tag(plc_tag, value)
                 
         except Exception as e:
-            logger.error(f"Error setting tag {tag}: {e}")
-            await self._message_broker.publish("error", {
+            error_msg = {
                 "error": str(e),
                 "context": "tag_set",
+                "tag": data.get("tag"),
+                "value": data.get("value"),
                 "timestamp": datetime.now().isoformat()
-            })
+            }
+            logger.error(f"Error setting tag: {error_msg}")
+            await self._message_broker.publish("error", error_msg)
 
     async def _handle_tag_get(self, data: Dict[str, Any]) -> None:
         """Handle tag get requests."""
@@ -228,36 +217,37 @@ class TagManager:
     async def shutdown(self) -> None:
         """Shutdown tag manager."""
         try:
-            if self._polling_task:
-                # Cancel the task
+            # Set flag to stop polling loop
+            self._is_initialized = False
+            
+            # Cancel polling task first
+            if self._polling_task and not self._polling_task.done():
                 self._polling_task.cancel()
                 try:
                     # Wait for task to complete with timeout
-                    await asyncio.wait_for(self._polling_task, timeout=1.0)
+                    await asyncio.wait_for(self._polling_task, timeout=0.5)
                 except asyncio.TimeoutError:
                     logger.warning("Polling task shutdown timed out")
                 except asyncio.CancelledError:
-                    # Expected when task is cancelled
-                    pass
+                    logger.debug("Polling task cancelled")
                 except Exception as e:
                     logger.error(f"Error during polling task shutdown: {e}")
 
             # Disconnect hardware clients
-            if self._ssh_client:
-                try:
-                    await self._ssh_client.disconnect()
-                except Exception as e:
-                    logger.error(f"Error disconnecting SSH client: {e}")
-
             if self._plc_client:
                 try:
                     await self._plc_client.disconnect()
                 except Exception as e:
                     logger.error(f"Error disconnecting PLC client: {e}")
 
-            self._is_initialized = False
+            if self._ssh_client:
+                try:
+                    await self._ssh_client.disconnect()
+                except Exception as e:
+                    logger.error(f"Error disconnecting SSH client: {e}")
+
             logger.info("TagManager shutdown complete")
 
         except Exception as e:
             logger.exception("Error during TagManager shutdown")
-            raise TagOperationError(f"TagManager shutdown failed: {str(e)}") from e
+            raise HardwareError(f"TagManager shutdown failed: {str(e)}", "tags") from e

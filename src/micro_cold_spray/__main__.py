@@ -6,6 +6,7 @@ from loguru import logger
 from PySide6.QtWidgets import QApplication, QProgressDialog
 from PySide6.QtCore import Qt
 import yaml
+from datetime import datetime
 
 from micro_cold_spray.core.infrastructure.config.config_manager import ConfigManager
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
@@ -13,7 +14,13 @@ from micro_cold_spray.core.infrastructure.tags.tag_manager import TagManager
 from micro_cold_spray.core.infrastructure.state.state_manager import StateManager
 from micro_cold_spray.core.components.ui.managers.ui_update_manager import UIUpdateManager
 from micro_cold_spray.core.components.ui.windows.main_window import MainWindow
-from micro_cold_spray.core.exceptions import SystemInitializationError
+from micro_cold_spray.core.exceptions import (
+    CoreError,  # Base exception for system initialization
+    ConfigurationError,  # For config loading errors
+    StateError,  # For state transition errors
+    MessageError,  # For messaging errors
+    HardwareError  # For hardware initialization errors
+)
 
 def get_project_root() -> Path:
     """Get the absolute path to the project root directory."""
@@ -116,11 +123,11 @@ async def initialize_system() -> tuple[ConfigManager, MessageBroker, TagManager,
         # Test hardware connections
         connection_status = await tag_manager.test_connections()
         if not any(connection_status.values()):
-            logger.error("No hardware connections available")
-            await message_broker.publish("error", {
-                "error": "No hardware connections available",
-                "topic": "system/init",
-                "details": connection_status
+            logger.warning("No hardware connections available - starting in disconnected mode")
+            await message_broker.publish("system/status", {
+                "status": "disconnected",
+                "details": connection_status,
+                "timestamp": datetime.now().isoformat()
             })
         
         # Create and initialize state manager
@@ -143,8 +150,13 @@ async def initialize_system() -> tuple[ConfigManager, MessageBroker, TagManager,
         return config_manager, message_broker, tag_manager, state_manager, ui_manager
         
     except Exception as e:
-        logger.exception("Critical error during system initialization")
-        raise SystemInitializationError(f"Failed to initialize system: {str(e)}") from e
+        error_msg = {
+            "error": str(e),
+            "context": "system_initialization",
+            "timestamp": datetime.now().isoformat()
+        }
+        logger.exception(f"Critical error during system initialization: {error_msg}")
+        raise CoreError("Failed to initialize system", error_msg) from e
 
 async def main() -> None:
     """Application entry point with proper cleanup chains."""
@@ -155,7 +167,7 @@ async def main() -> None:
     try:
         setup_logging()
         ensure_directories()
-        logger.info("Starting Micro Cold Spray application")
+        logger.info("Starting Micro Cold Spray application - Dashboard Only Mode")
         
         app = QApplication(sys.argv)
         
@@ -171,14 +183,20 @@ async def main() -> None:
         config_manager, message_broker, tag_manager, state_manager, ui_manager = system_components
         
         # Create and initialize main window
-        splash.setLabelText("Initializing User Interface...")
+        splash.setLabelText("Initializing Dashboard Interface...")
         app.processEvents()
+        
+        # Get UI config
+        app_config = await config_manager.get_config("application")
+        if "window" not in app_config:
+            raise ConfigurationError("Missing window configuration in application.yaml")
+            
         window = MainWindow(
             config_manager=config_manager,
             message_broker=message_broker,
             ui_manager=ui_manager,
             tag_manager=tag_manager,
-            state_manager=state_manager
+            ui_config=app_config["window"]
         )
         await window.initialize()
         
@@ -193,7 +211,17 @@ async def main() -> None:
                 break
                 
     except Exception as e:
-        logger.exception("Critical application error")
+        error_msg = {
+            "error": str(e),
+            "context": "main_execution",
+            "timestamp": datetime.now().isoformat()
+        }
+        logger.exception(f"Critical application error: {error_msg}")
+        if 'message_broker' in locals() and message_broker:
+            try:
+                await message_broker.publish("error", error_msg)
+            except Exception as publish_error:
+                logger.error(f"Failed to publish error message: {publish_error}")
         raise
     finally:
         # Proper cleanup chain
@@ -202,10 +230,22 @@ async def main() -> None:
                 config_manager, message_broker, tag_manager, state_manager, ui_manager = system_components
                 
                 logger.info("Shutting down system components")
-                await ui_manager.shutdown()
-                await state_manager.shutdown()
-                await tag_manager.shutdown()
-                await message_broker.shutdown()
+                try:
+                    await ui_manager.shutdown()
+                except Exception as e:
+                    logger.error(f"Error shutting down UI manager: {e}")
+                try:
+                    await state_manager.shutdown()
+                except Exception as e:
+                    logger.error(f"Error shutting down state manager: {e}")
+                try:
+                    await tag_manager.shutdown()
+                except Exception as e:
+                    logger.error(f"Error shutting down tag manager: {e}")
+                try:
+                    await message_broker.shutdown()
+                except Exception as e:
+                    logger.error(f"Error shutting down message broker: {e}")
                 
             if app:
                 logger.info("Shutting down Qt application")
@@ -213,7 +253,12 @@ async def main() -> None:
                 app.processEvents()
                 
         except Exception as e:
-            logger.exception("Error during cleanup")
+            error_msg = {
+                "error": str(e),
+                "context": "shutdown",
+                "timestamp": datetime.now().isoformat()
+            }
+            logger.exception(f"Error during cleanup: {error_msg}")
         finally:
             logger.info("Application shutdown complete")
             sys.exit(0)

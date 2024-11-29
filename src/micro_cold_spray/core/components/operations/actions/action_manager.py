@@ -14,7 +14,9 @@ from ....exceptions import (
     ActionValidationError,
     ActionTimeoutError,
     ActionRequirementError,
-    ActionParameterError
+    ActionParameterError,
+    OperationError,
+    ValidationError
 )
 
 class ActionManager:
@@ -47,7 +49,10 @@ class ActionManager:
             
         except Exception as e:
             logger.error(f"Failed to initialize action manager: {e}")
-            raise ActionError(f"Action manager initialization failed: {str(e)}") from e
+            raise OperationError("Action manager initialization failed", "action", {
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            })
 
     async def shutdown(self) -> None:
         """Shutdown action manager."""
@@ -114,19 +119,49 @@ class ActionManager:
         """Execute atomic action from process.yaml."""
         try:
             # Get action definition
-            action_def = self._get_action_definition(action_type)
+            action_def = await self._get_action_definition(action_type)
             logger.debug(f"Executing atomic action {action_type} with parameters {parameters}")
+            
+            # Validate action parameters
+            await self._validate_action(action_type, parameters)
             
             # Send messages defined in action
             for message in action_def["messages"]:
                 # Substitute parameters into message data
                 message_data = self._substitute_parameters(parameters, message["data"])
                 
-                # Send message
-                await self._message_broker.publish(
-                    message["topic"],
-                    message_data
-                )
+                # Handle both single messages and lists of messages
+                if isinstance(message_data, list):
+                    # List of messages - each should have tag and value
+                    for msg in message_data:
+                        if not isinstance(msg, dict) or "tag" not in msg:
+                            raise OperationError("Invalid message format", "action", {
+                                "message": msg,
+                                "action": action_type,
+                                "timestamp": datetime.now().isoformat()
+                            })
+                        # Send each message
+                        await self._message_broker.publish(
+                            message["topic"],
+                            [str(msg["tag"]), msg.get("value", True)]
+                        )
+                else:
+                    # Single message
+                    if not isinstance(message_data, dict) or "tag" not in message_data:
+                        raise OperationError("Invalid message format", "action", {
+                            "message": message_data,
+                            "action": action_type,
+                            "timestamp": datetime.now().isoformat()
+                        })
+                    # Send message
+                    await self._message_broker.publish(
+                        message["topic"],
+                        [str(message_data["tag"]), message_data.get("value", True)]
+                    )
+                    
+                # Wait for validation response if needed
+                if "validation" in message:
+                    await self._handle_validation(message["validation"])
                     
             # Handle validations if defined
             if "validation" in action_def:
@@ -135,11 +170,20 @@ class ActionManager:
                     
         except Exception as e:
             logger.error(f"Error in atomic action {action_type}: {e}")
-            raise ActionExecutionError(f"Atomic action failed: {str(e)}") from e
+            raise OperationError("Action execution failed", "action", {
+                "action": action_type,
+                "parameters": parameters,
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            })
 
     async def _handle_validation(self, validation_def: Dict[str, Any]) -> None:
         """Handle validation checks."""
         try:
+            # Convert string validation to dict if needed
+            if isinstance(validation_def, str):
+                validation_def = {"tag": validation_def}
+            
             result = await self._process_validator.validate_condition(validation_def)
             if not result["valid"]:
                 raise ActionValidationError(f"Validation failed: {result['errors']}")
@@ -162,12 +206,13 @@ class ActionManager:
         except Exception as e:
             raise ActionRequirementError(f"Requirements check failed: {str(e)}") from e
 
-    def _get_action_definition(self, action_type: str) -> Dict[str, Any]:
+    async def _get_action_definition(self, action_type: str) -> Dict[str, Any]:
         """Get action definition from process config."""
         try:
             # Parse action path (e.g. 'gas.set_main_flow')
             action_path = action_type.split('.')
-            current = self._process_config["atomic_actions"]
+            process_config = await self._config_manager.get_config("process")
+            current = process_config.get("atomic_actions", {})
             
             # Navigate to action definition
             for part in action_path:
@@ -255,7 +300,11 @@ class ActionManager:
             
         except Exception as e:
             logger.exception("Error handling action error")
-            raise ActionError(f"Error handler failed: {str(e)}") from e
+            raise OperationError("Error handler failed", "action", {
+                "error": str(e),
+                "original_error": str(error),
+                "timestamp": datetime.now().isoformat()
+            })
 
     async def _handle_action_request(self, data: Dict[str, Any]) -> None:
         """Handle action request messages."""
@@ -286,3 +335,66 @@ class ActionManager:
         except Exception as e:
             logger.error(f"Error handling action cancel: {e}")
             await self._handle_error(e, data)
+
+    async def _validate_action(self, action_type: str, parameters: Dict[str, Any]) -> None:
+        """Validate action parameters against rules."""
+        try:
+            # Get validation rules from process config
+            process_config = await self._config_manager.get_config("process")
+            validation_rules = process_config.get("validation", {}).get("actions", {})
+            
+            # Get action definition
+            action_def = await self._get_action_definition(action_type)
+            
+            # Check required parameters
+            if "required_fields" in validation_rules:
+                required = validation_rules["required_fields"]["fields"]
+                for field in required:
+                    if field not in parameters:
+                        raise ActionValidationError(validation_rules["required_fields"]["message"])
+            
+            # Check for unknown parameters
+            if "optional_fields" in validation_rules:
+                optional = validation_rules["optional_fields"]["fields"]
+                for field in parameters:
+                    if field not in required and field not in optional:
+                        raise ActionValidationError(validation_rules["optional_fields"]["message"])
+            
+            # Validate motion parameters if present
+            if action_type.startswith("motion."):
+                await self._validate_motion_action(action_type, parameters)
+                
+            # Validate against action-specific rules
+            if "validation" in action_def:
+                for validation in action_def["validation"]:
+                    await self._handle_validation(validation)
+                    
+        except Exception as e:
+            logger.error(f"Action validation failed: {e}")
+            raise ActionValidationError(f"Action validation failed: {str(e)}") from e
+
+    async def _validate_motion_action(self, action_type: str, parameters: Dict[str, Any]) -> None:
+        """Validate motion action parameters."""
+        try:
+            hardware_config = await self._config_manager.get_config("hardware")
+            stage_dims = hardware_config["physical"]["stage"]["dimensions"]
+            
+            # Extract position parameters
+            position = {}
+            if 'x' in parameters:
+                position['x'] = parameters['x']
+            if 'y' in parameters:
+                position['y'] = parameters['y']
+            if 'z' in parameters:
+                position['z'] = parameters['z']
+            
+            # Validate against stage dimensions
+            for axis, value in position.items():
+                if value < 0 or value > stage_dims[axis]:
+                    raise ActionValidationError(
+                        f"{axis.upper()} position {value} exceeds stage dimensions [0, {stage_dims[axis]}]"
+                    )
+                
+        except Exception as e:
+            logger.error(f"Motion action validation failed: {e}")
+            raise ActionValidationError(f"Motion action validation failed: {str(e)}") from e

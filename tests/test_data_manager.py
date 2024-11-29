@@ -59,7 +59,7 @@ class TestDataManager:
         assert data_manager._is_initialized
         
         # Verify data paths from application config
-        app_config = data_manager._config_manager.get_config('application')
+        app_config = await data_manager._config_manager.get_config('application')
         assert 'paths' in app_config
         assert 'data' in app_config['paths']
         

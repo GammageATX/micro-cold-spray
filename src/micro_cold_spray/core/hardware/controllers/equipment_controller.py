@@ -3,9 +3,11 @@ from typing import Dict, Any
 import logging
 import time
 import asyncio
+from datetime import datetime
 
 from ...infrastructure.messaging.message_broker import MessageBroker
 from ...infrastructure.config.config_manager import ConfigManager
+from ...exceptions import HardwareError
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +45,7 @@ class EquipmentController:
     async def _handle_gas_flow(self, message: Dict[str, Any]) -> None:
         """Handle gas flow setpoints."""
         try:
-            flow_type = message.get('type')  # 'main' or 'feeder'
+            flow_type = message.get('type')
             value = message.get('value')
             
             # Get safety limits from config
@@ -65,13 +67,19 @@ class EquipmentController:
                 "tag/set",
                 {
                     "tag": f"gas_control.{flow_type}_flow.setpoint",
-                    "value": value
+                    "value": value,
+                    "timestamp": datetime.now().isoformat()
                 }
             )
 
         except Exception as e:
             logger.error(f"Gas flow control failed: {e}")
-            raise
+            raise HardwareError("Gas flow control failed", "gas_control", {
+                "flow_type": flow_type,
+                "value": value,
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            })
 
     async def _handle_gas_valve(self, message: Dict[str, Any]) -> None:
         """Handle gas valve control."""

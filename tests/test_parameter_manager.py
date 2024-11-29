@@ -53,8 +53,25 @@ class TestParameterManager:
     async def test_parameter_manager_initialization(self, parameter_manager):
         """Test parameter manager initialization."""
         assert parameter_manager._is_initialized
-        process_config = await parameter_manager._config_manager.get_config('process')
-        assert 'parameters' in process_config
+        
+        # Parameters validation is under actions.parameters in operation config
+        operation_config = await parameter_manager._config_manager.get_config('operation')
+        assert 'parameters' in operation_config.get('operation', {}).get('actions', {})
+        
+        # Verify parameter validation rules loaded
+        validation = operation_config['operation']['actions']['parameters']['validation']
+        assert 'material' in validation
+        assert 'process' in validation
+        
+        # Verify subscriptions
+        assert any(
+            "parameters/load" in topic 
+            for topic in parameter_manager._message_broker._subscribers.keys()
+        )
+        assert any(
+            "parameters/save" in topic 
+            for topic in parameter_manager._message_broker._subscribers.keys()
+        )
 
     @pytest.mark.asyncio
     async def test_load_gas_parameters(self, parameter_manager):

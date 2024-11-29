@@ -4,13 +4,13 @@ from loguru import logger
 import asyncio
 from datetime import datetime
 from enum import Enum
-from PySide6.QtWidgets import QWidget, QFrame
+from PySide6.QtWidgets import QWidget, QFrame, QSizePolicy
 from PySide6.QtCore import Qt
 from collections import defaultdict
 
 from ....infrastructure.messaging.message_broker import MessageBroker
 from ....infrastructure.config.config_manager import ConfigManager
-from ....exceptions import UIError
+from ....exceptions import UIError, CoreError, ValidationError
 
 class WidgetType(Enum):
     """Valid widget types."""
@@ -22,13 +22,7 @@ class WidgetType(Enum):
 
 class WidgetLocation(Enum):
     """Valid widget locations."""
-    MAIN = "main"
     DASHBOARD = "dashboard"
-    MOTION = "motion"
-    EDITOR = "editor"
-    SYSTEM = "system"
-    DIAGNOSTICS = "diagnostics"
-    CONFIG = "config"
 
 class UIUpdateManager:
     """Manages UI updates and widget registration."""
@@ -39,20 +33,71 @@ class UIUpdateManager:
         config_manager: ConfigManager
     ) -> None:
         """Initialize with required dependencies."""
-        if message_broker is None:
-            logger.error("Cannot initialize UI update manager - no message broker provided")
-            raise ValueError("MessageBroker is required")
-        
-        if config_manager is None:
-            logger.error("Cannot initialize UI update manager - no config manager provided")
-            raise ValueError("ConfigManager is required")
-        
         self._message_broker = message_broker
         self._config_manager = config_manager
-        self._widgets: Dict[str, Dict[str, Any]] = {}
+        self._registered_widgets: Dict[str, Dict[str, Any]] = {}
         self._tag_subscriptions: Dict[str, Set[str]] = defaultdict(set)
         self._is_initialized = False
         logger.info("UI update manager initialized")
+
+    async def register_widget(
+        self,
+        widget_id: str,
+        update_tags: List[str],
+        widget: Optional[QWidget] = None
+    ) -> None:
+        """Register a widget for updates."""
+        try:
+            # Validate widget location
+            parts = widget_id.split('_')
+            if len(parts) < 2:
+                raise ValidationError("Invalid widget ID format")
+            
+            widget_location = parts[1]
+            if widget_location != WidgetLocation.DASHBOARD.value:
+                raise ValidationError(
+                    "Only dashboard widgets are currently supported",
+                    {
+                        "widget_id": widget_id,
+                        "location": widget_location
+                    }
+                )
+
+            # Rest of the existing registration code...
+            if widget_id in self._registered_widgets:
+                logger.warning(f"Widget {widget_id} already registered - updating tags")
+                await self.unregister_widget(widget_id)
+            
+            if widget:
+                self._verify_widget_style(widget)
+            
+            self._registered_widgets[widget_id] = {
+                'tags': update_tags,
+                'timestamp': datetime.now().isoformat(),
+                'widget_ref': widget
+            }
+            
+            for tag in update_tags:
+                self._tag_subscriptions[tag].add(widget_id)
+                
+            logger.debug(f"Registered dashboard widget {widget_id} for tags: {update_tags}")
+            
+            await self._message_broker.publish(
+                "ui/widget/registered",
+                {
+                    "widget_id": widget_id,
+                    "tags": update_tags,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+            
+        except ValidationError as e:
+            logger.error(f"Widget validation failed for {widget_id}: {e}")
+            raise
+        except Exception as e:
+            error_msg = f"Failed to register widget {widget_id}: {str(e)}"
+            logger.error(error_msg)
+            raise UIError(error_msg) from e
 
     async def initialize(self) -> None:
         """Initialize UI update manager."""
@@ -62,90 +107,39 @@ class UIUpdateManager:
 
             # Subscribe to required topics
             await self._message_broker.subscribe("tag/update", self._handle_tag_update)
-            # Subscribe to all config update topics
             await self._message_broker.subscribe("config/update", self._handle_config_update)
-            await self._message_broker.subscribe("config/update/hardware", self._handle_config_update)
+            await self._message_broker.subscribe("config/update/hardware", self._handle_hardware_config_update)
             await self._message_broker.subscribe("config/update/process", self._handle_config_update)
             await self._message_broker.subscribe("config/update/ui", self._handle_config_update)
+            await self._message_broker.subscribe("sequence/loaded", self._handle_sequence_loaded)
+            await self._message_broker.subscribe("sequence/state", self._handle_sequence_state)
+            
+            # Load initial hardware config
+            hardware_config = await self._config_manager.get_config("hardware")
+            self._stage_dimensions = hardware_config.get("stage", {}).get("dimensions", {})
             
             self._is_initialized = True
             logger.info("UI update manager initialization complete")
             
         except Exception as e:
             logger.exception("Failed to initialize UI update manager")
-            await self._message_broker.publish("ui/error", {
-                "error": str(e),
-                "context": "initialization",
-                "timestamp": datetime.now().isoformat()
+            raise CoreError("Failed to initialize UI update manager", {
+                "error": str(e)
             })
-            raise UIError("Failed to initialize UI update manager") from e
-
-    async def register_widget(
-        self,
-        widget_id: str,
-        update_tags: List[str],
-        widget_type: WidgetType,
-        location: WidgetLocation,
-        widget: Optional[QWidget] = None
-    ) -> None:
-        """Register a widget for updates."""
-        try:
-            # Verify widget has required async methods
-            if widget:
-                if not hasattr(widget, 'update') or not asyncio.iscoroutinefunction(widget.update):
-                    raise UIError(f"Widget {widget_id} must implement async update() method")
-                
-                if not hasattr(widget, 'cleanup') or not asyncio.iscoroutinefunction(widget.cleanup):
-                    raise UIError(f"Widget {widget_id} must implement async cleanup() method")
-                
-                # Verify Qt6 style usage
-                self._verify_widget_style(widget)
-            
-            # Register widget with metadata
-            self._widgets[widget_id] = {
-                'widget': widget,
-                'type': widget_type,
-                'location': location,
-                'tags': update_tags,
-                'timestamp': datetime.now().isoformat()
-            }
-            
-            # Update subscriptions
-            for tag in update_tags:
-                self._tag_subscriptions[tag].add(widget_id)
-                
-            # Notify registration
-            await self._message_broker.publish("ui/widget/registered", {
-                "widget_id": widget_id,
-                "type": widget_type.value,
-                "location": location.value,
-                "tags": update_tags,
-                "timestamp": datetime.now().isoformat()
-            })
-            
-        except Exception as e:
-            logger.error(f"Error registering widget {widget_id}: {e}")
-            await self._message_broker.publish("ui/error", {
-                "error": str(e),
-                "context": "widget_registration",
-                "widget_id": widget_id,
-                "timestamp": datetime.now().isoformat()
-            })
-            raise UIError(f"Failed to register widget: {str(e)}") from e
 
     async def unregister_widget(self, widget_id: str) -> None:
         """Unregister a widget from updates."""
         try:
-            if widget_id in self._widgets:
+            if widget_id in self._registered_widgets:
                 # Call cleanup chain
                 await self._cleanup_widget_chain(widget_id)
                 
                 # Remove subscriptions
-                for tag in self._widgets[widget_id]['tags']:
+                for tag in self._registered_widgets[widget_id]['tags']:
                     self._tag_subscriptions[tag].discard(widget_id)
                     
                 # Remove registration
-                del self._widgets[widget_id]
+                del self._registered_widgets[widget_id]
                 
                 # Notify unregistration
                 await self._message_broker.publish("ui/widget/unregistered", {
@@ -155,30 +149,42 @@ class UIUpdateManager:
                 
         except Exception as e:
             logger.error(f"Error unregistering widget {widget_id}: {e}")
-            await self._message_broker.publish("ui/error", {
-                "error": str(e),
-                "context": "widget_unregistration",
+            raise CoreError("Failed to unregister widget", {
                 "widget_id": widget_id,
-                "timestamp": datetime.now().isoformat()
+                "error": str(e)
             })
-            raise UIError(f"Failed to unregister widget: {str(e)}") from e
 
     def _verify_widget_style(self, widget: QWidget) -> None:
-        """Verify widget uses proper Qt6 style constants."""
+        """Verify widget uses proper Qt6 style constants.
+        
+        Args:
+            widget: QWidget to verify
+            
+        Raises:
+            ValidationError: If widget uses incorrect style constants
+        """
+        # Only verify QFrame style constants
         if isinstance(widget, QFrame):
             if not isinstance(widget.frameShape(), QFrame.Shape):
-                raise UIError("Must use QFrame.Shape.* for frame shapes")
+                raise ValidationError("Must use QFrame.Shape.* for frame shapes")
             if not isinstance(widget.frameShadow(), QFrame.Shadow):
-                raise UIError("Must use QFrame.Shadow.* for frame shadows")
+                raise ValidationError("Must use QFrame.Shadow.* for frame shadows")
                 
-        alignment = widget.alignment()
-        if alignment and not isinstance(alignment, Qt.AlignmentFlag):
-            raise UIError("Must use Qt.AlignmentFlag.* for alignments")
+            # Only check alignment and size policy on QFrames
+            alignment = widget.alignment()
+            if alignment and not isinstance(alignment, Qt.AlignmentFlag):
+                raise ValidationError("Must use Qt.AlignmentFlag.* for alignments")
+                
+            h_policy = widget.sizePolicy().horizontalPolicy()
+            v_policy = widget.sizePolicy().verticalPolicy()
+            if not isinstance(h_policy, QSizePolicy.Policy) or \
+               not isinstance(v_policy, QSizePolicy.Policy):
+                raise ValidationError("Must use QSizePolicy.Policy.* for size policies")
 
     async def _cleanup_widget_chain(self, widget_id: str) -> None:
         """Handle widget cleanup chain."""
         try:
-            widget_data = self._widgets.get(widget_id)
+            widget_data = self._registered_widgets.get(widget_id)
             if not widget_data:
                 return
                 
@@ -196,19 +202,25 @@ class UIUpdateManager:
             
         except Exception as e:
             logger.error(f"Error in widget cleanup chain: {e}")
-            raise UIError(f"Widget cleanup chain failed: {str(e)}") from e
+            raise CoreError("Widget cleanup chain failed", {
+                "widget_id": widget_id,
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            })
 
     async def _handle_tag_update(self, data: Dict[str, Any]) -> None:
         """Handle tag updates with proper async handling."""
         try:
             tag = data.get("tag")
             if not tag:
-                raise ValueError("No tag in update data")
+                raise ValidationError("No tag in update data", {
+                    "data": data
+                })
                 
             # Update subscribed widgets with proper async handling
             update_tasks = []
             for widget_id in self._tag_subscriptions.get(tag, set()):
-                widget = self._widgets[widget_id].get('widget')
+                widget = self._registered_widgets[widget_id].get('widget')
                 if widget and hasattr(widget, 'update'):
                     update_tasks.append(widget.update(data))
                     
@@ -242,11 +254,40 @@ class UIUpdateManager:
                 "timestamp": datetime.now().isoformat()
             })
 
+    async def _handle_hardware_config_update(self, data: Dict[str, Any]) -> None:
+        """Handle hardware configuration updates."""
+        try:
+            if "stage" in data:
+                self._stage_dimensions = data["stage"].get("dimensions", {})
+                
+            # Forward hardware config update to UI
+            await self._message_broker.publish("ui/update/hardware", {
+                "type": "hardware_config",
+                "data": data,
+                "timestamp": datetime.now().isoformat()
+            })
+            
+        except Exception as e:
+            logger.error(f"Error handling hardware config update: {e}")
+            await self._message_broker.publish("ui/error", {
+                "error": str(e),
+                "context": "hardware_config_update",
+                "timestamp": datetime.now().isoformat()
+            })
+
+    def get_stage_dimensions(self) -> Dict[str, float]:
+        """Get stage dimensions from hardware config.
+        
+        Returns:
+            Dict containing x, y, z dimensions of the stage
+        """
+        return self._stage_dimensions
+
     async def shutdown(self) -> None:
         """Shutdown UI update manager."""
         try:
             # Cleanup all registered widgets
-            for widget_id in list(self._widgets.keys()):
+            for widget_id in list(self._registered_widgets.keys()):
                 await self.unregister_widget(widget_id)
                 
             self._is_initialized = False
@@ -254,9 +295,166 @@ class UIUpdateManager:
             
         except Exception as e:
             logger.exception("Error during UI update manager shutdown")
+            raise CoreError("Failed to shutdown UI update manager", {
+                "error": str(e)
+            })
+
+    async def send_update(self, topic: str, data: Dict[str, Any]) -> None:
+        """Send UI update via message broker.
+        
+        Args:
+            topic: Topic to publish update to
+            data: Update data or string message
+            
+        Raises:
+            UIError: If update fails
+        """
+        try:
+            # Convert string messages to proper format
+            if isinstance(data, str):
+                data = {
+                    "message": data,
+                    "timestamp": datetime.now().isoformat()
+                }
+            elif isinstance(data, dict) and 'timestamp' not in data:
+                data['timestamp'] = datetime.now().isoformat()
+                
+            # Forward update through message broker
+            await self._message_broker.publish(
+                f"ui/update/{topic}",
+                data
+            )
+            
+            # Also publish to original topic for other subscribers
+            await self._message_broker.publish(
+                topic,
+                data
+            )
+            
+            logger.debug(f"Sent update on topic {topic}: {data}")
+            
+        except Exception as e:
+            logger.error(f"Error sending UI update: {e}")
+            raise UIError(f"Failed to send UI update: {str(e)}") from e
+
+    async def _handle_system_state(self, data: Dict[str, Any]) -> None:
+        """Handle system state updates."""
+        try:
+            state = data.get("state", "DISCONNECTED")
+            
+            # Update all widgets subscribed to system state
+            for widget_id in self._tag_subscriptions.get("system.state", set()):
+                widget = self._registered_widgets[widget_id].get('widget')
+                if widget and hasattr(widget, 'handle_system_state'):
+                    await widget.handle_system_state(state)
+                    
+            # Forward state update
+            await self.send_update(
+                "system.state",
+                {
+                    "state": state,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"Error handling system state: {e}")
             await self._message_broker.publish("ui/error", {
                 "error": str(e),
-                "context": "shutdown",
+                "context": "system_state_handler",
                 "timestamp": datetime.now().isoformat()
             })
-            raise UIError("Failed to shutdown UI update manager") from e
+
+    async def _handle_sequence_state(self, data: Dict[str, Any]) -> None:
+        """Handle sequence state updates."""
+        try:
+            if not self._is_initialized:
+                return
+                
+            state = data.get("state")
+            if state == "STARTING" and not await self._check_connection():
+                # Block sequence start if disconnected
+                await self.send_update(
+                    "system.message",
+                    {
+                        "message": "Cannot start sequence in disconnected state - please connect hardware first",
+                        "level": "warning",
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+                return
+
+            # Update data collection state based on sequence state
+            if state == "RUNNING":
+                await self.send_update(
+                    "data.collection.state",
+                    {
+                        "state": "COLLECTING",
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+            elif state in ["COMPLETED", "CANCELLED", "ERROR"]:
+                await self.send_update(
+                    "data.collection.state",
+                    {
+                        "state": "STOPPED",
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+                
+            # Forward sequence state update
+            await self.send_update(
+                "sequence.state",
+                {
+                    "state": state,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"Error handling sequence state: {e}")
+            await self._message_broker.publish("ui/error", {
+                "error": str(e),
+                "context": "sequence_state_handler",
+                "timestamp": datetime.now().isoformat()
+            })
+
+    async def _check_connection(self) -> bool:
+        """Check if system is connected to hardware."""
+        try:
+            state = await self._message_broker.request(
+                "system/state",
+                timeout=1.0
+            )
+            return state.get("state") == "CONNECTED"
+        except Exception:
+            return False
+
+    async def _handle_sequence_loaded(self, data: Dict[str, Any]) -> None:
+        """Handle sequence loaded events."""
+        try:
+            logger.debug(f"Handling sequence loaded event: {data}")
+
+            # Send sequence loaded notification to all subscribed widgets
+            for widget_id in self._tag_subscriptions.get("sequence.loaded", set()):
+                widget = self._registered_widgets[widget_id].get('widget_ref')
+                if widget and hasattr(widget, 'handle_ui_update'):
+                    await widget.handle_ui_update({
+                        "sequence.loaded": data
+                    })
+
+            # Also send through general update mechanism
+            await self.send_update(
+                "sequence.loaded",
+                data
+            )
+
+            logger.debug(f"Sequence loaded event handled: {data.get('name', 'unnamed')}")
+
+        except Exception as e:
+            logger.error(f"Error handling sequence loaded: {e}")
+            await self._message_broker.publish("ui/error", {
+                "error": str(e),
+                "context": "sequence_loaded_handler",
+                "timestamp": datetime.now().isoformat()
+            })

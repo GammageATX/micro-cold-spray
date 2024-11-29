@@ -2,11 +2,31 @@
 
 class CoreError(Exception):
     """Base exception for core module."""
+    
+    def __init__(self, message: str, context: dict = None):
+        """Initialize with message and optional context."""
+        super().__init__(message)
+        self.context = context or {}
+
+class ValidationError(CoreError):
+    """Validation related errors."""
     pass
 
-class SystemInitializationError(CoreError):
-    """System initialization errors."""
-    pass
+class OperationError(CoreError):
+    """Operation related errors (actions, patterns, sequences)."""
+    
+    def __init__(self, message: str, operation_type: str, context: dict = None):
+        """Initialize with operation type."""
+        super().__init__(message, context)
+        self.operation_type = operation_type
+
+class HardwareError(CoreError):
+    """Hardware related errors."""
+    
+    def __init__(self, message: str, device: str, context: dict = None):
+        """Initialize with device info."""
+        super().__init__(message, context)
+        self.device = device
 
 class ConfigurationError(CoreError):
     """Configuration related errors."""
@@ -16,92 +36,8 @@ class StateError(CoreError):
     """State management related errors."""
     pass
 
-class MessageBrokerError(CoreError):
+class MessageError(CoreError):
     """Message broker related errors."""
-    pass
-
-class ValidationError(CoreError):
-    """Validation related errors."""
-    pass
-
-class OperationError(CoreError):
-    """Base class for operation related errors."""
-    pass
-
-class ActionError(OperationError):
-    """Base class for action related errors."""
-    pass
-
-class ActionConfigError(ActionError):
-    """Action configuration errors."""
-    pass
-
-class ActionExecutionError(ActionError):
-    """Action execution errors."""
-    pass
-
-class ActionValidationError(ActionError):
-    """Action validation errors."""
-    pass
-
-class ActionTimeoutError(ActionError):
-    """Action timeout errors."""
-    pass
-
-class ActionRequirementError(ActionError):
-    """Action requirement errors."""
-    pass
-
-class ActionParameterError(ActionError):
-    """Action parameter errors."""
-    pass
-
-class ParameterError(OperationError):
-    """Parameter related errors."""
-    pass
-
-class PatternError(OperationError):
-    """Pattern related errors."""
-    pass
-
-class SequenceError(OperationError):
-    """Sequence related errors."""
-    pass
-
-class HardwareError(CoreError):
-    """Base class for hardware related errors."""
-    pass
-
-class HardwareConnectionError(HardwareError):
-    """Hardware connection and communication related errors."""
-    pass
-
-class HardwareTimeoutError(HardwareError):
-    """Hardware timeout related errors."""
-    pass
-
-class HardwareStateError(HardwareError):
-    """Hardware state related errors."""
-    pass
-
-class TagError(HardwareError):
-    """Base class for tag related errors."""
-    pass
-
-class TagOperationError(TagError):
-    """Tag operation related errors."""
-    pass
-
-class TagValidationError(TagError):
-    """Tag validation related errors."""
-    pass
-
-class TagTimeoutError(TagError):
-    """Tag timeout related errors."""
-    pass
-
-class TagConnectionError(TagError):
-    """Tag connection related errors."""
     pass
 
 class UIError(CoreError):

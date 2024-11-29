@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QCloseEvent
+from datetime import datetime
 
 from micro_cold_spray.core.infrastructure.config.config_manager import ConfigManager
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
@@ -141,12 +142,8 @@ class MainWindow(QMainWindow):
             if self._is_initialized:
                 return
 
-            # Initialize tabs
+            # Initialize only dashboard tab
             await self.dashboard_tab.initialize()
-            await self.motion_tab.initialize()
-            await self.editor_tab.initialize()
-            await self.config_tab.initialize()
-            await self.diagnostics_tab.initialize()
             
             # Subscribe to system messages
             await self._message_broker.subscribe(
@@ -158,8 +155,13 @@ class MainWindow(QMainWindow):
             logger.info("MainWindow initialization complete")
             
         except Exception as e:
+            error_context = {
+                "window": "MainWindow",
+                "operation": "initialize",
+                "timestamp": datetime.now().isoformat()
+            }
             logger.exception("Failed to initialize MainWindow")
-            raise UIError(f"MainWindow initialization failed: {str(e)}") from e
+            raise UIError("MainWindow initialization failed", error_context) from e
 
     def _init_ui(self) -> None:
         """Initialize the main window UI."""
@@ -238,19 +240,10 @@ class MainWindow(QMainWindow):
             # Add top strip to main layout
             main_layout.addWidget(top_strip)
             
-            # Create and add tabs
+            # Create and add only dashboard tab
             self.tab_widget = QTabWidget()
             self.dashboard_tab = DashboardTab(self._ui_manager)
-            self.motion_tab = MotionTab(self._ui_manager)
-            self.editor_tab = EditorTab(self._ui_manager)
-            self.config_tab = ConfigTab(self._ui_manager)
-            self.diagnostics_tab = DiagnosticsTab(self._ui_manager)
-            
             self.tab_widget.addTab(self.dashboard_tab, "Dashboard")
-            self.tab_widget.addTab(self.motion_tab, "Motion")
-            self.tab_widget.addTab(self.editor_tab, "Editor")
-            self.tab_widget.addTab(self.diagnostics_tab, "Diagnostics")
-            self.tab_widget.addTab(self.config_tab, "Config")
             
             main_layout.addWidget(self.tab_widget)
             
@@ -282,8 +275,13 @@ class MainWindow(QMainWindow):
             self.setStatusBar(self.status_bar)
             
         except Exception as e:
-            logger.error(f"Error initializing UI: {e}")
-            raise UIError(f"UI initialization failed: {str(e)}") from e
+            error_context = {
+                "window": "MainWindow",
+                "operation": "init_ui",
+                "timestamp": datetime.now().isoformat()
+            }
+            logger.error(f"Error initializing UI: {error_context}")
+            raise UIError("UI initialization failed", error_context) from e
 
     async def _handle_system_state(self, data: Dict[str, Any]) -> None:
         """Handle system state updates."""
@@ -295,22 +293,21 @@ class MainWindow(QMainWindow):
                     {"state": state}
                 )
         except Exception as e:
-            logger.error(f"Error handling system state: {e}")
+            error_context = {
+                "window": "MainWindow",
+                "operation": "handle_system_state",
+                "state": data.get("state"),
+                "timestamp": datetime.now().isoformat()
+            }
+            logger.error(f"Error handling system state: {error_context}")
+            raise UIError("Failed to handle system state", error_context) from e
 
     async def cleanup(self) -> None:
         """Clean up all widgets and resources."""
         try:
-            # Clean up tabs
+            # Clean up only dashboard tab
             if hasattr(self, 'dashboard_tab'):
                 await self.dashboard_tab.cleanup()
-            if hasattr(self, 'motion_tab'):
-                await self.motion_tab.cleanup()
-            if hasattr(self, 'editor_tab'):
-                await self.editor_tab.cleanup()
-            if hasattr(self, 'config_tab'):
-                await self.config_tab.cleanup()
-            if hasattr(self, 'diagnostics_tab'):
-                await self.diagnostics_tab.cleanup()
             
             # Clean up widgets
             if hasattr(self, 'system_state'):
@@ -326,8 +323,13 @@ class MainWindow(QMainWindow):
             logger.info("MainWindow cleanup complete")
             
         except Exception as e:
+            error_context = {
+                "window": "MainWindow",
+                "operation": "cleanup",
+                "timestamp": datetime.now().isoformat()
+            }
             logger.exception("Error during MainWindow cleanup")
-            raise UIError(f"MainWindow cleanup failed: {str(e)}") from e
+            raise UIError("MainWindow cleanup failed", error_context) from e
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """Handle window close event."""
@@ -335,5 +337,10 @@ class MainWindow(QMainWindow):
             self.is_closing = True
             event.accept()
         except Exception as e:
-            logger.error(f"Error handling close event: {e}")
+            error_context = {
+                "window": "MainWindow",
+                "operation": "close",
+                "timestamp": datetime.now().isoformat()
+            }
+            logger.error(f"Error handling close event: {error_context}")
             event.ignore()

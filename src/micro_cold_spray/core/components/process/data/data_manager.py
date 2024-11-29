@@ -10,13 +10,25 @@ import yaml
 
 from ....infrastructure.messaging.message_broker import MessageBroker
 from ....infrastructure.config.config_manager import ConfigManager
-from ....exceptions import CoreError
+from ....exceptions import CoreError, ValidationError
 
 class DataManager:
     """Manages process data collection and storage."""
     
     def __init__(self, message_broker: MessageBroker, config_manager: ConfigManager):
         """Initialize with required dependencies."""
+        if message_broker is None:
+            raise ValidationError("MessageBroker is required", {
+                "error": "No message broker provided",
+                "timestamp": datetime.now().isoformat()
+            })
+            
+        if config_manager is None:
+            raise ValidationError("ConfigManager is required", {
+                "error": "No config manager provided",
+                "timestamp": datetime.now().isoformat()
+            })
+            
         self._message_broker = message_broker
         self._config_manager = config_manager
         self._process_data: Dict[str, Dict[str, Any]] = {}
@@ -36,7 +48,7 @@ class DataManager:
                 return
 
             # Get data paths from application config
-            app_config = self._config_manager.get_config("application")
+            app_config = await self._config_manager.get_config("application")
             data_paths = app_config.get("paths", {}).get("data", {})
             
             # Set up data directories
@@ -66,7 +78,10 @@ class DataManager:
             
         except Exception as e:
             logger.exception("Failed to initialize data manager")
-            raise CoreError(f"Data manager initialization failed: {str(e)}") from e
+            raise CoreError("Data manager initialization failed", {
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            })
 
     async def shutdown(self) -> None:
         """Shutdown data manager."""
@@ -80,7 +95,10 @@ class DataManager:
             
         except Exception as e:
             logger.exception("Error during data manager shutdown")
-            raise CoreError(f"Data manager shutdown failed: {str(e)}") from e
+            raise CoreError("Data manager shutdown failed", {
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            })
 
     async def set_user(self, username: str) -> None:
         """Set the current user for data collection."""
@@ -98,7 +116,11 @@ class DataManager:
             
         except Exception as e:
             logger.error(f"Error setting user: {e}")
-            raise CoreError(f"Failed to set user: {str(e)}") from e
+            raise CoreError("Failed to set user", {
+                "error": str(e),
+                "username": username,
+                "timestamp": datetime.now().isoformat()
+            })
 
     async def set_cancelled(self, cancelled: bool = True) -> None:
         """Mark the current run as cancelled."""
@@ -116,7 +138,11 @@ class DataManager:
             
         except Exception as e:
             logger.error(f"Error setting cancelled state: {e}")
-            raise CoreError(f"Failed to set cancelled state: {str(e)}") from e
+            raise CoreError("Failed to set cancelled state", {
+                "error": str(e),
+                "cancelled": cancelled,
+                "timestamp": datetime.now().isoformat()
+            })
 
     def generate_filename(self, sequence_name: str) -> str:
         """Generate a filename for the process data."""
@@ -174,13 +200,11 @@ class DataManager:
                     
         except Exception as e:
             logger.error(f"Error handling tag update: {e}")
-            await self._message_broker.publish(
-                "data/collection/error",
-                {
-                    "error": str(e),
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
+            raise CoreError("Failed to handle tag update", {
+                "error": str(e),
+                "data": data,
+                "timestamp": datetime.now().isoformat()
+            })
 
     async def _record_spray_start(self) -> None:
         """Record start of spray event."""

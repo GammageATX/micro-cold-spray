@@ -8,7 +8,7 @@ import yaml
 from ....infrastructure.messaging.message_broker import MessageBroker
 from ....infrastructure.config.config_manager import ConfigManager
 from ....components.process.validation.process_validator import ProcessValidator
-from ....exceptions import OperationError, ParameterError
+from ....exceptions import ValidationError, OperationError
 
 class ParameterManager:
     """Manages process parameters and validation."""
@@ -48,7 +48,10 @@ class ParameterManager:
             
         except Exception as e:
             logger.exception("Failed to initialize parameter manager")
-            raise ParameterError(f"Parameter manager initialization failed: {str(e)}") from e
+            raise OperationError("Parameter manager initialization failed", "parameter", {
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            })
 
     async def shutdown(self) -> None:
         """Shutdown parameter manager."""
@@ -58,7 +61,10 @@ class ParameterManager:
             
         except Exception as e:
             logger.exception("Error during parameter manager shutdown")
-            raise ParameterError(f"Parameter manager shutdown failed: {str(e)}") from e
+            raise OperationError("Parameter manager shutdown failed", "parameter", {
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            })
 
     async def load_parameters(self, parameters: Dict[str, Any]) -> None:
         """Load and validate parameters."""
@@ -67,7 +73,11 @@ class ParameterManager:
             validation_result = await self._process_validator.validate_parameters(parameters)
             
             if not validation_result["valid"]:
-                raise ParameterError(f"Parameter validation failed: {validation_result['errors']}")
+                raise ValidationError("Parameter validation failed", {
+                    "errors": validation_result["errors"],
+                    "parameters": parameters,
+                    "timestamp": datetime.now().isoformat()
+                })
             
             # Publish loaded parameters
             await self._message_broker.publish(
@@ -87,7 +97,11 @@ class ParameterManager:
                     "timestamp": datetime.now().isoformat()
                 }
             )
-            raise ParameterError(f"Parameter loading failed: {str(e)}") from e
+            raise OperationError("Parameter loading failed", "parameter", {
+                "error": str(e),
+                "parameters": parameters,
+                "timestamp": datetime.now().isoformat()
+            })
 
     async def save_parameters(self, filename: str, parameters: Dict[str, Any]) -> None:
         """Save parameters to file."""
@@ -96,7 +110,11 @@ class ParameterManager:
             validation_result = await self._process_validator.validate_parameters(parameters)
             
             if not validation_result["valid"]:
-                raise ParameterError(f"Parameter validation failed: {validation_result['errors']}")
+                raise ValidationError("Parameter validation failed", {
+                    "errors": validation_result["errors"],
+                    "parameters": parameters,
+                    "timestamp": datetime.now().isoformat()
+                })
             
             # Publish saved parameters
             await self._message_broker.publish(
@@ -117,16 +135,11 @@ class ParameterManager:
                     "timestamp": datetime.now().isoformat()
                 }
             )
-            raise ParameterError(f"Parameter saving failed: {str(e)}") from e
-
-    async def validate_parameters(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate parameters using process validator."""
-        try:
-            return await self._process_validator.validate_parameters(parameters)
-            
-        except Exception as e:
-            logger.error(f"Error validating parameters: {e}")
-            raise ParameterError(f"Parameter validation failed: {str(e)}") from e
+            raise OperationError("Parameter saving failed", "parameter", {
+                "error": str(e),
+                "parameters": parameters,
+                "timestamp": datetime.now().isoformat()
+            })
 
     async def _handle_load_request(self, data: Dict[str, Any]) -> None:
         """Handle parameter load request."""
@@ -151,7 +164,10 @@ class ParameterManager:
             parameters = data.get("parameters", {})
             
             if not filename:
-                raise ParameterError("No filename specified for save request")
+                raise OperationError("No filename specified for save request", "parameter", {
+                    "parameters": parameters,
+                    "timestamp": datetime.now().isoformat()
+                })
                 
             await self.save_parameters(filename, parameters)
             

@@ -2,10 +2,12 @@ from typing import Dict, Any
 import logging
 import time
 import asyncio
+from datetime import datetime
 
 from ...infrastructure.messaging.message_broker import MessageBroker
 from ...infrastructure.config.config_manager import ConfigManager
 from ...components.process.validation.process_validator import ProcessValidator
+from ...exceptions import HardwareError, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -321,3 +323,25 @@ class MotionController:
                 "valid": False,
                 "errors": [str(e)]
             }
+
+    async def _validate_position(self, position: Dict[str, float]) -> None:
+        """Validate position against limits."""
+        try:
+            limits = self._hw_config["physical"]["stage"]["dimensions"]
+            
+            for axis, value in position.items():
+                if value < 0 or value > limits[axis]:
+                    raise HardwareError(f"Position exceeds {axis} axis limits", "motion", {
+                        "axis": axis,
+                        "position": value,
+                        "limit": limits[axis],
+                        "timestamp": datetime.now().isoformat()
+                    })
+                    
+        except Exception as e:
+            logger.error(f"Position validation failed: {e}")
+            raise HardwareError("Position validation failed", "motion", {
+                "position": position,
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            })
