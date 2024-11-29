@@ -12,7 +12,7 @@ from datetime import datetime
 from loguru import logger
 
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
-from micro_cold_spray.core.config.config_manager import ConfigManager
+from micro_cold_spray.core.infrastructure.config.config_manager import ConfigManager
 from micro_cold_spray.core.exceptions import StateError
 
 
@@ -37,11 +37,11 @@ class StateManager:
             await self._message_broker.subscribe("tag/update", self._handle_tag_update)
             
             # Load state config
-            config = self._config_manager.get_config("state")
+            config = self._config_manager.get_config("hardware")
             logger.debug(f"Loaded state config: {config}")
             
             # Get transitions from state config
-            self._state_config = config.get("state", {}).get("transitions", {})  # Fixed path to transitions
+            self._state_config = config.get("state", {}).get("transitions", {})
             
             # Start in INITIALIZING state
             self._current_state = "INITIALIZING"
@@ -52,7 +52,8 @@ class StateManager:
                 "hardware.connected": False,
                 "config.loaded": True,  # Set by ConfigManager
                 "hardware.enabled": False,
-                "sequence.active": False
+                "sequence.active": False,
+                "hardware.safe": True  # Default to safe
             }
             
             # Subscribe to hardware status
@@ -262,20 +263,44 @@ class StateManager:
     async def _handle_hardware_status(self, data: Dict[str, Any]) -> None:
         """Handle hardware status updates."""
         try:
-            logger.debug(f"Handling hardware status: {data}")
-            if isinstance(data, dict) and data.get("connected"):
-                # Convert hardware status to tag update
-                await self._handle_tag_update({
-                    "tag": "hardware.connected",
-                    "value": True,
-                    "timestamp": datetime.now().isoformat()
-                })
+            # Update hardware status
+            if "connected" in data:
+                # Get topic from message metadata
+                topic = self._message_broker.get_current_topic()
                 
+                if "plc" in topic:
+                    self._conditions["hardware.connected"] = data["connected"]
+                elif "motion" in topic:
+                    self._conditions["hardware.connected"] &= data["connected"]
+                    
+                # Check if we should transition to READY
+                if (self._current_state == "INITIALIZING" and
+                    self._conditions["hardware.connected"] and
+                    self._conditions["config.loaded"]):
+                    
+                    # Update state
+                    self._previous_state = self._current_state
+                    self._current_state = "READY"
+                    
+                    # Publish state change
+                    await self._message_broker.publish(
+                        "state/change",
+                        {
+                            "state": self._current_state,
+                            "previous": self._previous_state,
+                            "timestamp": datetime.now().isoformat()
+                        }
+                    )
+                    logger.info(f"State changed from {self._previous_state} to {self._current_state}")
+                    
         except Exception as e:
             logger.error(f"Error handling hardware status: {e}")
-            await self._message_broker.publish("error", {
-                "error": str(e),
-                "topic": "hardware/status",
-                "context": "hardware_status",
-                "timestamp": datetime.now().isoformat()
-            })
+            await self._message_broker.publish(
+                "error",
+                {
+                    "error": str(e),
+                    "topic": "hardware/status",
+                    "context": "hardware_status",
+                    "timestamp": datetime.now().isoformat()
+                }
+            )

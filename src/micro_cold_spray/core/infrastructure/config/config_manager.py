@@ -6,8 +6,8 @@ from datetime import datetime
 import asyncio
 from loguru import logger
 
-from ..infrastructure.messaging.message_broker import MessageBroker
-from ..exceptions import ConfigurationError
+from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
+from micro_cold_spray.core.exceptions import ConfigurationError
 
 class ConfigManager:
     """
@@ -22,9 +22,11 @@ class ConfigManager:
         Args:
             message_broker: MessageBroker for publishing config updates
         """
-        self._configs: Dict[str, Dict[str, Any]] = {}
+        self._configs: Dict[str, Any] = {}
         self._message_broker = message_broker
-        self._config_path = Path(__file__).parent.parent.parent.parent.parent / "config"
+        
+        # Update config path to look in project root config directory
+        self._config_path = Path(__file__).parent.parent.parent.parent.parent.parent / "config"
         self._is_initialized = False
         
         logger.info(f"ConfigManager initialized with config path: {self._config_path.absolute()}")

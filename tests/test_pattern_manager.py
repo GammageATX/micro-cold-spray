@@ -121,10 +121,12 @@ class TestPatternManager:
             "patterns/error",
             collect_responses
         )
+        await asyncio.sleep(0.1)  # Added sleep after subscribe
         
         # Attempt to validate invalid pattern
         with pytest.raises(Exception):
             await pattern_manager._validate_sprayable_area(pattern_data)
+        await asyncio.sleep(0.1)  # Added sleep after validation
         
         # Verify error response
         assert len(responses) > 0
@@ -163,6 +165,7 @@ class TestPatternManager:
             "patterns/loaded",
             collect_messages
         )
+        await asyncio.sleep(0.1)  # Added sleep after subscribe
         
         # Create and load a pattern
         pattern = await pattern_manager.generate_serpentine(
@@ -175,8 +178,9 @@ class TestPatternManager:
             direction="x_first"
         )
         
-        await pattern_manager.save_sequence(pattern, "test_pattern.yaml")
+        await pattern_manager.save_pattern(pattern, "test_pattern.yaml")
         await pattern_manager.load_pattern("serpentine", "test_pattern.yaml")
+        await asyncio.sleep(0.1)  # Added sleep after operations
         
         # Verify message compliance
         assert len(messages) > 0

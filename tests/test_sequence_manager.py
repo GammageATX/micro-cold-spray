@@ -95,9 +95,11 @@ class TestSequenceManager:
             "sequence/loaded",
             collect_messages
         )
+        await asyncio.sleep(0.1)  # Wait for subscription
         
         # Load sequence
         loaded_sequence = await sequence_manager.load_sequence(str(sequence_file))
+        await asyncio.sleep(0.1)  # Wait for message
         
         # Verify sequence structure and messages
         assert loaded_sequence == sequence_data
@@ -152,7 +154,7 @@ class TestSequenceManager:
     @pytest.mark.asyncio
     async def test_sequence_state_control(self, sequence_manager):
         """Test sequence state control operations."""
-        # Create test sequence
+        # Create test sequence with multiple steps to ensure it runs long enough
         sequence_data = {
             "sequence": {
                 "metadata": {
@@ -162,6 +164,12 @@ class TestSequenceManager:
                 "steps": [
                     {
                         "name": "ready_system",
+                        "hardware_set": "set1",
+                        "pattern": None,
+                        "parameters": {}
+                    },
+                    {
+                        "name": "ready_system",  # Add second step to make sequence longer
                         "hardware_set": "set1",
                         "pattern": None,
                         "parameters": {}
@@ -179,19 +187,30 @@ class TestSequenceManager:
             "sequence/status",
             collect_states
         )
+        await asyncio.sleep(0.1)  # Wait for subscription
         
         # Execute sequence control operations
-        await sequence_manager.execute_sequence(sequence_data)
+        sequence_manager._is_running = True  # Set running state
+        sequence_task = asyncio.create_task(sequence_manager.execute_sequence(sequence_data))
+        await asyncio.sleep(0.2)  # Wait for sequence to start
+        
         await sequence_manager.pause_sequence()
+        await asyncio.sleep(0.1)  # Wait for pause
+        
         await sequence_manager.resume_sequence()
+        await asyncio.sleep(0.1)  # Wait for resume
+        
         await sequence_manager.stop_sequence()
+        await asyncio.sleep(0.1)  # Wait for stop
+        
+        await sequence_task  # Wait for sequence to complete
         
         # Verify state transitions
         assert len(states) >= 4
         state_sequence = [s.get("state") for s in states]
         assert "RUNNING" in state_sequence
         assert "PAUSED" in state_sequence
-        assert "COMPLETED" in state_sequence
+        assert "STOPPED" in state_sequence
 
     @pytest.mark.asyncio
     async def test_sequence_visualization(self, sequence_manager):
@@ -259,11 +278,13 @@ class TestSequenceManager:
             "sequence/error",
             collect_errors
         )
+        await asyncio.sleep(0.1)  # Wait for subscription
         
         # Execute invalid sequence
         with pytest.raises(Exception):
             await sequence_manager.execute_sequence(sequence_data)
-            
+        await asyncio.sleep(0.1)  # Wait for error message
+        
         # Verify error handling
         assert len(errors) > 0
         assert "error" in errors[0]

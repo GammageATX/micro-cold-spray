@@ -1,11 +1,11 @@
 """Action management component."""
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Union
 from loguru import logger
 import asyncio
 from datetime import datetime
 
 from ....infrastructure.messaging.message_broker import MessageBroker
-from ....config.config_manager import ConfigManager
+from ....infrastructure.config.config_manager import ConfigManager
 from ...process.validation.process_validator import ProcessValidator
 from ....exceptions import (
     ActionError,
@@ -124,9 +124,13 @@ class ActionManager:
             
             # Send messages defined in action
             for message in action_def["messages"]:
+                # Substitute parameters into message data
+                message_data = self._substitute_parameters(parameters, message["data"])
+                
+                # Send message
                 await self._message_broker.publish(
                     message["topic"],
-                    self._substitute_parameters(parameters, message["data"])
+                    message_data
                 )
                     
             # Handle validations if defined
@@ -142,8 +146,8 @@ class ActionManager:
         """Handle validation checks."""
         try:
             result = await self._process_validator.validate_condition(validation_def)
-            if not result.valid:
-                raise ActionValidationError(f"Validation failed: {result.errors}")
+            if not result["valid"]:
+                raise ActionValidationError(f"Validation failed: {result['errors']}")
                 
         except Exception as e:
             logger.error(f"Validation failed: {e}")
@@ -180,23 +184,52 @@ class ActionManager:
         except Exception as e:
             raise ActionConfigError(f"Error getting action definition: {str(e)}") from e
 
-    def _substitute_parameters(self, parameters: Dict[str, Any], template: Dict[str, Any]) -> Dict[str, Any]:
+    def _substitute_parameters(self, parameters: Dict[str, Any], template: Union[List[Dict[str, Any]], Dict[str, Any]]) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
         """Substitute parameters into template values."""
         try:
-            result = {}
-            for key, value in template.items():
-                if isinstance(value, str) and value.startswith("{") and value.endswith("}"):
-                    # Handle parameter reference
-                    param_path = value[1:-1].split(".")
-                    current = parameters
-                    for part in param_path:
-                        current = current[part]
-                    result[key] = current
-                else:
-                    # Use direct value
-                    result[key] = value
-            return result
+            # Handle list template (common for message data)
+            if isinstance(template, list):
+                result = []
+                for item in template:
+                    if isinstance(item, dict):
+                        # Process each dictionary in the list
+                        processed_item = {}
+                        for key, value in item.items():
+                            if isinstance(value, str) and value.startswith("{") and value.endswith("}"):
+                                # Handle parameter reference
+                                param_path = value[1:-1].split(".")
+                                current = parameters
+                                for part in param_path:
+                                    current = current[part]
+                                processed_item[key] = current
+                            else:
+                                # Use direct value
+                                processed_item[key] = value
+                        result.append(processed_item)
+                    else:
+                        # Non-dictionary items pass through unchanged
+                        result.append(item)
+                return result
             
+            # Handle dictionary template
+            elif isinstance(template, dict):
+                result = {}
+                for key, value in template.items():
+                    if isinstance(value, str) and value.startswith("{") and value.endswith("}"):
+                        # Handle parameter reference
+                        param_path = value[1:-1].split(".")
+                        current = parameters
+                        for part in param_path:
+                            current = current[part]
+                        result[key] = current
+                    else:
+                        # Use direct value
+                        result[key] = value
+                return result
+            
+            else:
+                raise ActionParameterError(f"Invalid template type: {type(template)}")
+
         except KeyError as e:
             raise ActionParameterError(f"Parameter substitution failed - missing key: {str(e)}") from e
         except Exception as e:

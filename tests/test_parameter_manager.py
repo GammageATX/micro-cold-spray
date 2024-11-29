@@ -113,11 +113,11 @@ class TestParameterManager:
         
         # Validate parameters
         await parameter_manager.validate_parameters(parameters)
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.2)
         
         # Verify validation
         assert len(responses) > 0
-        assert responses[0]["valid"]
+        assert responses[0]["result"]["valid"]
         assert "timestamp" in responses[0]
 
     @pytest.mark.asyncio
@@ -141,6 +141,7 @@ class TestParameterManager:
             }
         }
         await parameter_manager.save_parameters("test_params", parameters)
+        await asyncio.sleep(0.2)
         
         # Verify message compliance
         assert len(messages) > 0
@@ -168,6 +169,7 @@ class TestParameterManager:
                     "main_flow": -1.0  # Invalid value
                 }
             })
+        await asyncio.sleep(0.2)
         
         # Verify error handling
         assert len(errors) > 0

@@ -18,7 +18,7 @@ from datetime import datetime
 from collections import defaultdict
 
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
-from micro_cold_spray.core.config.config_manager import ConfigManager
+from micro_cold_spray.core.infrastructure.config.config_manager import ConfigManager
 from tests.conftest import TestOrder, order
 
 @pytest.fixture

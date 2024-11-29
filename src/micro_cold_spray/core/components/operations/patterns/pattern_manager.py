@@ -8,7 +8,7 @@ import yaml
 import csv
 
 from ....infrastructure.messaging.message_broker import MessageBroker
-from ....config.config_manager import ConfigManager
+from ....infrastructure.config.config_manager import ConfigManager
 from ....exceptions import PatternError
 
 class PatternManager:
@@ -27,10 +27,14 @@ class PatternManager:
         self._pattern_path = pattern_path
         self._custom_path = custom_path
         self._loaded_pattern: Optional[Dict[str, Any]] = None
+        self._is_initialized = False
 
     async def initialize(self) -> None:
         """Initialize pattern manager."""
         try:
+            if self._is_initialized:
+                return
+                
             # Create directories if they don't exist
             self._pattern_path.mkdir(parents=True, exist_ok=True)
             self._custom_path.mkdir(parents=True, exist_ok=True)
@@ -45,11 +49,22 @@ class PatternManager:
                 self._handle_save_request
             )
             
+            self._is_initialized = True
             logger.info("Pattern manager initialized")
             
         except Exception as e:
             logger.exception("Failed to initialize pattern manager")
             raise PatternError(f"Pattern manager initialization failed: {str(e)}") from e
+
+    async def shutdown(self) -> None:
+        """Shutdown pattern manager."""
+        try:
+            self._is_initialized = False
+            logger.info("Pattern manager shutdown complete")
+            
+        except Exception as e:
+            logger.exception("Error during pattern manager shutdown")
+            raise PatternError(f"Pattern manager shutdown failed: {str(e)}") from e
 
     def get_available_patterns(self) -> Dict[str, List[Dict[str, Any]]]:
         """Get list of available patterns by type."""
@@ -201,7 +216,7 @@ class PatternManager:
                 }
             )
 
-    def generate_serpentine(
+    async def generate_serpentine(
         self,
         origin: List[float],
         length: float,
@@ -215,7 +230,7 @@ class PatternManager:
         """Generate serpentine pattern."""
         try:
             # Validate inputs
-            self._validate_pattern_params({
+            await self._validate_pattern_params({
                 "origin": origin,
                 "length": length,
                 "spacing": spacing,
@@ -223,7 +238,7 @@ class PatternManager:
                 "z_height": z_height,
                 "acceleration": acceleration
             })
-            
+
             # Generate pattern metadata
             pattern = {
                 "pattern": {
@@ -245,14 +260,14 @@ class PatternManager:
                     }
                 }
             }
-            
+
             return pattern
-            
+
         except Exception as e:
             logger.error(f"Error generating serpentine pattern: {e}")
             raise PatternError(f"Failed to generate serpentine pattern: {str(e)}") from e
 
-    def generate_spiral(
+    async def generate_spiral(
         self,
         origin: List[float],
         diameter: float,
@@ -265,7 +280,7 @@ class PatternManager:
         """Generate spiral pattern."""
         try:
             # Validate inputs
-            self._validate_pattern_params({
+            await self._validate_pattern_params({
                 "origin": origin,
                 "diameter": diameter,
                 "pitch": pitch,
@@ -273,15 +288,15 @@ class PatternManager:
                 "z_height": z_height,
                 "acceleration": acceleration
             })
-            
+
             # Generate pattern metadata
             pattern = {
                 "pattern": {
                     "metadata": {
-                        "name": name or f"Spiral_{pitch}mm_{speed}mms",
+                        "name": name or f"Spiral_{diameter}mm_{speed}mms",
                         "version": "1.0",
                         "created": datetime.now().isoformat(),
-                        "description": f"Generated spiral pattern with {pitch}mm pitch"
+                        "description": f"Generated spiral pattern with {diameter}mm diameter"
                     },
                     "type": "spiral",
                     "params": {
@@ -294,14 +309,14 @@ class PatternManager:
                     }
                 }
             }
-            
+
             return pattern
-            
+
         except Exception as e:
             logger.error(f"Error generating spiral pattern: {e}")
             raise PatternError(f"Failed to generate spiral pattern: {str(e)}") from e
 
-    def generate_linear(
+    async def generate_linear(
         self,
         start: List[float],
         end: List[float],
@@ -347,13 +362,13 @@ class PatternManager:
             logger.error(f"Error generating linear pattern: {e}")
             raise PatternError(f"Failed to generate linear pattern: {str(e)}") from e
 
-    def _validate_pattern_params(self, params: Dict[str, Any]) -> None:
+    async def _validate_pattern_params(self, params: Dict[str, Any]) -> None:
         """Validate pattern parameters."""
         try:
             # Get hardware limits from config
             hardware_config = self._config_manager.get_config("hardware")
             motion_limits = hardware_config["motion"]["limits"]
-            
+
             # Validate position limits
             if "origin" in params:
                 x, y = params["origin"]
@@ -361,69 +376,64 @@ class PatternManager:
                     raise PatternError(f"X origin {x} outside limits")
                 if not (motion_limits["y"]["min"] <= y <= motion_limits["y"]["max"]):
                     raise PatternError(f"Y origin {y} outside limits")
-                    
-            if "start" in params:
-                x, y = params["start"]
-                if not (motion_limits["x"]["min"] <= x <= motion_limits["x"]["max"]):
-                    raise PatternError(f"X start {x} outside limits")
-                if not (motion_limits["y"]["min"] <= y <= motion_limits["y"]["max"]):
-                    raise PatternError(f"Y start {y} outside limits")
-                    
-            if "end" in params:
-                x, y = params["end"]
-                if not (motion_limits["x"]["min"] <= x <= motion_limits["x"]["max"]):
-                    raise PatternError(f"X end {x} outside limits")
-                if not (motion_limits["y"]["min"] <= y <= motion_limits["y"]["max"]):
-                    raise PatternError(f"Y end {y} outside limits")
-                    
+
             # Validate z height
             if "z_height" in params:
                 z = params["z_height"]
                 if not (motion_limits["z"]["min"] <= z <= motion_limits["z"]["max"]):
                     raise PatternError(f"Z height {z} outside limits")
-                    
+
             # Validate motion parameters
             if "speed" in params:
                 speed = params["speed"]
                 if not (0 < speed <= motion_limits["velocity"]["max"]):
                     raise PatternError(f"Speed {speed} outside limits")
-                    
+
             if "acceleration" in params:
                 accel = params["acceleration"]
                 if not (0 < accel <= motion_limits["acceleration"]["max"]):
                     raise PatternError(f"Acceleration {accel} outside limits")
-                    
+
             # Validate pattern-specific parameters
             if "length" in params:
                 length = params["length"]
                 if length <= 0:
                     raise PatternError(f"Invalid length {length}")
-                    
+
             if "spacing" in params:
                 spacing = params["spacing"]
                 if spacing <= 0:
                     raise PatternError(f"Invalid spacing {spacing}")
-                    
+
             if "diameter" in params:
                 diameter = params["diameter"]
                 if diameter <= 0:
                     raise PatternError(f"Invalid diameter {diameter}")
-                    
+
             if "pitch" in params:
                 pitch = params["pitch"]
                 if pitch <= 0:
                     raise PatternError(f"Invalid pitch {pitch}")
-                    
+
         except Exception as e:
             logger.error(f"Pattern validation failed: {e}")
+            # Publish validation error
+            await self._message_broker.publish(
+                "patterns/error",
+                {
+                    "error": "Pattern validation failed",
+                    "details": str(e),
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
             raise PatternError(f"Pattern validation failed: {str(e)}") from e
 
-    def _validate_sprayable_area(self, pattern_data: Dict[str, Any]) -> None:
+    async def _validate_sprayable_area(self, pattern_data: Dict[str, Any]) -> None:
         """Validate pattern stays within sprayable area."""
         try:
             # Get sprayable area limits from hardware config
             hardware_config = self._config_manager.get_config("hardware")
-            sprayable_area = hardware_config["substrate"]["sprayable"]
+            sprayable_area = hardware_config["physical"]["substrate_holder"]["dimensions"]["sprayable"]
             
             # Get pattern bounds based on type
             pattern_type = pattern_data["pattern"]["type"]
@@ -461,16 +471,75 @@ class PatternManager:
                 y_max = max(start[1], end[1])
                 
             # Validate bounds against sprayable area
-            if (x_min < sprayable_area["x_min"] or
-                x_max > sprayable_area["x_max"] or
-                y_min < sprayable_area["y_min"] or
-                y_max > sprayable_area["y_max"]):
-                raise PatternError(
+            if (x_min < 0 or
+                x_max > sprayable_area["width"] or
+                y_min < 0 or
+                y_max > sprayable_area["height"]):
+                error_msg = (
                     f"Pattern exceeds sprayable area bounds: "
-                    f"[{sprayable_area['x_min']}, {sprayable_area['x_max']}] x "
-                    f"[{sprayable_area['y_min']}, {sprayable_area['y_max']}]"
+                    f"[0, {sprayable_area['width']}] x "
+                    f"[0, {sprayable_area['height']}]"
                 )
+                # Publish error
+                await self._message_broker.publish(
+                    "patterns/error",
+                    {
+                        "error": error_msg,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+                raise PatternError(error_msg)
                 
         except Exception as e:
             logger.error(f"Error validating sprayable area: {e}")
+            # Publish error
+            await self._message_broker.publish(
+                "patterns/error",
+                {
+                    "error": f"Failed to validate sprayable area: {str(e)}",
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
             raise PatternError(f"Failed to validate sprayable area: {str(e)}") from e
+
+    async def save_pattern(self, pattern: Dict[str, Any], filename: str) -> None:
+        """Save pattern to file."""
+        try:
+            # Validate pattern first
+            pattern_type = pattern["pattern"]["type"]
+            await self._validate_pattern_params(pattern["pattern"]["params"])
+            await self._validate_sprayable_area(pattern)
+            
+            # Save to appropriate directory
+            if pattern_type == "custom":
+                file_path = self._custom_path / filename
+            else:
+                file_path = self._pattern_path / pattern_type / filename
+            
+            # Create directory if it doesn't exist
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Save pattern
+            with open(file_path, 'w') as f:
+                yaml.safe_dump(pattern, f, sort_keys=False)
+            
+            # Publish saved event
+            await self._message_broker.publish(
+                "patterns/saved",
+                {
+                    "filename": filename,
+                    "type": pattern_type,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"Error saving pattern: {e}")
+            await self._message_broker.publish(
+                "patterns/error",
+                {
+                    "error": f"Failed to save pattern: {str(e)}",
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+            raise PatternError(f"Failed to save pattern: {str(e)}") from e

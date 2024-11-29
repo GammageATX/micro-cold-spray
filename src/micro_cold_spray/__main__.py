@@ -2,22 +2,21 @@
 import sys
 import asyncio
 from pathlib import Path
-
+from loguru import logger
 from PySide6.QtWidgets import QApplication, QProgressDialog
 from PySide6.QtCore import Qt
-from loguru import logger
+import yaml
 
-from micro_cold_spray.core.config.config_manager import ConfigManager
-from micro_cold_spray.core.exceptions import SystemInitializationError
-from micro_cold_spray.core.infrastructure.tags.tag_manager import TagManager
-from micro_cold_spray.core.components.ui.windows.main_window import MainWindow
+from micro_cold_spray.core.infrastructure.config.config_manager import ConfigManager
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
-from micro_cold_spray.core.components.ui.managers.ui_update_manager import UIUpdateManager
+from micro_cold_spray.core.infrastructure.tags.tag_manager import TagManager
 from micro_cold_spray.core.infrastructure.state.state_manager import StateManager
+from micro_cold_spray.core.components.ui.managers.ui_update_manager import UIUpdateManager
+from micro_cold_spray.core.components.ui.windows.main_window import MainWindow
+from micro_cold_spray.core.exceptions import SystemInitializationError
 
 def get_project_root() -> Path:
     """Get the absolute path to the project root directory."""
-    # Assuming this file is in src/micro_cold_spray/__main__.py
     return Path(__file__).parent.parent.parent
 
 def setup_logging() -> None:
@@ -61,76 +60,6 @@ def ensure_directories() -> None:
     for directory in directories:
         (project_root / directory).mkdir(parents=True, exist_ok=True)
 
-async def initialize_system() -> tuple[ConfigManager, MessageBroker, TagManager, StateManager, UIUpdateManager]:
-    """Initialize all system components."""
-    logger.info("Starting system initialization")
-    
-    try:
-        # Create message broker first
-        logger.debug("Initializing MessageBroker")
-        message_broker = MessageBroker()
-        if message_broker is None:
-            raise ValueError("MessageBroker initialization failed")
-        
-        # Create config manager with message broker
-        logger.debug("Initializing ConfigManager")
-        config_manager = ConfigManager(message_broker)
-        if config_manager is None:
-            raise ValueError("ConfigManager initialization failed")
-        
-        # Initialize config manager
-        await config_manager.initialize()
-        
-        # Create tag manager with proper dependencies
-        logger.debug("Initializing TagManager")
-        tag_manager = TagManager(
-            message_broker=message_broker,
-            config_manager=config_manager
-        )
-        if tag_manager is None:
-            raise ValueError("TagManager initialization failed")
-        
-        # Initialize tag manager
-        await tag_manager.initialize()
-        
-        # Create and initialize state manager
-        logger.debug("Initializing StateManager")
-        state_manager = StateManager(
-            message_broker=message_broker,
-            config_manager=config_manager
-        )
-        if state_manager is None:
-            raise ValueError("StateManager initialization failed")
-            
-        await state_manager.initialize()
-        
-        # Get UI config
-        ui_config = config_manager.get_config("application").get("window", {})
-        
-        # Create and start UI manager with config
-        ui_manager = UIUpdateManager(
-            message_broker=message_broker,
-            config_manager=config_manager
-        )
-        await ui_manager.initialize()
-        
-        # Create main window with config
-        window = MainWindow(
-            config_manager=config_manager,
-            message_broker=message_broker,
-            ui_manager=ui_manager,
-            tag_manager=tag_manager,
-            ui_config=ui_config  # Pass UI config
-        )
-        await window.initialize()
-        
-        logger.info("System initialization complete")
-        return config_manager, message_broker, tag_manager, state_manager, ui_manager
-        
-    except Exception as e:
-        logger.exception("Critical error during system initialization")
-        raise SystemInitializationError(f"Failed to initialize system: {str(e)}") from e
-
 class SplashScreen(QProgressDialog):
     """Splash screen for initialization."""
     def __init__(self):
@@ -160,6 +89,62 @@ class SplashScreen(QProgressDialog):
                 background-color: #3498db;
             }
         """)
+
+async def initialize_system() -> tuple[ConfigManager, MessageBroker, TagManager, StateManager, UIUpdateManager]:
+    """Initialize all system components."""
+    logger.info("Starting system initialization")
+    
+    try:
+        # Create message broker first
+        logger.debug("Initializing MessageBroker")
+        message_broker = MessageBroker()
+        await message_broker.start()
+        
+        # Create config manager with message broker
+        logger.debug("Initializing ConfigManager")
+        config_manager = ConfigManager(message_broker)
+        await config_manager.initialize()
+        
+        # Create tag manager with proper dependencies
+        logger.debug("Initializing TagManager")
+        tag_manager = TagManager(
+            message_broker=message_broker,
+            config_manager=config_manager
+        )
+        await tag_manager.initialize()
+        
+        # Test hardware connections
+        connection_status = await tag_manager.test_connections()
+        if not any(connection_status.values()):
+            logger.error("No hardware connections available")
+            await message_broker.publish("error", {
+                "error": "No hardware connections available",
+                "topic": "system/init",
+                "details": connection_status
+            })
+        
+        # Create and initialize state manager
+        logger.debug("Initializing StateManager")
+        state_manager = StateManager(
+            message_broker=message_broker,
+            config_manager=config_manager
+        )
+        await state_manager.initialize()
+        
+        # Create and initialize UI manager
+        logger.debug("Initializing UIUpdateManager")
+        ui_manager = UIUpdateManager(
+            message_broker=message_broker,
+            config_manager=config_manager
+        )
+        await ui_manager.initialize()
+        
+        logger.info("System initialization complete")
+        return config_manager, message_broker, tag_manager, state_manager, ui_manager
+        
+    except Exception as e:
+        logger.exception("Critical error during system initialization")
+        raise SystemInitializationError(f"Failed to initialize system: {str(e)}") from e
 
 async def main() -> None:
     """Application entry point with proper cleanup chains."""
@@ -192,7 +177,8 @@ async def main() -> None:
             config_manager=config_manager,
             message_broker=message_broker,
             ui_manager=ui_manager,
-            tag_manager=tag_manager
+            tag_manager=tag_manager,
+            state_manager=state_manager
         )
         await window.initialize()
         
@@ -217,6 +203,7 @@ async def main() -> None:
                 
                 logger.info("Shutting down system components")
                 await ui_manager.shutdown()
+                await state_manager.shutdown()
                 await tag_manager.shutdown()
                 await message_broker.shutdown()
                 

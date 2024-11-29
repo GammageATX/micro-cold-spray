@@ -4,7 +4,7 @@ import time
 import asyncio
 
 from ...infrastructure.messaging.message_broker import MessageBroker
-from ...config.config_manager import ConfigManager
+from ...infrastructure.config.config_manager import ConfigManager
 from ...components.process.validation.process_validator import ProcessValidator
 
 logger = logging.getLogger(__name__)

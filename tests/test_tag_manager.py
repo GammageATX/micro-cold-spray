@@ -19,7 +19,7 @@ from tests.conftest import TestOrder, order
 
 from micro_cold_spray.core.infrastructure.tags.tag_manager import TagManager
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
-from micro_cold_spray.core.config.config_manager import ConfigManager
+from micro_cold_spray.core.infrastructure.config.config_manager import ConfigManager
 
 @pytest.fixture
 async def message_broker() -> AsyncGenerator[MessageBroker, None]:

@@ -36,6 +36,7 @@ class TestStateManager:
         async def collect_changes(data: Dict[str, Any]) -> None:
             changes.append(data)
         await state_manager._message_broker.subscribe("state/change", collect_changes)
+        await asyncio.sleep(0.1)  # Wait for subscription
         
         # Ensure conditions are set correctly
         state_manager._conditions = {
@@ -53,6 +54,8 @@ class TestStateManager:
                 "timestamp": datetime.now().isoformat()
             }
         )
+        await asyncio.sleep(0.1)  # Wait for first status
+        
         await state_manager._message_broker.publish(
             "hardware/status/motion",
             {
@@ -60,9 +63,7 @@ class TestStateManager:
                 "timestamp": datetime.now().isoformat()
             }
         )
-        
-        # Wait for state transition to complete
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.3)  # Wait longer for state transition
         
         # Should transition to READY
         current_state = await state_manager.get_current_state()

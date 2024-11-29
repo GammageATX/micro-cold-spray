@@ -1,4 +1,5 @@
 """Process data management package."""
-from .data_manager import DataManager, ProcessPhase, SprayData
 
-__all__ = ['DataManager', 'ProcessPhase', 'SprayData']
+from .data_manager import DataManager
+
+__all__ = ['DataManager']

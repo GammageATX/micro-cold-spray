@@ -4,7 +4,7 @@ import asyncio
 from datetime import datetime
 
 from ..messaging.message_broker import MessageBroker
-from ...config.config_manager import ConfigManager
+from ...infrastructure.config.config_manager import ConfigManager
 from ...hardware.communication.plc_client import PLCClient
 from ...hardware.communication.ssh_client import SSHClient
 from ...exceptions import TagOperationError
@@ -82,7 +82,7 @@ class TagManager:
         return results
 
     async def initialize(self) -> None:
-        """Initialize tag manager and hardware connections."""
+        """Initialize tag manager."""
         try:
             if self._is_initialized:
                 return
@@ -94,16 +94,25 @@ class TagManager:
             # Create hardware clients
             hw_config = self._config_manager.get_config('hardware')
             if self._plc_client is None:
-                self._plc_client = PLCClient(hw_config.get('plc', {}))
+                # Get PLC config from hardware.network.plc
+                plc_config = hw_config.get('hardware', {}).get('network', {}).get('plc', {})
+                if not plc_config:
+                    raise TagOperationError("PLC configuration not found in hardware config")
+                self._plc_client = PLCClient(plc_config)
+
             if self._ssh_client is None:
-                self._ssh_client = SSHClient(hw_config.get('motion_controller', {}))
+                # Get SSH config from hardware.network.ssh
+                ssh_config = hw_config.get('hardware', {}).get('network', {}).get('ssh', {})
+                if not ssh_config:
+                    raise TagOperationError("SSH configuration not found in hardware config")
+                self._ssh_client = SSHClient(ssh_config)
 
             # Subscribe to tag operations
             await self._message_broker.subscribe("tag/set", self._handle_tag_set)
             await self._message_broker.subscribe("tag/get", self._handle_tag_get)
 
             # Start polling task
-            self._polling_task = asyncio.create_task(self._poll_loop())  # Create polling task
+            self._polling_task = asyncio.create_task(self._poll_loop())
 
             self._is_initialized = True
             logger.info("TagManager initialization complete")

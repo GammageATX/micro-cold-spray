@@ -131,10 +131,11 @@ class TestProcessValidator:
         """Test hardware set validation rules."""
         # Test validation of feeder/nozzle matching
         validation_data = {
-            "type": "hardware_sets",
-            "data": {
-                "active_set": "set1",
-                "nozzle": "nozzle1"
+            "active_set": "set1",
+            "components": {
+                "nozzle": "nozzle1",
+                "feeder": "feeder1",
+                "deagglomerator": "deagg1"
             }
         }
         
@@ -153,8 +154,10 @@ class TestProcessValidator:
         })
         await asyncio.sleep(0.1)
         
+        # Verify validation response
         assert len(responses) > 0
-        assert responses[0]["result"]["valid"]
+        assert responses[0]["result"]["valid"], f"Validation failed: {responses[0]['result']['errors']}"
+        assert "timestamp" in responses[0]["result"]
 
     @pytest.mark.asyncio
     async def test_validate_process_states(self, process_validator):

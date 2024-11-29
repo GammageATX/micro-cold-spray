@@ -1,68 +1,117 @@
-class SystemInitializationError(Exception):
-    """Raised when system initialization fails."""
+"""Core exceptions module."""
+
+class CoreError(Exception):
+    """Base exception for all core errors."""
     pass
 
-class ComponentShutdownError(Exception):
-    """Raised when component shutdown fails."""
+class SystemInitializationError(CoreError):
+    """System initialization errors."""
     pass
 
-class HardwareConnectionError(Exception):
-    """Raised when hardware connection fails."""
+class ConfigError(CoreError):
+    """Configuration related errors."""
     pass
 
-class TagOperationError(Exception):
-    """Raised when a tag operation fails."""
+class ConfigurationError(ConfigError):
+    """Configuration loading/saving errors."""
     pass
 
-class ConfigurationError(Exception):
-    """Raised when configuration operations fail."""
+class StateError(CoreError):
+    """State management related errors."""
     pass
 
-class OperationError(Exception):
-    """Raised when operation management fails."""
+class MessageBrokerError(CoreError):
+    """Message broker related errors."""
     pass
 
-class ValidationError(Exception):
-    """Raised when validation operations fail."""
+class ValidationError(CoreError):
+    """Validation related errors."""
     pass
 
-class UIError(Exception):
-    """Raised when UI operations fail."""
+class OperationError(CoreError):
+    """Base class for operation related errors."""
     pass
 
-class MessageBrokerError(Exception):
-    """Raised when message broker operations fail."""
-    pass
-
-class StateError(Exception):
-    """Raised when state management operations fail."""
-    pass
-
-# Action Exceptions
-class ActionError(Exception):
-    """Base exception for action errors."""
+class ActionError(OperationError):
+    """Base class for action related errors."""
     pass
 
 class ActionConfigError(ActionError):
-    """Error loading or parsing action configuration."""
+    """Action configuration errors."""
     pass
 
 class ActionExecutionError(ActionError):
-    """Error during action execution."""
+    """Action execution errors."""
     pass
 
 class ActionValidationError(ActionError):
-    """Error during action validation."""
+    """Action validation errors."""
     pass
 
 class ActionTimeoutError(ActionError):
-    """Action timed out during execution or validation."""
+    """Action timeout errors."""
     pass
 
 class ActionRequirementError(ActionError):
-    """Action requirements not met."""
+    """Action requirement errors."""
     pass
 
 class ActionParameterError(ActionError):
-    """Error with action parameters."""
+    """Action parameter errors."""
+    pass
+
+class ParameterError(OperationError):
+    """Parameter related errors."""
+    pass
+
+class PatternError(OperationError):
+    """Pattern related errors."""
+    pass
+
+class SequenceError(OperationError):
+    """Sequence related errors."""
+    pass
+
+class HardwareError(CoreError):
+    """Base class for hardware related errors."""
+    pass
+
+class HardwareConnectionError(HardwareError):
+    """Hardware connection related errors."""
+    pass
+
+class HardwareCommunicationError(HardwareError):
+    """Hardware communication related errors."""
+    pass
+
+class HardwareTimeoutError(HardwareError):
+    """Hardware timeout related errors."""
+    pass
+
+class HardwareStateError(HardwareError):
+    """Hardware state related errors."""
+    pass
+
+class TagError(HardwareError):
+    """Base class for tag related errors."""
+    pass
+
+class TagOperationError(TagError):
+    """Tag operation related errors."""
+    pass
+
+class TagValidationError(TagError):
+    """Tag validation related errors."""
+    pass
+
+class TagTimeoutError(TagError):
+    """Tag timeout related errors."""
+    pass
+
+class TagConnectionError(TagError):
+    """Tag connection related errors."""
+    pass
+
+class UIError(CoreError):
+    """UI related errors."""
     pass 

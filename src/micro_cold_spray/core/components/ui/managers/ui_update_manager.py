@@ -4,11 +4,12 @@ from loguru import logger
 import asyncio
 from datetime import datetime
 from enum import Enum
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QWidget, QFrame
+from PySide6.QtCore import Qt
 from collections import defaultdict
 
 from ....infrastructure.messaging.message_broker import MessageBroker
-from ....config.config_manager import ConfigManager
+from ....infrastructure.config.config_manager import ConfigManager
 from ....exceptions import UIError
 
 class WidgetType(Enum):
@@ -48,7 +49,7 @@ class UIUpdateManager:
         
         self._message_broker = message_broker
         self._config_manager = config_manager
-        self._registered_widgets: Dict[str, Dict[str, Any]] = {}
+        self._widgets: Dict[str, Dict[str, Any]] = {}
         self._tag_subscriptions: Dict[str, Set[str]] = defaultdict(set)
         self._is_initialized = False
         logger.info("UI update manager initialized")
@@ -75,44 +76,33 @@ class UIUpdateManager:
             })
             raise UIError("Failed to initialize UI update manager") from e
 
-    async def shutdown(self) -> None:
-        """Shutdown UI update manager."""
-        try:
-            # Cleanup all registered widgets
-            for widget_id in list(self._registered_widgets.keys()):
-                await self.unregister_widget(widget_id)
-                
-            self._is_initialized = False
-            logger.info("UI update manager shutdown complete")
-            
-        except Exception as e:
-            logger.exception("Error during UI update manager shutdown")
-            await self._message_broker.publish("ui/error", {
-                "error": str(e),
-                "context": "shutdown",
-                "timestamp": datetime.now().isoformat()
-            })
-            raise UIError("Failed to shutdown UI update manager") from e
-
     async def register_widget(
         self,
         widget_id: str,
         update_tags: List[str],
+        widget_type: WidgetType,
+        location: WidgetLocation,
         widget: Optional[QWidget] = None
     ) -> None:
         """Register a widget for updates."""
         try:
             # Verify widget has required async methods
-            if widget and (not hasattr(widget, 'update') or not asyncio.iscoroutinefunction(widget.update)):
-                raise UIError(f"Widget {widget_id} must implement async update() method")
+            if widget:
+                if not hasattr(widget, 'update') or not asyncio.iscoroutinefunction(widget.update):
+                    raise UIError(f"Widget {widget_id} must implement async update() method")
+                
+                if not hasattr(widget, 'cleanup') or not asyncio.iscoroutinefunction(widget.cleanup):
+                    raise UIError(f"Widget {widget_id} must implement async cleanup() method")
+                
+                # Verify Qt6 style usage
+                self._verify_widget_style(widget)
             
-            if widget and (not hasattr(widget, 'cleanup') or not asyncio.iscoroutinefunction(widget.cleanup)):
-                raise UIError(f"Widget {widget_id} must implement async cleanup() method")
-            
-            # Register widget
-            self._registered_widgets[widget_id] = {
-                'tags': update_tags,
+            # Register widget with metadata
+            self._widgets[widget_id] = {
                 'widget': widget,
+                'type': widget_type,
+                'location': location,
+                'tags': update_tags,
                 'timestamp': datetime.now().isoformat()
             }
             
@@ -123,6 +113,8 @@ class UIUpdateManager:
             # Notify registration
             await self._message_broker.publish("ui/widget/registered", {
                 "widget_id": widget_id,
+                "type": widget_type.value,
+                "location": location.value,
                 "tags": update_tags,
                 "timestamp": datetime.now().isoformat()
             })
@@ -140,18 +132,16 @@ class UIUpdateManager:
     async def unregister_widget(self, widget_id: str) -> None:
         """Unregister a widget from updates."""
         try:
-            if widget_id in self._registered_widgets:
-                # Call widget cleanup if available
-                widget = self._registered_widgets[widget_id].get('widget')
-                if widget and hasattr(widget, 'cleanup'):
-                    await widget.cleanup()
+            if widget_id in self._widgets:
+                # Call cleanup chain
+                await self._cleanup_widget_chain(widget_id)
                 
                 # Remove subscriptions
-                for tag in self._registered_widgets[widget_id]['tags']:
+                for tag in self._widgets[widget_id]['tags']:
                     self._tag_subscriptions[tag].discard(widget_id)
                     
                 # Remove registration
-                del self._registered_widgets[widget_id]
+                del self._widgets[widget_id]
                 
                 # Notify unregistration
                 await self._message_broker.publish("ui/widget/unregistered", {
@@ -169,29 +159,59 @@ class UIUpdateManager:
             })
             raise UIError(f"Failed to unregister widget: {str(e)}") from e
 
+    def _verify_widget_style(self, widget: QWidget) -> None:
+        """Verify widget uses proper Qt6 style constants."""
+        if isinstance(widget, QFrame):
+            if not isinstance(widget.frameShape(), QFrame.Shape):
+                raise UIError("Must use QFrame.Shape.* for frame shapes")
+            if not isinstance(widget.frameShadow(), QFrame.Shadow):
+                raise UIError("Must use QFrame.Shadow.* for frame shadows")
+                
+        alignment = widget.alignment()
+        if alignment and not isinstance(alignment, Qt.AlignmentFlag):
+            raise UIError("Must use Qt.AlignmentFlag.* for alignments")
+
+    async def _cleanup_widget_chain(self, widget_id: str) -> None:
+        """Handle widget cleanup chain."""
+        try:
+            widget_data = self._widgets.get(widget_id)
+            if not widget_data:
+                return
+                
+            widget = widget_data.get('widget')
+            if not widget:
+                return
+                
+            # Clean up child widgets first
+            for child in widget.findChildren(QWidget):
+                if hasattr(child, 'cleanup'):
+                    await child.cleanup()
+                    
+            # Clean up main widget
+            await widget.cleanup()
+            
+        except Exception as e:
+            logger.error(f"Error in widget cleanup chain: {e}")
+            raise UIError(f"Widget cleanup chain failed: {str(e)}") from e
+
     async def _handle_tag_update(self, data: Dict[str, Any]) -> None:
-        """Handle tag updates."""
+        """Handle tag updates with proper async handling."""
         try:
             tag = data.get("tag")
             if not tag:
                 raise ValueError("No tag in update data")
                 
-            # Update subscribed widgets
+            # Update subscribed widgets with proper async handling
+            update_tasks = []
             for widget_id in self._tag_subscriptions.get(tag, set()):
-                widget = self._registered_widgets[widget_id].get('widget')
+                widget = self._widgets[widget_id].get('widget')
                 if widget and hasattr(widget, 'update'):
-                    try:
-                        await widget.update(data)
-                    except Exception as e:
-                        logger.error(f"Error updating widget {widget_id}: {e}")
-                        await self._message_broker.publish("ui/error", {
-                            "error": str(e),
-                            "context": "widget_update",
-                            "widget_id": widget_id,
-                            "tag": tag,
-                            "timestamp": datetime.now().isoformat()
-                        })
-                        
+                    update_tasks.append(widget.update(data))
+                    
+            # Wait for all updates to complete
+            if update_tasks:
+                await asyncio.gather(*update_tasks)
+                    
         except Exception as e:
             logger.error(f"Error handling tag update: {e}")
             await self._message_broker.publish("ui/error", {
@@ -217,3 +237,22 @@ class UIUpdateManager:
                 "context": "config_update_handler",
                 "timestamp": datetime.now().isoformat()
             })
+
+    async def shutdown(self) -> None:
+        """Shutdown UI update manager."""
+        try:
+            # Cleanup all registered widgets
+            for widget_id in list(self._widgets.keys()):
+                await self.unregister_widget(widget_id)
+                
+            self._is_initialized = False
+            logger.info("UI update manager shutdown complete")
+            
+        except Exception as e:
+            logger.exception("Error during UI update manager shutdown")
+            await self._message_broker.publish("ui/error", {
+                "error": str(e),
+                "context": "shutdown",
+                "timestamp": datetime.now().isoformat()
+            })
+            raise UIError("Failed to shutdown UI update manager") from e

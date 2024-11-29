@@ -5,7 +5,7 @@ import asyncio
 from datetime import datetime
 
 from ....infrastructure.messaging.message_broker import MessageBroker
-from ....config.config_manager import ConfigManager
+from ....infrastructure.config.config_manager import ConfigManager
 from ....exceptions import ValidationError
 
 class ValidationResult(TypedDict):
@@ -194,6 +194,16 @@ class ProcessValidator:
                                     f"Duty cycle too high: {duty} (max {duty_limits['max']})"
                                 )
                                 validation_result["valid"] = False
+
+            # Publish validation response
+            await self._message_broker.publish(
+                "validation/response",
+                {
+                    "type": "parameters",
+                    "result": validation_result,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
 
             return validation_result
 
@@ -462,22 +472,107 @@ class ProcessValidator:
             hardware_sets = hw_config.get("physical", {}).get("hardware_sets", {})
             active_set = hardware_data.get("active_set")
             
+            if not active_set:
+                validation_result["errors"].append("No active hardware set specified")
+                validation_result["valid"] = False
+                return validation_result
+            
             if active_set not in hardware_sets:
                 validation_result["errors"].append(f"Unknown hardware set: {active_set}")
                 validation_result["valid"] = False
                 return validation_result
             
-            # Validate nozzle matching
+            # Get set configuration
             set_config = hardware_sets[active_set]
-            nozzle = hardware_data.get("nozzle")
-            if nozzle != set_config.get("nozzle"):
-                validation_result["errors"].append(
-                    f"Nozzle {nozzle} does not match hardware set {active_set}"
-                )
-                validation_result["valid"] = False
+            components = hardware_data.get("components", {})
+            
+            # Validate each component matches the set
+            for component_type in ["nozzle", "feeder", "deagglomerator"]:
+                component = components.get(component_type)
+                expected = set_config.get(component_type)
+                
+                if not component:
+                    validation_result["errors"].append(
+                        f"Missing {component_type} specification for hardware set {active_set}"
+                    )
+                    validation_result["valid"] = False
+                    continue
+                
+                if component != expected:
+                    validation_result["errors"].append(
+                        f"{component_type} {component} does not match hardware set {active_set} (expected {expected})"
+                    )
+                    validation_result["valid"] = False
             
             return validation_result
             
         except Exception as e:
             logger.error(f"Hardware set validation error: {e}")
             raise ValidationError(f"Hardware set validation failed: {str(e)}") from e
+
+    async def validate_condition(self, validation_def: Dict[str, Any]) -> ValidationResult:
+        """Validate a condition based on tag value."""
+        try:
+            validation_result: ValidationResult = {
+                "valid": True,
+                "errors": [],
+                "warnings": [],
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            # Get tag to validate
+            tag = validation_def.get("tag")
+            if not tag:
+                validation_result["errors"].append("No tag specified for validation")
+                validation_result["valid"] = False
+                return validation_result
+            
+            # Get expected value/condition if specified
+            expected_value = validation_def.get("value")
+            condition = validation_def.get("condition", "equals")
+            
+            # Request current tag value
+            response = await self._message_broker.request(
+                "tag/get",
+                {
+                    "tag": tag,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+            
+            if not response:
+                validation_result["errors"].append(f"No response for tag: {tag}")
+                validation_result["valid"] = False
+                return validation_result
+            
+            current_value = response.get("value")
+            
+            # Validate based on condition
+            if expected_value is not None:
+                if condition == "equals":
+                    if current_value != expected_value:
+                        validation_result["errors"].append(
+                            f"Tag {tag} value {current_value} does not equal {expected_value}"
+                        )
+                        validation_result["valid"] = False
+                elif condition == "greater_than":
+                    if current_value <= expected_value:
+                        validation_result["errors"].append(
+                            f"Tag {tag} value {current_value} not greater than {expected_value}"
+                        )
+                        validation_result["valid"] = False
+                elif condition == "less_than":
+                    if current_value >= expected_value:
+                        validation_result["errors"].append(
+                            f"Tag {tag} value {current_value} not less than {expected_value}"
+                        )
+                        validation_result["valid"] = False
+                else:
+                    validation_result["errors"].append(f"Unknown condition: {condition}")
+                    validation_result["valid"] = False
+                
+            return validation_result
+            
+        except Exception as e:
+            logger.error(f"Condition validation error: {e}")
+            raise ValidationError(f"Condition validation failed: {str(e)}") from e
