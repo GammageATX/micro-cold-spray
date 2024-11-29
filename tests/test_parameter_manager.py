@@ -53,7 +53,7 @@ class TestParameterManager:
     async def test_parameter_manager_initialization(self, parameter_manager):
         """Test parameter manager initialization."""
         assert parameter_manager._is_initialized
-        process_config = parameter_manager._config_manager.get_config('process')
+        process_config = await parameter_manager._config_manager.get_config('process')
         assert 'parameters' in process_config
 
     @pytest.mark.asyncio

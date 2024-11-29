@@ -222,7 +222,7 @@ class SequenceManager:
                     raise SequenceError("Invalid step format - missing name")
                     
                 # Validate step action exists
-                action_config = self._config_manager.get_config("process")
+                action_config = await self._config_manager.get_config("process")
                 if (step["name"] not in action_config.get("atomic_actions", {}) and 
                     step["name"] not in action_config.get("action_groups", {})):
                     raise SequenceError(f"Invalid action: {step['name']}")

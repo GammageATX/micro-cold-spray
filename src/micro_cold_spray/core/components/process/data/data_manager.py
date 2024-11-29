@@ -10,7 +10,7 @@ import yaml
 
 from ....infrastructure.messaging.message_broker import MessageBroker
 from ....infrastructure.config.config_manager import ConfigManager
-from ....exceptions import OperationError
+from ....exceptions import CoreError
 
 class DataManager:
     """Manages process data collection and storage."""
@@ -66,7 +66,7 @@ class DataManager:
             
         except Exception as e:
             logger.exception("Failed to initialize data manager")
-            raise OperationError(f"Data manager initialization failed: {str(e)}") from e
+            raise CoreError(f"Data manager initialization failed: {str(e)}") from e
 
     async def shutdown(self) -> None:
         """Shutdown data manager."""
@@ -80,7 +80,7 @@ class DataManager:
             
         except Exception as e:
             logger.exception("Error during data manager shutdown")
-            raise OperationError(f"Data manager shutdown failed: {str(e)}") from e
+            raise CoreError(f"Data manager shutdown failed: {str(e)}") from e
 
     async def set_user(self, username: str) -> None:
         """Set the current user for data collection."""
@@ -98,7 +98,7 @@ class DataManager:
             
         except Exception as e:
             logger.error(f"Error setting user: {e}")
-            raise OperationError(f"Failed to set user: {str(e)}") from e
+            raise CoreError(f"Failed to set user: {str(e)}") from e
 
     async def set_cancelled(self, cancelled: bool = True) -> None:
         """Mark the current run as cancelled."""
@@ -116,7 +116,7 @@ class DataManager:
             
         except Exception as e:
             logger.error(f"Error setting cancelled state: {e}")
-            raise OperationError(f"Failed to set cancelled state: {str(e)}") from e
+            raise CoreError(f"Failed to set cancelled state: {str(e)}") from e
 
     def generate_filename(self, sequence_name: str) -> str:
         """Generate a filename for the process data."""
@@ -301,7 +301,7 @@ class DataManager:
                 
         except Exception as e:
             logger.error(f"Error appending to spray history: {e}")
-            raise OperationError(f"Failed to update spray history: {str(e)}") from e
+            raise CoreError(f"Failed to update spray history: {str(e)}") from e
 
     def _get_next_spray_index(self) -> int:
         """Get next spray index from history file."""
@@ -406,7 +406,7 @@ class DataManager:
                     "timestamp": datetime.now().isoformat()
                 }
             )
-            raise OperationError(f"Failed to save process data: {str(e)}") from e
+            raise CoreError(f"Failed to save process data: {str(e)}") from e
 
     async def load_process_data(self, filepath: Path) -> Dict[str, Any]:
         """Load process data from file."""
@@ -441,7 +441,7 @@ class DataManager:
                     "timestamp": datetime.now().isoformat()
                 }
             )
-            raise OperationError(f"Failed to load process data: {str(e)}") from e
+            raise CoreError(f"Failed to load process data: {str(e)}") from e
 
     def get_current_data(self) -> Dict[str, Any]:
         """Get current process data."""
@@ -462,14 +462,14 @@ class DataManager:
             
         except Exception as e:
             logger.error(f"Error clearing data: {e}")
-            raise OperationError(f"Failed to clear data: {str(e)}") from e
+            raise CoreError(f"Failed to clear data: {str(e)}") from e
 
     async def compress_data(self, run_id: str) -> None:
         """Compress run data to save space."""
         try:
             run_path = self._run_path / f"{run_id}.json"
             if not run_path.exists():
-                raise OperationError(f"Run data not found: {run_id}")
+                raise CoreError(f"Run data not found: {run_id}")
             
             # Load data
             with open(run_path, 'r') as f:
@@ -511,7 +511,7 @@ class DataManager:
             
         except Exception as e:
             logger.error(f"Error compressing data: {e}")
-            raise OperationError(f"Failed to compress data: {str(e)}") from e
+            raise CoreError(f"Failed to compress data: {str(e)}") from e
 
     async def create_backup(self, backup_path: Path) -> None:
         """Create backup of all data directories."""
@@ -539,7 +539,7 @@ class DataManager:
             
         except Exception as e:
             logger.error(f"Error creating backup: {e}")
-            raise OperationError(f"Failed to create backup: {str(e)}") from e
+            raise CoreError(f"Failed to create backup: {str(e)}") from e
 
     async def save_parameters(self, name: str, parameters: Dict[str, Any]) -> None:
         """Save parameters to history."""
@@ -575,7 +575,7 @@ class DataManager:
             
         except Exception as e:
             logger.error(f"Error saving parameters to history: {e}")
-            raise OperationError(f"Failed to save parameters to history: {str(e)}") from e
+            raise CoreError(f"Failed to save parameters to history: {str(e)}") from e
 
     async def load_parameters(self, name: str) -> Dict[str, Any]:
         """Load parameters from history."""
@@ -594,7 +594,7 @@ class DataManager:
             
         except Exception as e:
             logger.error(f"Error loading parameters from history: {e}")
-            raise OperationError(f"Failed to load parameters from history: {str(e)}") from e
+            raise CoreError(f"Failed to load parameters from history: {str(e)}") from e
 
     async def save_run_data(self, run_name: str, data: Dict[str, Any]) -> None:
         """Save run data to YAML file."""
@@ -644,4 +644,4 @@ class DataManager:
             
         except Exception as e:
             logger.error(f"Error saving run data: {e}")
-            raise OperationError(f"Failed to save run data: {str(e)}") from e
+            raise CoreError(f"Failed to save run data: {str(e)}") from e

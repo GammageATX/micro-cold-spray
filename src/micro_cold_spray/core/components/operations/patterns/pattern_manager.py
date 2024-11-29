@@ -366,7 +366,7 @@ class PatternManager:
         """Validate pattern parameters."""
         try:
             # Get hardware limits from config
-            hardware_config = self._config_manager.get_config("hardware")
+            hardware_config = await self._config_manager.get_config("hardware")
             motion_limits = hardware_config["motion"]["limits"]
 
             # Validate position limits
@@ -386,7 +386,8 @@ class PatternManager:
             # Validate motion parameters
             if "speed" in params:
                 speed = params["speed"]
-                if not (0 < speed <= motion_limits["velocity"]["max"]):
+                max_speed = motion_limits.get("velocity", {}).get("max", 100.0)
+                if not (0 < speed <= max_speed):
                     raise PatternError(f"Speed {speed} outside limits")
 
             if "acceleration" in params:
@@ -432,7 +433,7 @@ class PatternManager:
         """Validate pattern stays within sprayable area."""
         try:
             # Get sprayable area limits from hardware config
-            hardware_config = self._config_manager.get_config("hardware")
+            hardware_config = await self._config_manager.get_config("hardware")
             sprayable_area = hardware_config["physical"]["substrate_holder"]["dimensions"]["sprayable"]
             
             # Get pattern bounds based on type

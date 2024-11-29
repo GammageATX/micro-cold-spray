@@ -34,14 +34,32 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
 
 ## Core Components
 
-### State Management
+### Infrastructure Layer
 
-- **StateManager**: Maintains the system's state machine
-- **Location**: `src/micro_cold_spray/core/infrastructure/state/state_manager.py`
-- **Configuration**: `config/state.yaml`
-- **Monitor**: `src/micro_cold_spray/core/infrastructure/state/state_monitor.py`
-- **HardwareMonitor**: `src/micro_cold_spray/core/infrastructure/state/hardware_monitor.py`
-- **ProcessMonitor**: `src/micro_cold_spray/core/infrastructure/state/process_monitor.py`
+- **MessageBroker**: Central message routing system
+  - Location: `src/micro_cold_spray/core/infrastructure/messaging/message_broker.py`
+  - Single source of truth for pub/sub messaging
+  - Handles all inter-component communication
+
+- **ConfigManager**: Central configuration handler
+  - Location: `src/micro_cold_spray/core/config/config_manager.py`
+  - Single source of truth for all configurations
+  - Handles runtime configuration updates
+
+- **TagManager**: Hardware communication layer
+  - Location: `src/micro_cold_spray/core/infrastructure/tags/tag_manager.py`
+  - Single source of truth for hardware interaction
+  - Only component that uses hardware clients
+
+- **StateManager**: System state controller
+  - Location: `src/micro_cold_spray/core/infrastructure/state/state_manager.py`
+  - Single source of truth for system state
+  - Manages all state transitions
+
+- **UIUpdateManager**: UI update controller
+  - Location: `src/micro_cold_spray/core/ui/ui_update_manager.py`
+  - Single source of truth for UI updates
+  - Manages all widget registrations and updates
 
 ### Configuration System
 
@@ -321,3 +339,104 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
    + - All tests must include proper cleanup
    + - All tests must mock hardware access
    + - All tests must prevent config file modifications
+
+## Testing Standards
+
+### Test Organization
+1. Infrastructure Tests (Run First):
+   - MessageBroker
+   - ConfigManager
+   - TagManager
+   - StateManager
+
+2. Process Tests:
+   - ProcessValidator
+   - ParameterManager
+   - PatternManager
+   - ActionManager
+   - SequenceManager
+
+3. UI Tests (Run Last):
+   - UIUpdateManager
+   - Widget tests
+
+### Test Requirements
+- Must use pytest framework
+- Must use pytest-asyncio for async tests
+- Must use pytest-qt for UI tests
+- Must maintain test coverage standards
+- Must use class-based structure
+- Must follow component dependency order
+- Must import TestOrder from conftest.py
+- Must mark classes with correct dependency
+
+### Test File Structure
+- Must include descriptive docstring header
+- Must document test requirements
+- Must document test patterns
+- Must document message patterns
+- Must include run instructions
+
+### Test Fixtures
+- Must initialize required message topics
+- Must provide proper cleanup
+- Must handle async operations
+- Must mock hardware clients
+
+## Error Handling
+
+### Required Checks
+- All MessageBroker operations
+- All cleanup chains
+- All widget references
+- All manager references
+
+### Async Requirements
+- All cleanup methods
+- All UI update handlers
+- All message operations
+- All hardware operations
+
+### Error Logging
+- All exceptions must be caught and logged
+- All error messages must be descriptive
+- All error handlers must include context
+
+### State Management
+
+#### System States
+1. Core States:
+   - INITIALIZING: Initial state on system startup
+     - Requires conditions: hardware.connected, config.loaded
+     - Can transition to: READY
+   
+   - READY: System is initialized and operational
+     - Requires conditions: hardware.connected, hardware.enabled
+     - Can transition to: RUNNING, SHUTDOWN
+   
+   - RUNNING: System is executing operations
+     - Requires conditions: hardware.connected, hardware.enabled, sequence.active
+     - Can transition to: READY, ERROR
+   
+   - ERROR: System has encountered an error
+     - No specific conditions required
+     - Can transition to: READY, SHUTDOWN
+   
+   - SHUTDOWN: System is shutting down
+     - Requires conditions: hardware.safe
+     - Can transition to: INITIALIZING
+
+#### State Conditions
+- hardware.connected: Hardware communication established
+- config.loaded: Configuration files loaded successfully
+- hardware.enabled: Hardware systems are enabled
+- sequence.active: Operation sequence is running
+- hardware.safe: Hardware is in safe state for shutdown
+
+#### State Transition Rules
+- All transitions must be explicitly defined in state.yaml
+- Each state must specify its required conditions
+- Each state must list valid next_states
+- Invalid transitions must raise StateError
+- All transitions must be logged
+- All state changes must be published to "state/change"

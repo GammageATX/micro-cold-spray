@@ -62,7 +62,11 @@ class UIUpdateManager:
 
             # Subscribe to required topics
             await self._message_broker.subscribe("tag/update", self._handle_tag_update)
-            await self._message_broker.subscribe("config/update/*", self._handle_config_update)
+            # Subscribe to all config update topics
+            await self._message_broker.subscribe("config/update", self._handle_config_update)
+            await self._message_broker.subscribe("config/update/hardware", self._handle_config_update)
+            await self._message_broker.subscribe("config/update/process", self._handle_config_update)
+            await self._message_broker.subscribe("config/update/ui", self._handle_config_update)
             
             self._is_initialized = True
             logger.info("UI update manager initialization complete")

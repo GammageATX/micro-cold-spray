@@ -36,23 +36,18 @@ class ActionManager:
     async def initialize(self) -> None:
         """Initialize action manager."""
         try:
-            # Subscribe to action requests
-            await self._message_broker.subscribe(
-                "action/request", 
-                self._handle_action_request
-            )
-            await self._message_broker.subscribe(
-                "action/cancel",
-                self._handle_action_cancel
-            )
-            
             # Load process config
-            self._process_config = self._config_manager.get_config("process")
+            self._process_config = await self._config_manager.get_config("process")
+            
+            # Subscribe to action topics
+            await self._message_broker.subscribe("action/request", self._handle_action_request)
+            await self._message_broker.subscribe("action/cancel", self._handle_action_cancel)
+            
             logger.info("Action manager initialization complete")
             
         except Exception as e:
-            logger.exception("Failed to initialize action manager")
-            raise ActionConfigError(f"Action manager initialization failed: {str(e)}") from e
+            logger.error(f"Failed to initialize action manager: {e}")
+            raise ActionError(f"Action manager initialization failed: {str(e)}") from e
 
     async def shutdown(self) -> None:
         """Shutdown action manager."""

@@ -103,7 +103,7 @@ class ProcessValidator:
         """Validate process parameters against configuration limits."""
         try:
             # Get safety limits from hardware config
-            hw_config = self._config_manager.get_config("hardware")
+            hw_config = await self._config_manager.get_config("hardware")
             safety_limits = hw_config.get("safety", {})
             
             validation_result: ValidationResult = {
@@ -214,8 +214,8 @@ class ProcessValidator:
     async def validate_pattern(self, pattern_type: str, pattern_data: Dict[str, Any]) -> Dict[str, Any]:
         """Validate pattern configuration."""
         try:
-            pattern_config = self._config_manager.get_config("patterns")
-            hw_config = self._config_manager.get_config("hardware")
+            pattern_config = await self._config_manager.get_config("patterns")
+            hw_config = await self._config_manager.get_config("hardware")
             validation_results = {
                 "valid": True,
                 "errors": [],
@@ -294,7 +294,7 @@ class ProcessValidator:
     async def validate_sequence(self, sequence_data: Dict[str, Any]) -> Dict[str, Any]:
         """Validate sequence configuration."""
         try:
-            sequence_config = self._config_manager.get_config("sequences")
+            sequence_config = await self._config_manager.get_config("sequences")
             validation_results = {
                 "valid": True,
                 "errors": [],
@@ -387,7 +387,8 @@ class ProcessValidator:
         """Validate process parameters against current state."""
         try:
             # Get process validation rules
-            rules = process_config.get("validation", {})
+            config = await process_config
+            rules = config.get("validation", {})
             
             # Validate gas flow stability
             if "gas_flow_stable" in rules:
@@ -460,7 +461,7 @@ class ProcessValidator:
     async def validate_hardware_set(self, hardware_data: Dict[str, Any]) -> Dict[str, Any]:
         """Validate hardware set configuration."""
         try:
-            hw_config = self._config_manager.get_config("hardware")
+            hw_config = await self._config_manager.get_config("hardware")
             validation_result = {
                 "valid": True,
                 "errors": [],

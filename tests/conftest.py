@@ -38,6 +38,12 @@ async def message_broker() -> AsyncGenerator[MessageBroker, None]:
         "state/error": set(),
         "error": set(),
         
+        # Config topics - Add these
+        "config/update": set(),
+        "config/update/hardware": set(), 
+        "config/update/process": set(),
+        "config/update/ui": set(),
+        
         # Action topics
         "action/request": set(),
         "action/execute": set(),
@@ -105,25 +111,195 @@ async def message_broker() -> AsyncGenerator[MessageBroker, None]:
         await broker.shutdown()
 
 @pytest.fixture
-async def config_manager(message_broker: MessageBroker) -> AsyncGenerator[ConfigManager, None]:
-    """Provide ConfigManager with test configurations."""
-    manager = ConfigManager(message_broker)
+async def config_manager(message_broker: MessageBroker) -> AsyncGenerator[MagicMock, None]:
+    """Provide mocked ConfigManager."""
+    mock_config = MagicMock()
     
-    # Mock file operations to prevent any actual file changes
-    manager._save_config = AsyncMock()
-    manager.update_config = AsyncMock()
-    manager._load_config = AsyncMock()
-    manager.save_backup = AsyncMock()
-    
-    # Mock configs
-    manager._configs = {
+    # Set up all required mock configs
+    mock_config._configs = {
+        "tags": {
+            "groups": {
+                "motion": {
+                    "x": {
+                        "position": "AMC.Ax1Position",
+                        "velocity": "AMC.Ax1Velocity"
+                    },
+                    "y": {
+                        "position": "AMC.Ax2Position",
+                        "velocity": "AMC.Ax2Velocity"
+                    },
+                    "z": {
+                        "position": "AMC.Ax3Position",
+                        "velocity": "AMC.Ax3Velocity"
+                    }
+                },
+                "gas": {
+                    "main_flow": {
+                        "setpoint": "AOS32-0.1.2.1",
+                        "actual": "AOS32-0.1.2.2"
+                    },
+                    "feeder_flow": {
+                        "setpoint": "AOS32-0.1.3.1",
+                        "actual": "AOS32-0.1.3.2"
+                    }
+                }
+            }
+        },
+        "state": {
+            "transitions": {
+                "INITIALIZING": {
+                    "conditions": ["hardware.connected", "config.loaded"],
+                    "next_states": ["READY"]
+                },
+                "READY": {
+                    "conditions": ["hardware.connected", "hardware.enabled"],
+                    "next_states": ["RUNNING", "SHUTDOWN"]
+                },
+                "RUNNING": {
+                    "conditions": ["hardware.connected", "hardware.enabled", "sequence.active"],
+                    "next_states": ["READY", "ERROR"]
+                },
+                "ERROR": {
+                    "next_states": ["READY", "SHUTDOWN"]
+                },
+                "SHUTDOWN": {
+                    "conditions": ["hardware.safe"],
+                    "next_states": ["INITIALIZING"]
+                }
+            }
+        },
+        "hardware": {
+            "motion": {
+                "limits": {
+                    "x": {"min": 0.0, "max": 500.0},
+                    "y": {"min": 0.0, "max": 500.0},
+                    "z": {"min": 0.0, "max": 200.0},
+                    "velocity": {"max": 100.0},
+                    "acceleration": {"max": 2000.0}
+                }
+            },
+            "safety": {
+                "gas": {
+                    "main_flow": {"min": 20.0, "max": 100.0, "warning": 30.0},
+                    "feeder_flow": {"min": 2.0, "max": 10.0, "warning": 3.0}
+                },
+                "powder": {
+                    "feeder": {
+                        "frequency": {"min": 100, "max": 1000},
+                        "deagglomerator": {
+                            "duty_cycle": {"min": 10, "max": 90}
+                        }
+                    }
+                }
+            },
+            "physical": {
+                "substrate_holder": {
+                    "dimensions": {
+                        "sprayable": {
+                            "width": 500.0,
+                            "height": 500.0
+                        }
+                    }
+                },
+                "hardware_sets": {
+                    "set1": {
+                        "nozzle": "nozzle1",
+                        "feeder": "feeder1",
+                        "deagglomerator": "deagg1"
+                    }
+                }
+            }
+        },
+        "patterns": {
+            "types": {
+                "serpentine": {
+                    "required_parameters": ["origin", "length", "spacing", "speed"],
+                    "parameter_limits": {
+                        "length": {"min": 10.0, "max": 500.0},
+                        "spacing": {"min": 0.5, "max": 10.0},
+                        "speed": {"min": 1.0, "max": 100.0}
+                    }
+                }
+            }
+        },
         "process": {
+            "atomic_actions": {
+                "motion": {
+                    "move_xy": {
+                        "messages": [
+                            {
+                                "topic": "tag/set",
+                                "data": {
+                                    "tag": "motion.x.position",
+                                    "value": "{x}"
+                                }
+                            },
+                            {
+                                "topic": "tag/set",
+                                "data": {
+                                    "tag": "motion.y.position",
+                                    "value": "{y}"
+                                }
+                            }
+                        ],
+                        "validation": [{
+                            "tag": "motion.status",
+                            "value": "complete"
+                        }]
+                    },
+                    "home": {
+                        "messages": [
+                            {
+                                "topic": "tag/set",
+                                "data": {
+                                    "tag": "motion.home",
+                                    "value": True
+                                }
+                            }
+                        ]
+                    }
+                },
+                "gas": {
+                    "set_main_flow": {
+                        "messages": [
+                            {
+                                "topic": "tag/set",
+                                "data": {
+                                    "tag": "gas_control.main_flow.setpoint",
+                                    "value": "{gas.main_flow}"
+                                }
+                            }
+                        ]
+                    },
+                    "enable": {
+                        "messages": [
+                            {
+                                "topic": "tag/set",
+                                "data": {
+                                    "tag": "gas.enable",
+                                    "value": True
+                                }
+                            }
+                        ]
+                    }
+                }
+            },
+            "action_groups": {
+                "ready_system": {
+                    "steps": [
+                        {
+                            "action": "motion.home",
+                            "parameters": {}
+                        },
+                        {
+                            "action": "gas.enable",
+                            "parameters": {}
+                        }
+                    ]
+                }
+            },
             "parameters": {
                 "gas": {
-                    "type": {
-                        "allowed": ["helium", "nitrogen"],
-                        "default": "helium"
-                    },
                     "main_flow": {
                         "min": 20.0,
                         "max": 100.0,
@@ -140,180 +316,39 @@ async def config_manager(message_broker: MessageBroker) -> AsyncGenerator[Config
                         "frequency": {
                             "min": 100,
                             "max": 1000,
-                            "default": 600
-                        },
-                        "deagglomerator": {
-                            "duty_cycle": {
-                                "min": 10,
-                                "max": 90,
-                                "default": 35
-                            },
-                            "frequency": {
-                                "min": 100,
-                                "max": 1000,
-                                "default": 500
-                            }
+                            "default": 500
                         }
                     }
-                }
-            },
-            "atomic_actions": {
-                "motion": {
-                    "move_xy": {
-                        "messages": [
-                            {
-                                "topic": "tag/set",
-                                "data": [
-                                    {"tag": "motion.motion_control.coordinated_move.xy_move.parameters.velocity", "value": "{velocity}"},
-                                    {"tag": "motion.motion_control.coordinated_move.xy_move.x_position", "value": "{x}"},
-                                    {"tag": "motion.motion_control.coordinated_move.xy_move.y_position", "value": "{y}"}
-                                ]
-                            }
-                        ],
-                        "validation": [
-                            {"tag": "motion.motion_control.coordinated_move.xy_move.status"}
-                        ]
-                    }
-                },
-                "gas": {
-                    "set_main_flow": {
-                        "messages": [
-                            {
-                                "topic": "tag/set",
-                                "data": [
-                                    {"tag": "gas_control.main_flow.setpoint", "value": "{gas.main_flow}"}
-                                ]
-                            }
-                        ],
-                        "validation": [
-                            {"tag": "gas_control.main_flow.measured"}
-                        ]
-                    }
-                }
-            },
-            "action_groups": {
-                "ready_system": {
-                    "steps": [
-                        {
-                            "action": "motion.move_xy",
-                            "parameters": {
-                                "x": 0.0,
-                                "y": 0.0,
-                                "velocity": 50.0
-                            }
-                        },
-                        {
-                            "validation": {
-                                "tag": "motion.motion_control.coordinated_move.xy_move.status",
-                                "value": True
-                            }
-                        }
-                    ]
                 }
             }
         },
-        "hardware": {
-            "motion": {
-                "limits": {
-                    "x": {
-                        "min": 0.0,
-                        "max": 500.0
-                    },
-                    "y": {
-                        "min": 0.0,
-                        "max": 500.0
-                    },
-                    "z": {
-                        "min": 0.0,
-                        "max": 200.0
-                    },
-                    "velocity": {
-                        "min": 0.0,
-                        "max": 1000.0
-                    },
-                    "acceleration": {
-                        "min": 0.0,
-                        "max": 5000.0
-                    }
+        "sequences": {
+            "rules": {
+                "required_steps": ["move_to_trough", "start_gas_flow"],
+                "step_order": {
+                    "move_to_trough": ["start_gas_flow"],
+                    "start_gas_flow": ["start_powder"]
                 }
-            },
-            "physical": {
-                "hardware_sets": {
-                    "set1": {
-                        "nozzle": "nozzle1",
-                        "feeder": "feeder1",
-                        "deagglomerator": "deagg1"
-                    },
-                    "set2": {
-                        "nozzle": "nozzle2",
-                        "feeder": "feeder2",
-                        "deagglomerator": "deagg2"
-                    }
-                },
-                "substrate_holder": {
-                    "dimensions": {
-                        "sprayable": {
-                            "width": 500,
-                            "height": 500
-                        }
-                    }
-                }
-            },
-            "safety": {
-                "gas": {
-                    "main_flow": {
-                        "min": 20.0,
-                        "max": 100.0,
-                        "warning": 30.0
-                    },
-                    "feeder_flow": {
-                        "min": 2.0,
-                        "max": 10.0,
-                        "warning": 3.0
-                    }
-                }
-            },
-            "state": {
-                "transitions": {
-                    "ERROR": {
-                        "next_states": ["READY", "SHUTDOWN"]
-                    },
-                    "INITIALIZING": {
-                        "conditions": [
-                            "hardware.connected",
-                            "config.loaded"
-                        ],
-                        "next_states": ["READY"]
-                    },
-                    "READY": {
-                        "conditions": [
-                            "hardware.connected",
-                            "hardware.enabled"
-                        ],
-                        "next_states": ["RUNNING", "SHUTDOWN"]
-                    },
-                    "RUNNING": {
-                        "conditions": [
-                            "hardware.connected",
-                            "hardware.enabled",
-                            "sequence.active"
-                        ],
-                        "next_states": ["READY", "ERROR"]
-                    },
-                    "SHUTDOWN": {
-                        "conditions": ["hardware.safe"],
-                        "next_states": ["INITIALIZING"]
-                    }
-                },
-                "version": "1.0.0"
             }
         }
     }
     
+    # Configure mock to return configs directly (not as coroutines)
+    async def get_config(name: str) -> Dict[str, Any]:
+        return mock_config._configs.get(name, {})
+    
+    mock_config.get_config = AsyncMock(side_effect=get_config)
+    mock_config.update_config = AsyncMock()
+    mock_config.save_backup = AsyncMock()
+    mock_config.shutdown = AsyncMock()
+    
+    # Add message broker
+    mock_config._message_broker = message_broker
+    
     try:
-        yield manager
+        yield mock_config
     finally:
-        await manager.shutdown()
+        await mock_config.shutdown()
 
 @pytest.fixture
 async def mock_plc_client() -> MagicMock:
@@ -345,10 +380,35 @@ async def state_manager(
     config_manager: ConfigManager
 ) -> AsyncGenerator[StateManager, None]:
     """Provide StateManager instance."""
-    manager = StateManager(
-        message_broker=message_broker,
-        config_manager=config_manager
-    )
+    # Mock state config
+    state_config = {
+        "transitions": {
+            "INITIALIZING": {
+                "conditions": ["hardware.connected", "config.loaded"],
+                "next_states": ["READY"]
+            },
+            "READY": {
+                "conditions": ["hardware.connected", "hardware.enabled"],
+                "next_states": ["RUNNING", "SHUTDOWN"]
+            },
+            "RUNNING": {
+                "conditions": ["hardware.connected", "hardware.enabled", "sequence.active"],
+                "next_states": ["READY", "ERROR"]
+            },
+            "ERROR": {
+                "next_states": ["READY", "SHUTDOWN"]
+            },
+            "SHUTDOWN": {
+                "conditions": ["hardware.safe"],
+                "next_states": ["INITIALIZING"]
+            }
+        }
+    }
+    
+    # Configure mock
+    config_manager.get_config.return_value = state_config
+    
+    manager = StateManager(message_broker, config_manager)
     try:
         await manager.initialize()
         yield manager

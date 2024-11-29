@@ -25,6 +25,7 @@ class MessageBroker:
     def __init__(self):
         """Initialize the message broker."""
         self._subscribers: Dict[str, set[MessageHandler]] = defaultdict(set)
+        self._wildcard_subscribers: Dict[str, set[MessageHandler]] = defaultdict(set)
         self._running = False
         self._message_queue: asyncio.Queue[tuple[str, Dict[str, Any]]] = asyncio.Queue()
         self._processing_task: Optional[asyncio.Task] = None
@@ -67,6 +68,7 @@ class MessageBroker:
                     break
 
             self._subscribers.clear()
+            self._wildcard_subscribers.clear()
             logger.info("MessageBroker shutdown complete")
 
         except Exception as e:
@@ -85,8 +87,14 @@ class MessageBroker:
             if not callable(handler):
                 raise ValueError("Handler must be callable")
             
-            self._subscribers[topic].add(handler)
-            logger.debug(f"Subscribed to topic: {topic}")
+            # Handle wildcard subscriptions
+            if '*' in topic:
+                base_topic = topic.replace('*', '')
+                self._wildcard_subscribers[base_topic].add(handler)
+                logger.debug(f"Subscribed to wildcard topic: {topic}")
+            else:
+                self._subscribers[topic].add(handler)
+                logger.debug(f"Subscribed to topic: {topic}")
 
         except Exception as e:
             logger.error(f"Failed to subscribe to topic {topic}: {e}")
@@ -104,6 +112,9 @@ class MessageBroker:
             if topic in self._subscribers:
                 self._subscribers[topic].discard(handler)
                 logger.debug(f"Unsubscribed from topic: {topic}")
+            if topic in self._wildcard_subscribers:
+                self._wildcard_subscribers[topic].discard(handler)
+                logger.debug(f"Unsubscribed from wildcard topic: {topic}")
         except Exception as e:
             logger.error(f"Failed to unsubscribe from topic {topic}: {e}")
             raise MessageBrokerError(f"Unsubscribe failed: {str(e)}") from e
@@ -131,18 +142,16 @@ class MessageBroker:
                 try:
                     topic, message = await self._message_queue.get()
                     
-                    # Find matching topics including wildcards
-                    matching_topics = self._get_matching_topics(topic)
+                    # Handle direct subscribers
+                    if topic in self._subscribers:
+                        for handler in self._subscribers[topic]:
+                            await self._safe_handle_message(handler, message)
                     
-                    for match in matching_topics:
-                        if match in self._subscribers:
-                            subscriber_tasks = []
-                            for handler in self._subscribers[match]:
-                                task = asyncio.create_task(self._safe_handle_message(handler, message))
-                                subscriber_tasks.append(task)
-                            
-                            if subscriber_tasks:
-                                await asyncio.gather(*subscriber_tasks)
+                    # Handle wildcard subscribers
+                    for base_topic, handlers in self._wildcard_subscribers.items():
+                        if topic.startswith(base_topic):
+                            for handler in handlers:
+                                await self._safe_handle_message(handler, message)
                     
                     self._message_queue.task_done()
 
@@ -150,7 +159,7 @@ class MessageBroker:
                     raise
                 except Exception as e:
                     logger.error(f"Error processing message: {e}")
-                    await asyncio.sleep(0.1)  # Brief pause on error
+                    await asyncio.sleep(0.1)
 
         except asyncio.CancelledError:
             logger.info("Message processing loop cancelled")

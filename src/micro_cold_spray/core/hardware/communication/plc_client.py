@@ -39,3 +39,11 @@ class PLCClient:
         except Exception as e:
             logger.error(f"Failed to write tag {tag_name}: {e}")
             raise HardwareConnectionError(f"Failed to write tag {tag_name}") from e
+
+    async def connect(self) -> None:
+        """Connect to PLC."""
+        try:
+            await self._plc.connect()
+        except Exception as e:
+            logger.error(f"Failed to connect to PLC: {e}")
+            raise HardwareConnectionError("Failed to connect to PLC") from e

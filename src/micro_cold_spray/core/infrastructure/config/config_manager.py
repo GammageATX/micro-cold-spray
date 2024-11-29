@@ -1,4 +1,4 @@
-# src/micro_cold_spray/core/config/managers/config_manager.py
+# src/micro_cold_spray/core/infrastructure/config/config_manager.py
 from typing import Dict, Any, Optional
 from pathlib import Path
 import yaml
@@ -7,7 +7,7 @@ import asyncio
 from loguru import logger
 
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
-from micro_cold_spray.core.exceptions import ConfigurationError
+from micro_cold_spray.core.exceptions import ConfigError
 
 class ConfigManager:
     """
@@ -54,7 +54,7 @@ class ConfigManager:
 
         except Exception as e:
             logger.exception("Failed to initialize ConfigManager")
-            raise ConfigurationError("Configuration initialization failed") from e
+            raise ConfigError("Configuration initialization failed") from e
 
     async def _load_all_configs(self) -> None:
         """Load all configuration files from config directory."""
@@ -65,7 +65,7 @@ class ConfigManager:
                 
         except Exception as e:
             logger.exception("Failed to load configurations")
-            raise ConfigurationError("Failed to load configuration files") from e
+            raise ConfigError("Failed to load configuration files") from e
 
     async def _load_config(self, config_type: str) -> None:
         """
@@ -90,7 +90,7 @@ class ConfigManager:
 
         except Exception as e:
             logger.error(f"Error loading config {config_type} from {config_file.absolute()}: {e}")
-            raise ConfigurationError(f"Failed to load {config_type} configuration") from e
+            raise ConfigError(f"Failed to load {config_type} configuration") from e
 
     async def _handle_config_update(self, data: Dict[str, Any]) -> None:
         """
@@ -146,7 +146,7 @@ class ConfigManager:
                 
         except Exception as e:
             logger.exception(f"Failed to update configuration: {config_type}")
-            raise ConfigurationError(f"Configuration update failed: {str(e)}") from e
+            raise ConfigError(f"Configuration update failed: {str(e)}") from e
 
     async def _save_config(self, config_type: str) -> None:
         """
@@ -164,7 +164,7 @@ class ConfigManager:
             
         except Exception as e:
             logger.error(f"Error saving config {config_type}: {e}")
-            raise ConfigurationError(f"Failed to save {config_type} configuration") from e
+            raise ConfigError(f"Failed to save {config_type} configuration") from e
 
     def get_config(self, config_type: str) -> Dict[str, Any]:
         """
@@ -185,7 +185,7 @@ class ConfigManager:
             
         except Exception as e:
             logger.error(f"Error getting config: {e}")
-            raise ConfigurationError(f"Failed to get configuration: {str(e)}") from e
+            raise ConfigError(f"Failed to get configuration: {str(e)}") from e
 
     async def shutdown(self) -> None:
         """Gracefully shutdown the config manager."""
@@ -199,4 +199,4 @@ class ConfigManager:
             
         except Exception as e:
             logger.exception("Error during ConfigManager shutdown")
-            raise ConfigurationError(f"Shutdown failed: {str(e)}") from e
+            raise ConfigError(f"Shutdown failed: {str(e)}") from e

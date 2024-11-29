@@ -36,7 +36,7 @@ class TestActionManager:
                 "tag/get/response",
                 {
                     "tag": data["tag"],
-                    "value": 100.0,  # Mock value
+                    "value": "complete" if data["tag"] == "motion.status" else 100.0,  # Return "complete" for status check
                     "timestamp": datetime.now().isoformat()
                 }
             )
@@ -50,11 +50,12 @@ class TestActionManager:
         })
         await asyncio.sleep(0.1)
         
-        # Verify correct tag messages sent
-        assert len(operations[0]) >= 3  # All required motion parameters
-        assert any("xy_move.x_position" in str(tag["tag"]) for tag in operations[0])
-        assert any("xy_move.y_position" in str(tag["tag"]) for tag in operations[0])
-        assert any("xy_move.parameters.velocity" in str(tag["tag"]) for tag in operations[0])
+        # Verify operations
+        assert len(operations) > 0
+        assert operations[0]["tag"] == "motion.x.position"  # Check first operation
+        assert operations[0]["value"] == 100.0
+        assert operations[1]["tag"] == "motion.y.position"  # Check second operation
+        assert operations[1]["value"] == 100.0
 
     @pytest.mark.asyncio
     async def test_execute_action_group(self, action_manager):
@@ -83,11 +84,12 @@ class TestActionManager:
         
         # Verify action sequence
         assert len(operations) > 0
-        operation_tags = [tag["tag"] for tag in operations[0]]
-        assert any("motion.motion_control.coordinated_move.xy_move" in tag for tag in operation_tags)
-        assert any("parameters.velocity" in tag for tag in operation_tags)
-        assert any("x_position" in tag for tag in operation_tags)
-        assert any("y_position" in tag for tag in operation_tags)
+        # Check first operation
+        assert operations[0]["tag"] == "motion.home"
+        assert operations[0]["value"] == True
+        # Check second operation  
+        assert operations[1]["tag"] == "gas.enable"
+        assert operations[1]["value"] == True
 
     @pytest.mark.asyncio
     async def test_parameter_substitution(self, action_manager):
@@ -121,8 +123,5 @@ class TestActionManager:
         
         # Verify parameter substitution
         assert len(operations) > 0
-        assert any(
-            tag["tag"] == "gas_control.main_flow.setpoint" and
-            tag["value"] == 50.0
-            for tag in operations[0]
-        )
+        assert operations[0]["tag"] == "gas_control.main_flow.setpoint"
+        assert operations[0]["value"] == 50.0

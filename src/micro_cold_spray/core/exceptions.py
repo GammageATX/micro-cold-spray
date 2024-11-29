@@ -1,7 +1,7 @@
 """Core exceptions module."""
 
 class CoreError(Exception):
-    """Base exception for all core errors."""
+    """Base exception for core module."""
     pass
 
 class SystemInitializationError(CoreError):

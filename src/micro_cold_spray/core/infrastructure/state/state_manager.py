@@ -36,12 +36,10 @@ class StateManager:
             await self._message_broker.subscribe("state/request", self._handle_state_request)
             await self._message_broker.subscribe("tag/update", self._handle_tag_update)
             
-            # Load state config
-            config = self._config_manager.get_config("hardware")
-            logger.debug(f"Loaded state config: {config}")
-            
-            # Get transitions from state config
-            self._state_config = config.get("state", {}).get("transitions", {})
+            # Load state config directly from state.yaml
+            config = await self._config_manager.get_config("state")
+            self._state_config = config.get("transitions", {})
+            logger.debug(f"Loaded state transitions: {self._state_config}")
             
             # Start in INITIALIZING state
             self._current_state = "INITIALIZING"
@@ -107,12 +105,8 @@ class StateManager:
             if self._current_state == "INITIALIZING":
                 if self._conditions.get("hardware.connected") and self._conditions.get("config.loaded"):
                     logger.debug("Conditions met for READY transition")
-                    
-                    # Request state change
-                    await self._message_broker.publish("state/request", {
-                        "state": "READY",
-                        "timestamp": datetime.now().isoformat()
-                    })
+                    # Directly set state since we are the state manager
+                    await self.set_state("READY")
                     
         except Exception as e:
             logger.error(f"Error checking conditions: {e}")
@@ -124,20 +118,10 @@ class StateManager:
             })
 
     async def set_state(self, new_state: str) -> None:
-        """Set system state."""
+        """Set system state and publish change."""
         try:
-            logger.debug(f"Attempting state transition: {self._current_state} -> {new_state}")
-            
             # Validate transition
             if not self._is_valid_transition(new_state):
-                error_msg = {
-                    "error": f"Invalid state transition: {self._current_state} -> {new_state}",
-                    "from": self._current_state,
-                    "to": new_state,
-                    "topic": "state/transition",
-                    "timestamp": datetime.now().isoformat()
-                }
-                await self._message_broker.publish("error", error_msg)
                 raise StateError(f"Invalid state transition from {self._current_state} to {new_state}")
             
             # Update state
@@ -156,15 +140,12 @@ class StateManager:
             
         except Exception as e:
             logger.error(f"Error setting state: {e}")
-            await self._message_broker.publish(
-                "error",
-                {
-                    "error": str(e),
-                    "context": "state transition",
-                    "topic": "state/transition",
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
+            await self._message_broker.publish("error", {
+                "error": str(e),
+                "context": "state transition",
+                "topic": "state/transition",
+                "timestamp": datetime.now().isoformat()
+            })
             raise
 
     async def _handle_state_request(self, data: Dict[str, Any]) -> None:
@@ -237,9 +218,9 @@ class StateManager:
 
     def _is_valid_transition(self, new_state: str) -> bool:
         """Check if state transition is valid."""
-        # Get valid transitions from config
-        valid_transitions = self._config_manager.get_config("state").get(
-            "transitions", {}).get(self._current_state, [])
+        # Use cached state config
+        current_state_config = self._state_config.get(self._current_state, {})
+        valid_transitions = current_state_config.get("next_states", [])
         return new_state in valid_transitions
 
     async def get_current_state(self) -> str:
