@@ -8,12 +8,8 @@ class SystemInitializationError(CoreError):
     """System initialization errors."""
     pass
 
-class ConfigError(CoreError):
+class ConfigurationError(CoreError):
     """Configuration related errors."""
-    pass
-
-class ConfigurationError(ConfigError):
-    """Configuration loading/saving errors."""
     pass
 
 class StateError(CoreError):
@@ -77,11 +73,7 @@ class HardwareError(CoreError):
     pass
 
 class HardwareConnectionError(HardwareError):
-    """Hardware connection related errors."""
-    pass
-
-class HardwareCommunicationError(HardwareError):
-    """Hardware communication related errors."""
+    """Hardware connection and communication related errors."""
     pass
 
 class HardwareTimeoutError(HardwareError):

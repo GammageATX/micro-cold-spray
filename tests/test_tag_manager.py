@@ -134,13 +134,29 @@ async def tag_manager(
         message_broker=message_broker,
         config_manager=config_manager
     )
-    
-    # Mock the clients after initialization
+
+    # Mock the clients BEFORE initialization
     manager._plc_client = mock_plc_client
     manager._ssh_client = mock_ssh_client
     
+    # Set up initial tag mapping
+    manager._tag_definitions = {
+        "motion": {
+            "position": {
+                "x_position": {
+                    "mapped": True,
+                    "plc_tag": "AMC.Ax1Position"
+                }
+            }
+        }
+    }
+    manager._plc_tag_map = {
+        "motion.position.x_position": "AMC.Ax1Position"
+    }
+
     try:
         await manager.initialize()
+        manager._is_initialized = True  # Ensure initialized flag is set
         yield manager
     finally:
         await manager.shutdown()

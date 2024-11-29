@@ -7,7 +7,7 @@ import asyncio
 from loguru import logger
 
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
-from micro_cold_spray.core.exceptions import ConfigError
+from micro_cold_spray.core.exceptions import ConfigurationError
 
 class ConfigManager:
     """
@@ -16,12 +16,7 @@ class ConfigManager:
     """
     
     def __init__(self, message_broker: MessageBroker):
-        """
-        Initialize config manager.
-        
-        Args:
-            message_broker: MessageBroker for publishing config updates
-        """
+        """Initialize config manager."""
         self._configs: Dict[str, Any] = {}
         self._message_broker = message_broker
         
@@ -54,7 +49,7 @@ class ConfigManager:
 
         except Exception as e:
             logger.exception("Failed to initialize ConfigManager")
-            raise ConfigError("Configuration initialization failed") from e
+            raise ConfigurationError("Configuration initialization failed") from e
 
     async def _load_all_configs(self) -> None:
         """Load all configuration files from config directory."""
@@ -65,64 +60,36 @@ class ConfigManager:
                 
         except Exception as e:
             logger.exception("Failed to load configurations")
-            raise ConfigError("Failed to load configuration files") from e
+            raise ConfigurationError("Failed to load configuration files") from e
 
-    async def _load_config(self, config_type: str) -> None:
-        """
-        Load a specific configuration file.
-        
-        Args:
-            config_type: Type of configuration to load
-        """
+    async def _load_config(self, name: str) -> None:
+        """Load configuration from file."""
         try:
-            config_file = self._config_path / f"{config_type}.yaml"
-            logger.debug(f"Attempting to load config from: {config_file.absolute()}")
-            
+            config_file = self._config_path / f"{name}.yaml"
             if not config_file.exists():
-                logger.warning(f"Config file not found: {config_file.absolute()}")
-                self._configs[config_type] = {}
-                return
-
-            with open(config_file, 'r') as f:
-                self._configs[config_type] = yaml.safe_load(f) or {}
-
-            logger.info(f"Loaded configuration: {config_type} from {config_file.absolute()}")
-
-        except Exception as e:
-            logger.error(f"Error loading config {config_type} from {config_file.absolute()}: {e}")
-            raise ConfigError(f"Failed to load {config_type} configuration") from e
-
-    async def _handle_config_update(self, data: Dict[str, Any]) -> None:
-        """
-        Handle configuration update requests from MessageBroker.
-        
-        Args:
-            data: Update request data containing config_type and new_data
-        """
-        try:
-            config_type = data.get("config_type")
-            new_data = data.get("new_data")
-            
-            if not config_type or new_data is None:
-                raise ValueError("Invalid config update request")
+                raise ConfigurationError(f"Config file not found: {config_file}")
                 
-            await self.update_config(config_type, new_data)
+            with open(config_file) as f:
+                self._configs[name] = yaml.safe_load(f)
+                
+            logger.info(f"Loaded configuration: {name} from {config_file}")
             
         except Exception as e:
-            logger.error(f"Error handling config update: {e}")
-            await self._message_broker.publish("config/update/error", {
-                "config_type": config_type,
-                "error": str(e)
-            })
+            logger.error(f"Error loading config {name}: {e}")
+            raise ConfigurationError(f"Failed to load config {name}: {str(e)}") from e
+
+    async def get_config(self, name: str) -> Dict[str, Any]:
+        """Get configuration by name."""
+        try:
+            if name not in self._configs:
+                await self._load_config(name)
+            return self._configs[name]
+        except Exception as e:
+            logger.error(f"Error getting config {name}: {e}")
+            raise ConfigurationError(f"Failed to get config {name}: {str(e)}") from e
 
     async def update_config(self, config_type: str, new_data: Dict[str, Any]) -> None:
-        """
-        Update configuration and notify subscribers.
-        
-        Args:
-            config_type: Type of configuration to update
-            new_data: New configuration data
-        """
+        """Update configuration and notify subscribers."""
         try:
             # Update internal config
             if config_type not in self._configs:
@@ -146,15 +113,10 @@ class ConfigManager:
                 
         except Exception as e:
             logger.exception(f"Failed to update configuration: {config_type}")
-            raise ConfigError(f"Configuration update failed: {str(e)}") from e
+            raise ConfigurationError(f"Configuration update failed: {str(e)}") from e
 
     async def _save_config(self, config_type: str) -> None:
-        """
-        Save configuration to file.
-        
-        Args:
-            config_type: Type of configuration to save
-        """
+        """Save configuration to file."""
         try:
             config_file = self._config_path / f"{config_type}.yaml"
             with open(config_file, 'w') as f:
@@ -164,28 +126,7 @@ class ConfigManager:
             
         except Exception as e:
             logger.error(f"Error saving config {config_type}: {e}")
-            raise ConfigError(f"Failed to save {config_type} configuration") from e
-
-    def get_config(self, config_type: str) -> Dict[str, Any]:
-        """
-        Get configuration data.
-        
-        Args:
-            config_type: Type of configuration to retrieve
-            
-        Returns:
-            Configuration data dictionary
-        """
-        try:
-            if config_type not in self._configs:
-                logger.warning(f"Config not found: {config_type}")
-                return {}
-                    
-            return self._configs[config_type]
-            
-        except Exception as e:
-            logger.error(f"Error getting config: {e}")
-            raise ConfigError(f"Failed to get configuration: {str(e)}") from e
+            raise ConfigurationError(f"Failed to save {config_type} configuration") from e
 
     async def shutdown(self) -> None:
         """Gracefully shutdown the config manager."""
@@ -199,4 +140,4 @@ class ConfigManager:
             
         except Exception as e:
             logger.exception("Error during ConfigManager shutdown")
-            raise ConfigError(f"Shutdown failed: {str(e)}") from e
+            raise ConfigurationError(f"Shutdown failed: {str(e)}") from e

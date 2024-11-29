@@ -13,12 +13,16 @@ class PLCClient:
     
     def __init__(self, config: Dict[str, Any]):
         """Initialize PLC client with configuration."""
-        plc_config = config.get('hardware', {}).get('network', {}).get('plc', {})
-        self._address = plc_config.get('address')
-        self._tag_file = Path(plc_config.get('tag_file'))
-        self._plc = ProductivityPLC(self._address, str(self._tag_file))
+        plc_config = config.get('network', {}).get('plc', {})
+        self._address = plc_config.get('address', '127.0.0.1')
+        tag_file = plc_config.get('tag_file', 'resources/tags/plc_tags.csv')
+        self._tag_file = Path(tag_file).resolve()
         
-        logger.info(f"PLCClient initialized with address={self._address}")
+        if not self._tag_file.exists():
+            raise HardwareConnectionError(f"PLC tag file not found: {self._tag_file}")
+        
+        self._plc = ProductivityPLC(self._address, str(self._tag_file))
+        logger.info(f"PLCClient initialized with address={self._address}, tag_file={self._tag_file}")
 
     async def get_all_tags(self) -> Dict[str, Any]:
         """Get all tag values from PLC using CSV definitions."""

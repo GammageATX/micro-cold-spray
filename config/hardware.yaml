@@ -14,12 +14,12 @@ hardware:
     connection:
       timeout: 30.0
     plc:
-      address: 192.168.0.130
+      address: "192.168.0.130"
+      tag_file: "resources/tags/plc_tags.csv"
       polling_interval: 1.0
       retry:
         delay: 1.0
         max_attempts: 3
-      tag_file: resources/tags/MicroColdSpray_basic.csv
       timeout: 5.0
     ssh:
       command_timeout: 2.0
