@@ -1,92 +1,210 @@
 """Process Validator test suite.
 
-Tests validation according to process.yaml rules:
-- Process parameter validation
-- Pattern limit validation
-- Sequence rule validation
+Tests process validation according to process.yaml:
+- Parameter validation rules
+- Pattern validation rules
+- Sequence validation rules
 - Hardware set validation
-- Safety rule validation
+- Process state validation
 
-Key Requirements:
-- Must use MessageBroker for all communication
-- Must validate against process.yaml rules
-- Must handle async operations
-- Must include timestamps
+Validation Rules (from process.yaml):
+- Process parameters (gas, powder, environment)
+- Pattern limits (position, speed)
+- Sequence rules (steps, safe position, spray conditions)
+- Hardware set rules (feeder/nozzle matching)
+- Process state rules (gas flow, chamber vacuum, etc.)
 
 Run with:
     pytest tests/test_process_validator.py -v --asyncio-mode=auto
 """
 
 import pytest
-from typing import AsyncGenerator, Dict, Any
-from unittest.mock import AsyncMock, MagicMock
+from typing import Dict, Any
 import asyncio
 from datetime import datetime
-from tests.conftest import TestOrder
+from tests.conftest import TestOrder, order
 
-from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
-from micro_cold_spray.core.config.config_manager import ConfigManager
-from micro_cold_spray.core.components.process.validation.process_validator import ProcessValidator
-from micro_cold_spray.core.exceptions import ValidationError
-
-@TestOrder.PROCESS
+@order(TestOrder.PROCESS)
 class TestProcessValidator:
-    """Process Validator test suite."""
+    """Process validation tests."""
     
     @pytest.mark.asyncio
-    async def test_process_validator_initialization(self, process_validator):
-        """Test process validator initialization."""
-        assert process_validator._is_initialized
-        assert 'validation' in process_validator._config_manager.get_config('process')
-    
-    @pytest.mark.asyncio
-    async def test_process_validator_validate_parameters(self, process_validator):
-        """Test parameter validation using real rules."""
-        # Test parameters matching process.yaml rules
+    async def test_validate_gas_parameters(self, process_validator):
+        """Test gas parameter validation."""
+        # Test parameters from process.yaml gas section
         parameters = {
-            "chamber_pressure": 2.0,  # Below spray_threshold
-            "gas_pressure": {
-                "main_pressure": 80.0,
-                "regulator_pressure": 60.0  # Maintains min_margin
+            "gas": {
+                "type": "helium",
+                "main_flow": 50.0,
+                "feeder_flow": 5.0
             }
         }
+        
         result = await process_validator.validate_parameters(parameters)
         assert result["valid"]
+        assert len(result["errors"]) == 0
+        assert "timestamp" in result
 
-@pytest.mark.asyncio
-async def test_process_validator_invalid_parameters(process_validator):
-    """Test invalid parameter validation."""
-    # Test parameters violating process.yaml rules
-    parameters = {
-        "chamber_pressure": 10.0,  # Above spray_threshold
-        "gas_pressure": {
-            "main_pressure": 50.0,
-            "regulator_pressure": 60.0  # Violates min_margin
+    @pytest.mark.asyncio
+    async def test_validate_powder_parameters(self, process_validator):
+        """Test powder parameter validation."""
+        # Test parameters from process.yaml powder section
+        parameters = {
+            "powder": {
+                "feeder": {
+                    "frequency": 600,  # Within range from process.yaml
+                    "deagglomerator": {
+                        "duty_cycle": 35,  # Default from process.yaml
+                        "frequency": 500
+                    }
+                }
+            }
         }
-    }
-    
-    # Track validation responses
-    responses = []
-    async def collect_responses(data: Dict[str, Any]) -> None:
-        responses.append(data)
-    await process_validator._message_broker.subscribe(
-        "validation/response",
-        collect_responses
-    )
-    
-    # Request validation
-    await process_validator._message_broker.publish(
-        "validation/request",
-        {
-            "type": "process_parameters",
-            "parameters": parameters,
-            "timestamp": datetime.now().isoformat()
+        
+        result = await process_validator.validate_parameters(parameters)
+        assert result["valid"]
+        assert len(result["errors"]) == 0
+
+    @pytest.mark.asyncio
+    async def test_validate_pattern_limits(self, process_validator):
+        """Test pattern validation against limits."""
+        pattern_data = {
+            "type": "serpentine",
+            "pattern_data": {
+                "origin": [0.0, 0.0],  # Outside sprayable area
+                "length": 600.0,       # Exceeds limits
+                "spacing": 2.0,
+                "speed": 20.0
+            }
         }
-    )
-    await asyncio.sleep(0.1)
-    
-    # Verify response
-    assert len(responses) > 0
-    assert not responses[0]["valid"]
-    assert len(responses[0]["errors"]) > 0
-    assert "timestamp" in responses[0]
+        
+        # Track validation responses
+        responses = []
+        async def collect_responses(data: Dict[str, Any]) -> None:
+            responses.append(data)
+        await process_validator._message_broker.subscribe(
+            "validation/response",
+            collect_responses
+        )
+        
+        # Send validation request
+        await process_validator._message_broker.publish(
+            "validation/request",
+            {
+                "type": "pattern",
+                "data": pattern_data
+            }
+        )
+        await asyncio.sleep(0.1)
+        
+        # Verify validation response
+        assert len(responses) > 0
+        result = responses[0]["result"]
+        assert not result["valid"]
+        assert any("exceeds sprayable area" in str(err) for err in result["errors"])
+        assert "timestamp" in result
+
+    @pytest.mark.asyncio
+    async def test_validate_sequence_rules(self, process_validator):
+        """Test sequence validation rules."""
+        sequence_data = {
+            "steps": [
+                {
+                    "action": "move_to_trough",
+                    "parameters": {}
+                },
+                {
+                    "action": "start_gas_flow",
+                    "parameters": {
+                        "main_flow": 50.0
+                    }
+                }
+            ]
+        }
+        
+        result = await process_validator.validate_sequence(sequence_data)
+        assert result["valid"]
+        assert len(result["errors"]) == 0
+
+    @pytest.mark.asyncio
+    async def test_validate_hardware_set_rules(self, process_validator):
+        """Test hardware set validation rules."""
+        # Test validation of feeder/nozzle matching
+        validation_data = {
+            "type": "hardware_sets",
+            "data": {
+                "active_set": "set1",
+                "nozzle": "nozzle1"
+            }
+        }
+        
+        # Track validation responses
+        responses = []
+        async def collect_responses(data: Dict[str, Any]) -> None:
+            responses.append(data)
+        await process_validator._message_broker.subscribe(
+            "validation/response",
+            collect_responses
+        )
+        
+        await process_validator._handle_validation_request({
+            "type": "hardware_sets",
+            "data": validation_data
+        })
+        await asyncio.sleep(0.1)
+        
+        assert len(responses) > 0
+        assert responses[0]["result"]["valid"]
+
+    @pytest.mark.asyncio
+    async def test_validate_process_states(self, process_validator):
+        """Test process state validation rules."""
+        # Test gas flow stability validation
+        state_data = {
+            "gas_control.main_flow.measured": 50.0,
+            "gas_control.main_flow.setpoint": 50.0,
+            "gas_control.feeder_flow.measured": 5.0,
+            "gas_control.feeder_flow.setpoint": 5.0
+        }
+        
+        result = await process_validator._validate_process_params(
+            state_data,
+            process_validator._config_manager.get_config("process"),
+            {"errors": [], "warnings": []}
+        )
+        
+        assert len(result["errors"]) == 0
+
+    @pytest.mark.asyncio
+    async def test_validation_message_patterns(self, process_validator):
+        """Test validation message patterns."""
+        # Track validation messages
+        messages = []
+        async def collect_messages(data: Dict[str, Any]) -> None:
+            messages.append(data)
+            
+        await process_validator._message_broker.subscribe(
+            "validation/response",
+            collect_messages
+        )
+        
+        # Send validation request
+        await process_validator._message_broker.publish(
+            "validation/request",
+            {
+                "type": "parameters",
+                "parameters": {
+                    "gas": {
+                        "type": "helium",
+                        "main_flow": 50.0
+                    }
+                }
+            }
+        )
+        await asyncio.sleep(0.1)
+        
+        # Verify message compliance
+        assert len(messages) > 0
+        assert "result" in messages[0]
+        assert "timestamp" in messages[0]
+        assert messages[0]["result"]["valid"]

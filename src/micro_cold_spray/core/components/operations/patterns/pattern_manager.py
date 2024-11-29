@@ -1,394 +1,476 @@
 """Pattern management component."""
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 from loguru import logger
 import asyncio
 from datetime import datetime
 from pathlib import Path
+import yaml
+import csv
 
 from ....infrastructure.messaging.message_broker import MessageBroker
 from ....config.config_manager import ConfigManager
-from ....components.process.validation.process_validator import ProcessValidator
-from ....exceptions import OperationError
+from ....exceptions import PatternError
 
 class PatternManager:
-    """Manages spray patterns and pattern configurations."""
-    
+    """Manages spray patterns and pattern generation."""
+
     def __init__(
         self,
         message_broker: MessageBroker,
         config_manager: ConfigManager,
-        process_validator: ProcessValidator
-    ):
-        """Initialize with required dependencies."""
+        pattern_path: Path = Path("data/patterns/library"),
+        custom_path: Path = Path("data/patterns/custom")
+    ) -> None:
+        """Initialize pattern manager."""
         self._message_broker = message_broker
         self._config_manager = config_manager
-        self._validator = process_validator
-        self._patterns: Dict[str, Dict[str, Any]] = {}
-        self._is_initialized = False
-        logger.info("Pattern manager initialized")
+        self._pattern_path = pattern_path
+        self._custom_path = custom_path
+        self._loaded_pattern: Optional[Dict[str, Any]] = None
 
     async def initialize(self) -> None:
         """Initialize pattern manager."""
         try:
-            if self._is_initialized:
-                return
-                
-            # Load patterns from config
-            patterns_config = self._config_manager.get_config('patterns')
-            self._patterns = patterns_config.get('patterns', {})
+            # Create directories if they don't exist
+            self._pattern_path.mkdir(parents=True, exist_ok=True)
+            self._custom_path.mkdir(parents=True, exist_ok=True)
             
-            # Subscribe to pattern-related messages
+            # Subscribe to pattern messages
             await self._message_broker.subscribe(
-                "pattern/create",
-                self._handle_pattern_create
+                "patterns/load",
+                self._handle_load_request
             )
             await self._message_broker.subscribe(
-                "pattern/update",
-                self._handle_pattern_update
-            )
-            await self._message_broker.subscribe(
-                "pattern/delete",
-                self._handle_pattern_delete
+                "patterns/save",
+                self._handle_save_request
             )
             
-            self._is_initialized = True
-            logger.info("Pattern manager initialization complete")
+            logger.info("Pattern manager initialized")
             
         except Exception as e:
-            logger.error(f"Failed to initialize pattern manager: {e}")
-            await self._message_broker.publish("error", {
-                "error": str(e),
-                "topic": "pattern/init",
-                "timestamp": datetime.now().isoformat()
-            })
-            raise OperationError(f"Pattern manager initialization failed: {str(e)}") from e
+            logger.exception("Failed to initialize pattern manager")
+            raise PatternError(f"Pattern manager initialization failed: {str(e)}") from e
 
-    async def shutdown(self) -> None:
-        """Shutdown pattern manager."""
+    def get_available_patterns(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Get list of available patterns by type."""
         try:
-            # Save patterns to config if needed
-            await self._config_manager.update_config('patterns', {'patterns': self._patterns})
-            self._is_initialized = False
-            logger.info("Pattern manager shutdown complete")
+            patterns = {
+                "serpentine": [],
+                "spiral": [],
+                "custom": []
+            }
             
-        except Exception as e:
-            logger.exception("Error during pattern manager shutdown")
-            raise OperationError(f"Pattern manager shutdown failed: {str(e)}") from e
-
-    async def _handle_pattern_update(self, data: Dict[str, Any]) -> None:
-        """Handle pattern update messages."""
-        try:
-            pattern_name = data.get('pattern_name')
-            updates = data.get('updates')
-            
-            if not pattern_name or not updates:
-                raise ValueError("Invalid pattern update message")
-                
-            await self.update_pattern(pattern_name, updates)
-            
-        except Exception as e:
-            logger.error(f"Error handling pattern update: {e}")
-            await self._message_broker.publish(
-                "patterns/error",
-                {
-                    "error": str(e),
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-
-    async def get_pattern(self, pattern_name: str) -> Dict[str, Any]:
-        """Get a pattern by name."""
-        try:
-            if pattern_name not in self._patterns:
-                raise KeyError(f"Pattern not found: {pattern_name}")
-                
-            # Publish pattern access event
-            await self._message_broker.publish(
-                "patterns/accessed",
-                {
-                    "pattern_name": pattern_name,
-                    "action": "read",
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-            
-            return self._patterns[pattern_name].copy()
-            
-        except Exception as e:
-            logger.error(f"Error getting pattern {pattern_name}: {e}")
-            await self._message_broker.publish(
-                "patterns/error",
-                {
-                    "error": str(e),
-                    "pattern_name": pattern_name,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-            raise OperationError(f"Failed to get pattern: {str(e)}") from e
-
-    async def update_pattern(self, pattern_name: str, updates: Dict[str, Any]) -> None:
-        """Update a pattern configuration."""
-        try:
-            if pattern_name not in self._patterns:
-                raise KeyError(f"Pattern not found: {pattern_name}")
-                
-            # Validate pattern updates
-            await self._validator.validate_pattern(
-                self._patterns[pattern_name]['type'],
-                updates
-            )
-            
-            # Update pattern
-            self._patterns[pattern_name].update(updates)
-            
-            # Update through config manager to persist changes
-            await self._config_manager.update_config(
-                'patterns',
-                {'patterns': {pattern_name: self._patterns[pattern_name]}}
-            )
-            
-            # Publish pattern update event
-            await self._message_broker.publish(
-                "patterns/updated",
-                {
-                    "pattern_name": pattern_name,
-                    "updates": updates,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-            
-        except Exception as e:
-            logger.error(f"Error updating pattern {pattern_name}: {e}")
-            await self._message_broker.publish(
-                "patterns/error",
-                {
-                    "error": str(e),
-                    "pattern_name": pattern_name,
-                    "updates": updates,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-            raise OperationError(f"Failed to update pattern: {str(e)}") from e
-
-    async def create_pattern(self, pattern_name: str, pattern_data: Dict[str, Any]) -> None:
-        """Create a new pattern."""
-        try:
-            if pattern_name in self._patterns:
-                raise ValueError(f"Pattern already exists: {pattern_name}")
-                
-            # Validate new pattern
-            await self._validator.validate_pattern(
-                pattern_data['type'],
-                pattern_data['parameters']
-            )
-            
-            # Add new pattern
-            self._patterns[pattern_name] = pattern_data
-            
-            # Update through config manager to persist
-            await self._config_manager.update_config(
-                'patterns',
-                {'patterns': {pattern_name: pattern_data}}
-            )
-            
-            # Update pattern creation tag
-            await self._tag_manager.set_tag(
-                "patterns.creation",
-                {
-                    "pattern_name": pattern_name,
-                    "pattern": pattern_data,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-            
-            # Publish pattern creation event
-            await self._message_broker.publish(
-                "patterns/created",
-                {
-                    "pattern_name": pattern_name,
-                    "pattern": pattern_data,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-            
-        except Exception as e:
-            logger.error(f"Error creating pattern {pattern_name}: {e}")
-            await self._message_broker.publish(
-                "patterns/error",
-                {
-                    "error": str(e),
-                    "pattern_name": pattern_name,
-                    "pattern": pattern_data,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-            raise OperationError(f"Failed to create pattern: {str(e)}") from e
-
-    async def delete_pattern(self, pattern_name: str) -> None:
-        """Delete a pattern."""
-        try:
-            if pattern_name not in self._patterns:
-                raise KeyError(f"Pattern not found: {pattern_name}")
-                
-            # Remove pattern
-            del self._patterns[pattern_name]
-            
-            # Update through config manager to persist
-            await self._config_manager.update_config(
-                'patterns',
-                {'patterns': self._patterns}
-            )
-            
-            # Update pattern deletion tag
-            await self._tag_manager.set_tag(
-                "patterns.deletion",
-                {
-                    "pattern_name": pattern_name,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-            
-            # Publish pattern deletion event
-            await self._message_broker.publish(
-                "patterns/deleted",
-                {
-                    "pattern_name": pattern_name,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-            
-        except Exception as e:
-            logger.error(f"Error deleting pattern {pattern_name}: {e}")
-            await self._message_broker.publish(
-                "patterns/error",
-                {
-                    "error": str(e),
-                    "pattern_name": pattern_name,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-            raise OperationError(f"Failed to delete pattern: {str(e)}") from e
-
-    def list_patterns(self) -> Dict[str, Dict[str, Any]]:
-        """Get all patterns."""
-        return self._patterns.copy()
-
-    async def _handle_pattern_create(self, data: Dict[str, Any]) -> None:
-        """Handle pattern creation requests."""
-        try:
-            pattern_name = data.get("name")
-            pattern_data = data.get("pattern")
-            
-            if not pattern_name or not pattern_data:
-                raise OperationError("Missing pattern name or data")
-            
-            # Validate pattern parameters
-            validation_result = await self._validator.validate_parameters(pattern_data.get("parameters", {}))
-            if not validation_result["valid"]:
-                await self._message_broker.publish("error", {
-                    "error": "Invalid pattern parameters",
-                    "context": validation_result["errors"],
-                    "topic": "pattern/create",
-                    "timestamp": datetime.now().isoformat()
+            # Load library patterns
+            for pattern_type in ["serpentine", "spiral"]:
+                type_path = self._pattern_path / pattern_type
+                for file in type_path.glob("*.yaml"):
+                    with open(file, 'r') as f:
+                        pattern = yaml.safe_load(f)
+                        patterns[pattern_type].append({
+                            "name": pattern["pattern"]["metadata"]["name"],
+                            "file": file.name,
+                            "type": pattern_type
+                        })
+                        
+            # Load custom patterns
+            for file in self._custom_path.glob("*.csv"):
+                patterns["custom"].append({
+                    "name": file.stem,
+                    "file": file.name,
+                    "type": "custom"
                 })
-                return
-            
-            # Store pattern
-            self._patterns[pattern_name] = pattern_data
-            
-            # Publish success
-            await self._message_broker.publish(
-                "pattern/create/response",
-                {
-                    "name": pattern_name,
-                    "success": True,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
+                
+            return patterns
             
         except Exception as e:
-            logger.error(f"Error creating pattern: {e}")
-            await self._message_broker.publish("error", {
-                "error": str(e),
-                "context": "pattern_create",
-                "topic": "pattern/create",
-                "timestamp": datetime.now().isoformat()
-            })
+            logger.error(f"Error loading patterns: {e}")
+            raise PatternError(f"Failed to load patterns: {str(e)}") from e
 
-    async def _handle_pattern_update(self, data: Dict[str, Any]) -> None:
-        """Handle pattern update requests."""
+    async def load_pattern(self, pattern_type: str, filename: str) -> Dict[str, Any]:
+        """Load pattern file."""
         try:
-            pattern_name = data.get("name")
-            pattern_data = data.get("pattern")
+            if pattern_type == "custom":
+                file_path = self._custom_path / filename
+                pattern = self._load_custom_pattern(file_path)
+            else:
+                file_path = self._pattern_path / pattern_type / filename
+                with open(file_path, 'r') as f:
+                    pattern = yaml.safe_load(f)
+                    
+            self._loaded_pattern = pattern
             
-            if not pattern_name or not pattern_data:
-                raise OperationError("Missing pattern name or data")
-            
-            if pattern_name not in self._patterns:
-                raise OperationError(f"Pattern not found: {pattern_name}")
-            
-            # Validate updated parameters
-            validation_result = await self._validator.validate_parameters(pattern_data.get("parameters", {}))
-            if not validation_result["valid"]:
-                await self._message_broker.publish("error", {
-                    "error": "Invalid pattern parameters",
-                    "context": validation_result["errors"],
-                    "topic": "pattern/update",
-                    "timestamp": datetime.now().isoformat()
-                })
-                return
-            
-            # Update pattern
-            self._patterns[pattern_name].update(pattern_data)
-            
-            # Publish success
+            # Publish pattern loaded event
             await self._message_broker.publish(
-                "pattern/update/response",
+                "patterns/loaded",
                 {
-                    "name": pattern_name,
-                    "success": True,
+                    "pattern": pattern,
+                    "type": pattern_type,
                     "timestamp": datetime.now().isoformat()
                 }
             )
             
+            return pattern
+            
         except Exception as e:
-            logger.error(f"Error updating pattern: {e}")
-            await self._message_broker.publish("error", {
-                "error": str(e),
-                "context": "pattern_update",
-                "topic": "pattern/update",
-                "timestamp": datetime.now().isoformat()
-            })
+            logger.error(f"Error loading pattern: {e}")
+            raise PatternError(f"Failed to load pattern: {str(e)}") from e
 
-    async def _handle_pattern_delete(self, data: Dict[str, Any]) -> None:
-        """Handle pattern deletion requests."""
+    def _load_custom_pattern(self, file_path: Path) -> Dict[str, Any]:
+        """Load custom pattern from CSV."""
         try:
-            pattern_name = data.get("name")
+            moves = []
+            with open(file_path, 'r') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    moves.append({
+                        "x": float(row["x"]),
+                        "y": float(row["y"]),
+                        "z": float(row["z"]),
+                        "velocity": float(row["velocity"]),
+                        "dwell": float(row["dwell"]),
+                        "spray_on": row["spray_on"].lower() == "true"
+                    })
+                    
+            return {
+                "pattern": {
+                    "metadata": {
+                        "name": file_path.stem,
+                        "type": "custom"
+                    },
+                    "moves": moves
+                }
+            }
             
-            if not pattern_name:
-                raise OperationError("Missing pattern name")
+        except Exception as e:
+            logger.error(f"Error loading custom pattern: {e}")
+            raise PatternError(f"Failed to load custom pattern: {str(e)}") from e
+
+    async def _handle_load_request(self, data: Dict[str, Any]) -> None:
+        """Handle pattern load request."""
+        try:
+            pattern_type = data["type"]
+            filename = data["filename"]
+            await self.load_pattern(pattern_type, filename)
             
-            if pattern_name not in self._patterns:
-                raise OperationError(f"Pattern not found: {pattern_name}")
-            
-            # Delete pattern
-            del self._patterns[pattern_name]
-            
-            # Publish success
+        except Exception as e:
+            logger.error(f"Error handling load request: {e}")
             await self._message_broker.publish(
-                "pattern/delete/response",
+                "patterns/error",
                 {
-                    "name": pattern_name,
-                    "success": True,
+                    "error": str(e),
+                    "context": "load_request",
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+
+    async def _handle_save_request(self, data: Dict[str, Any]) -> None:
+        """Handle pattern save request."""
+        try:
+            pattern = data["pattern"]
+            pattern_type = data["type"]
+            filename = data["filename"]
+            
+            if pattern_type == "custom":
+                file_path = self._custom_path / filename
+                self._save_custom_pattern(pattern, file_path)
+            else:
+                file_path = self._pattern_path / pattern_type / filename
+                with open(file_path, 'w') as f:
+                    yaml.safe_dump(pattern, f, sort_keys=False)
+                    
+            logger.info(f"Saved pattern to {filename}")
+            
+            # Publish pattern saved event
+            await self._message_broker.publish(
+                "patterns/saved",
+                {
+                    "filename": filename,
+                    "type": pattern_type,
                     "timestamp": datetime.now().isoformat()
                 }
             )
             
         except Exception as e:
-            logger.error(f"Error deleting pattern: {e}")
-            await self._message_broker.publish("error", {
-                "error": str(e),
-                "context": "pattern_delete",
-                "topic": "pattern/delete",
-                "timestamp": datetime.now().isoformat()
+            logger.error(f"Error handling save request: {e}")
+            await self._message_broker.publish(
+                "patterns/error",
+                {
+                    "error": str(e),
+                    "context": "save_request",
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+
+    def generate_serpentine(
+        self,
+        origin: List[float],
+        length: float,
+        spacing: float,
+        speed: float,
+        z_height: float,
+        acceleration: float,
+        direction: str = "x_first",
+        name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Generate serpentine pattern."""
+        try:
+            # Validate inputs
+            self._validate_pattern_params({
+                "origin": origin,
+                "length": length,
+                "spacing": spacing,
+                "speed": speed,
+                "z_height": z_height,
+                "acceleration": acceleration
             })
+            
+            # Generate pattern metadata
+            pattern = {
+                "pattern": {
+                    "metadata": {
+                        "name": name or f"Serpentine_{spacing}mm_{speed}mms",
+                        "version": "1.0",
+                        "created": datetime.now().isoformat(),
+                        "description": f"Generated serpentine pattern with {spacing}mm spacing"
+                    },
+                    "type": "serpentine",
+                    "params": {
+                        "origin": origin,
+                        "length": length,
+                        "spacing": spacing,
+                        "speed": speed,
+                        "z_height": z_height,
+                        "acceleration": acceleration,
+                        "direction": direction
+                    }
+                }
+            }
+            
+            return pattern
+            
+        except Exception as e:
+            logger.error(f"Error generating serpentine pattern: {e}")
+            raise PatternError(f"Failed to generate serpentine pattern: {str(e)}") from e
+
+    def generate_spiral(
+        self,
+        origin: List[float],
+        diameter: float,
+        pitch: float,
+        speed: float,
+        z_height: float,
+        acceleration: float,
+        name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Generate spiral pattern."""
+        try:
+            # Validate inputs
+            self._validate_pattern_params({
+                "origin": origin,
+                "diameter": diameter,
+                "pitch": pitch,
+                "speed": speed,
+                "z_height": z_height,
+                "acceleration": acceleration
+            })
+            
+            # Generate pattern metadata
+            pattern = {
+                "pattern": {
+                    "metadata": {
+                        "name": name or f"Spiral_{pitch}mm_{speed}mms",
+                        "version": "1.0",
+                        "created": datetime.now().isoformat(),
+                        "description": f"Generated spiral pattern with {pitch}mm pitch"
+                    },
+                    "type": "spiral",
+                    "params": {
+                        "origin": origin,
+                        "diameter": diameter,
+                        "pitch": pitch,
+                        "speed": speed,
+                        "z_height": z_height,
+                        "acceleration": acceleration
+                    }
+                }
+            }
+            
+            return pattern
+            
+        except Exception as e:
+            logger.error(f"Error generating spiral pattern: {e}")
+            raise PatternError(f"Failed to generate spiral pattern: {str(e)}") from e
+
+    def generate_linear(
+        self,
+        start: List[float],
+        end: List[float],
+        speed: float,
+        z_height: float,
+        acceleration: float,
+        name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Generate linear pattern."""
+        try:
+            # Validate inputs
+            self._validate_pattern_params({
+                "start": start,
+                "end": end,
+                "speed": speed,
+                "z_height": z_height,
+                "acceleration": acceleration
+            })
+            
+            # Generate pattern metadata
+            pattern = {
+                "pattern": {
+                    "metadata": {
+                        "name": name or f"Linear_{speed}mms",
+                        "version": "1.0",
+                        "created": datetime.now().isoformat(),
+                        "description": "Generated linear pattern"
+                    },
+                    "type": "linear",
+                    "params": {
+                        "start": start,
+                        "end": end,
+                        "speed": speed,
+                        "z_height": z_height,
+                        "acceleration": acceleration
+                    }
+                }
+            }
+            
+            return pattern
+            
+        except Exception as e:
+            logger.error(f"Error generating linear pattern: {e}")
+            raise PatternError(f"Failed to generate linear pattern: {str(e)}") from e
+
+    def _validate_pattern_params(self, params: Dict[str, Any]) -> None:
+        """Validate pattern parameters."""
+        try:
+            # Get hardware limits from config
+            hardware_config = self._config_manager.get_config("hardware")
+            motion_limits = hardware_config["motion"]["limits"]
+            
+            # Validate position limits
+            if "origin" in params:
+                x, y = params["origin"]
+                if not (motion_limits["x"]["min"] <= x <= motion_limits["x"]["max"]):
+                    raise PatternError(f"X origin {x} outside limits")
+                if not (motion_limits["y"]["min"] <= y <= motion_limits["y"]["max"]):
+                    raise PatternError(f"Y origin {y} outside limits")
+                    
+            if "start" in params:
+                x, y = params["start"]
+                if not (motion_limits["x"]["min"] <= x <= motion_limits["x"]["max"]):
+                    raise PatternError(f"X start {x} outside limits")
+                if not (motion_limits["y"]["min"] <= y <= motion_limits["y"]["max"]):
+                    raise PatternError(f"Y start {y} outside limits")
+                    
+            if "end" in params:
+                x, y = params["end"]
+                if not (motion_limits["x"]["min"] <= x <= motion_limits["x"]["max"]):
+                    raise PatternError(f"X end {x} outside limits")
+                if not (motion_limits["y"]["min"] <= y <= motion_limits["y"]["max"]):
+                    raise PatternError(f"Y end {y} outside limits")
+                    
+            # Validate z height
+            if "z_height" in params:
+                z = params["z_height"]
+                if not (motion_limits["z"]["min"] <= z <= motion_limits["z"]["max"]):
+                    raise PatternError(f"Z height {z} outside limits")
+                    
+            # Validate motion parameters
+            if "speed" in params:
+                speed = params["speed"]
+                if not (0 < speed <= motion_limits["velocity"]["max"]):
+                    raise PatternError(f"Speed {speed} outside limits")
+                    
+            if "acceleration" in params:
+                accel = params["acceleration"]
+                if not (0 < accel <= motion_limits["acceleration"]["max"]):
+                    raise PatternError(f"Acceleration {accel} outside limits")
+                    
+            # Validate pattern-specific parameters
+            if "length" in params:
+                length = params["length"]
+                if length <= 0:
+                    raise PatternError(f"Invalid length {length}")
+                    
+            if "spacing" in params:
+                spacing = params["spacing"]
+                if spacing <= 0:
+                    raise PatternError(f"Invalid spacing {spacing}")
+                    
+            if "diameter" in params:
+                diameter = params["diameter"]
+                if diameter <= 0:
+                    raise PatternError(f"Invalid diameter {diameter}")
+                    
+            if "pitch" in params:
+                pitch = params["pitch"]
+                if pitch <= 0:
+                    raise PatternError(f"Invalid pitch {pitch}")
+                    
+        except Exception as e:
+            logger.error(f"Pattern validation failed: {e}")
+            raise PatternError(f"Pattern validation failed: {str(e)}") from e
+
+    def _validate_sprayable_area(self, pattern_data: Dict[str, Any]) -> None:
+        """Validate pattern stays within sprayable area."""
+        try:
+            # Get sprayable area limits from hardware config
+            hardware_config = self._config_manager.get_config("hardware")
+            sprayable_area = hardware_config["substrate"]["sprayable"]
+            
+            # Get pattern bounds based on type
+            pattern_type = pattern_data["pattern"]["type"]
+            params = pattern_data["pattern"]["params"]
+            
+            if pattern_type == "serpentine":
+                origin = params["origin"]
+                length = params["length"]
+                spacing = params["spacing"]
+                
+                # Calculate pattern bounds
+                x_min = origin[0]
+                x_max = origin[0] + length
+                y_min = origin[1]
+                y_max = origin[1] + spacing
+                
+            elif pattern_type == "spiral":
+                origin = params["origin"]
+                diameter = params["diameter"]
+                
+                # Calculate pattern bounds
+                x_min = origin[0] - (diameter/2)
+                x_max = origin[0] + (diameter/2)
+                y_min = origin[1] - (diameter/2)
+                y_max = origin[1] + (diameter/2)
+                
+            elif pattern_type == "linear":
+                start = params["start"]
+                end = params["end"]
+                
+                # Calculate pattern bounds
+                x_min = min(start[0], end[0])
+                x_max = max(start[0], end[0])
+                y_min = min(start[1], end[1])
+                y_max = max(start[1], end[1])
+                
+            # Validate bounds against sprayable area
+            if (x_min < sprayable_area["x_min"] or
+                x_max > sprayable_area["x_max"] or
+                y_min < sprayable_area["y_min"] or
+                y_max > sprayable_area["y_max"]):
+                raise PatternError(
+                    f"Pattern exceeds sprayable area bounds: "
+                    f"[{sprayable_area['x_min']}, {sprayable_area['x_max']}] x "
+                    f"[{sprayable_area['y_min']}, {sprayable_area['y_max']}]"
+                )
+                
+        except Exception as e:
+            logger.error(f"Error validating sprayable area: {e}")
+            raise PatternError(f"Failed to validate sprayable area: {str(e)}") from e

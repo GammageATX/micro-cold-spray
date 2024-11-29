@@ -4,13 +4,15 @@ from loguru import logger
 import asyncio
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
+import yaml
 
 from ....infrastructure.messaging.message_broker import MessageBroker
 from ....infrastructure.tags.tag_manager import TagManager
 from ....config.config_manager import ConfigManager
 from ....components.process.validation.process_validator import ProcessValidator
 from ....components.operations.actions.action_manager import ActionManager
-from ....exceptions import OperationError
+from ....exceptions import OperationError, SequenceError
 
 class SequenceState(Enum):
     """Sequence execution states."""
@@ -21,238 +23,183 @@ class SequenceState(Enum):
     ERROR = "error"
 
 class SequenceManager:
-    """Manages operation sequences and their execution."""
-    
+    """Manages spray sequence files and execution."""
+
     def __init__(
         self,
-        config_manager: ConfigManager,
-        tag_manager: TagManager,
         message_broker: MessageBroker,
-        process_validator: ProcessValidator,
-        action_manager: ActionManager
-    ):
-        """Initialize with required dependencies."""
-        self._config = config_manager
-        self._tag_manager = tag_manager
+        config_manager: ConfigManager,
+        sequence_path: Path = Path("data/sequences/library")
+    ) -> None:
+        """Initialize sequence manager."""
         self._message_broker = message_broker
-        self._validator = process_validator
-        self._action_manager = action_manager
-        
-        self._current_sequence: Optional[Dict[str, Any]] = None
-        self._current_step: int = 0
-        self._execution_task: Optional[asyncio.Task] = None
-        self._is_running = False
-        
-        logger.info("Sequence manager initialized")
+        self._config_manager = config_manager
+        self._sequence_path = sequence_path
+        self._loaded_sequence: Optional[Dict[str, Any]] = None
+        self._active_step: Optional[int] = None
 
     async def initialize(self) -> None:
         """Initialize sequence manager."""
         try:
-            # Subscribe to sequence control messages
-            await self._message_broker.subscribe("sequence/control", self._handle_sequence_control)
-            logger.info("Sequence manager subscriptions initialized")
+            # Create directories if they don't exist
+            self._sequence_path.mkdir(parents=True, exist_ok=True)
+            
+            # Subscribe to sequence messages
+            await self._message_broker.subscribe(
+                "sequence/load",
+                self._handle_load_request
+            )
+            await self._message_broker.subscribe(
+                "sequence/save",
+                self._handle_save_request
+            )
+            
+            logger.info("Sequence manager initialized")
             
         except Exception as e:
             logger.exception("Failed to initialize sequence manager")
-            raise OperationError(f"Sequence manager initialization failed: {str(e)}") from e
+            raise SequenceError(f"Sequence manager initialization failed: {str(e)}") from e
 
-    async def shutdown(self) -> None:
-        """Shutdown sequence manager."""
+    def get_available_sequences(self) -> List[Dict[str, Any]]:
+        """Get list of available sequence files."""
         try:
-            self._is_running = False
-            
-            if self._execution_task:
-                self._execution_task.cancel()
-                try:
-                    await self._execution_task
-                except asyncio.CancelledError:
-                    pass
-                    
-            logger.info("Sequence manager shutdown complete")
+            sequences = []
+            for file in self._sequence_path.glob("**/*.yaml"):
+                with open(file, 'r') as f:
+                    seq = yaml.safe_load(f)
+                    sequences.append({
+                        "name": seq["sequence"]["metadata"]["name"],
+                        "file": str(file.relative_to(self._sequence_path)),
+                        "description": seq["sequence"]["metadata"]["description"]
+                    })
+            return sequences
             
         except Exception as e:
-            logger.exception("Error during sequence manager shutdown")
-            raise OperationError(f"Sequence manager shutdown failed: {str(e)}") from e
+            logger.error(f"Error loading sequences: {e}")
+            raise SequenceError(f"Failed to load sequences: {str(e)}") from e
 
-    async def _handle_sequence_control(self, data: Dict[str, Any]) -> None:
-        """Handle sequence control messages."""
+    async def load_sequence(self, filename: str) -> Dict[str, Any]:
+        """Load sequence file."""
         try:
-            command = data.get('command')
-            if not command:
-                raise ValueError("Missing command in sequence control message")
+            file_path = self._sequence_path / filename
+            if not file_path.exists():
+                raise SequenceError(f"Sequence file not found: {filename}")
                 
-            if command == 'load':
-                await self.load_sequence(data['sequence_name'])
-            elif command == 'start':
-                await self.start_sequence()
-            elif command == 'pause':
-                await self.pause_sequence()
-            elif command == 'resume':
-                await self.resume_sequence()
+            with open(file_path, 'r') as f:
+                sequence = yaml.safe_load(f)
                 
-        except Exception as e:
-            logger.error(f"Error handling sequence control: {e}")
-            # Update error state through TagManager
-            await self._tag_manager.set_tag(
-                "sequence.error",
-                {
-                    "error": str(e),
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-            # Notify system through MessageBroker
-            await self._message_broker.publish(
-                "sequence/error",
-                {
-                    "error": str(e),
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-
-    async def load_sequence(self, sequence_name: str) -> None:
-        """Load a sequence for execution."""
-        try:
-            if sequence_name not in self._sequences:
-                raise ValueError(f"Sequence not found: {sequence_name}")
-                
-            # Validate sequence before loading
-            await self._validator.validate_sequence(self._sequences[sequence_name])
+            self._loaded_sequence = sequence
             
-            # Load sequence
-            self._current_sequence = self._sequences[sequence_name]
-            self._current_step = 0
+            # Generate visualization data
+            viz_data = self._generate_visualization_data(sequence)
             
-            # Update state through TagManager
-            await self._tag_manager.set_tag(
-                "sequence.state",
-                {
-                    "name": sequence_name,
-                    "state": SequenceState.IDLE.value,
-                    "step_count": len(self._current_sequence['steps']),
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-            
-            # Notify system through MessageBroker
+            # Publish sequence loaded event
             await self._message_broker.publish(
                 "sequence/loaded",
                 {
-                    "sequence_name": sequence_name,
-                    "step_count": len(self._current_sequence['steps'])
+                    "sequence": sequence,
+                    "visualization": viz_data,
+                    "timestamp": datetime.now().isoformat()
                 }
             )
             
+            return sequence
+            
         except Exception as e:
-            logger.error(f"Error loading sequence {sequence_name}: {e}")
-            raise
+            logger.error(f"Error loading sequence: {e}")
+            raise SequenceError(f"Failed to load sequence: {str(e)}") from e
 
-    async def start_sequence(self) -> None:
-        """Start executing the loaded sequence."""
+    def _generate_visualization_data(self, sequence: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Generate visualization data for sequence."""
         try:
-            if not self._current_sequence:
-                raise ValueError("No sequence loaded")
+            viz_data = []
+            
+            for step in sequence["sequence"]["steps"]:
+                if "actions" in step:
+                    for action in step["actions"]:
+                        if "action_group" in action and action["action_group"] == "execute_pattern":
+                            # Add pattern visualization data
+                            pattern_data = {
+                                "type": "pattern",
+                                "origin": action["parameters"]["modifications"]["params"]["origin"],
+                                "pattern_file": action["parameters"]["file"],
+                                "passes": action["parameters"].get("passes", 1)
+                            }
+                            viz_data.append(pattern_data)
+                        elif "action_group" in action and action["action_group"] == "move_to_trough":
+                            # Add move visualization data
+                            trough_pos = self._config_manager.get_config("hardware")["trough"]["position"]
+                            move_data = {
+                                "type": "move",
+                                "x": trough_pos["x"],
+                                "y": trough_pos["y"]
+                            }
+                            viz_data.append(move_data)
+                            
+            return viz_data
+            
+        except Exception as e:
+            logger.error(f"Error generating visualization data: {e}")
+            raise SequenceError(f"Failed to generate visualization: {str(e)}") from e
+
+    async def save_sequence(
+        self,
+        sequence: Dict[str, Any],
+        filename: Optional[str] = None
+    ) -> None:
+        """Save sequence file."""
+        try:
+            if filename is None:
+                # Generate filename from metadata
+                name = sequence["sequence"]["metadata"]["name"]
+                filename = f"{name.lower().replace(' ', '_')}.yaml"
                 
-            # Update state through TagManager
-            await self._tag_manager.set_tag(
-                "sequence.state",
+            file_path = self._sequence_path / filename
+            
+            with open(file_path, 'w') as f:
+                yaml.safe_dump(sequence, f, sort_keys=False)
+                
+            logger.info(f"Saved sequence to {filename}")
+            
+            # Publish sequence saved event
+            await self._message_broker.publish(
+                "sequence/saved",
                 {
-                    "state": SequenceState.RUNNING.value,
-                    "step": self._current_step,
+                    "filename": filename,
                     "timestamp": datetime.now().isoformat()
                 }
-            )
-            
-            # Notify start through MessageBroker
-            await self._message_broker.publish(
-                "sequence/started",
-                {
-                    "step": self._current_step
-                }
-            )
-            
-            # Execute sequence steps
-            while self._current_step < len(self._current_sequence['steps']):
-                step = self._current_sequence['steps'][self._current_step]
-                
-                # Update step through TagManager
-                await self._tag_manager.set_tag(
-                    "sequence.step",
-                    {
-                        "step": self._current_step,
-                        "action": step['action'],
-                        "timestamp": datetime.now().isoformat()
-                    }
-                )
-                
-                # Execute step action
-                await self._action_manager.execute_action(
-                    step['action'],
-                    step['parameters']
-                )
-                
-                self._current_step += 1
-                
-                # Update progress through TagManager
-                await self._tag_manager.set_tag(
-                    "sequence.progress",
-                    {
-                        "step": self._current_step,
-                        "total_steps": len(self._current_sequence['steps']),
-                        "timestamp": datetime.now().isoformat()
-                    }
-                )
-            
-            # Update completion state through TagManager
-            await self._tag_manager.set_tag(
-                "sequence.state",
-                {
-                    "state": SequenceState.COMPLETED.value,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-            
-            # Notify completion through MessageBroker
-            await self._message_broker.publish(
-                "sequence/completed",
-                {}
             )
             
         except Exception as e:
-            # Update error state through TagManager
-            await self._tag_manager.set_tag(
-                "sequence.state",
-                {
-                    "state": SequenceState.ERROR.value,
-                    "error": str(e),
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
+            logger.error(f"Error saving sequence: {e}")
+            raise SequenceError(f"Failed to save sequence: {str(e)}") from e
+
+    def _validate_sequence_patterns(self, sequence: Dict[str, Any]) -> None:
+        """Validate all patterns in sequence stay within sprayable area."""
+        try:
+            hardware_config = self._config_manager.get_config("hardware")
+            sprayable_area = hardware_config["substrate"]["sprayable"]
             
-            # Notify error through MessageBroker
-            await self._message_broker.publish(
-                "sequence/error",
-                {
-                    "error": str(e),
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-            raise
-
-    def get_sequence(self, sequence_name: str) -> Dict[str, Any]:
-        """Get a sequence definition."""
-        if sequence_name not in self._sequences:
-            raise ValueError(f"Sequence not found: {sequence_name}")
-            
-        return self._sequences[sequence_name].copy()
-
-    def list_sequences(self) -> Dict[str, Dict[str, Any]]:
-        """Get all sequence definitions."""
-        return self._sequences.copy()
-
-    def get_current_sequence(self) -> Optional[Dict[str, Any]]:
-        """Get the currently loaded sequence."""
-        return self._current_sequence.copy() if self._current_sequence else None
-
-    def get_current_step(self) -> int:
-        """Get the current step number."""
-        return self._current_step
+            for step in sequence["sequence"]["steps"]:
+                if "actions" in step:
+                    for action in step["actions"]:
+                        if "action_group" in action and action["action_group"] == "execute_pattern":
+                            # Get pattern origin
+                            origin = action["parameters"]["modifications"]["params"]["origin"]
+                            
+                            # Load pattern file
+                            pattern_file = action["parameters"]["file"]
+                            pattern_type = pattern_file.split("_")[0]  # e.g., serpentine, spiral
+                            
+                            with open(self._pattern_path / pattern_type / pattern_file, 'r') as f:
+                                pattern_data = yaml.safe_load(f)
+                                
+                            # Update pattern origin with sequence modification
+                            pattern_data["pattern"]["params"]["origin"] = origin
+                            
+                            # Validate pattern bounds
+                            self._pattern_manager._validate_sprayable_area(pattern_data)
+                            
+        except Exception as e:
+            logger.error(f"Error validating sequence patterns: {e}")
+            raise SequenceError(f"Failed to validate sequence patterns: {str(e)}") from e

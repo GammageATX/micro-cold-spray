@@ -40,14 +40,8 @@ class StateManager:
             config = self._config_manager.get_config("state")
             logger.debug(f"Loaded state config: {config}")
             
-            # Convert list-based transitions to dict format
-            transitions = {}
-            for state, next_states in config.get("transitions", {}).items():
-                transitions[state] = {
-                    "next_states": next_states if isinstance(next_states, list) else next_states.get("next_states", []),
-                    "conditions": next_states.get("conditions", []) if isinstance(next_states, dict) else []
-                }
-            self._state_config = transitions
+            # Get transitions from state config
+            self._state_config = config.get("state", {}).get("transitions", {})  # Fixed path to transitions
             
             # Start in INITIALIZING state
             self._current_state = "INITIALIZING"
@@ -193,20 +187,34 @@ class StateManager:
             # Get current state config
             current_state_config = self._state_config.get(self._current_state, {})
             valid_transitions = current_state_config.get("next_states", [])
+            required_conditions = current_state_config.get("conditions", [])
             
-            # Validate transition
+            # Check if transition is valid and conditions are met
             if requested_state in valid_transitions:
-                self._previous_state = self._current_state
-                self._current_state = requested_state
+                # Check conditions
+                conditions_met = all(self._conditions.get(cond, False) for cond in required_conditions)
                 
-                # Publish state change
-                await self._message_broker.publish("state/change", {
-                    "state": self._current_state,
-                    "previous": self._previous_state,
-                    "timestamp": datetime.now().isoformat()
-                })
-                logger.info(f"State changed from {self._previous_state} to {self._current_state}")
-                
+                if conditions_met:
+                    # Update state
+                    self._previous_state = self._current_state
+                    self._current_state = requested_state
+                    
+                    # Publish state change
+                    await self._message_broker.publish("state/change", {
+                        "state": self._current_state,
+                        "previous": self._previous_state,
+                        "timestamp": datetime.now().isoformat()
+                    })
+                    logger.info(f"State changed from {self._previous_state} to {self._current_state}")
+                else:
+                    error_msg = f"Conditions not met for transition to {requested_state}"
+                    logger.error(error_msg)
+                    await self._message_broker.publish("error", {
+                        "error": error_msg,
+                        "topic": "state/transition",
+                        "context": "state_transition",
+                        "timestamp": datetime.now().isoformat()
+                    })
             else:
                 error_msg = f"Invalid state transition from {self._current_state} to {requested_state}"
                 logger.error(error_msg)

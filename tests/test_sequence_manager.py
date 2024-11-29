@@ -1,13 +1,13 @@
 """Sequence Manager test suite.
 
-Tests sequence management according to operation.yaml:
+Tests sequence management according to process.yaml:
 - Sequence validation using process rules
 - Sequence execution and control
 - Action orchestration
 - Pattern application
 - Parameter management
 
-Sequence Rules (from operation.yaml):
+Sequence Rules (from process.yaml):
 - Must validate sequence steps
 - Must follow state transitions
 - Must handle async operations
@@ -16,9 +16,6 @@ Sequence Rules (from operation.yaml):
 Message Patterns:
 - Must use "sequence/load" for loading
 - Must use "sequence/start" for starting
-- Must use "sequence/stop" for stopping
-- Must use "sequence/pause" for pausing
-- Must use "sequence/resume" for resuming
 - Must use "sequence/complete" for completion
 - Must use "sequence/error" for errors
 
@@ -27,106 +24,247 @@ Run with:
 """
 
 import pytest
-from typing import AsyncGenerator, Dict, Any
-from unittest.mock import AsyncMock, MagicMock
+from typing import Dict, Any
 import asyncio
 from datetime import datetime
-from tests.conftest import TestOrder
+from pathlib import Path
+import yaml
+from tests.conftest import TestOrder, order
 
-from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
-from micro_cold_spray.core.config.config_manager import ConfigManager
-from micro_cold_spray.core.infrastructure.state.state_manager import StateManager
-from micro_cold_spray.core.components.operations.sequences.sequence_manager import SequenceManager
-from micro_cold_spray.core.components.process.validation.process_validator import ProcessValidator
-from micro_cold_spray.core.exceptions import OperationError
-from tests.conftest import TestOrder
+@pytest.fixture
+async def sequence_manager(
+    message_broker,
+    config_manager,
+    process_validator,
+    action_manager
+):
+    """Provide SequenceManager instance."""
+    from micro_cold_spray.core.components.operations.sequences.sequence_manager import SequenceManager
+    
+    manager = SequenceManager(
+        message_broker=message_broker,
+        config_manager=config_manager,
+        sequence_path=Path("data/sequences/library")
+    )
+    try:
+        await manager.initialize()
+        yield manager
+    finally:
+        await manager.shutdown()
 
-@TestOrder.PROCESS
+@order(TestOrder.PROCESS)
 class TestSequenceManager:
-    """Sequence management tests run after action manager."""
+    """Sequence management tests."""
     
     @pytest.mark.asyncio
-    async def test_sequence_manager_initialization(self, sequence_manager):
-        """Test sequence manager initialization."""
-        assert sequence_manager._is_initialized
-        operation_config = sequence_manager._config_manager.get_config('operation')
-        assert 'sequences' in operation_config
-
-@pytest.mark.asyncio
-async def test_sequence_manager_validate_sequence(sequence_manager):
-    """Test sequence validation using operation.yaml rules."""
-    # Create test sequence using real sequence structure
-    sequence_data = {
-        "metadata": {
-            "name": "test_sequence",
-            "description": "Test sequence"
-        },
-        "steps": [
-            {
-                "name": "prepare_system",  # From operation.yaml
-                "hardware_set": "set1",
-                "pattern": None,
-                "parameters": {}
-            },
-            {
-                "name": "move_to_trough",  # From operation.yaml
-                "hardware_set": "set1",
-                "pattern": None,
-                "parameters": {}
+    async def test_load_sequence(self, sequence_manager, tmp_path):
+        """Test sequence loading and validation."""
+        # Create test sequence file
+        sequence_data = {
+            "sequence": {
+                "metadata": {
+                    "name": "test_sequence",
+                    "description": "Test sequence"
+                },
+                "steps": [
+                    {
+                        "name": "prepare_system",
+                        "hardware_set": "set1",
+                        "pattern": None,
+                        "parameters": {}
+                    },
+                    {
+                        "name": "move_to_trough",
+                        "hardware_set": "set1",
+                        "pattern": None,
+                        "parameters": {}
+                    }
+                ]
             }
-        ]
-    }
-    
-    # Track validation responses
-    responses = []
-    async def collect_responses(data: Dict[str, Any]) -> None:
-        responses.append(data)
-    await sequence_manager._message_broker.subscribe(
-        "validation/response",
-        collect_responses
-    )
-    
-    # Validate sequence
-    await sequence_manager.validate_sequence(sequence_data)
-    await asyncio.sleep(0.1)
-    
-    # Verify validation
-    assert len(responses) > 0
-    assert responses[0]["valid"]
-    assert "timestamp" in responses[0]
+        }
+        
+        sequence_file = tmp_path / "test_sequence.yaml"
+        with open(sequence_file, 'w') as f:
+            yaml.safe_dump(sequence_data, f)
+            
+        # Track sequence messages
+        messages = []
+        async def collect_messages(data: Dict[str, Any]) -> None:
+            messages.append(data)
+        await sequence_manager._message_broker.subscribe(
+            "sequence/loaded",
+            collect_messages
+        )
+        
+        # Load sequence
+        loaded_sequence = await sequence_manager.load_sequence(str(sequence_file))
+        
+        # Verify sequence structure and messages
+        assert loaded_sequence == sequence_data
+        assert len(messages) > 0
+        assert "sequence" in messages[0]
+        assert "timestamp" in messages[0]
 
-@pytest.mark.asyncio
-async def test_sequence_manager_execute_sequence(sequence_manager):
-    """Test sequence execution."""
-    # Create test sequence using real actions
-    sequence_data = {
-        "metadata": {
-            "name": "test_sequence",
-            "description": "Test sequence"
-        },
-        "steps": [
-            {
-                "name": "prepare_system",  # From operation.yaml
-                "hardware_set": "set1",
-                "pattern": None,
-                "parameters": {}
+    @pytest.mark.asyncio
+    async def test_execute_sequence(self, sequence_manager):
+        """Test sequence execution with state transitions."""
+        # Create test sequence
+        sequence_data = {
+            "sequence": {
+                "metadata": {
+                    "name": "test_sequence",
+                    "description": "Test sequence"
+                },
+                "steps": [
+                    {
+                        "name": "ready_system",
+                        "hardware_set": "set1",
+                        "pattern": None,
+                        "parameters": {}
+                    }
+                ]
             }
-        ]
-    }
-    
-    # Track sequence operations
-    operations = []
-    async def collect_operations(data: Dict[str, Any]) -> None:
-        operations.append(data)
-    
-    await sequence_manager._message_broker.subscribe("action/execute", collect_operations)
-    await sequence_manager._message_broker.subscribe("sequence/status", collect_operations)
-    
-    # Execute sequence
-    await sequence_manager.execute_sequence(sequence_data)
-    await asyncio.sleep(0.1)
-    
-    # Verify operation sequence
-    assert len(operations) > 0
-    assert any(op.get("type") == "prepare_system" for op in operations)
-    assert all("timestamp" in op for op in operations)
+        }
+        
+        # Track sequence operations
+        operations = []
+        async def collect_operations(data: Dict[str, Any]) -> None:
+            operations.append(data)
+        
+        await sequence_manager._message_broker.subscribe(
+            "action/execute",
+            collect_operations
+        )
+        await sequence_manager._message_broker.subscribe(
+            "sequence/status",
+            collect_operations
+        )
+        
+        # Execute sequence
+        await sequence_manager.execute_sequence(sequence_data)
+        await asyncio.sleep(0.1)
+        
+        # Verify operation sequence
+        assert len(operations) > 0
+        assert any(op.get("type") == "ready_system" for op in operations)
+        assert all("timestamp" in op for op in operations)
+
+    @pytest.mark.asyncio
+    async def test_sequence_state_control(self, sequence_manager):
+        """Test sequence state control operations."""
+        # Create test sequence
+        sequence_data = {
+            "sequence": {
+                "metadata": {
+                    "name": "test_sequence",
+                    "description": "Test sequence"
+                },
+                "steps": [
+                    {
+                        "name": "ready_system",
+                        "hardware_set": "set1",
+                        "pattern": None,
+                        "parameters": {}
+                    }
+                ]
+            }
+        }
+        
+        # Track state changes
+        states = []
+        async def collect_states(data: Dict[str, Any]) -> None:
+            states.append(data)
+            
+        await sequence_manager._message_broker.subscribe(
+            "sequence/status",
+            collect_states
+        )
+        
+        # Execute sequence control operations
+        await sequence_manager.execute_sequence(sequence_data)
+        await sequence_manager.pause_sequence()
+        await sequence_manager.resume_sequence()
+        await sequence_manager.stop_sequence()
+        
+        # Verify state transitions
+        assert len(states) >= 4
+        state_sequence = [s.get("state") for s in states]
+        assert "RUNNING" in state_sequence
+        assert "PAUSED" in state_sequence
+        assert "COMPLETED" in state_sequence
+
+    @pytest.mark.asyncio
+    async def test_sequence_visualization(self, sequence_manager):
+        """Test sequence visualization data generation."""
+        # Create test sequence with pattern
+        sequence_data = {
+            "sequence": {
+                "metadata": {
+                    "name": "test_sequence",
+                    "description": "Test sequence"
+                },
+                "steps": [
+                    {
+                        "name": "execute_pattern",
+                        "hardware_set": "set1",
+                        "pattern": {
+                            "type": "serpentine",
+                            "file": "test_pattern.yaml",
+                            "parameters": {
+                                "origin": [100.0, 100.0],
+                                "passes": 1
+                            }
+                        }
+                    }
+                ]
+            }
+        }
+        
+        # Generate visualization data
+        viz_data = sequence_manager._generate_visualization_data(sequence_data)
+        
+        # Verify visualization structure
+        assert len(viz_data) > 0
+        assert "type" in viz_data[0]
+        assert "origin" in viz_data[0]
+        assert "pattern_file" in viz_data[0]
+
+    @pytest.mark.asyncio
+    async def test_sequence_error_handling(self, sequence_manager):
+        """Test sequence error handling."""
+        # Create invalid sequence
+        sequence_data = {
+            "sequence": {
+                "metadata": {
+                    "name": "test_sequence",
+                    "description": "Test sequence"
+                },
+                "steps": [
+                    {
+                        "name": "invalid_action",
+                        "hardware_set": "set1",
+                        "pattern": None,
+                        "parameters": {}
+                    }
+                ]
+            }
+        }
+        
+        # Track error messages
+        errors = []
+        async def collect_errors(data: Dict[str, Any]) -> None:
+            errors.append(data)
+            
+        await sequence_manager._message_broker.subscribe(
+            "sequence/error",
+            collect_errors
+        )
+        
+        # Execute invalid sequence
+        with pytest.raises(Exception):
+            await sequence_manager.execute_sequence(sequence_data)
+            
+        # Verify error handling
+        assert len(errors) > 0
+        assert "error" in errors[0]
+        assert "timestamp" in errors[0]

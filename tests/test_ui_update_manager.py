@@ -23,7 +23,7 @@ from typing import AsyncGenerator, Dict, Any
 from unittest.mock import AsyncMock, MagicMock
 import asyncio
 from datetime import datetime
-from tests.conftest import TestOrder
+from tests.conftest import TestOrder, order
 
 from PySide6.QtWidgets import QWidget, QFrame
 from PySide6.QtCore import Qt
@@ -44,7 +44,7 @@ class MockWidget(QWidget):
         self.setFrameShadow(QFrame.Shadow.Raised)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-@TestOrder.UI
+@order(TestOrder.UI)
 class TestUIUpdateManager:
     """UI update tests run last."""
     

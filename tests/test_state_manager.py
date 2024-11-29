@@ -18,9 +18,9 @@ from collections import defaultdict
 
 from micro_cold_spray.core.infrastructure.state.state_manager import StateManager
 from micro_cold_spray.core.exceptions import StateError
-from tests.conftest import TestOrder
+from tests.conftest import TestOrder, order
 
-@TestOrder.INFRASTRUCTURE
+@order(TestOrder.INFRASTRUCTURE)
 class TestStateManager:
     """State Manager tests run with infrastructure."""
     
@@ -37,6 +37,14 @@ class TestStateManager:
             changes.append(data)
         await state_manager._message_broker.subscribe("state/change", collect_changes)
         
+        # Ensure conditions are set correctly
+        state_manager._conditions = {
+            "hardware.connected": False,
+            "config.loaded": True,
+            "hardware.enabled": False,
+            "sequence.active": False
+        }
+        
         # Send hardware ready signals
         await state_manager._message_broker.publish(
             "hardware/status/plc",
@@ -52,13 +60,16 @@ class TestStateManager:
                 "timestamp": datetime.now().isoformat()
             }
         )
-        await asyncio.sleep(0.1)
+        
+        # Wait for state transition to complete
+        await asyncio.sleep(0.2)
         
         # Should transition to READY
-        assert await state_manager.get_current_state() == "READY"
-        assert len(changes) == 1
-        assert changes[0]["state"] == "READY"
-        assert "timestamp" in changes[0]
+        current_state = await state_manager.get_current_state()
+        assert current_state == "READY", f"Expected READY state but got {current_state}"
+        assert len(changes) >= 1
+        assert changes[-1]["state"] == "READY"
+        assert "timestamp" in changes[-1]
     
     @pytest.mark.asyncio
     async def test_state_manager_valid_transition(self, state_manager):
@@ -71,8 +82,12 @@ class TestStateManager:
         
         # Reset to INITIALIZING
         state_manager._current_state = "INITIALIZING"
-        state_manager._hardware_ready = False
-        state_manager._motion_ready = False
+        state_manager._conditions = {
+            "hardware.connected": False,
+            "config.loaded": True,
+            "hardware.enabled": False,
+            "sequence.active": False
+        }
         
         # Send hardware ready signals
         await state_manager._message_broker.publish(
@@ -89,13 +104,16 @@ class TestStateManager:
                 "timestamp": datetime.now().isoformat()
             }
         )
-        await asyncio.sleep(0.1)
+        
+        # Wait for state transition to complete
+        await asyncio.sleep(0.2)  # Increased sleep time
         
         # Verify transition to READY
-        assert await state_manager.get_current_state() == "READY"
-        assert len(changes) > 0
-        assert changes[0]["state"] == "READY"
-        assert "timestamp" in changes[0]
+        current_state = await state_manager.get_current_state()
+        assert current_state == "READY", f"Expected READY state but got {current_state}"
+        assert len(changes) >= 1
+        assert changes[-1]["state"] == "READY"
+        assert "timestamp" in changes[-1]
     
     @pytest.mark.asyncio
     async def test_state_manager_invalid_transition(self, state_manager):

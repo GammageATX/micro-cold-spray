@@ -1,29 +1,33 @@
-version: "1.0.0"
 state:
   transitions:
-    INITIALIZING:
-      next_states: ["READY"]
-      conditions:
-        - "hardware.connected"
-        - "config.loaded"
-      
-    READY:
-      next_states: ["RUNNING", "SHUTDOWN"]
-      conditions:
-        - "hardware.connected"
-        - "hardware.enabled"
-      
-    RUNNING:
-      next_states: ["READY", "ERROR"]
-      conditions:
-        - "hardware.connected"
-        - "hardware.enabled"
-        - "sequence.active"
-      
     ERROR:
-      next_states: ["READY", "SHUTDOWN"]
-      
-    SHUTDOWN:
-      next_states: ["INITIALIZING"]
+      next_states:
+      - READY
+      - SHUTDOWN
+    INITIALIZING:
       conditions:
-        - "hardware.safe"
+      - hardware.connected
+      - config.loaded
+      next_states:
+      - READY
+    READY:
+      conditions:
+      - hardware.connected
+      - hardware.enabled
+      next_states:
+      - RUNNING
+      - SHUTDOWN
+    RUNNING:
+      conditions:
+      - hardware.connected
+      - hardware.enabled
+      - sequence.active
+      next_states:
+      - READY
+      - ERROR
+    SHUTDOWN:
+      conditions:
+      - hardware.safe
+      next_states:
+      - INITIALIZING
+version: 1.0.0

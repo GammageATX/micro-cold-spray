@@ -25,7 +25,7 @@ import asyncio
 from datetime import datetime
 import os
 from pathlib import Path
-from tests.conftest import TestOrder
+from tests.conftest import TestOrder, order
 
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
 from micro_cold_spray.core.config.config_manager import ConfigManager
@@ -47,7 +47,7 @@ async def data_manager(
     finally:
         await manager.shutdown()
 
-@TestOrder.PROCESS
+@order(TestOrder.PROCESS)
 class TestDataManager:
     """Data management tests run after process components."""
     

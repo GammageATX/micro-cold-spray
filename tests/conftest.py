@@ -1,99 +1,178 @@
-"""Test fixtures and configuration.
-
-Test Order Dependencies:
-1. Infrastructure (MessageBroker, ConfigManager, TagManager, StateManager)
-2. Process Components (Validator, Parameters, Patterns, Actions, Sequences)
-3. UI Components (UIUpdateManager, Widgets)
-
-Run with:
-    pytest tests/ -v --asyncio-mode=auto
-"""
-
+"""Common test fixtures and configuration."""
 import pytest
+from enum import IntEnum
 from typing import AsyncGenerator, Dict, Any
 from unittest.mock import AsyncMock, MagicMock
-import asyncio
-from datetime import datetime
 import yaml
-from loguru import logger
-from collections import defaultdict
 
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
 from micro_cold_spray.core.config.config_manager import ConfigManager
-from micro_cold_spray.core.infrastructure.state.state_manager import StateManager
 from micro_cold_spray.core.components.process.validation.process_validator import ProcessValidator
-from micro_cold_spray.core.infrastructure.tags.tag_manager import TagManager
+from micro_cold_spray.core.infrastructure.state.state_manager import StateManager
 
-# Define test order dependencies
-pytest.mark.tryfirst
-class TestOrder:
-    """Test execution order markers."""
-    INFRASTRUCTURE = pytest.mark.dependency(name="infrastructure")
-    PROCESS = pytest.mark.dependency(depends=["infrastructure"])
-    UI = pytest.mark.dependency(name="ui", depends=["infrastructure", "process"])
+class TestOrder(IntEnum):
+    """Test execution order."""
+    INFRASTRUCTURE = 100  # MessageBroker, ConfigManager, etc.
+    PROCESS = 200        # ProcessValidator, ParameterManager, etc.
+    UI = 300            # UIUpdateManager, widgets, etc.
 
-@pytest.fixture(scope="function")
-async def message_broker() -> AsyncGenerator[MessageBroker, None]:
-    """Provide a MessageBroker instance."""
-    broker = MessageBroker()
-    broker._subscribers = defaultdict(set)
-    broker._subscribers.update({
-        # Core topics from .cursorrules
-        "tag/update": set(),
-        "tag/get": set(), 
-        "tag/set": set(),
-        "tag/get/response": set(),
-        "state/request": set(),
-        "state/change": set(),
-        "state/error": set(),
-        "error": set()
-    })
-    
-    await broker.start()
-    yield broker
-    await broker.shutdown()
+def order(value: TestOrder):
+    """Decorator to set test order."""
+    def decorator(cls):
+        cls.test_order = value
+        return cls
+    return decorator
 
 @pytest.fixture
-async def config_manager(message_broker: MessageBroker) -> AsyncGenerator[ConfigManager, None]:
-    """Provide a read-only ConfigManager instance."""
-    config = ConfigManager(message_broker)
-    
-    # Mock file operations to prevent any disk writes
-    config._save_config = AsyncMock()
-    config.update_config = AsyncMock()
-    config._load_config = AsyncMock()
-    config.save_backup = AsyncMock()
-    
-    # Use in-memory test configs
-    config._configs = {
-        'application': {'version': '1.0.0'},
-        'hardware': {'version': '1.0.0'},
-        'messaging': {'version': '1.0.0'},
-        'operation': {'version': '1.0.0'},
-        'process': {'version': '1.0.0'},
-        'state': {'version': '1.0.0'},
-        'tags': {'version': '1.0.0'}
+async def message_broker() -> AsyncGenerator[MessageBroker, None]:
+    """Provide MessageBroker with required topics."""
+    broker = MessageBroker()
+    broker._subscribers = {
+        # Core topics
+        "tag/set": set(),
+        "tag/get": set(),
+        "tag/get/response": set(),
+        "tag/update": set(),
+        "state/change": set(),
+        "state/request": set(),
+        "state/error": set(),
+        "error": set(),
+        
+        # Action topics
+        "action/execute": set(),
+        "action/status": set(),
+        "action/complete": set(),
+        "action/error": set(),
+        
+        # Parameter topics
+        "parameters/load": set(),
+        "parameters/save": set(),
+        "parameters/loaded": set(),
+        "parameters/saved": set(),
+        "parameters/error": set(),
+        
+        # Pattern topics
+        "patterns/load": set(),
+        "patterns/save": set(),
+        "patterns/loaded": set(),
+        "patterns/saved": set(),
+        "patterns/error": set(),
+        
+        # Sequence topics
+        "sequence/load": set(),
+        "sequence/save": set(),
+        "sequence/start": set(),
+        "sequence/stop": set(),
+        "sequence/pause": set(),
+        "sequence/resume": set(),
+        "sequence/complete": set(),
+        "sequence/error": set(),
+        
+        # Validation topics
+        "validation/request": set(),
+        "validation/response": set(),
+        
+        # Hardware topics
+        "hardware/status/plc": set(),
+        "hardware/status/motion": set(),
+        "hardware/error": set()
     }
     
     try:
-        yield config
+        await broker.start()
+        yield broker
     finally:
-        # Clean shutdown without saving
-        config.shutdown = AsyncMock()
-        await config.shutdown()
+        await broker.shutdown()
 
 @pytest.fixture
-def mock_plc_client() -> MagicMock:
+async def config_manager(message_broker: MessageBroker) -> AsyncGenerator[ConfigManager, None]:
+    """Provide ConfigManager with test configurations."""
+    manager = ConfigManager(message_broker)
+    
+    # Mock file operations to prevent any actual file changes
+    manager._save_config = AsyncMock()
+    manager.update_config = AsyncMock()
+    manager._load_config = AsyncMock()
+    manager.save_backup = AsyncMock()
+    
+    # Load test configs
+    with open("config/process.yaml") as f:
+        process_config = yaml.safe_load(f)
+    with open("config/tags.yaml") as f:
+        tags_config = yaml.safe_load(f)
+    with open("config/state.yaml") as f:
+        state_config = yaml.safe_load(f)
+    with open("config/hardware.yaml") as f:
+        hardware_config = yaml.safe_load(f)
+    
+    # Mock configs
+    manager._configs = {
+        "process": process_config,
+        "tags": tags_config,
+        "state": state_config,
+        "hardware": hardware_config,
+        "patterns": {
+            "types": {
+                "serpentine": {
+                    "required_parameters": ["origin", "length", "spacing", "speed"],
+                    "parameter_limits": {
+                        "length": {"min": 10.0, "max": 500.0},
+                        "spacing": {"min": 0.5, "max": 10.0},
+                        "speed": {"min": 1.0, "max": 100.0}
+                    }
+                }
+            },
+            "sprayable_area": {
+                "x_min": 50,
+                "x_max": 450,
+                "y_min": 50,
+                "y_max": 450
+            }
+        },
+        "sequences": {
+            "rules": {
+                "required_steps": ["move_to_trough"],
+                "step_order": {
+                    "move_to_trough": ["start_gas_flow"],
+                    "start_gas_flow": ["start_powder_feed"]
+                }
+            }
+        },
+        "actions": {
+            "move_to_trough": {
+                "type": "motion",
+                "parameters": {}
+            },
+            "start_gas_flow": {
+                "type": "gas",
+                "parameters": {
+                    "main_flow": {"type": "float", "required": True}
+                }
+            }
+        }
+    }
+    
+    try:
+        yield manager
+    finally:
+        await manager.shutdown()
+
+@pytest.fixture
+async def mock_plc_client() -> MagicMock:
     """Provide a mock PLC client."""
     client = MagicMock()
-    client.get_all_tags = AsyncMock()
+    client.get_all_tags = AsyncMock(return_value={
+        "AMC.Ax1Position": 100.0,
+        "AMC.Ax2Position": 200.0,
+        "AOS32-0.1.2.1": 50.0
+    })
     client.write_tag = AsyncMock()
     client.connect = AsyncMock()
     client.disconnect = AsyncMock()
     return client
 
 @pytest.fixture
-def mock_ssh_client() -> MagicMock:
+async def mock_ssh_client() -> MagicMock:
     """Provide a mock SSH client."""
     client = MagicMock()
     client.write_command = AsyncMock()
@@ -107,79 +186,90 @@ async def state_manager(
     message_broker: MessageBroker,
     config_manager: ConfigManager
 ) -> AsyncGenerator[StateManager, None]:
-    """Provide a StateManager instance."""
-    # Mock state config
-    config_manager._configs["state"] = {
-        "transitions": {
-            "INITIALIZING": ["READY"],
-            "READY": ["RUNNING", "SHUTDOWN"],
-            "RUNNING": ["READY", "ERROR"],
-            "ERROR": ["READY", "SHUTDOWN"],
-            "SHUTDOWN": []
-        }
-    }
-    
+    """Provide StateManager instance."""
     manager = StateManager(
         message_broker=message_broker,
         config_manager=config_manager
     )
-    
     try:
-        # Initialize subscriptions but don't send hardware signals
         await manager.initialize()
         yield manager
     finally:
         await manager.shutdown()
 
-@pytest.fixture(scope="function")
-async def tag_manager(message_broker: MessageBroker, config_manager: ConfigManager) -> AsyncGenerator[TagManager, None]:
-    """Provide a TagManager instance."""
+@pytest.fixture
+async def process_validator(
+    message_broker: MessageBroker,
+    config_manager: ConfigManager
+) -> AsyncGenerator[ProcessValidator, None]:
+    """Provide ProcessValidator instance."""
+    validator = ProcessValidator(message_broker, config_manager)
+    try:
+        await validator.initialize()
+        yield validator
+    finally:
+        await validator.shutdown()
+
+@pytest.fixture
+async def action_manager(
+    message_broker: MessageBroker,
+    config_manager: ConfigManager,
+    process_validator: ProcessValidator
+) -> AsyncGenerator[Any, None]:
+    """Provide ActionManager instance."""
+    from micro_cold_spray.core.components.operations.actions.action_manager import ActionManager
+    
+    manager = ActionManager(
+        message_broker=message_broker,
+        config_manager=config_manager,
+        process_validator=process_validator
+    )
+    try:
+        await manager.initialize()
+        yield manager
+    finally:
+        await manager.shutdown()
+
+@pytest.fixture
+async def ui_update_manager(
+    message_broker: MessageBroker,
+    config_manager: ConfigManager
+) -> AsyncGenerator[Any, None]:
+    """Provide UIUpdateManager instance."""
+    from micro_cold_spray.core.components.ui.managers.ui_update_manager import UIUpdateManager
+    
+    manager = UIUpdateManager(
+        message_broker=message_broker,
+        config_manager=config_manager
+    )
+    try:
+        await manager.initialize()
+        yield manager
+    finally:
+        await manager.shutdown()
+
+@pytest.fixture
+async def tag_manager(
+    message_broker: MessageBroker,
+    config_manager: ConfigManager,
+    mock_plc_client: MagicMock,
+    mock_ssh_client: MagicMock
+) -> AsyncGenerator[Any, None]:
+    """Provide TagManager instance."""
     from micro_cold_spray.core.infrastructure.tags.tag_manager import TagManager
-    from unittest.mock import patch
     
-    # Simple tag configuration for testing
-    config_manager._configs["tags"] = {
-        "motion": {
-            "x": {
-                "position": {"type": "float"},
-                "velocity": {"type": "float"},
-                "status": {"type": "int"}
-            }
-        },
-        "chamber": {
-            "pressure": {"type": "float"}
-        },
-        "flow": {
-            "main": {"type": "float"},
-            "feeder": {"type": "float"}
-        }
-    }
-    
-    # Create mock clients
-    mock_plc = AsyncMock()
-    mock_plc.get_all_tags = AsyncMock(return_value={
-        "motion.x.position": 100.0,
-        "motion.x.velocity": 50.0,
-        "motion.x.status": 1,
-        "chamber.pressure": 2.5,
-        "flow.main": 10.0,
-        "flow.feeder": 5.0
-    })
-    
-    mock_ssh = AsyncMock()
-    mock_ssh.read_response = AsyncMock(return_value="OK")
-    
-    # Create TagManager with mocked dependencies
     manager = TagManager(
         message_broker=message_broker,
         config_manager=config_manager
     )
     
-    # Patch the client creation
-    with patch('micro_cold_spray.core.infrastructure.tags.tag_manager.PLCClient', return_value=mock_plc), \
-         patch('micro_cold_spray.core.infrastructure.tags.tag_manager.SSHClient', return_value=mock_ssh):
-        
+    # Mock the clients after initialization
+    manager._plc_client = mock_plc_client
+    manager._ssh_client = mock_ssh_client
+    
+    try:
         await manager.initialize()
         yield manager
-        # No cleanup needed since TagManager handles it in __del__
+    finally:
+        await manager.shutdown()
   

@@ -15,7 +15,7 @@ from typing import AsyncGenerator, Dict, Any
 from unittest.mock import AsyncMock, MagicMock
 import asyncio
 from datetime import datetime
-from tests.conftest import TestOrder
+from tests.conftest import TestOrder, order
 
 from micro_cold_spray.core.infrastructure.tags.tag_manager import TagManager
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
@@ -145,7 +145,7 @@ async def tag_manager(
     finally:
         await manager.shutdown()
 
-@TestOrder.INFRASTRUCTURE
+@order(TestOrder.INFRASTRUCTURE)
 class TestTagManager:
     """Tag Manager tests run with infrastructure."""
     

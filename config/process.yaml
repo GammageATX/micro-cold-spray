@@ -1,269 +1,614 @@
-version: "1.0.0"
+action_groups:
+  apply_parameters:
+    description: Apply parameter set to system
+    requires:
+    - parameter_file: string
+    steps:
+    - action: hardware_sets.nozzle_select
+      from: '{parameter_file}.nozzle}'
+    - action: valves.main_gas_valve
+      value: true
+    - action: valves.feeder_gas_valve
+      value: true
+    - action: gas.set_main_flow
+      from: '{parameter_file}.main_flow'
+    - validation: gas_flow_stable
+    - action: gas.set_feeder_flow
+      from: '{parameter_file}.feeder_flow'
+    - validation: gas_flow_stable
+    - action: hardware_sets.deagglomerator_control
+      from: '{parameter_file}.deagglomerator'
+    - action: hardware_sets.feeder_control
+      from: '{parameter_file}.feeder'
+    - time_delay: powder_stabilize
+  change_parameters:
+    description: Change process parameters
+    requires:
+    - parameter_file: string
+    steps:
+    - action: gas.set_main_flow
+      from: '{parameter_file}.main_flow'
+    - validation: gas_flow_stable
+    - action: gas.set_feeder_flow
+      from: '{parameter_file}.feeder_flow'
+    - validation: gas_flow_stable
+    - action: hardware_sets.deagglomerator_control
+      from: '{parameter_file}.deagglomerator'
+    - action: hardware_sets.feeder_control
+      from: '{parameter_file}.feeder'
+    - time_delay: powder_stabilize
+  execute_pattern:
+    description: Execute pattern with proper positioning and shutter control
+    parameters:
+      passes:
+        default: 1
+        description: Number of pattern passes
+        min: 1
+        type: integer
+    requires:
+    - parameter_file: string
+    - pattern_file: string
+    steps:
+    - action_group: move_to_trough
+    - action: shutter.control_shutter
+      parameters:
+        value: true
+    - action: motion.move_xy
+      from: '{pattern_file}.origin'
+    - action: shutter.control_shutter
+      parameters:
+        value: false
+    - repeat:
+        count: '{parameters.passes}'
+        steps:
+        - action: motion.move_xy
+          from: '{pattern_file}.moves'
+    - action: shutter.control_shutter
+      parameters:
+        value: true
+    - action_group: move_to_trough
+  move_to_trough:
+    description: Move to trough position
+    steps:
+    - action: motion.move_z
+      parameters:
+        z: '{safety.safe_z}'
+    - validation: motion_complete
+    - action: motion.move_xy
+      parameters:
+        x: '{hardware.trough.x}'
+        y: '{hardware.trough.y}'
+    - validation: motion_complete
+    - action: motion.move_z
+      parameters:
+        z: '{hardware.trough.z}'
+    - validation: motion_complete
+  ready_system:
+    description: Prepare system for operation
+    steps:
+    - action: valves.vent_valve
+      value: false
+    - action: motion.move_xy
+      parameters:
+        x: 0
+        y: 0
+    - action: motion.move_z
+      parameters:
+        z: 0
+    - validation: motion_complete
+    - action: valves.gate_valve
+      parameters:
+        open: false
+        partial: true
+    - parameters:
+        pressure: 200
+        timeout: 60.0
+      validation: chamber_vacuum
+    - action: valves.gate_valve
+      parameters:
+        open: true
+        partial: false
+    - parameters:
+        pressure: 1.0
+        timeout: 120.0
+      validation: chamber_vacuum
+  shutdown_process:
+    description: Shutdown system safely
+    steps:
+    - action: hardware_sets.feeder_control
+      parameters:
+        frequency: 0
+    - action: hardware_sets.deagglomerator_control
+      parameters:
+        duty_cycle: 35
+    - action: gas.set_feeder_flow
+      parameters:
+        flow: 0.0
+    - action: gas.set_main_flow
+      parameters:
+        flow: 0.0
+    - validation: gas_flow_stable
+    - action: valves.feeder_gas_valve
+      value: false
+    - action: valves.main_gas_valve
+      value: false
+    - action: motion.move_xy
+      parameters:
+        x: 0
+        y: 0
+    - action: motion.move_z
+      parameters:
+        z: 0
+    - validation: motion_complete
+    - action: valves.gate_valve
+      parameters:
+        open: false
+        partial: false
+    - action: valves.vent_valve
+      value: true
+  stop_feeder:
+    description: Stop powder feed system
+    steps:
+    - action: hardware_sets.feeder_control
+      parameters:
+        frequency: 0
+    - action: hardware_sets.deagglomerator_control
+      parameters:
+        duty_cycle: 35
+    - action: gas.set_feeder_flow
+      parameters:
+        flow: 0.0
+    - validation: gas_flow_stable
+atomic_actions:
+  gas:
+    set_feeder_flow:
+      description: Set feeder gas flow
+      messages:
+      - data:
+        - tag: gas_control.feeder_flow.setpoint
+        topic: tag/set
+      validation:
+      - tag: gas_control.feeder_flow.measured
+    set_main_flow:
+      description: Set main gas flow
+      messages:
+      - data:
+        - tag: gas_control.main_flow.setpoint
+        topic: tag/set
+      validation:
+      - tag: gas_control.main_flow.measured
+  hardware_sets:
+    deagglomerator_control:
+      description: Control deagglomerator
+      messages:
+      - data:
+        - tag: hardware_sets.set{1|2}.deagglomerator.duty_cycle
+          value: int
+        - tag: hardware_sets.set{1|2}.deagglomerator.frequency
+          value: int
+        topic: tag/set
+      validation:
+      - tag: hardware_sets.set{1|2}.deagglomerator.duty_cycle
+      - tag: hardware_sets.set{1|2}.deagglomerator.frequency
+    feeder_control:
+      description: Control powder feeder
+      messages:
+      - data:
+        - tag: hardware_sets.set{1|2}.feeder.frequency
+          value: int
+        topic: tag/set
+      validation:
+      - tag: hardware_sets.set{1|2}.feeder.frequency
+    nozzle_select:
+      description: Select active nozzle
+      messages:
+      - data:
+        - tag: hardware_sets.nozzle_select
+          value: bool
+        topic: tag/set
+      validation:
+      - tag: hardware_sets.nozzle_select
+  motion:
+    move_xy:
+      description: Coordinated XY move
+      messages:
+      - data:
+        - tag: motion.motion_control.coordinated_move.xy_move.parameters.velocity
+        - tag: motion.motion_control.coordinated_move.xy_move.parameters.ramps
+        - tag: motion.motion_control.coordinated_move.xy_move.x_position
+        - tag: motion.motion_control.coordinated_move.xy_move.y_position
+        - tag: motion.motion_control.coordinated_move.xy_move.trigger
+        topic: tag/set
+      validation:
+      - tag: motion.motion_control.coordinated_move.xy_move.status
+      - tag: motion.motion_control.coordinated_move.xy_move.in_progress
+    move_z:
+      description: Z axis move
+      messages:
+      - data:
+        - tag: motion.motion_control.relative_move.z_move.parameters.velocity
+        - tag: motion.motion_control.relative_move.z_move.parameters.acceleration
+        - tag: motion.motion_control.relative_move.z_move.parameters.deceleration
+        - tag: motion.motion_control.relative_move.z_move.trigger
+        topic: tag/set
+      validation:
+      - tag: motion.motion_control.relative_move.z_move.status
+      - tag: motion.motion_control.relative_move.z_move.in_progress
+  shutter:
+    control_shutter:
+      description: Control nozzle shutter
+      messages:
+      - data:
+        - tag: relay_control.shutter
+          value: bool
+        topic: tag/set
+      validation:
+      - tag: interlocks.shutter_engaged
+  vacuum:
+    booster_pump:
+      description: Control booster pump
+      messages:
+      - data:
+        - tag: vacuum_control.booster_pump.start
+          value: bool
+        - tag: vacuum_control.booster_pump.stop
+          value: bool
+        topic: tag/set
+      validation:
+      - tag: pressure.chamber_pressure
+    mechanical_pump:
+      description: Control mechanical pump
+      messages:
+      - data:
+        - tag: vacuum_control.mechanical_pump.start
+          value: bool
+        - tag: vacuum_control.mechanical_pump.stop
+          value: bool
+        topic: tag/set
+      validation:
+      - tag: pressure.chamber_pressure
+  valves:
+    feeder_gas_valve:
+      description: Control feeder gas line valve
+      messages:
+      - data:
+        - tag: valve_control.feeder_gas
+          value: bool
+        topic: tag/set
+      validation:
+      - tag: valve_control.feeder_gas
+    gate_valve:
+      description: Control gate valve position
+      messages:
+      - data:
+        - tag: valve_control.gate_valve.partial
+          value: bool
+        - tag: valve_control.gate_valve.open
+          value: bool
+        topic: tag/set
+      validation:
+      - tag: valve_control.gate_valve.partial
+      - tag: valve_control.gate_valve.open
+    main_gas_valve:
+      description: Control main gas line valve
+      messages:
+      - data:
+        - tag: valve_control.main_gas
+          value: bool
+        topic: tag/set
+      validation:
+      - tag: valve_control.main_gas
+    vent_valve:
+      description: Control chamber vent valve
+      messages:
+      - data:
+        - tag: valve_control.vent
+          value: bool
+        topic: tag/set
+      validation:
+      - tag: valve_control.vent
 process:
-  # 1. Process Parameters
   parameters:
-    # 1. Gas Control
-    gas:
-      types:
-        - name: "helium"
-          scaling_factor: 1.0
-          flow_control:
-            main:
-              dac_min: 0
-              dac_max: 4095
-              flow_min: 0.0
-              flow_max: 100.0
-            feeder:
-              dac_min: 0
-              dac_max: 4095
-              flow_min: 0.0
-              flow_max: 10.0
-        - name: "nitrogen"
-          scaling_factor: 0.72
-          flow_control:
-            main:
-              dac_min: 0
-              dac_max: 4095
-              flow_min: 0.0
-              flow_max: 72.0
-            feeder:
-              dac_min: 0
-              dac_max: 4095
-              flow_min: 0.0
-              flow_max: 7.2
-        - name: "argon"
-          scaling_factor: 0.85
-          flow_control:
-            main:
-              dac_min: 0
-              dac_max: 4095
-              flow_min: 0.0
-              flow_max: 85.0
-            feeder:
-              dac_min: 0
-              dac_max: 4095
-              flow_min: 0.0
-              flow_max: 8.5
-
-    # 2. Powder System
-    powder:
-      feeders:
-        active_set: "set1"  # Default to set 1
-        set1:
-          frequency:
-            min: 200
-            max: 1200
-            step: 200
-            default: 600
-          deagglomerator:
-            duty_cycle:
-              min: 0
-              max: 100
-              default: 35
-            frequency:
-              default: 500
-        set2:
-          frequency:
-            min: 200
-            max: 1200
-            step: 200
-            default: 600
-          deagglomerator:
-            duty_cycle:
-              min: 0
-              max: 100
-              default: 35
-            frequency:
-              default: 500
-
-    # 3. Process Environment
+    control:
+      sequences:
+        pattern_execution:
+          during_spray:
+          - monitor_pressures
+          - monitor_flows
+          - monitor_position
+          - log_process_data
+          post_spray:
+          - verify_pattern_complete
+          - verify_data_logged
+          - update_process_history
+          pre_spray:
+          - verify_chamber_pressure
+          - verify_gas_pressures
+          - verify_powder_ready
+          - verify_position_safe
+        startup:
+        - verify_vacuum
+        - verify_gas_supply
+        - verify_powder_level
+        - verify_positions_taught
+        state_transitions:
+          spray_to_wait:
+          - verify_in_spraying_state
+          - move_to_safe_z
+          - move_to_trough
+          - stop_powder_feed
+          - stop_deagglomerator
+          - set_state_wait
+          wait_to_shutdown:
+          - verify_in_wait_state
+          - verify_at_trough
+          - move_to_safe_z
+          - stop_powder_feed
+          - stop_deagglomerator
+          - stop_gas_flows
+          - move_to_home
+          - verify_position
+          - set_state_shutdown
+          wait_to_spray:
+          - verify_in_wait_state
+          - verify_at_trough
+          - start_powder_feed
+          - start_deagglomerator
+          - wait_for_powder_stable
+          - engage_shutter
+          - move_to_safe_z
+          - move_to_pattern_start
+          - move_to_spray_height
+          - disengage_shutter
+          - set_state_spraying
+      states:
+        shutdown:
+          requires:
+          - PowderFeedOff
+          - DeagglomeratorOff
+          - GasFlowsOff
+          - AtHomePosition
+        spraying:
+          requires:
+          - PowderFeedOn
+          - DeagglomeratorOn
+          - FlowsStable
+          - PressuresStable
+        wait:
+          requires:
+          - PowderFeedOff
+          - DeagglomeratorOff
+          - AtValidPosition
     environment:
       vacuum:
         chamber:
           pressure:
-            min: 0.01
+            error_threshold: 1400.0
             max: 1520.0
+            min: 0.01
+            sample_period: 1.0
             spray_threshold: 5.0
             warning_threshold: 1000.0
-            error_threshold: 1400.0
-            sample_period: 1.0
-
-    # 4. Motion Patterns
-    patterns:
-      common_parameters:  # Shared across all patterns
-        speed:
-          type: "float"
-          unit: "mm/s"
-          description: "Travel speed"
-        layers:
-          type: "integer"
-          min: 1
-          default: 1
-          description: "Number of times to repeat pattern"
-        origin:
-          type: "vector"
-          unit: "mm"
-          description: "Pattern position relative to holder"
-
+    gas:
       types:
-        serpentine:
-          parameters:
-            - name: "length"
-              type: "float"
-              unit: "mm"
-              description: "Pattern length in X direction"
-            - name: "spacing"
-              type: "float"
-              unit: "mm"
-              description: "Line spacing in Y direction"
-            - name: "direction"
-              type: "string"
-              unit: "enum"
-              options: ["x_first", "y_first"]
-              default: "x_first"
-              description: "Primary travel direction"
-      
-        spiral:
-          parameters:
-            - name: "diameter"
-              type: "float"
-              unit: "mm"
-              description: "Outer diameter of spiral"
-            - name: "pitch"
-              type: "float"
-              unit: "mm"
-              description: "Distance between spiral lines"
-      
+      - flow_control:
+          feeder:
+            dac_max: 4095
+            dac_min: 0
+            flow_max: 10.0
+            flow_min: 0.0
+          main:
+            dac_max: 4095
+            dac_min: 0
+            flow_max: 100.0
+            flow_min: 0.0
+        name: helium
+        scaling_factor: 1.0
+      - flow_control:
+          feeder:
+            dac_max: 4095
+            dac_min: 0
+            flow_max: 7.2
+            flow_min: 0.0
+          main:
+            dac_max: 4095
+            dac_min: 0
+            flow_max: 72.0
+            flow_min: 0.0
+        name: nitrogen
+        scaling_factor: 0.72
+      - flow_control:
+          feeder:
+            dac_max: 4095
+            dac_min: 0
+            flow_max: 8.5
+            flow_min: 0.0
+          main:
+            dac_max: 4095
+            dac_min: 0
+            flow_max: 85.0
+            flow_min: 0.0
+        name: argon
+        scaling_factor: 0.85
+    patterns:
+      common_parameters:
+        layers:
+          default: 1
+          description: Number of times to repeat pattern
+          min: 1
+          type: integer
+        origin:
+          description: Pattern position relative to holder
+          type: vector
+          unit: mm
+        speed:
+          description: Travel speed
+          type: float
+          unit: mm/s
+      types:
         custom:
           parameters:
-            - name: "path_file"
-              type: "string"
-              description: "Path to CSV file with XY coordinates"
-
-    # 5. Process Control
-    control:
-      sequences:
-        startup:
-          - verify_vacuum
-          - verify_gas_supply
-          - verify_powder_level
-          - verify_positions_taught
-      
-        pattern_execution:
-          pre_spray:
-            - verify_chamber_pressure
-            - verify_gas_pressures
-            - verify_powder_ready
-            - verify_position_safe
-          during_spray:
-            - monitor_pressures
-            - monitor_flows
-            - monitor_position
-            - log_process_data
-          post_spray:
-            - verify_pattern_complete
-            - verify_data_logged
-            - update_process_history
-      
-        state_transitions:
-          wait_to_spray:
-            - verify_in_wait_state
-            - verify_at_trough
-            - start_powder_feed
-            - start_deagglomerator
-            - wait_for_powder_stable
-            - engage_shutter
-            - move_to_safe_z
-            - move_to_pattern_start
-            - move_to_spray_height
-            - disengage_shutter
-            - set_state_spraying
-          spray_to_wait:
-            - verify_in_spraying_state
-            - move_to_safe_z
-            - move_to_trough
-            - stop_powder_feed
-            - stop_deagglomerator
-            - set_state_wait
-          wait_to_shutdown:
-            - verify_in_wait_state
-            - verify_at_trough
-            - move_to_safe_z
-            - stop_powder_feed
-            - stop_deagglomerator
-            - stop_gas_flows
-            - move_to_home
-            - verify_position
-            - set_state_shutdown
-
-      states:
-        wait:
-          requires:
-            - "PowderFeedOff"
-            - "DeagglomeratorOff"
-            - "AtValidPosition"
-        spraying:
-          requires:
-            - "PowderFeedOn"
-            - "DeagglomeratorOn"
-            - "FlowsStable"
-            - "PressuresStable"
-        shutdown:
-          requires:
-            - "PowderFeedOff"
-            - "DeagglomeratorOff"
-            - "GasFlowsOff"
-            - "AtHomePosition"
-
-  # 2. Validation Rules
+          - description: Path to CSV file with XY coordinates
+            name: path_file
+            type: string
+        serpentine:
+          parameters:
+          - description: Pattern length in X direction
+            name: length
+            type: float
+            unit: mm
+          - description: Line spacing in Y direction
+            name: spacing
+            type: float
+            unit: mm
+          - default: x_first
+            description: Primary travel direction
+            name: direction
+            options:
+            - x_first
+            - y_first
+            type: string
+            unit: enum
+        spiral:
+          parameters:
+          - description: Outer diameter of spiral
+            name: diameter
+            type: float
+            unit: mm
+          - description: Distance between spiral lines
+            name: pitch
+            type: float
+            unit: mm
+    powder:
+      feeders:
+        active_set: set1
+        set1:
+          deagglomerator:
+            duty_cycle:
+              default: 35
+              max: 100
+              min: 0
+            frequency:
+              default: 500
+          frequency:
+            default: 600
+            max: 1200
+            min: 200
+            step: 200
+        set2:
+          deagglomerator:
+            duty_cycle:
+              default: 35
+              max: 100
+              min: 0
+            frequency:
+              default: 500
+          frequency:
+            default: 600
+            max: 1200
+            min: 200
+            step: 200
   validation:
-    process_parameters:
-      chamber_pressure:
-        rule: "value <= spray_threshold"
-        message: "Chamber pressure too high for spraying"
-      gas_pressure:
-        rule: "main_pressure >= regulator_pressure + min_margin"
-        message: "Main gas pressure too low"
-      feeder_operation:
-        - rule: "not (powder_feed_on and feeder_flow < 2.0)"
-          message: "Feeder flow too low while running"
-      flow_stability:
-        - rule: "main_flow_stable"
-          message: "Main flow not stable"
-        - rule: "feeder_flow_stable"
-          message: "Feeder flow not stable"
-        - rule: "flow_stability_duration >= 5.0"
-          message: "Flow rates not stable long enough"
-
+    hardware_sets:
+      active_set:
+        message: Selected feeder must match active nozzle
+        rule: feeder_matches_nozzle
+      set_change:
+        message: Must be at trough position to change hardware sets
+        rule: at_trough_position
     pattern_limits:
       position:
-        rule: "within_sprayable_area"
-        message: "Pattern exceeds sprayable area"
+        message: Pattern exceeds sprayable area
+        rule: within_sprayable_area
       speed:
-        rule: "within_velocity_limits"
-        message: "Pattern speed exceeds limits"
-
+        message: Pattern speed exceeds limits
+        rule: within_velocity_limits
+    process_parameters:
+      chamber_pressure:
+        message: Chamber pressure too high for spraying
+        rule: value <= spray_threshold
+      feeder_operation:
+      - message: Feeder flow too low while running
+        rule: not (powder_feed_on and feeder_flow < 2.0)
+      flow_stability:
+      - message: Main flow not stable
+        rule: main_flow_stable
+      - message: Feeder flow not stable
+        rule: feeder_flow_stable
+      - message: Flow rates not stable long enough
+        rule: flow_stability_duration >= 5.0
+      gas_pressure:
+        message: Main gas pressure too low
+        rule: main_pressure >= regulator_pressure + min_margin
+    process_states:
+      chamber_vacuum:
+        checks:
+        - condition: less_than
+          error: Chamber pressure too high for spraying
+          tag: pressure.chamber_pressure
+          timeout: 30.0
+          value: 5.0
+          warning: Chamber pressure rising
+        description: Verify chamber vacuum
+        type: parameters
+      feeder_operation:
+        checks:
+        - condition: greater_than
+          error: Feeder flow too low while running
+          tag: gas_control.feeder_flow.measured
+          timeout: 5.0
+          value: 2.0
+          warning: Low feeder flow detected
+        description: Verify feeder operation
+        type: parameters
+      gas_flow_stable:
+        checks:
+        - compare_to: gas_control.main_flow.setpoint
+          error: Main gas flow not stable
+          tag: gas_control.main_flow.measured
+          timeout: 5.0
+          tolerance: 2.0
+          warning: Main gas flow fluctuating
+        - compare_to: gas_control.feeder_flow.setpoint
+          error: Feeder flow not stable
+          tag: gas_control.feeder_flow.measured
+          timeout: 5.0
+          tolerance: 0.5
+          warning: Flow stability duration < 5.0s
+        description: Verify gas flow stability
+        type: parameters
+      safe_position:
+        checks:
+        - compare_to: safety.safe_z
+          condition: greater_than_equal
+          error: Must be at safe height before motion
+          tag: motion.position.z_position
+          warning: Z position near minimum safe height
+        description: Verify safe position
+        type: sequence
     sequence_rules:
+      safe_position:
+        message: Must be at safe height before motion
+        rule: z_position >= safe_z_height
+      spray_conditions:
+      - message: Chamber pressure too high for spraying
+        rule: chamber_pressure <= spray_threshold
+      - message: Gas flows must be stable before spraying
+        rule: main_flow_stable and feeder_flow_stable
       validation:
         max_steps: 100
         types:
           test:
-            required_steps: ['move']
             check_order: true
-            step_order: ['move']
-      safe_position:
-        rule: "z_position >= safe_z_height"
-        message: "Must be at safe height before motion"
-      spray_conditions:
-        - rule: "chamber_pressure <= spray_threshold"
-          message: "Chamber pressure too high for spraying"
-        - rule: "main_flow_stable and feeder_flow_stable"
-          message: "Gas flows must be stable before spraying"
-
-    hardware_sets:
-      active_set:
-        rule: "feeder_matches_nozzle"
-        message: "Selected feeder must match active nozzle"
-      set_change:
-        rule: "at_trough_position"
-        message: "Must be at trough position to change hardware sets"
+            required_steps:
+            - move
+            step_order:
+            - move
+    time_delays:
+      powder_stabilize:
+        delay: 5.0
+        description: Wait for powder flow to stabilize
+      shutter_motion:
+        delay: 0.5
+        description: Wait for shutter to complete motion
+version: 1.0.0

@@ -1,135 +1,92 @@
 """Action Manager test suite.
 
-Tests action management according to operation.yaml:
-- Standard actions from operation.yaml
-- Action validation and execution
-- Action sequence management
+Tests action management according to process.yaml:
+- Atomic actions execution
+- Action group orchestration
+- Parameter substitution
 - Message pattern compliance
 - Error handling
-
-Standard Actions (from operation.yaml):
-- Motion actions (move_to_trough, move_to_home)
-- Gas actions (start_gas_flow, stop_gas_flow)
-- Powder actions (start_powder_feed, stop_powder_feed)
-- Shutter actions (engage_shutter, disengage_shutter)
-- System actions (prepare_system, cleanup_system)
-
-Message Patterns:
-- Must use "action/execute" for action requests
-- Must use "action/status" for status updates
-- Must use "action/complete" for completion
-- Must use "action/error" for errors
-- Must include timestamps
 
 Run with:
     pytest tests/test_action_manager.py -v --asyncio-mode=auto
 """
 
 import pytest
-from typing import AsyncGenerator, Dict, Any
-from unittest.mock import AsyncMock, MagicMock
+from typing import Dict, Any
 import asyncio
 from datetime import datetime
-from tests.conftest import TestOrder
+from tests.conftest import TestOrder, order
 
-from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
-from micro_cold_spray.core.infrastructure.state.state_manager import StateManager
-from micro_cold_spray.core.config.config_manager import ConfigManager
-from micro_cold_spray.core.components.operations.actions.action_manager import ActionManager
-from micro_cold_spray.core.exceptions import OperationError
-from tests.conftest import TestOrder
-
-@pytest.fixture
-async def message_broker() -> AsyncGenerator[MessageBroker, None]:
-    """Provide a MessageBroker instance."""
-    broker = MessageBroker()
-    broker._subscribers = {
-        # Action topics
-        "action/execute": set(),
-        "action/status": set(),  # Added status topic
-        "action/complete": set(), # Added completion topic
-        "action/error": set(),    # Added error topic
-        
-        # Required topics
-        "tag/set": set(),
-        "tag/get": set(),
-        "tag/get/response": set(),
-        "state/change": set(),
-        "error": set()
-    }
-
-@TestOrder.PROCESS
+@order(TestOrder.PROCESS)
 class TestActionManager:
-    """Action management tests run after pattern manager."""
+    """Action management tests."""
     
     @pytest.mark.asyncio
-    async def test_action_manager_initialization(self, action_manager):
-        """Test action manager initialization."""
-        assert action_manager._is_initialized
-        operation_config = action_manager._config_manager.get_config('operation')
-        assert 'actions' in operation_config
-        assert 'standard_actions' in operation_config['actions']
-
-    @pytest.mark.asyncio
-    async def test_action_manager_move_to_trough(self, action_manager):
-        """Test move_to_trough action from operation.yaml."""
+    async def test_execute_atomic_motion_action(self, action_manager):
+        """Test atomic motion action execution."""
         # Track tag operations
         operations = []
         async def collect_operations(data: Dict[str, Any]) -> None:
             operations.append(data)
         await action_manager._message_broker.subscribe("tag/set", collect_operations)
         
-        # Execute move_to_trough action
-        await action_manager.execute_action("move_to_trough", {})
-        await asyncio.sleep(0.1)
-        
-        # Verify operation sequence from operation.yaml
-        assert len(operations) >= 3  # move_to_safe_z, move_xy_to_trough, move_to_collection_height
-        operation_sequence = [op.get("tag") for op in operations]
-        assert "motion.z.target" in operation_sequence  # move_to_safe_z
-        assert "motion.xy.target" in operation_sequence  # move_xy_to_trough
-        assert all("timestamp" in op for op in operations)
-
-    @pytest.mark.asyncio
-    async def test_action_manager_start_gas_flow(self, action_manager):
-        """Test start_gas_flow action from operation.yaml."""
-        # Track tag operations
-        operations = []
-        async def collect_operations(data: Dict[str, Any]) -> None:
-            operations.append(data)
-        await action_manager._message_broker.subscribe("tag/set", collect_operations)
-        
-        # Execute start_gas_flow action
-        await action_manager.execute_action("start_gas_flow", {
-            "main_flow": 50.0
+        # Execute move_xy action
+        await action_manager.execute_action("motion.move_xy", {
+            "x": 100.0,
+            "y": 100.0,
+            "velocity": 50.0
         })
         await asyncio.sleep(0.1)
         
-        # Verify operation sequence from operation.yaml
-        assert len(operations) >= 2  # open_main_valve, set_main_flow
-        operation_sequence = [op.get("tag") for op in operations]
-        assert "valve.main.state" in operation_sequence  # open_main_valve
-        assert "gas.main.flow" in operation_sequence  # set_main_flow
+        # Verify correct tag messages sent
+        assert len(operations) >= 4  # All required motion parameters
+        assert any("xy_move.x_position" in str(op) for op in operations)
+        assert any("xy_move.y_position" in str(op) for op in operations)
+        assert any("xy_move.parameters.velocity" in str(op) for op in operations)
         assert all("timestamp" in op for op in operations)
 
     @pytest.mark.asyncio
-    async def test_action_manager_prepare_system(self, action_manager):
-        """Test prepare_system action from operation.yaml."""
-        # Track operations and state changes
+    async def test_execute_action_group(self, action_manager):
+        """Test action group execution."""
+        # Track operations
         operations = []
         async def collect_operations(data: Dict[str, Any]) -> None:
             operations.append(data)
-        
         await action_manager._message_broker.subscribe("tag/set", collect_operations)
-        await action_manager._message_broker.subscribe("state/change", collect_operations)
         
-        # Execute prepare_system action
-        await action_manager.execute_action("prepare_system", {})
+        # Execute ready_system action group
+        await action_manager.execute_action_group("ready_system", {})
         await asyncio.sleep(0.1)
         
-        # Verify operation sequence from operation.yaml
+        # Verify action sequence
         assert len(operations) > 0
-        operation_sequence = [op.get("tag", op.get("state")) for op in operations]
-        assert any("vacuum" in str(op) for op in operation_sequence)  # verify_vacuum
-        assert any("gas" in str(op) for op in operation_sequence)  # verify_gas_supply
+        operation_sequence = [op.get("tag") for op in operations]
+        assert "valve_control.vent" in operation_sequence
+        assert "motion.motion_control" in str(operation_sequence)
         assert all("timestamp" in op for op in operations)
+
+    @pytest.mark.asyncio
+    async def test_parameter_substitution(self, action_manager):
+        """Test parameter substitution in actions."""
+        # Track operations
+        operations = []
+        async def collect_operations(data: Dict[str, Any]) -> None:
+            operations.append(data)
+        await action_manager._message_broker.subscribe("tag/set", collect_operations)
+        
+        # Execute action with parameter substitution
+        parameters = {
+            "gas": {
+                "main_flow": 50.0
+            }
+        }
+        await action_manager.execute_action("gas.set_main_flow", parameters)
+        await asyncio.sleep(0.1)
+        
+        # Verify parameter substitution
+        assert len(operations) > 0
+        assert any(
+            op.get("tag") == "gas_control.main_flow.setpoint" and
+            op.get("value") == 50.0
+            for op in operations
+        )
