@@ -41,7 +41,7 @@ class SSHClient:
             )
 
     async def test_connection(self) -> bool:
-        """Test if feeder controller is reachable without attempting full connection."""
+        """Test if feeder controller is reachable and establish connection if possible."""
         try:
             # Platform specific ping command
             if platform.system().lower() == "windows":
@@ -57,12 +57,27 @@ class SSHClient:
             )
             
             await process.communicate()
-            self._connected = process.returncode == 0
+            is_reachable = process.returncode == 0
             
-            if self._connected:
+            if is_reachable:
                 logger.debug(f"Feeder controller at {self._host} is reachable")
+                # If reachable, try to establish SSH connection
+                try:
+                    self._client.connect(
+                        hostname=self._host,
+                        port=self._port,
+                        username=self._username,
+                        password=self._password,
+                        timeout=5  # Add timeout to prevent hanging
+                    )
+                    self._connected = True
+                    logger.info(f"SSH connection established to {self._host}")
+                except Exception as ssh_error:
+                    logger.error(f"SSH connection failed: {ssh_error}")
+                    self._connected = False
             else:
                 logger.warning(f"Feeder controller at {self._host} is not reachable")
+                self._connected = False
             
             return self._connected
             

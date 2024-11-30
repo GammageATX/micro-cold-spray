@@ -83,7 +83,7 @@ application:
 
   # Development Tools
   development:
-    mock_hardware: true
+    mock_hardware: false
     profiling: false
     testing:
       enabled: false

@@ -41,7 +41,7 @@ class ConnectionStatus(BaseWidget):
         super().__init__(
             widget_id="widget_system_connection",
             ui_manager=ui_manager,
-            update_tags=["hardware_status"],
+            update_tags=["hardware_status", "system.connection"],
             parent=parent
         )
         self._init_ui()
@@ -54,6 +54,12 @@ class ConnectionStatus(BaseWidget):
                 status = data["hardware_status"]
                 self.update_plc_status(status.get("plc_connected", False))
                 self.update_ssh_status(status.get("ssh_connected", False))
+            
+            elif "system.connection" in data:
+                connected = data.get("connected", False)
+                self.update_plc_status(connected)
+                self.update_ssh_status(connected)
+            
         except Exception as e:
             logger.error(f"Error handling UI update: {e}")
         
@@ -111,10 +117,12 @@ class ConnectionStatus(BaseWidget):
     def update_plc_status(self, connected: bool) -> None:
         """Update PLC connection status."""
         self.plc_indicator.setConnected(connected)
+        logger.debug(f"Updated PLC status indicator: {connected}")
         
     def update_ssh_status(self, connected: bool) -> None:
         """Update SSH connection status."""
         self.ssh_indicator.setConnected(connected)
+        logger.debug(f"Updated SSH status indicator: {connected}")
         
     def set_users(self, users: List[str]) -> None:
         """Update the list of available users."""
