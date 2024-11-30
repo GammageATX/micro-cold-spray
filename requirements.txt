@@ -1,22 +1,18 @@
-# Build Dependencies
-setuptools>=69.0.0  # Package building and installation
-
 # Core Dependencies
-PySide6>=6.0.0  # Qt6 GUI framework
-PyYAML>=6.0     # YAML configuration handling
-paramiko>=3.0.0  # SSH communication
-productivity>=0.13.0  # PLC communication (latest stable version)
-loguru>=0.7.0  # Better logging
-asyncio>=3.4.3  # Asyncio library
+PyQt6>=6.4.0  # UI framework
+pytest>=7.3.1  # Testing framework
+pytest-asyncio>=0.21.0  # Async test support
+pytest-qt>=4.2.0  # Qt-specific test support
+pyyaml>=6.0.1  # Configuration file handling
+paramiko>=3.4.0  # SSH client functionality
 
-# Development Dependencies
-pytest>=7.0.0  # Testing framework
-pytest-asyncio>=0.21.0  # Async testing support
-pytest-qt>=4.2.0  # Qt testing support
-mypy>=1.0.0  # Type checking
-black>=23.0.0  # Code formatting
-pylint>=2.17.0  # Code linting
+# Development Tools
+black>=23.3.0  # Code formatting
+flake8>=6.0.0  # Code linting
+mypy>=1.3.0  # Type checking
+pytest-cov>=4.0.0  # Test coverage
+sphinx>=7.0.1  # Documentation
 
-# Optional Development Tools
-pytest-cov>=4.1.0  # Test coverage
-pytest-mock>=3.10.0  # Mocking support
+# Add any additional project-specific dependencies
+git+https://github.com/numat/productivity.git
+productivity>= 0.11.1  # For PLC communication using Productivity library

@@ -6,7 +6,6 @@ import asyncio
 from datetime import datetime
 import platform
 import subprocess
-
 from productivity import ProductivityPLC
 
 from ...exceptions import HardwareError
@@ -83,7 +82,7 @@ class PLCClient:
             if not self._connected:
                 if not await self.test_connection():
                     return {}  # Return empty dict if not connected
-            return await self._plc.read_all_tags()
+            return await self._plc.get()
         except asyncio.CancelledError:
             logger.debug("PLC connection attempt cancelled")
             return {}

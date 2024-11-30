@@ -23,6 +23,7 @@ class WidgetType(Enum):
 class WidgetLocation(Enum):
     """Valid widget locations."""
     DASHBOARD = "dashboard"
+    SYSTEM = "system"
 
 class UIUpdateManager:
     """Manages UI updates and widget registration."""
@@ -54,9 +55,9 @@ class UIUpdateManager:
                 raise ValidationError("Invalid widget ID format")
             
             widget_location = parts[1]
-            if widget_location != WidgetLocation.DASHBOARD.value:
+            if widget_location != WidgetLocation.DASHBOARD.value and widget_location != WidgetLocation.SYSTEM.value:
                 raise ValidationError(
-                    "Only dashboard widgets are currently supported",
+                    "Only dashboard and system widgets are currently supported",
                     {
                         "widget_id": widget_id,
                         "location": widget_location
@@ -209,32 +210,36 @@ class UIUpdateManager:
             })
 
     async def _handle_tag_update(self, data: Dict[str, Any]) -> None:
-        """Handle tag updates with proper async handling."""
+        """Handle tag updates."""
         try:
             tag = data.get("tag")
-            if not tag:
-                raise ValidationError("No tag in update data", {
-                    "data": data
-                })
+            value = data.get("value")
+            
+            if tag and value is not None:
+                # Forward as UI update
+                await self.send_update(
+                    tag,
+                    {
+                        "value": value,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
                 
-            # Update subscribed widgets with proper async handling
-            update_tasks = []
-            for widget_id in self._tag_subscriptions.get(tag, set()):
-                widget = self._registered_widgets[widget_id].get('widget')
-                if widget and hasattr(widget, 'update'):
-                    update_tasks.append(widget.update(data))
+                # Special handling for connection status
+                if tag in ["hardware.plc.connected", "hardware.ssh.connected"]:
+                    await self.send_update(
+                        "system.connection",
+                        {
+                            "connected": value,
+                            "source": tag,
+                            "timestamp": datetime.now().isoformat()
+                        }
+                    )
                     
-            # Wait for all updates to complete
-            if update_tasks:
-                await asyncio.gather(*update_tasks)
-                    
+                logger.debug(f"Processed tag update: {tag}={value}")
+                
         except Exception as e:
             logger.error(f"Error handling tag update: {e}")
-            await self._message_broker.publish("ui/error", {
-                "error": str(e),
-                "context": "tag_update_handler",
-                "timestamp": datetime.now().isoformat()
-            })
 
     async def _handle_config_update(self, data: Dict[str, Any]) -> None:
         """Handle config updates."""
@@ -342,17 +347,20 @@ class UIUpdateManager:
         try:
             state = data.get("state", "DISCONNECTED")
             
-            # Update all widgets subscribed to system state
-            for widget_id in self._tag_subscriptions.get("system.state", set()):
-                widget = self._registered_widgets[widget_id].get('widget')
-                if widget and hasattr(widget, 'handle_system_state'):
-                    await widget.handle_system_state(state)
-                    
-            # Forward state update
+            # Forward state update to all registered widgets
             await self.send_update(
                 "system.state",
                 {
                     "state": state,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+            
+            # Also send connection status update
+            await self.send_update(
+                "system.connection",
+                {
+                    "connected": state != "DISCONNECTED",
                     "timestamp": datetime.now().isoformat()
                 }
             )
@@ -458,3 +466,12 @@ class UIUpdateManager:
                 "context": "sequence_loaded_handler",
                 "timestamp": datetime.now().isoformat()
             })
+
+    def _validate_widget(self, widget_id: str) -> bool:
+        """Validate widget registration."""
+        allowed_prefixes = [
+            'widget_dashboard_',
+            'tab_dashboard',
+            'widget_system_'  # Add this to allow system widgets
+        ]
+        return any(widget_id.startswith(prefix) for prefix in allowed_prefixes)
