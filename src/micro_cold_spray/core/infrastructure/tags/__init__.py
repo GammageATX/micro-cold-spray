@@ -1,1 +1,1 @@
-"""Tag management package.""" 
+"""Tag management package."""

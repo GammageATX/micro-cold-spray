@@ -14,12 +14,13 @@ from ...managers.ui_update_manager import UIUpdateManager
 
 logger = logging.getLogger(__name__)
 
+
 class PatternEditor(BaseWidget):
     """Widget for editing spray patterns."""
-    
+
     pattern_updated = Signal(dict)  # Emitted when pattern is modified
     pattern_created = Signal(dict)  # Emitted when new pattern is created
-    
+
     def __init__(
         self,
         ui_manager: UIUpdateManager,
@@ -37,10 +38,10 @@ class PatternEditor(BaseWidget):
             ],
             parent=parent
         )
-        
+
         self._current_pattern: Optional[str] = None
         self._parameter_widgets: Dict[str, QWidget] = {}
-        
+
         self._init_ui()
         self._connect_signals()
         logger.info("Pattern editor initialized")
@@ -52,27 +53,27 @@ class PatternEditor(BaseWidget):
                 patterns = data["patterns.list"]
                 self._pattern_combo.clear()
                 self._pattern_combo.addItems(patterns)
-                
+
             if "patterns.types" in data:
                 types = data["patterns.types"]
                 self._type_combo.clear()
                 self._type_combo.addItems(types)
-                
+
             if "patterns.current" in data:
                 pattern = data["patterns.current"]
                 self._update_pattern_values(pattern)
-                
+
             if "patterns.validation" in data:
                 validation = data["patterns.validation"]
                 self._handle_validation_results(validation)
-                
+
         except Exception as e:
             logger.error(f"Error handling UI update: {e}")
 
     def _init_ui(self) -> None:
         """Initialize the widget UI."""
         layout = QVBoxLayout()
-        
+
         # Pattern selection
         selection_layout = QHBoxLayout()
         self._pattern_combo = QComboBox()
@@ -83,26 +84,26 @@ class PatternEditor(BaseWidget):
         selection_layout.addWidget(self._new_btn)
         selection_layout.addWidget(self._delete_btn)
         layout.addLayout(selection_layout)
-        
+
         # Pattern type selection
         type_layout = QHBoxLayout()
         self._type_combo = QComboBox()
         type_layout.addWidget(QLabel("Pattern Type:"))
         type_layout.addWidget(self._type_combo)
         layout.addLayout(type_layout)
-        
+
         # Parameter editor group
         param_group = QGroupBox("Pattern Parameters")
         self._param_layout = QFormLayout()
         param_group.setLayout(self._param_layout)
         layout.addWidget(param_group)
-        
+
         # Preview group
         preview_group = QGroupBox("Pattern Preview")
         preview_layout = QVBoxLayout()
         preview_group.setLayout(preview_layout)
         layout.addWidget(preview_group)
-        
+
         # Control buttons
         control_layout = QHBoxLayout()
         self._save_btn = QPushButton("Save Changes")
@@ -110,7 +111,7 @@ class PatternEditor(BaseWidget):
         control_layout.addWidget(self._save_btn)
         control_layout.addWidget(self._reset_btn)
         layout.addLayout(control_layout)
-        
+
         self.setLayout(layout)
 
     def _connect_signals(self) -> None:
@@ -119,7 +120,8 @@ class PatternEditor(BaseWidget):
         self._delete_btn.clicked.connect(self._delete_current_pattern)
         self._save_btn.clicked.connect(self._save_changes)
         self._reset_btn.clicked.connect(self._reset_changes)
-        self._type_combo.currentTextChanged.connect(self._update_parameter_editor)
+        self._type_combo.currentTextChanged.connect(
+            self._update_parameter_editor)
 
     async def _create_new_pattern(self) -> None:
         """Create a new pattern."""

@@ -1,1 +1,1 @@
-"""State management package.""" 
+"""State management package."""

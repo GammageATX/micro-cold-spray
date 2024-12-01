@@ -3,7 +3,7 @@ from typing import Optional, Dict, Any
 import asyncio
 from loguru import logger
 from PySide6.QtWidgets import (
-    QMainWindow, QTabWidget, QWidget, 
+    QMainWindow, QTabWidget, QWidget,
     QVBoxLayout, QHBoxLayout, QLabel,
     QFrame, QStatusBar, QProgressDialog
 )
@@ -24,8 +24,10 @@ from micro_cold_spray.core.components.ui.tabs.config_tab import ConfigTab
 from micro_cold_spray.core.components.ui.tabs.diagnostics_tab import DiagnosticsTab
 from micro_cold_spray.core.exceptions import UIError
 
+
 class SystemStateDisplay(BaseWidget):
     """Widget for displaying system state."""
+
     def __init__(self, ui_manager: UIUpdateManager, parent=None):
         """Initialize with required dependencies."""
         super().__init__(
@@ -47,7 +49,7 @@ class SystemStateDisplay(BaseWidget):
             if "system.state" in data:
                 state = data.get("state", "DISCONNECTED")
                 self.label.setText(f"System: {state}")
-                
+
                 # Add color coding for different states
                 color = {
                     "CONNECTED": "#2ecc71",    # Green
@@ -55,10 +57,10 @@ class SystemStateDisplay(BaseWidget):
                     "STARTUP": "#f1c40f",      # Yellow
                     "ERROR": "#e74c3c"         # Red
                 }.get(state, "#2c3e50")        # Default dark gray
-                
+
                 self.label.setStyleSheet(f"font-weight: bold; color: {color};")
                 logger.debug(f"Updated system state display: {state}")
-                
+
             elif "system.connection" in data:
                 connected = data.get("connected", False)
                 state = "CONNECTED" if connected else "DISCONNECTED"
@@ -66,12 +68,14 @@ class SystemStateDisplay(BaseWidget):
                 color = "#2ecc71" if connected else "#e74c3c"
                 self.label.setStyleSheet(f"font-weight: bold; color: {color};")
                 logger.debug(f"Updated connection state: {state}")
-                
+
         except Exception as e:
             logger.error(f"Error handling UI update: {e}")
 
+
 class SystemMessageDisplay(BaseWidget):
     """Widget for displaying system messages."""
+
     def __init__(self, ui_manager: UIUpdateManager, parent=None):
         """Initialize with required dependencies."""
         super().__init__(
@@ -95,8 +99,10 @@ class SystemMessageDisplay(BaseWidget):
         except Exception as e:
             logger.error(f"Error handling system message update: {e}")
 
+
 class SystemErrorDisplay(BaseWidget):
     """Widget for displaying system errors."""
+
     def __init__(self, ui_manager: UIUpdateManager, parent=None):
         """Initialize with required dependencies."""
         super().__init__(
@@ -121,9 +127,10 @@ class SystemErrorDisplay(BaseWidget):
         except Exception as e:
             logger.error(f"Error handling system error update: {e}")
 
+
 class MainWindow(QMainWindow):
     """Main application window."""
-    
+
     def __init__(
         self,
         config_manager: ConfigManager,
@@ -134,24 +141,24 @@ class MainWindow(QMainWindow):
     ) -> None:
         """Initialize with required dependencies."""
         super().__init__()
-        
+
         self._config = ui_config
-        
+
         # Validate dependencies
         if not all([config_manager, message_broker, ui_manager, tag_manager]):
             logger.error("Missing required dependencies")
             raise UIError("Missing required dependencies")
-        
+
         # Store dependencies
         self._config_manager = config_manager
         self._message_broker = message_broker
         self._ui_manager = ui_manager
         self._tag_manager = tag_manager
-        
+
         # Track window state
         self.is_closing = False
         self._is_initialized = False
-        
+
         # Initialize UI
         self._init_ui()
         logger.info("MainWindow initialized")
@@ -164,16 +171,16 @@ class MainWindow(QMainWindow):
 
             # Initialize only dashboard tab
             await self.dashboard_tab.initialize()
-            
+
             # Subscribe to system messages
             await self._message_broker.subscribe(
                 "system/state",
                 self._handle_system_state
             )
-            
+
             self._is_initialized = True
             logger.info("MainWindow initialization complete")
-            
+
         except Exception as e:
             error_context = {
                 "window": "MainWindow",
@@ -181,7 +188,9 @@ class MainWindow(QMainWindow):
                 "timestamp": datetime.now().isoformat()
             }
             logger.exception("Failed to initialize MainWindow")
-            raise UIError("MainWindow initialization failed", error_context) from e
+            raise UIError(
+                "MainWindow initialization failed",
+                error_context) from e
 
     def _init_ui(self) -> None:
         """Initialize the main window UI."""
@@ -195,7 +204,7 @@ class MainWindow(QMainWindow):
                 geometry.get("height", 800)
             )
             self.setWindowTitle(self._config.get("title", "Micro Cold Spray"))
-            
+
             # Use config for style
             style = self._config.get("style", {})
             font = style.get("font", {})
@@ -206,14 +215,14 @@ class MainWindow(QMainWindow):
                         font-size: {font.get("size", 10)}px;
                     }}
                 """)
-            
+
             # Create central widget and main layout
             central_widget = QWidget()
             main_layout = QVBoxLayout()
             main_layout.setContentsMargins(5, 5, 5, 5)
             central_widget.setLayout(main_layout)
             self.setCentralWidget(central_widget)
-            
+
             # Create top strip
             top_strip = QFrame()
             top_strip.setFrameShape(QFrame.Shape.StyledPanel)
@@ -222,11 +231,11 @@ class MainWindow(QMainWindow):
             top_layout = QHBoxLayout()
             top_layout.setContentsMargins(5, 2, 5, 2)
             top_strip.setLayout(top_layout)
-            
+
             # Add system state display
             self.system_state = SystemStateDisplay(self._ui_manager)
             top_layout.addWidget(self.system_state)
-            
+
             # Add message display
             message_frame = QFrame()
             message_frame.setFrameShape(QFrame.Shape.StyledPanel)
@@ -234,7 +243,7 @@ class MainWindow(QMainWindow):
             message_layout = QVBoxLayout()
             message_layout.setContentsMargins(5, 2, 5, 2)
             message_layout.setSpacing(0)
-            
+
             self.current_message = SystemMessageDisplay(self._ui_manager)
             self.current_message.setStyleSheet("""
                 QLabel {
@@ -250,23 +259,23 @@ class MainWindow(QMainWindow):
             )
             message_frame.setLayout(message_layout)
             top_layout.addWidget(message_frame, stretch=1)
-            
+
             # Add connection status
             top_layout.addSpacing(5)
             self.connection_status = ConnectionStatus(self._ui_manager)
             self.connection_status.setFixedWidth(300)
             top_layout.addWidget(self.connection_status)
-            
+
             # Add top strip to main layout
             main_layout.addWidget(top_strip)
-            
+
             # Create and add only dashboard tab
             self.tab_widget = QTabWidget()
             self.dashboard_tab = DashboardTab(self._ui_manager)
             self.tab_widget.addTab(self.dashboard_tab, "Dashboard")
-            
+
             main_layout.addWidget(self.tab_widget)
-            
+
             # Create status bar
             self.status_bar = QStatusBar()
             self.status_bar.setMinimumHeight(30)
@@ -288,12 +297,12 @@ class MainWindow(QMainWindow):
                     margin: 0;
                 }
             """)
-            
+
             # Add error display to status bar
             self.error_label = SystemErrorDisplay(self._ui_manager)
             self.status_bar.addPermanentWidget(self.error_label, 1)
             self.setStatusBar(self.status_bar)
-            
+
         except Exception as e:
             error_context = {
                 "window": "MainWindow",
@@ -320,7 +329,9 @@ class MainWindow(QMainWindow):
                 "timestamp": datetime.now().isoformat()
             }
             logger.error(f"Error handling system state: {error_context}")
-            raise UIError("Failed to handle system state", error_context) from e
+            raise UIError(
+                "Failed to handle system state",
+                error_context) from e
 
     async def cleanup(self) -> None:
         """Clean up all widgets and resources."""
@@ -328,7 +339,7 @@ class MainWindow(QMainWindow):
             # Clean up only dashboard tab
             if hasattr(self, 'dashboard_tab'):
                 await self.dashboard_tab.cleanup()
-            
+
             # Clean up widgets
             if hasattr(self, 'system_state'):
                 await self.system_state.cleanup()
@@ -338,10 +349,10 @@ class MainWindow(QMainWindow):
                 await self.error_label.cleanup()
             if hasattr(self, 'connection_status'):
                 await self.connection_status.cleanup()
-            
+
             self.is_closing = True
             logger.info("MainWindow cleanup complete")
-            
+
         except Exception as e:
             error_context = {
                 "window": "MainWindow",

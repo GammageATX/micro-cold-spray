@@ -68,25 +68,26 @@ class PatternManager:
 
         except Exception as e:
             logger.exception("Error during pattern manager shutdown")
-            raise OperationError("Pattern manager shutdown failed", "pattern", {
-                "error": str(e)
-            })
+            raise OperationError(
+                "Pattern manager shutdown failed", "pattern", {
+                    "error": str(e)})
 
-    async def _validate_pattern_params(self, pattern_data: Dict[str, Any]) -> None:
+    async def _validate_pattern_params(
+            self, pattern_data: Dict[str, Any]) -> None:
         """Validate pattern parameters against rules."""
         try:
             # Get validation rules from process config
             process_config = await self._config_manager.get_config("process")
-            validation_rules = process_config.get("validation", {}).get("patterns", {})
+            validation_rules = process_config.get(
+                "validation", {}).get("patterns", {})
 
             pattern_type = pattern_data["pattern"]["type"]
             params = pattern_data["pattern"]["params"]
 
             if pattern_type not in validation_rules:
-                raise OperationError(f"Unknown pattern type: {pattern_type}", "pattern", {
-                    "type": pattern_type,
-                    "timestamp": datetime.now().isoformat()
-                })
+                raise OperationError(
+                    f"Unknown pattern type: {pattern_type}", "pattern", {
+                        "type": pattern_type, "timestamp": datetime.now().isoformat()})
 
             type_rules = validation_rules[pattern_type]
 
@@ -117,7 +118,8 @@ class PatternManager:
                 "timestamp": datetime.now().isoformat()
             })
 
-    async def _validate_sprayable_area(self, pattern_data: Dict[str, Any]) -> None:
+    async def _validate_sprayable_area(
+            self, pattern_data: Dict[str, Any]) -> None:
         """Validate pattern stays within sprayable area."""
         try:
             # Get stage dimensions from hardware config
@@ -156,9 +158,9 @@ class PatternManager:
 
         except Exception as e:
             logger.error(f"Error validating sprayable area: {e}")
-            raise OperationError("Failed to validate sprayable area", "pattern", {
-                "error": str(e)
-            })
+            raise OperationError(
+                "Failed to validate sprayable area", "pattern", {
+                    "error": str(e)})
 
     async def _handle_load_request(self, data: Dict[str, Any]) -> None:
         """Handle pattern load request."""

@@ -18,7 +18,11 @@ class ValidationError(CoreError):
 class OperationError(CoreError):
     """Operation related errors (actions, patterns, sequences)."""
 
-    def __init__(self, message: str, operation_type: str, context: dict | None = None):
+    def __init__(
+            self,
+            message: str,
+            operation_type: str,
+            context: dict | None = None):
         """Initialize with operation type."""
         super().__init__(message, context)
         self.operation_type = operation_type

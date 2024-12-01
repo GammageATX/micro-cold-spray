@@ -15,7 +15,10 @@ from ....exceptions import CoreError, ValidationError
 class DataManager:
     """Manages process data collection and storage."""
 
-    def __init__(self, message_broker: MessageBroker, config_manager: ConfigManager):
+    def __init__(
+            self,
+            message_broker: MessageBroker,
+            config_manager: ConfigManager):
         """Initialize with required dependencies."""
         if message_broker is None:
             raise ValidationError("MessageBroker is required", {
@@ -54,9 +57,18 @@ class DataManager:
 
             # Set up data directories
             self._run_path = Path(data_paths.get("runs", "data/runs"))
-            self._parameter_path = Path(data_paths.get("parameters", "data/parameters"))
-            self._pattern_path = Path(data_paths.get("patterns", "data/patterns"))
-            self._sequence_path = Path(data_paths.get("sequences", "data/sequences"))
+            self._parameter_path = Path(
+                data_paths.get(
+                    "parameters",
+                    "data/parameters"))
+            self._pattern_path = Path(
+                data_paths.get(
+                    "patterns",
+                    "data/patterns"))
+            self._sequence_path = Path(
+                data_paths.get(
+                    "sequences",
+                    "data/sequences"))
 
             # Create directories if they don't exist
             for path in [
@@ -129,7 +141,9 @@ class DataManager:
         """Mark the current run as cancelled."""
         try:
             self._cancelled = cancelled
-            logger.debug(f"Run marked as {'cancelled' if cancelled else 'not cancelled'}")
+            logger.debug(
+                f"Run marked as {
+                    'cancelled' if cancelled else 'not cancelled'}")
 
             await self._message_broker.publish(
                 "data/run/status",
@@ -315,13 +329,29 @@ class DataManager:
             # Create file with headers if it doesn't exist
             if not history_file.exists():
                 headers = [
-                    "spray_index", "sequence_file", "material_type", "pattern_name",
-                    "operator", "start_time", "end_time", "powder_size", "powder_lot",
-                    "manufacturer", "nozzle_type", "nozzle_diameter", "nozzle_serial",
-                    "chamber_pressure_start", "chamber_pressure_end",
-                    "nozzle_pressure_start", "nozzle_pressure_end", "main_flow",
-                    "feeder_flow", "feeder_frequency", "pattern_type", "completed", "error"
-                ]
+                    "spray_index",
+                    "sequence_file",
+                    "material_type",
+                    "pattern_name",
+                    "operator",
+                    "start_time",
+                    "end_time",
+                    "powder_size",
+                    "powder_lot",
+                    "manufacturer",
+                    "nozzle_type",
+                    "nozzle_diameter",
+                    "nozzle_serial",
+                    "chamber_pressure_start",
+                    "chamber_pressure_end",
+                    "nozzle_pressure_start",
+                    "nozzle_pressure_end",
+                    "main_flow",
+                    "feeder_flow",
+                    "feeder_frequency",
+                    "pattern_type",
+                    "completed",
+                    "error"]
                 with open(history_file, 'w', newline='') as f:
                     writer = csv.writer(f)
                     writer.writerow(headers)
@@ -457,7 +487,8 @@ class DataManager:
         """Load process data from file."""
         try:
             if not filepath.exists():
-                raise FileNotFoundError(f"Process data file not found: {filepath}")
+                raise FileNotFoundError(
+                    f"Process data file not found: {filepath}")
 
             with open(filepath, 'r') as f:
                 data = json.load(f)
@@ -589,7 +620,8 @@ class DataManager:
             logger.error(f"Error creating backup: {e}")
             raise CoreError(f"Failed to create backup: {str(e)}") from e
 
-    async def save_parameters(self, name: str, parameters: Dict[str, Any]) -> None:
+    async def save_parameters(
+            self, name: str, parameters: Dict[str, Any]) -> None:
         """Save parameters to history."""
         try:
             # Save to parameter history file
@@ -623,7 +655,9 @@ class DataManager:
 
         except Exception as e:
             logger.error(f"Error saving parameters to history: {e}")
-            raise CoreError(f"Failed to save parameters to history: {str(e)}") from e
+            raise CoreError(
+                f"Failed to save parameters to history: {
+                    str(e)}") from e
 
     async def load_parameters(self, name: str) -> Dict[str, Any]:
         """Load parameters from history."""
@@ -642,7 +676,9 @@ class DataManager:
 
         except Exception as e:
             logger.error(f"Error loading parameters from history: {e}")
-            raise CoreError(f"Failed to load parameters from history: {str(e)}") from e
+            raise CoreError(
+                f"Failed to load parameters from history: {
+                    str(e)}") from e
 
     async def save_run_data(self, run_name: str, data: Dict[str, Any]) -> None:
         """Save run data to YAML file."""
