@@ -2,16 +2,12 @@
 import sys
 from pathlib import Path
 
-src_path = Path(__file__).parent.parent
-if str(src_path) not in sys.path:
-    sys.path.insert(0, str(src_path))
-
 import asyncio
 from loguru import logger
 from PySide6.QtWidgets import QApplication, QProgressDialog
 from PySide6.QtCore import Qt
 from datetime import datetime
-import yaml
+
 
 from micro_cold_spray.core.infrastructure.config.config_manager import ConfigManager
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
@@ -19,28 +15,37 @@ from micro_cold_spray.core.infrastructure.tags.tag_manager import TagManager
 from micro_cold_spray.core.infrastructure.state.state_manager import StateManager
 from micro_cold_spray.core.components.ui.managers.ui_update_manager import UIUpdateManager
 from micro_cold_spray.core.components.ui.windows.main_window import MainWindow
-from micro_cold_spray.core.exceptions import (
-    CoreError,  # Base exception for system initialization
-    ConfigurationError,  # For config loading errors
-    StateError,  # For state transition errors
-    MessageError,  # For messaging errors
-    HardwareError  # For hardware initialization errors
-)
+from micro_cold_spray.core.exceptions import (CoreError, ConfigurationError)
+
+src_path = Path(__file__).parent.parent
+if str(src_path) not in sys.path:
+    sys.path.insert(0, str(src_path))
+
 
 def get_project_root() -> Path:
     """Get the absolute path to the project root directory."""
     return Path(__file__).parent.parent.parent
 
+
 def setup_logging() -> None:
     """Configure loguru for application logging."""
     logger.remove()  # Remove default handler
+
+    # Break up log format into smaller parts
+    time_fmt = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green>"
+    level_fmt = "<level>{level: <8}</level>"
+    location_fmt = "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan>"
+    message_fmt = "<level>{message}</level>"
+
+    log_format = f"{time_fmt} | {level_fmt} | {location_fmt} - {message_fmt}"
+
     logger.add(
         sys.stderr,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+        format=log_format,
         level="INFO",
         enqueue=True  # Enable async logging
     )
-    
+
     # Add file logging
     logger.add(
         "logs/micro_cold_spray.log",
@@ -50,6 +55,7 @@ def setup_logging() -> None:
         level="DEBUG",
         enqueue=True
     )
+
 
 def ensure_directories() -> None:
     """Ensure required directories exist."""
@@ -68,14 +74,20 @@ def ensure_directories() -> None:
         "logs",
         "resources"
     ]
-    
+
     for directory in directories:
         (project_root / directory).mkdir(parents=True, exist_ok=True)
+
 
 class SplashScreen(QProgressDialog):
     """Splash screen for initialization."""
     def __init__(self):
-        super().__init__("Initializing System...", None, 0, 0)
+        super().__init__(
+            "Initializing System...",
+            "",  # Empty string instead of None for cancelButtonText
+            0,
+            0
+        )
         self.setWindowTitle("Micro Cold Spray")
         self.setWindowModality(Qt.WindowModality.ApplicationModal)
         self.setAutoClose(True)
@@ -102,21 +114,28 @@ class SplashScreen(QProgressDialog):
             }
         """)
 
-async def initialize_system() -> tuple[ConfigManager, MessageBroker, TagManager, StateManager, UIUpdateManager]:
+
+async def initialize_system() -> tuple[
+    ConfigManager,
+    MessageBroker,
+    TagManager,
+    StateManager,
+    UIUpdateManager
+]:
     """Initialize all system components."""
     logger.info("Starting system initialization")
-    
+
     try:
         # Create message broker first
         logger.debug("Initializing MessageBroker")
         message_broker = MessageBroker()
         await message_broker.start()
-        
+
         # Create config manager with message broker
         logger.debug("Initializing ConfigManager")
         config_manager = ConfigManager(message_broker)
         await config_manager.initialize()
-        
+
         # Create tag manager with proper dependencies
         logger.debug("Initializing TagManager")
         tag_manager = TagManager(
@@ -124,7 +143,7 @@ async def initialize_system() -> tuple[ConfigManager, MessageBroker, TagManager,
             config_manager=config_manager
         )
         await tag_manager.initialize()
-        
+
         # Test hardware connections
         connection_status = await tag_manager.test_connections()
         if not any(connection_status.values()):
@@ -134,7 +153,7 @@ async def initialize_system() -> tuple[ConfigManager, MessageBroker, TagManager,
                 "details": connection_status,
                 "timestamp": datetime.now().isoformat()
             })
-        
+
         # Create and initialize state manager
         logger.debug("Initializing StateManager")
         state_manager = StateManager(
@@ -142,7 +161,7 @@ async def initialize_system() -> tuple[ConfigManager, MessageBroker, TagManager,
             config_manager=config_manager
         )
         await state_manager.initialize()
-        
+
         # Create and initialize UI manager
         logger.debug("Initializing UIUpdateManager")
         ui_manager = UIUpdateManager(
@@ -150,10 +169,10 @@ async def initialize_system() -> tuple[ConfigManager, MessageBroker, TagManager,
             config_manager=config_manager
         )
         await ui_manager.initialize()
-        
+
         logger.info("System initialization complete")
         return config_manager, message_broker, tag_manager, state_manager, ui_manager
-        
+
     except Exception as e:
         error_msg = {
             "error": str(e),
@@ -163,39 +182,40 @@ async def initialize_system() -> tuple[ConfigManager, MessageBroker, TagManager,
         logger.exception(f"Critical error during system initialization: {error_msg}")
         raise CoreError("Failed to initialize system", error_msg) from e
 
+
 async def main() -> None:
     """Application entry point with proper cleanup chains."""
     app = None
     system_components = None
     window = None
-    
+
     try:
         setup_logging()
         ensure_directories()
         logger.info("Starting Micro Cold Spray application - Dashboard Only Mode")
-        
+
         app = QApplication(sys.argv)
-        
+
         # Show splash screen
         splash = SplashScreen()
         splash.show()
         app.processEvents()
-        
+
         # Initialize system
         splash.setLabelText("Initializing System Components...")
         app.processEvents()
         system_components = await initialize_system()
         config_manager, message_broker, tag_manager, state_manager, ui_manager = system_components
-        
+
         # Create and initialize main window
         splash.setLabelText("Initializing Dashboard Interface...")
         app.processEvents()
-        
+
         # Get UI config
         app_config = await config_manager.get_config("application")
         if "window" not in app_config:
             raise ConfigurationError("Missing window configuration in application.yaml")
-            
+
         window = MainWindow(
             config_manager=config_manager,
             message_broker=message_broker,
@@ -204,17 +224,17 @@ async def main() -> None:
             ui_config=app_config["window"]
         )
         await window.initialize()
-        
+
         # Show main window and close splash
         splash.close()
         window.show()
-        
+
         while not window.is_closing:
             app.processEvents()
             await asyncio.sleep(0.01)
             if not window.isVisible():
                 break
-                
+
     except Exception as e:
         error_msg = {
             "error": str(e),
@@ -232,8 +252,14 @@ async def main() -> None:
         # Proper cleanup chain
         try:
             if system_components:
-                config_manager, message_broker, tag_manager, state_manager, ui_manager = system_components
-                
+                (
+                    config_manager,
+                    message_broker,
+                    tag_manager,
+                    state_manager,
+                    ui_manager
+                ) = system_components
+
                 logger.info("Shutting down system components")
                 try:
                     await ui_manager.shutdown()
@@ -251,12 +277,12 @@ async def main() -> None:
                     await message_broker.shutdown()
                 except Exception as e:
                     logger.error(f"Error shutting down message broker: {e}")
-                
+
             if app:
                 logger.info("Shutting down Qt application")
                 app.quit()
                 app.processEvents()
-                
+
         except Exception as e:
             error_msg = {
                 "error": str(e),
