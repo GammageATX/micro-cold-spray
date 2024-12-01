@@ -1,0 +1,13 @@
+nozzle:
+  metadata:
+    name: "MCS-24"
+    manufacturer: "VRC"
+    type: "Cold Spray"
+    description: "Standard micro cold spray nozzle, 0.24mm exit diameter"
+    
+  specifications:
+    throat_diameter: 0.24  # mm
+    exit_diameter: 0.65    # mm
+    expansion_ratio: 7.3
+    total_length: 150      # mm
+    material: "WC-Co"

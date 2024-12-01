@@ -1,0 +1,17 @@
+pattern:
+  metadata:
+    name: "Serpentine 2mm Fine"
+    version: "1.0"
+    created: "2024-03-20"
+    author: "John Doe"
+    description: "Fine serpentine pattern with 2mm line spacing"
+    
+  type: "serpentine"
+  params:
+    origin: [10.0, 10.0]
+    length: 50.0
+    spacing: 2.0         # Finer spacing
+    speed: 15.0         # Slower for better coverage
+    z_height: 30.0
+    acceleration: 100.0
+    direction: "x_first" 
