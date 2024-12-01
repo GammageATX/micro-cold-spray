@@ -120,25 +120,48 @@ class TagManager:
         process_group(self._tag_config.get('tag_groups', {}))
 
     async def _poll_loop(self) -> None:
-        """Continuous polling loop."""
+        """Poll hardware for updates."""
         try:
-            while self._is_initialized:  # Check flag
-                try:
-                    await self._poll_tags()
-                    await asyncio.sleep(0.1)  # Poll interval
-                except asyncio.CancelledError:
-                    logger.debug("Polling loop cancelled")
-                    break
-                except Exception as e:
-                    if self._is_initialized:  # Only log if still running
-                        logger.error(f"Error in polling loop: {e}")
-                        await asyncio.sleep(1.0)
-                    else:
-                        break
-        except asyncio.CancelledError:
-            logger.debug("Polling loop cancelled during error recovery")
-        finally:
-            logger.debug("Polling loop shutdown complete")
+            while not self._shutdown:
+                # Add debug logging
+                logger.debug("Polling hardware for updates")
+                
+                # Get PLC status
+                plc_connected = await self._plc_client.test_connection()
+                await self._message_broker.publish(
+                    "tag/update",
+                    {
+                        "tag": "hardware.plc.connected",
+                        "value": plc_connected,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+                
+                # Get SSH status  
+                ssh_connected = await self._ssh_client.test_connection()
+                await self._message_broker.publish(
+                    "tag/update", 
+                    {
+                        "tag": "hardware.ssh.connected",
+                        "value": ssh_connected,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+
+                # Publish combined hardware status
+                await self._message_broker.publish(
+                    "hardware/status",
+                    {
+                        "plc_connected": plc_connected,
+                        "ssh_connected": ssh_connected,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+
+                await asyncio.sleep(1.0)  # Poll every second
+                
+        except Exception as e:
+            logger.error(f"Error in polling loop: {e}")
 
     async def _poll_tags(self) -> None:
         """Poll PLC tags and publish updates."""
