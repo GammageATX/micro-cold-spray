@@ -2,7 +2,7 @@
 from typing import Dict, Any, Optional
 import logging
 from PySide6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, 
+    QVBoxLayout, QHBoxLayout,
     QLabel, QFrame, QSplitter
 )
 from PySide6.QtCore import Qt
@@ -15,9 +15,10 @@ from ..widgets.diagnostics.validation_panel import ValidationPanel
 
 logger = logging.getLogger(__name__)
 
+
 class DiagnosticsTab(BaseWidget):
     """Tab for system diagnostics and monitoring."""
-    
+
     def __init__(
         self,
         ui_manager: UIUpdateManager,
@@ -33,12 +34,12 @@ class DiagnosticsTab(BaseWidget):
             ],
             parent=parent
         )
-        
+
         # Store widget references
         self._control_panel: Optional[ControlPanel] = None
         self._tag_monitor: Optional[TagMonitor] = None
         self._validation_panel: Optional[ValidationPanel] = None
-        
+
         self._init_ui()
         logger.info("Diagnostics tab initialized")
 
@@ -47,43 +48,43 @@ class DiagnosticsTab(BaseWidget):
         layout = QVBoxLayout()
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
-        
+
         # Add header
         header = QLabel("System Diagnostics")
         header.setStyleSheet("font-size: 24px; font-weight: bold;")
         layout.addWidget(header)
-        
+
         # Create main splitter
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        
+
         # Left side - Control Panel
         left_frame = QFrame()
         left_layout = QVBoxLayout()
         left_frame.setLayout(left_layout)
-        
+
         self._control_panel = ControlPanel(self._ui_manager)
         left_layout.addWidget(self._control_panel)
-        
+
         splitter.addWidget(left_frame)
-        
+
         # Right side - Monitoring
         right_frame = QFrame()
         right_layout = QVBoxLayout()
         right_frame.setLayout(right_layout)
-        
+
         # Tag Monitor
         self._tag_monitor = TagMonitor(self._ui_manager)
         right_layout.addWidget(self._tag_monitor)
-        
+
         # Validation Panel
         self._validation_panel = ValidationPanel(self._ui_manager)
         right_layout.addWidget(self._validation_panel)
-        
+
         splitter.addWidget(right_frame)
-        
+
         # Set initial splitter sizes (40/60 split)
         splitter.setSizes([400, 600])
-        
+
         layout.addWidget(splitter)
         self.setLayout(layout)
 
@@ -92,19 +93,20 @@ class DiagnosticsTab(BaseWidget):
         try:
             if "system.state" in data:
                 state = data["system.state"]
-                logger.debug(f"Diagnostics received system state update: {state}")
+                logger.debug(
+                    f"Diagnostics received system state update: {state}")
                 # Update tab state if needed
-                
+
             elif "system.message" in data:
                 message = data["system.message"]
                 logger.debug(f"Diagnostics received system message: {message}")
                 # Update tab message if needed
-                
+
             elif "hardware.status" in data:
                 status = data["hardware.status"]
                 logger.debug(f"Diagnostics received hardware status: {status}")
                 # Update hardware status if needed
-                
+
         except Exception as e:
             logger.error(f"Error handling UI update in DiagnosticsTab: {e}")
             await self.send_update("system.error", f"Diagnostics error: {str(e)}")
@@ -118,21 +120,21 @@ class DiagnosticsTab(BaseWidget):
                     await self._control_panel.cleanup()
                 except Exception as e:
                     logger.error(f"Error cleaning up control panel: {e}")
-                    
+
             if self._tag_monitor is not None:
                 try:
                     await self._tag_monitor.cleanup()
                 except Exception as e:
                     logger.error(f"Error cleaning up tag monitor: {e}")
-                    
+
             if self._validation_panel is not None:
                 try:
                     await self._validation_panel.cleanup()
                 except Exception as e:
                     logger.error(f"Error cleaning up validation panel: {e}")
-                    
+
             # Then clean up self
             await super().cleanup()
-            
+
         except Exception as e:
             logger.error(f"Error during diagnostics tab cleanup: {e}")

@@ -86,7 +86,8 @@ class ParameterManager:
                     "parameters": parameters,
                     "timestamp": datetime.now().isoformat()
                 }
-                raise ValidationError("Parameter validation failed", error_context)
+                raise ValidationError(
+                    "Parameter validation failed", error_context)
 
             # Publish loaded parameters
             await self._message_broker.publish(
@@ -117,7 +118,8 @@ class ParameterManager:
                 error_context
             )
 
-    async def save_parameters(self, filename: str, parameters: Dict[str, Any]) -> None:
+    async def save_parameters(
+            self, filename: str, parameters: Dict[str, Any]) -> None:
         """Save parameters to file."""
         try:
             # Validate parameters before saving
@@ -129,7 +131,8 @@ class ParameterManager:
                     "parameters": parameters,
                     "timestamp": datetime.now().isoformat()
                 }
-                raise ValidationError("Parameter validation failed", error_context)
+                raise ValidationError(
+                    "Parameter validation failed", error_context)
 
             # Publish saved parameters
             await self._message_broker.publish(

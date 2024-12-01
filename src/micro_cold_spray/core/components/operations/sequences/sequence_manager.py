@@ -80,9 +80,9 @@ class SequenceManager:
 
         except Exception as e:
             logger.exception("Error during sequence manager shutdown")
-            raise OperationError("Error during sequence manager shutdown", "sequence", {
-                "error": str(e)
-            })
+            raise OperationError(
+                "Error during sequence manager shutdown", "sequence", {
+                    "error": str(e)})
 
     async def handle_load_request(self, data: Dict[str, Any]) -> None:
         """Handle sequence load request."""
@@ -247,9 +247,10 @@ class SequenceManager:
                     step["name"] not in action_config.get("atomic_actions", {})
                     and step["name"] not in action_config.get("action_groups", {})
                 ):
-                    raise OperationError(f"Invalid action: {step['name']}", "sequence", {
-                        "action": step["name"]
-                    })
+                    raise OperationError(
+                        f"Invalid action: {
+                            step['name']}", "sequence", {
+                            "action": step["name"]})
 
                 await self._execute_step(step)
 
@@ -395,7 +396,8 @@ class SequenceManager:
                 "error": str(e)
             })
 
-    def _generate_visualization_data(self, sequence: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _generate_visualization_data(
+            self, sequence: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Generate visualization data for sequence."""
         try:
             viz_data = []
@@ -413,16 +415,17 @@ class SequenceManager:
 
         except Exception as e:
             logger.error(f"Error generating visualization data: {e}")
-            raise OperationError("Visualization generation failed", "sequence", {
-                "error": str(e)
-            })
+            raise OperationError(
+                "Visualization generation failed", "sequence", {
+                    "error": str(e)})
 
     async def _validate_sequence(self, sequence_data: Dict[str, Any]) -> None:
         """Validate sequence against rules."""
         try:
             # Get validation rules from process config
             process_config = await self._config_manager.get_config("process")
-            validation_rules = process_config.get("validation", {}).get("sequences", {})
+            validation_rules = process_config.get(
+                "validation", {}).get("sequences", {})
 
             errors = []
 
@@ -443,7 +446,11 @@ class SequenceManager:
                     # Check required step fields
                     for field in required_step_fields.get("fields", []):
                         if field not in step:
-                            errors.append(f"Step {i + 1}: {required_step_fields['message']}")
+                            errors.append(
+                                f"Step {
+                                    i +
+                                    1}: {
+                                    required_step_fields['message']}")
                             break
 
                     # Check for unknown fields
@@ -452,7 +459,11 @@ class SequenceManager:
                             field not in required_step_fields.get("fields", [])
                             and field not in optional_step_fields.get("fields", [])
                         ):
-                            errors.append(f"Step {i + 1}: {optional_step_fields['message']}")
+                            errors.append(
+                                f"Step {
+                                    i +
+                                    1}: {
+                                    optional_step_fields['message']}")
                             break
 
                     # Validate action if present
@@ -489,9 +500,9 @@ class SequenceManager:
             required_fields = step_rules.get("required_fields", {})
             for field in required_fields.get("fields", []):
                 if field not in step:
-                    raise OperationError(required_fields["message"], "sequence", {
-                        "step": step["name"]
-                    })
+                    raise OperationError(
+                        required_fields["message"], "sequence", {
+                            "step": step["name"]})
 
             # Check for unknown fields
             optional_fields = step_rules.get("optional_fields", {})
@@ -500,9 +511,9 @@ class SequenceManager:
                     field not in required_fields.get("fields", [])
                     and field not in optional_fields.get("fields", [])
                 ):
-                    raise OperationError(optional_fields["message"], "sequence", {
-                        "step": step["name"]
-                    })
+                    raise OperationError(
+                        optional_fields["message"], "sequence", {
+                            "step": step["name"]})
 
             # Validate action if present
             if "action" in step:

@@ -13,9 +13,10 @@ from ...managers.ui_update_manager import UIUpdateManager
 
 logger = logging.getLogger(__name__)
 
+
 class ProgressDisplay(BaseWidget):
     """Displays sequence execution progress."""
-    
+
     def __init__(
         self,
         ui_manager: UIUpdateManager,
@@ -34,13 +35,13 @@ class ProgressDisplay(BaseWidget):
             ],
             parent=parent
         )
-        
+
         # Track execution state
         self._sequence_start = None
         self._current_step = None
         self._step_count = 0
         self._completed_steps = 0
-        
+
         self._init_ui()
         self._start_timer()
         logger.info("Progress display initialized")
@@ -48,7 +49,7 @@ class ProgressDisplay(BaseWidget):
     def _init_ui(self):
         """Initialize progress display UI."""
         layout = QVBoxLayout()
-        
+
         # Current step info
         step_layout = QHBoxLayout()
         self.step_label = QLabel("Current Step:")
@@ -57,12 +58,12 @@ class ProgressDisplay(BaseWidget):
         step_layout.addWidget(self.step_label)
         step_layout.addWidget(self.step_name)
         layout.addLayout(step_layout)
-        
+
         # Step details
         self.step_details = QLabel("")
         self.step_details.setWordWrap(True)
         layout.addWidget(self.step_details)
-        
+
         # Progress bar
         progress_layout = QHBoxLayout()
         self.progress_bar = QProgressBar()
@@ -71,7 +72,7 @@ class ProgressDisplay(BaseWidget):
         self.progress_bar.setFormat("%p%")
         progress_layout.addWidget(self.progress_bar)
         layout.addLayout(progress_layout)
-        
+
         # Step counter
         counter_layout = QHBoxLayout()
         self.step_counter = QLabel("Steps: 0/0")
@@ -79,14 +80,14 @@ class ProgressDisplay(BaseWidget):
         counter_layout.addWidget(self.step_counter)
         counter_layout.addWidget(self.execution_time)
         layout.addLayout(counter_layout)
-        
+
         # Status line with proper Qt constants
         self.status_line = QLabel("")
         self.status_line.setFrameShape(QFrame.Shape.Panel)
         self.status_line.setFrameShadow(QFrame.Shadow.Sunken)
         self.status_line.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.status_line)
-        
+
         self.setLayout(layout)
 
     def _start_timer(self) -> None:
@@ -102,7 +103,11 @@ class ProgressDisplay(BaseWidget):
             hours = int(elapsed.total_seconds() // 3600)
             minutes = int((elapsed.total_seconds() % 3600) // 60)
             seconds = int(elapsed.total_seconds() % 60)
-            self.execution_time.setText(f"Time: {hours:02d}:{minutes:02d}:{seconds:02d}")
+            self.execution_time.setText(
+                f"Time: {
+                    hours:02d}:{
+                    minutes:02d}:{
+                    seconds:02d}")
 
     async def handle_ui_update(self, data: Dict[str, Any]) -> None:
         """Handle UI updates."""
@@ -131,16 +136,16 @@ class ProgressDisplay(BaseWidget):
                 f"Action: {step.get('action', 'Unknown')}\n"
                 f"Parameters: {step.get('parameters', {})}"
             )
-            
+
             # Start timing if first step
             if not self._sequence_start:
                 self._sequence_start = datetime.now()
                 self._step_count = step.get("total_steps", 0)
-                
+
             self._current_step = step
             self.status_line.setText("Step in progress...")
             self.status_line.setStyleSheet("color: blue;")
-            
+
         except Exception as e:
             logger.error(f"Error handling step start: {e}")
             await self.send_update("system.error", f"Error handling step start: {str(e)}")
@@ -149,21 +154,26 @@ class ProgressDisplay(BaseWidget):
         """Handle step completion."""
         try:
             self._completed_steps += 1
-            
+
             # Update progress
             progress = (self._completed_steps / self._step_count) * 100
             self.progress_bar.setValue(int(progress))
-            
+
             # Update step counter
-            self.step_counter.setText(f"Steps: {self._completed_steps}/{self._step_count}")
-            
+            self.step_counter.setText(
+                f"Steps: {self._completed_steps}/{self._step_count}")
+
             if result.get("success", False):
                 self.status_line.setText("Step completed successfully")
                 self.status_line.setStyleSheet("color: green;")
             else:
-                self.status_line.setText(f"Step failed: {result.get('message', 'Unknown error')}")
+                self.status_line.setText(
+                    f"Step failed: {
+                        result.get(
+                            'message',
+                            'Unknown error')}")
                 self.status_line.setStyleSheet("color: red;")
-                
+
         except Exception as e:
             logger.error(f"Error handling step complete: {e}")
 
@@ -174,13 +184,17 @@ class ProgressDisplay(BaseWidget):
                 self.status_line.setText("Sequence completed successfully")
                 self.status_line.setStyleSheet("color: green;")
             else:
-                self.status_line.setText(f"Sequence failed: {result.get('message', 'Unknown error')}")
+                self.status_line.setText(
+                    f"Sequence failed: {
+                        result.get(
+                            'message',
+                            'Unknown error')}")
                 self.status_line.setStyleSheet("color: red;")
-                
+
             # Reset sequence state
             self._sequence_start = None
             self._current_step = None
-            
+
         except Exception as e:
             logger.error(f"Error handling sequence complete: {e}")
 

@@ -81,6 +81,7 @@ def ensure_directories() -> None:
 
 class SplashScreen(QProgressDialog):
     """Splash screen for initialization."""
+
     def __init__(self):
         super().__init__(
             "Initializing System...",
@@ -147,7 +148,8 @@ async def initialize_system() -> tuple[
         # Test hardware connections
         connection_status = await tag_manager.test_connections()
         if not any(connection_status.values()):
-            logger.warning("No hardware connections available - starting in disconnected mode")
+            logger.warning(
+                "No hardware connections available - starting in disconnected mode")
             await message_broker.publish("system/status", {
                 "status": "disconnected",
                 "details": connection_status,
@@ -179,7 +181,8 @@ async def initialize_system() -> tuple[
             "context": "system_initialization",
             "timestamp": datetime.now().isoformat()
         }
-        logger.exception(f"Critical error during system initialization: {error_msg}")
+        logger.exception(
+            f"Critical error during system initialization: {error_msg}")
         raise CoreError("Failed to initialize system", error_msg) from e
 
 
@@ -192,7 +195,8 @@ async def main() -> None:
     try:
         setup_logging()
         ensure_directories()
-        logger.info("Starting Micro Cold Spray application - Dashboard Only Mode")
+        logger.info(
+            "Starting Micro Cold Spray application - Dashboard Only Mode")
 
         app = QApplication(sys.argv)
 
@@ -214,7 +218,8 @@ async def main() -> None:
         # Get UI config
         app_config = await config_manager.get_config("application")
         if "window" not in app_config:
-            raise ConfigurationError("Missing window configuration in application.yaml")
+            raise ConfigurationError(
+                "Missing window configuration in application.yaml")
 
         window = MainWindow(
             config_manager=config_manager,
@@ -246,7 +251,8 @@ async def main() -> None:
             try:
                 await message_broker.publish("error", error_msg)
             except Exception as publish_error:
-                logger.error(f"Failed to publish error message: {publish_error}")
+                logger.error(
+                    f"Failed to publish error message: {publish_error}")
         raise
     finally:
         # Proper cleanup chain

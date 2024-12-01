@@ -57,12 +57,12 @@ class ActionManager:
             logger.info("Action manager shutdown complete")
         except Exception as e:
             logger.exception("Error during action manager shutdown")
-            raise OperationError("Action manager shutdown failed", "shutdown", {
-                "error": str(e),
-                "timestamp": datetime.now().isoformat()
-            })
+            raise OperationError(
+                "Action manager shutdown failed", "shutdown", {
+                    "error": str(e), "timestamp": datetime.now().isoformat()})
 
-    async def execute_action(self, action_name: str, parameters: Dict[str, Any]) -> None:
+    async def execute_action(self, action_name: str,
+                             parameters: Dict[str, Any]) -> None:
         """Execute a single atomic action."""
         try:
             logger.debug(f"Executing atomic action: {action_name}")
@@ -79,7 +79,8 @@ class ActionManager:
                 "parameters": parameters
             })
 
-    async def execute_action_group(self, group_name: str, parameters: Dict[str, Any]) -> None:
+    async def execute_action_group(
+            self, group_name: str, parameters: Dict[str, Any]) -> None:
         """Execute an action group sequence."""
         try:
             logger.debug(f"Executing action group: {group_name}")
@@ -116,19 +117,22 @@ class ActionManager:
                 "parameters": parameters
             })
 
-    async def _execute_atomic_action(self, action_type: str, parameters: Dict[str, Any]) -> None:
+    async def _execute_atomic_action(
+            self, action_type: str, parameters: Dict[str, Any]) -> None:
         """Execute atomic action from process.yaml."""
         try:
             # Get action definition
             action_def = await self._get_action_definition(action_type)
-            logger.debug(f"Executing atomic action {action_type} with parameters {parameters}")
+            logger.debug(
+                f"Executing atomic action {action_type} with parameters {parameters}")
 
             # Validate action parameters
             await self._validate_action(action_type, parameters)
 
             # Send messages defined in action
             for message in action_def["messages"]:
-                message_data = self._substitute_parameters(parameters, message["data"])
+                message_data = self._substitute_parameters(
+                    parameters, message["data"])
 
                 # Convert to proper message format
                 msg_payload = {
@@ -184,13 +188,17 @@ class ActionManager:
             for req in requirements:
                 if "parameter_file" in req:
                     if "parameter_file" not in parameters:
-                        raise ValidationError("Parameter file required but not provided")
+                        raise ValidationError(
+                            "Parameter file required but not provided")
                 elif "pattern_file" in req:
                     if "pattern_file" not in parameters:
-                        raise ValidationError("Pattern file required but not provided")
+                        raise ValidationError(
+                            "Pattern file required but not provided")
 
         except Exception as e:
-            raise ValidationError(f"Requirements check failed: {str(e)}") from e
+            raise ValidationError(
+                f"Requirements check failed: {
+                    str(e)}") from e
 
     async def _get_action_definition(self, action_type: str) -> Dict[str, Any]:
         """Get action definition from process config."""
@@ -206,9 +214,12 @@ class ActionManager:
             return current
 
         except KeyError as e:
-            raise ValidationError(f"Action {action_type} not found in config") from e
+            raise ValidationError(
+                f"Action {action_type} not found in config") from e
         except Exception as e:
-            raise ValidationError(f"Error getting action definition: {str(e)}") from e
+            raise ValidationError(
+                f"Error getting action definition: {
+                    str(e)}") from e
 
     def _substitute_parameters(
         self,
@@ -220,7 +231,8 @@ class ActionManager:
             if isinstance(template, dict):
                 result = {}
                 for key, value in template.items():
-                    if isinstance(value, str) and value.startswith("{") and value.endswith("}"):
+                    if isinstance(value, str) and value.startswith(
+                            "{") and value.endswith("}"):
                         param_path = value[1:-1].split(".")
                         current = parameters
                         for part in param_path:
@@ -232,7 +244,8 @@ class ActionManager:
             return template
 
         except KeyError as e:
-            raise ValidationError(f"Parameter substitution failed - missing key: {str(e)}")
+            raise ValidationError(
+                f"Parameter substitution failed - missing key: {str(e)}")
         except Exception as e:
             raise ValidationError(f"Parameter substitution failed: {str(e)}")
 
@@ -250,7 +263,8 @@ class ActionManager:
                 "error": str(e)
             })
 
-    async def _handle_error(self, error: Exception, context: Dict[str, Any]) -> None:
+    async def _handle_error(self, error: Exception,
+                            context: Dict[str, Any]) -> None:
         """Handle and publish errors."""
         try:
             error_data = {
@@ -298,12 +312,14 @@ class ActionManager:
             logger.error(f"Error handling action cancel: {e}")
             await self._handle_error(e, data)
 
-    async def _validate_action(self, action_type: str, parameters: Dict[str, Any]) -> None:
+    async def _validate_action(
+            self, action_type: str, parameters: Dict[str, Any]) -> None:
         """Validate action parameters against rules."""
         try:
             # Get validation rules from process config
             process_config = await self._config_manager.get_config("process")
-            validation_rules = process_config.get("validation", {}).get("actions", {})
+            validation_rules = process_config.get(
+                "validation", {}).get("actions", {})
 
             # Get action definition
             action_def = await self._get_action_definition(action_type)
@@ -313,14 +329,16 @@ class ActionManager:
                 required = validation_rules["required_fields"]["fields"]
                 for field in required:
                     if field not in parameters:
-                        raise ValidationError(validation_rules["required_fields"]["message"])
+                        raise ValidationError(
+                            validation_rules["required_fields"]["message"])
 
             # Check for unknown parameters
             if "optional_fields" in validation_rules:
                 optional = validation_rules["optional_fields"]["fields"]
                 for field in parameters:
                     if field not in required and field not in optional:
-                        raise ValidationError(validation_rules["optional_fields"]["message"])
+                        raise ValidationError(
+                            validation_rules["optional_fields"]["message"])
 
             # Validate motion parameters if present
             if action_type.startswith("motion."):
@@ -334,7 +352,8 @@ class ActionManager:
             logger.error(f"Action validation failed: {e}")
             raise ValidationError(f"Action validation failed: {str(e)}") from e
 
-    async def _validate_motion_action(self, action_type: str, parameters: Dict[str, Any]) -> None:
+    async def _validate_motion_action(
+            self, action_type: str, parameters: Dict[str, Any]) -> None:
         """Validate motion action parameters."""
         try:
             hardware_config = await self._config_manager.get_config("hardware")
@@ -356,4 +375,6 @@ class ActionManager:
                     raise ValidationError(msg)
         except Exception as e:
             logger.error(f"Motion action validation failed: {e}")
-            raise ValidationError(f"Motion action validation failed: {str(e)}") from e
+            raise ValidationError(
+                f"Motion action validation failed: {
+                    str(e)}") from e

@@ -1,2 +1,2 @@
 """UI Widgets Package"""
-# Empty init file - no automatic imports 
+# Empty init file - no automatic imports
