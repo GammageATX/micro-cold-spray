@@ -31,7 +31,7 @@ class SystemStateDisplay(BaseWidget):
         super().__init__(
             widget_id="widget_system_state",
             ui_manager=ui_manager,
-            update_tags=["system.state"],
+            update_tags=["system.state", "system.connection"],
             parent=parent
         )
         self.label = QLabel("System: STARTUP")
@@ -45,10 +45,30 @@ class SystemStateDisplay(BaseWidget):
         """Handle UI updates."""
         try:
             if "system.state" in data:
-                state = data["system.state"]
+                state = data.get("state", "DISCONNECTED")
                 self.label.setText(f"System: {state}")
+                
+                # Add color coding for different states
+                color = {
+                    "CONNECTED": "#2ecc71",    # Green
+                    "DISCONNECTED": "#e74c3c",  # Red
+                    "STARTUP": "#f1c40f",      # Yellow
+                    "ERROR": "#e74c3c"         # Red
+                }.get(state, "#2c3e50")        # Default dark gray
+                
+                self.label.setStyleSheet(f"font-weight: bold; color: {color};")
+                logger.debug(f"Updated system state display: {state}")
+                
+            elif "system.connection" in data:
+                connected = data.get("connected", False)
+                state = "CONNECTED" if connected else "DISCONNECTED"
+                self.label.setText(f"System: {state}")
+                color = "#2ecc71" if connected else "#e74c3c"
+                self.label.setStyleSheet(f"font-weight: bold; color: {color};")
+                logger.debug(f"Updated connection state: {state}")
+                
         except Exception as e:
-            logger.error(f"Error handling system state update: {e}")
+            logger.error(f"Error handling UI update: {e}")
 
 class SystemMessageDisplay(BaseWidget):
     """Widget for displaying system messages."""

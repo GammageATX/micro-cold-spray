@@ -1,12 +1,17 @@
 # src/micro_cold_spray/__main__.py
 import sys
-import asyncio
 from pathlib import Path
+
+src_path = Path(__file__).parent.parent
+if str(src_path) not in sys.path:
+    sys.path.insert(0, str(src_path))
+
+import asyncio
 from loguru import logger
 from PySide6.QtWidgets import QApplication, QProgressDialog
 from PySide6.QtCore import Qt
-import yaml
 from datetime import datetime
+import yaml
 
 from micro_cold_spray.core.infrastructure.config.config_manager import ConfigManager
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
