@@ -1,6 +1,7 @@
 # Project Architecture Rules
 
 ## Core Principles
+
 - Single Source of Truth (SSOT):
   - TagManager: Only component that uses hardware clients
   - ConfigManager: Handles all configurations
@@ -9,6 +10,7 @@
   - StateManager: Manages all system state
 
 ## Python Environment Requirements
+
 1. Virtual Environment:
    - Must use venv for isolation
    - Must be named .venv
@@ -28,6 +30,7 @@
    - Must maintain minimum Python version compatibility
 
 ## UI Component Rules
+
 1. Widget Requirements:
    - Must register with UIUpdateManager
    - Must implement update() method
@@ -48,6 +51,7 @@
    - Must use proper enum classes
 
 ## Testing Standards
+
 1. Test Requirements:
    - Must use pytest framework
    - Must use pytest-asyncio for async tests
@@ -96,6 +100,7 @@
    - Must include run instructions
 
 ## Error Handling Rules
+
 1. Required Checks:
    - All MessageBroker operations
    - All cleanup chains

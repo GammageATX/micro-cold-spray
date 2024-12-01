@@ -1,7 +1,6 @@
 """Parameter management package."""
-from .parameter_manager import ParameterManager, ParameterError
+from .parameter_manager import ParameterManager
 
 __all__ = [
-    'ParameterManager',
-    'ParameterError'
-] 
+    'ParameterManager'
+]

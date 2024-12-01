@@ -1,16 +1,14 @@
 """Pattern management component."""
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any
 from loguru import logger
-import asyncio
 from datetime import datetime
 from pathlib import Path
-import yaml
-import csv
 
 from ....infrastructure.messaging.message_broker import MessageBroker
 from ....infrastructure.config.config_manager import ConfigManager
 from ....components.process.validation.process_validator import ProcessValidator
 from ....exceptions import OperationError, ValidationError
+
 
 class PatternManager:
     """Manages spray patterns and pattern generation."""
@@ -25,11 +23,11 @@ class PatternManager:
         self._message_broker = message_broker
         self._config_manager = config_manager
         self._process_validator = process_validator
-        
+
         # Initialize paths
         self._pattern_path = Path("data/patterns")
         self._custom_path = Path("data/patterns/custom")
-        
+
         self._is_initialized = False
 
     async def initialize(self) -> None:
@@ -67,7 +65,7 @@ class PatternManager:
         try:
             self._is_initialized = False
             logger.info("Pattern manager shutdown complete")
-            
+
         except Exception as e:
             logger.exception("Error during pattern manager shutdown")
             raise OperationError("Pattern manager shutdown failed", "pattern", {
@@ -80,18 +78,18 @@ class PatternManager:
             # Get validation rules from process config
             process_config = await self._config_manager.get_config("process")
             validation_rules = process_config.get("validation", {}).get("patterns", {})
-            
+
             pattern_type = pattern_data["pattern"]["type"]
             params = pattern_data["pattern"]["params"]
-            
+
             if pattern_type not in validation_rules:
                 raise OperationError(f"Unknown pattern type: {pattern_type}", "pattern", {
                     "type": pattern_type,
                     "timestamp": datetime.now().isoformat()
                 })
-                
+
             type_rules = validation_rules[pattern_type]
-            
+
             # Check required fields
             required = type_rules.get("required_fields", {}).get("fields", [])
             for field in required:
@@ -101,7 +99,7 @@ class PatternManager:
                         "missing_field": field,
                         "timestamp": datetime.now().isoformat()
                     })
-                    
+
             # Check for unknown fields
             optional = type_rules.get("optional_fields", {}).get("fields", [])
             for field in params.keys():
@@ -111,7 +109,7 @@ class PatternManager:
                         "unknown_field": field,
                         "timestamp": datetime.now().isoformat()
                     })
-                    
+
         except Exception as e:
             logger.error(f"Error validating pattern parameters: {e}")
             raise OperationError("Failed to validate pattern parameters", "pattern", {
@@ -125,7 +123,7 @@ class PatternManager:
             # Get stage dimensions from hardware config
             hardware_config = await self._config_manager.get_config("hardware")
             stage_dims = hardware_config["physical"]["stage"]["dimensions"]
-            
+
             # Get pattern bounds based on type
             pattern_type = pattern_data["pattern"]["type"]
             params = pattern_data["pattern"]["params"]
@@ -133,7 +131,7 @@ class PatternManager:
             if pattern_type == "serpentine":
                 origin = params["origin"]
                 length = params["length"]
-                
+
                 # Calculate pattern bounds
                 x_min = origin[0]
                 x_max = origin[0] + length
@@ -141,8 +139,9 @@ class PatternManager:
                 y_max = origin[1] + params["spacing"]
 
                 # Validate bounds against stage dimensions
-                if (x_min < 0 or x_max > stage_dims["x"] or
-                    y_min < 0 or y_max > stage_dims["y"]):
+                if (x_min < 0 or x_max > stage_dims["x"]
+                        or y_min < 0 or y_max > stage_dims["y"]):
+
                     raise ValidationError(
                         f"Pattern exceeds stage dimensions: "
                         f"[0, {stage_dims['x']}] x [0, {stage_dims['y']}]",
@@ -160,3 +159,76 @@ class PatternManager:
             raise OperationError("Failed to validate sprayable area", "pattern", {
                 "error": str(e)
             })
+
+    async def _handle_load_request(self, data: Dict[str, Any]) -> None:
+        """Handle pattern load request."""
+        try:
+            pattern_data = data.get("pattern", {})
+
+            # Validate pattern parameters
+            await self._validate_pattern_params(pattern_data)
+
+            # Validate sprayable area
+            await self._validate_sprayable_area(pattern_data)
+
+            # Publish loaded pattern
+            await self._message_broker.publish(
+                "patterns/loaded",
+                {
+                    "pattern": pattern_data,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"Error handling load request: {e}")
+            await self._message_broker.publish(
+                "patterns/error",
+                {
+                    "error": str(e),
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+
+    async def _handle_save_request(self, data: Dict[str, Any]) -> None:
+        """Handle pattern save request."""
+        try:
+            filename = data.get("filename")
+            pattern_data = data.get("pattern", {})
+
+            if not filename:
+                error_context = {
+                    "pattern": pattern_data,
+                    "timestamp": datetime.now().isoformat()
+                }
+                raise OperationError(
+                    "No filename specified for save request",
+                    "pattern",
+                    error_context
+                )
+
+            # Validate pattern parameters
+            await self._validate_pattern_params(pattern_data)
+
+            # Validate sprayable area
+            await self._validate_sprayable_area(pattern_data)
+
+            # Publish saved pattern
+            await self._message_broker.publish(
+                "patterns/saved",
+                {
+                    "filename": filename,
+                    "pattern": pattern_data,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"Error handling save request: {e}")
+            await self._message_broker.publish(
+                "patterns/error",
+                {
+                    "error": str(e),
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
