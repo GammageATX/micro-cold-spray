@@ -1,14 +1,12 @@
 """Diagnostics tab for system monitoring and control."""
-from typing import Dict, Any, Optional
 import logging
-from PySide6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout,
-    QLabel, QFrame, QSplitter
-)
-from PySide6.QtCore import Qt
+from typing import Any, Dict, Optional
 
-from ..widgets.base_widget import BaseWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QFrame, QLabel, QSplitter, QVBoxLayout
+
 from ..managers.ui_update_manager import UIUpdateManager
+from ..widgets.base_widget import BaseWidget
 from ..widgets.diagnostics.control_panel import ControlPanel
 from ..widgets.diagnostics.tag_monitor import TagMonitor
 from ..widgets.diagnostics.validation_panel import ValidationPanel

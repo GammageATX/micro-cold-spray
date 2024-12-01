@@ -1,14 +1,15 @@
 """Sequence management component."""
-from typing import Dict, Any, Optional, List
-from loguru import logger
 import asyncio
 from datetime import datetime
 from pathlib import Path
-import yaml
+from typing import Any, Dict, List, Optional
 
-from ....infrastructure.messaging.message_broker import MessageBroker
-from ....infrastructure.config.config_manager import ConfigManager
+import yaml
+from loguru import logger
+
 from ....exceptions import OperationError, ValidationError
+from ....infrastructure.config.config_manager import ConfigManager
+from ....infrastructure.messaging.message_broker import MessageBroker
 from ..actions.action_manager import ActionManager
 
 

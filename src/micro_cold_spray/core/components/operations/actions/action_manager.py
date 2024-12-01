@@ -1,16 +1,14 @@
 """Action management component."""
-from typing import Dict, Any, List
-from loguru import logger
 import asyncio
 from datetime import datetime
+from typing import Any, Dict, List
 
-from ....infrastructure.messaging.message_broker import MessageBroker
+from loguru import logger
+
+from ....exceptions import OperationError, ValidationError
 from ....infrastructure.config.config_manager import ConfigManager
+from ....infrastructure.messaging.message_broker import MessageBroker
 from ...process.validation.process_validator import ProcessValidator
-from ....exceptions import (
-    OperationError,
-    ValidationError
-)
 
 
 class ActionManager:
@@ -97,7 +95,8 @@ class ActionManager:
                 if "action" in step:
                     await self._execute_atomic_action(
                         step["action"],
-                        self._substitute_parameters(parameters, step.get("parameters", {}))
+                        self._substitute_parameters(
+                            parameters, step.get("parameters", {}))
                     )
                 elif "validation" in step:
                     await self._handle_validation(step["validation"])

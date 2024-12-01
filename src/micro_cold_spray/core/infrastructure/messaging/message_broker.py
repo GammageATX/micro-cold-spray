@@ -7,15 +7,15 @@ Special Note:
     2. ConfigManager needs MessageBroker to publish updates
     3. Other components still use ConfigManager as the source of truth
 """
-from typing import Dict, Any, Callable, Awaitable, Optional, List
-from collections import defaultdict
 import asyncio
-from loguru import logger
+from collections import defaultdict
 from datetime import datetime
-
+from typing import Any, Awaitable, Callable, Dict, List, Optional
+from loguru import logger
 from ...exceptions import MessageError
 
 MessageHandler = Callable[[Dict[str, Any]], Awaitable[None]]
+
 
 class MessageBroker:
     """
@@ -26,9 +26,11 @@ class MessageBroker:
     def __init__(self):
         """Initialize the message broker."""
         self._subscribers: Dict[str, set[MessageHandler]] = defaultdict(set)
-        self._wildcard_subscribers: Dict[str, set[MessageHandler]] = defaultdict(set)
+        self._wildcard_subscribers: Dict[str,
+                                         set[MessageHandler]] = defaultdict(set)
         self._running = False
-        self._message_queue: asyncio.Queue[tuple[str, Dict[str, Any]]] = asyncio.Queue()
+        self._message_queue: asyncio.Queue[tuple[str,
+                                                 Dict[str, Any]]] = asyncio.Queue()
         self._processing_task: Optional[asyncio.Task] = None
         logger.info("MessageBroker initialized")
 
@@ -40,7 +42,8 @@ class MessageBroker:
                 return
 
             self._running = True
-            self._processing_task = asyncio.create_task(self._process_messages())
+            self._processing_task = asyncio.create_task(
+                self._process_messages())
             logger.info("MessageBroker started")
 
         except Exception as e:
@@ -52,7 +55,7 @@ class MessageBroker:
         try:
             logger.info("Shutting down MessageBroker")
             self._running = False
-            
+
             if self._processing_task:
                 self._processing_task.cancel()
                 try:
@@ -79,7 +82,7 @@ class MessageBroker:
     async def subscribe(self, topic: str, handler: MessageHandler) -> None:
         """
         Subscribe to a topic with a message handler.
-        
+
         Args:
             topic: The topic to subscribe to
             handler: Async callback function to handle messages
@@ -87,7 +90,7 @@ class MessageBroker:
         try:
             if not callable(handler):
                 raise ValueError("Handler must be callable")
-            
+
             # Handle wildcard subscriptions
             if '*' in topic:
                 base_topic = topic.replace('*', '')
@@ -104,7 +107,7 @@ class MessageBroker:
     async def unsubscribe(self, topic: str, handler: MessageHandler) -> None:
         """
         Unsubscribe a handler from a topic.
-        
+
         Args:
             topic: The topic to unsubscribe from
             handler: The handler to remove
@@ -123,7 +126,7 @@ class MessageBroker:
     async def publish(self, topic: str, message: Dict[str, Any]) -> None:
         """
         Publish a message to a topic.
-        
+
         Args:
             topic: The topic to publish to
             message: The message data to publish
@@ -145,18 +148,18 @@ class MessageBroker:
             while self._running:
                 try:
                     topic, message = await self._message_queue.get()
-                    
+
                     # Handle direct subscribers
                     if topic in self._subscribers:
                         for handler in self._subscribers[topic]:
                             await self._safe_handle_message(handler, message)
-                    
+
                     # Handle wildcard subscribers
                     for base_topic, handlers in self._wildcard_subscribers.items():
                         if topic.startswith(base_topic):
                             for handler in handlers:
                                 await self._safe_handle_message(handler, message)
-                    
+
                     self._message_queue.task_done()
 
                 except asyncio.CancelledError:
@@ -174,43 +177,46 @@ class MessageBroker:
 
     def _get_matching_topics(self, topic: str) -> List[str]:
         """Get all subscription topics that match a published topic.
-        
+
         Handles wildcard matching:
         - 'topic/*' matches 'topic/subtopic'
         - '*' matches any single level
         - '#' matches zero or more levels
-        
+
         Args:
             topic: The published topic to match against
-            
+
         Returns:
             List of matching subscription topics
         """
         matching = []
         topic_parts = topic.split('/')
-        
+
         for subscription in self._subscribers:
             sub_parts = subscription.split('/')
-            
+
             # Exact match
             if subscription == topic:
                 matching.append(subscription)
                 continue
-            
+
             # Wildcard match
             if '*' in sub_parts or '#' in sub_parts:
                 if self._topic_matches(topic_parts, sub_parts):
                     matching.append(subscription)
-                
+
         return matching
 
-    def _topic_matches(self, topic_parts: List[str], pattern_parts: List[str]) -> bool:
+    def _topic_matches(
+            self,
+            topic_parts: List[str],
+            pattern_parts: List[str]) -> bool:
         """Check if a topic matches a pattern with wildcards.
-        
+
         Args:
             topic_parts: Parts of the published topic
             pattern_parts: Parts of the subscription pattern
-            
+
         Returns:
             True if the topic matches the pattern
         """
@@ -218,21 +224,25 @@ class MessageBroker:
         if '#' in pattern_parts:
             pound_idx = pattern_parts.index('#')
             # Everything before # must match exactly
-            return self._parts_match(topic_parts[:pound_idx], pattern_parts[:pound_idx])
-        
+            return self._parts_match(
+                topic_parts[:pound_idx], pattern_parts[:pound_idx])
+
         # Handle * wildcards
         if len(topic_parts) != len(pattern_parts):
             return False
-        
+
         return self._parts_match(topic_parts, pattern_parts)
 
-    def _parts_match(self, topic_parts: List[str], pattern_parts: List[str]) -> bool:
+    def _parts_match(
+            self,
+            topic_parts: List[str],
+            pattern_parts: List[str]) -> bool:
         """Check if topic parts match pattern parts with * wildcards.
-        
+
         Args:
             topic_parts: Parts of the published topic
             pattern_parts: Parts of the subscription pattern
-            
+
         Returns:
             True if parts match
         """
@@ -241,7 +251,8 @@ class MessageBroker:
             for t, p in zip(topic_parts, pattern_parts)
         )
 
-    async def _safe_handle_message(self, handler: MessageHandler, message: Dict[str, Any]) -> None:
+    async def _safe_handle_message(
+            self, handler: MessageHandler, message: Dict[str, Any]) -> None:
         """Safely execute a message handler with error handling."""
         try:
             await handler(message)
@@ -255,34 +266,40 @@ class MessageBroker:
             try:
                 await self.publish("error", error_message)
             except Exception as publish_error:
-                logger.error(f"Failed to publish error message: {publish_error}")
+                logger.error(
+                    f"Failed to publish error message: {publish_error}")
 
-    async def request(self, topic: str, message: Dict[str, Any], timeout: float = 5.0) -> Dict[str, Any]:
+    async def request(self,
+                      topic: str,
+                      message: Dict[str,
+                                    Any],
+                      timeout: float = 5.0) -> Dict[str,
+                                                    Any]:
         """
         Send a request and wait for a response.
-        
+
         Args:
             topic: The request topic
             message: The request message
             timeout: Maximum time to wait for response in seconds
-            
+
         Returns:
             The response message
         """
         try:
             response_future: asyncio.Future = asyncio.Future()
-            
+
             async def response_handler(response_msg: Dict[str, Any]) -> None:
                 if not response_future.done():
                     response_future.set_result(response_msg)
-            
+
             response_topic = f"{topic}/response"
             await self.subscribe(response_topic, response_handler)
-            
+
             try:
                 await self.publish(topic, message)
                 return await asyncio.wait_for(response_future, timeout)
-                
+
             finally:
                 await self.unsubscribe(response_topic, response_handler)
 

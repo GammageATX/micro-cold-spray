@@ -1,21 +1,18 @@
 """Configuration status widget."""
-from typing import Dict, Any, Optional
 import logging
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel,
-    QProgressBar
-)
-from PySide6.QtCore import Qt
+from typing import Any, Dict
 
-from .....infrastructure.messaging.message_broker import MessageBroker
-from ..base_widget import BaseWidget
+from PySide6.QtWidgets import QLabel, QProgressBar, QVBoxLayout
+
 from ...managers.ui_update_manager import UIUpdateManager
+from ..base_widget import BaseWidget
 
 logger = logging.getLogger(__name__)
 
+
 class ConfigStatus(BaseWidget):
     """Widget for displaying configuration status."""
-    
+
     def __init__(
         self,
         ui_manager: UIUpdateManager,
@@ -30,23 +27,23 @@ class ConfigStatus(BaseWidget):
             ],
             parent=parent
         )
-        
+
         self._init_ui()
         logger.info("Config status widget initialized")
 
     def _init_ui(self) -> None:
         """Initialize the UI."""
         layout = QVBoxLayout()
-        
+
         # Status label
         self.status_label = QLabel("Configuration Status: Ready")
         layout.addWidget(self.status_label)
-        
+
         # Progress bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
-        
+
         self.setLayout(layout)
 
     async def handle_ui_update(self, data: Dict[str, Any]) -> None:
@@ -55,11 +52,11 @@ class ConfigStatus(BaseWidget):
             if "config.status" in data:
                 status = data["config.status"]
                 self._update_status(status)
-                
+
             if "config.validation" in data:
                 validation = data["config.validation"]
                 self._handle_validation(validation)
-                
+
         except Exception as e:
             logger.error(f"Error handling UI update: {e}")
 
@@ -67,19 +64,18 @@ class ConfigStatus(BaseWidget):
         """Update status display."""
         try:
             state = status.get("state", "ready")
-            message = status.get("message", "")
             progress = status.get("progress")
-            
+
             # Update status label
             self.status_label.setText(f"Configuration Status: {state.title()}")
-            
+
             # Update progress bar
             if progress is not None:
                 self.progress_bar.setVisible(True)
                 self.progress_bar.setValue(int(progress * 100))
             else:
                 self.progress_bar.setVisible(False)
-                
+
         except Exception as e:
             logger.error(f"Error updating status: {e}")
 
@@ -95,6 +91,6 @@ class ConfigStatus(BaseWidget):
                     self.status_label.setText(
                         f"Configuration Error: {errors[0]}"
                     )
-                    
+
         except Exception as e:
             logger.error(f"Error handling validation: {e}")

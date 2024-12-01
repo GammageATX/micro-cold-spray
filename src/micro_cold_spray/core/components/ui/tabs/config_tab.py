@@ -1,12 +1,13 @@
 """Configuration tab for system settings."""
-from typing import Dict, Any
 import logging
+from typing import Any, Dict
+
 from PySide6.QtWidgets import QVBoxLayout
 
-from ..widgets.base_widget import BaseWidget
 from ..managers.ui_update_manager import UIUpdateManager
-from ..widgets.config.config_editor import ConfigEditor
+from ..widgets.base_widget import BaseWidget
 from ..widgets.config.backup_manager import BackupManager
+from ..widgets.config.config_editor import ConfigEditor
 
 logger = logging.getLogger(__name__)
 

@@ -1,22 +1,28 @@
 """Manual hardware control widget."""
-from typing import Dict, Any, Optional
 import logging
 from datetime import datetime
-from PySide6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QGroupBox,
-    QPushButton, QLabel, QDoubleSpinBox, QCheckBox,
-    QFormLayout, QMessageBox
-)
-from PySide6.QtCore import Qt
+from typing import Any, Dict, Optional
 
-from ..base_widget import BaseWidget
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QDoubleSpinBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+)
+
 from ...managers.ui_update_manager import UIUpdateManager
+from ..base_widget import BaseWidget
 
 logger = logging.getLogger(__name__)
 
+
 class ControlPanel(BaseWidget):
     """Manual hardware control panel."""
-    
+
     def __init__(
         self,
         ui_manager: UIUpdateManager,
@@ -34,99 +40,114 @@ class ControlPanel(BaseWidget):
             ],
             parent=parent
         )
-        
+
         # Track hardware state
         self._valve_states: Dict[str, bool] = {}
         self._flow_values: Dict[str, float] = {}
         self._feeder_speed: float = 0.0
         self._hardware_enabled = False
-        
+
         # Store widget references
         self._valve_controls: Dict[str, QCheckBox] = {}
         self._flow_controls: Dict[str, QDoubleSpinBox] = {}
         self._feeder_speed_control: Optional[QDoubleSpinBox] = None
         self._enable_button: Optional[QPushButton] = None
         self._estop_button: Optional[QPushButton] = None
-        
+
         self._init_ui()
         logger.info("Control panel initialized")
 
     def _init_ui(self) -> None:
         """Initialize the control panel UI."""
         layout = QVBoxLayout()
-        
+
         # Hardware enable control
         enable_group = QGroupBox("Hardware Control")
         enable_layout = QHBoxLayout()
-        
+
         self._enable_button = QPushButton("Enable Hardware")
         self._enable_button.setCheckable(True)
         self._enable_button.clicked.connect(self._on_enable_clicked)
-        
+
         self._estop_button = QPushButton("EMERGENCY STOP")
-        self._estop_button.setStyleSheet("background-color: red; color: white;")
+        self._estop_button.setStyleSheet(
+            "background-color: red; color: white;")
         self._estop_button.clicked.connect(self._on_estop_clicked)
-        
+
         enable_layout.addWidget(self._enable_button)
         enable_layout.addWidget(self._estop_button)
         enable_group.setLayout(enable_layout)
         layout.addWidget(enable_group)
-        
+
         # Add valve controls
         valve_group = QGroupBox("Valve Controls")
         valve_layout = QFormLayout()
-        
-        for valve in ["gate_partial", "gate_full", "mechanical_pump", "booster_pump"]:
+
+        for valve in [
+            "gate_partial",
+            "gate_full",
+            "mechanical_pump",
+                "booster_pump"]:
             checkbox = QCheckBox()
-            checkbox.clicked.connect(lambda state, v=valve: self._on_valve_clicked(v, state))
+            checkbox.clicked.connect(
+                lambda state,
+                v=valve: self._on_valve_clicked(
+                    v,
+                    state))
             self._valve_controls[valve] = checkbox
             valve_layout.addRow(valve.replace("_", " ").title(), checkbox)
-            
+
         valve_group.setLayout(valve_layout)
         layout.addWidget(valve_group)
-        
+
         # Add flow controls
         flow_group = QGroupBox("Flow Controls")
         flow_layout = QFormLayout()
-        
+
         for flow in ["main", "feeder"]:
             spin = QDoubleSpinBox()
             spin.setRange(0, 100)
             spin.setSingleStep(0.1)
-            spin.valueChanged.connect(lambda value, f=flow: self._on_flow_changed(f, value))
+            spin.valueChanged.connect(
+                lambda value,
+                f=flow: self._on_flow_changed(
+                    f,
+                    value))
             self._flow_controls[flow] = spin
             flow_layout.addRow(f"{flow.title()} Flow (SLPM):", spin)
-            
+
         flow_group.setLayout(flow_layout)
         layout.addWidget(flow_group)
-        
+
         # Add feeder control
         feeder_group = QGroupBox("Powder Feeder")
         feeder_layout = QFormLayout()
-        
+
         self._feeder_speed_control = QDoubleSpinBox()
         self._feeder_speed_control.setRange(0, 100)
         self._feeder_speed_control.setSingleStep(1.0)
-        self._feeder_speed_control.valueChanged.connect(self._on_feeder_changed)
+        self._feeder_speed_control.valueChanged.connect(
+            self._on_feeder_changed)
         feeder_layout.addRow("Feeder Speed (%):", self._feeder_speed_control)
-        
+
         feeder_group.setLayout(feeder_layout)
         layout.addWidget(feeder_group)
-        
+
         self.setLayout(layout)
-        
+
         # Initially disable controls
         self._update_enabled_state(False)
 
     def _update_enabled_state(self, enabled: bool) -> None:
         """Update enabled state of all controls."""
         self._hardware_enabled = enabled
-        
+
         # Update button state
         if self._enable_button:
             self._enable_button.setChecked(enabled)
-            self._enable_button.setText("Disable Hardware" if enabled else "Enable Hardware")
-        
+            self._enable_button.setText(
+                "Disable Hardware" if enabled else "Enable Hardware")
+
         # Update control states
         for control in self._valve_controls.values():
             control.setEnabled(enabled)
@@ -169,23 +190,23 @@ class ControlPanel(BaseWidget):
             if "hardware.status" in data:
                 status = data["hardware.status"]
                 self._update_enabled_state(status.get("enabled", False))
-                
+
             if "hardware.valve_states" in data:
                 states = data["hardware.valve_states"]
                 self._update_valve_states(states)
-                
+
             if "hardware.flow_values" in data:
                 values = data["hardware.flow_values"]
                 self._update_flow_values(values)
-                
+
             if "hardware.feeder_speed" in data:
                 speed = data["hardware.feeder_speed"]
                 self._update_feeder_speed(speed)
-                
+
             if "hardware.error" in data:
                 error = data["hardware.error"]
                 self._handle_hardware_error(error)
-                
+
         except Exception as e:
             logger.error(f"Error handling UI update: {e}")
 
@@ -243,7 +264,8 @@ class ControlPanel(BaseWidget):
             logger.error(f"Error setting {flow} flow: {e}")
             # Revert value
             if flow in self._flow_controls:
-                self._flow_controls[flow].setValue(self._flow_values.get(flow, 0.0))
+                self._flow_controls[flow].setValue(
+                    self._flow_values.get(flow, 0.0))
 
     async def _on_feeder_changed(self, value: float) -> None:
         """Handle feeder speed change."""

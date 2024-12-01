@@ -1,28 +1,33 @@
 """Main application window."""
-from typing import Optional, Dict, Any
-import asyncio
+from datetime import datetime
+from typing import Any, Dict
+
 from loguru import logger
-from PySide6.QtWidgets import (
-    QMainWindow, QTabWidget, QWidget,
-    QVBoxLayout, QHBoxLayout, QLabel,
-    QFrame, QStatusBar, QProgressDialog
-)
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QCloseEvent
-from datetime import datetime
+from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QStatusBar,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
+from micro_cold_spray.core.components.ui.managers.ui_update_manager import (
+    UIUpdateManager,
+)
+from micro_cold_spray.core.components.ui.tabs.dashboard_tab import DashboardTab
+from micro_cold_spray.core.components.ui.widgets.base_widget import BaseWidget
+from micro_cold_spray.core.components.ui.widgets.status.connection_status import (
+    ConnectionStatus,
+)
+from micro_cold_spray.core.exceptions import UIError
 from micro_cold_spray.core.infrastructure.config.config_manager import ConfigManager
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
 from micro_cold_spray.core.infrastructure.tags.tag_manager import TagManager
-from micro_cold_spray.core.components.ui.managers.ui_update_manager import UIUpdateManager
-from micro_cold_spray.core.components.ui.widgets.status.connection_status import ConnectionStatus
-from micro_cold_spray.core.components.ui.widgets.base_widget import BaseWidget
-from micro_cold_spray.core.components.ui.tabs.dashboard_tab import DashboardTab
-from micro_cold_spray.core.components.ui.tabs.motion_tab import MotionTab
-from micro_cold_spray.core.components.ui.tabs.editor_tab import EditorTab
-from micro_cold_spray.core.components.ui.tabs.config_tab import ConfigTab
-from micro_cold_spray.core.components.ui.tabs.diagnostics_tab import DiagnosticsTab
-from micro_cold_spray.core.exceptions import UIError
 
 
 class SystemStateDisplay(BaseWidget):

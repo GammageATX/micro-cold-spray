@@ -1,15 +1,16 @@
 """UI update manager component."""
-from typing import Dict, Any, Optional, Set, List
-from loguru import logger
+from collections import defaultdict
 from datetime import datetime
 from enum import Enum
-from PySide6.QtWidgets import QWidget, QFrame, QSizePolicy
-from PySide6.QtCore import Qt
-from collections import defaultdict
+from typing import Any, Dict, List, Optional, Set
 
-from ....infrastructure.messaging.message_broker import MessageBroker
+from loguru import logger
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QFrame, QSizePolicy, QWidget
+
+from ....exceptions import CoreError, UIError, ValidationError
 from ....infrastructure.config.config_manager import ConfigManager
-from ....exceptions import UIError, CoreError, ValidationError
+from ....infrastructure.messaging.message_broker import MessageBroker
 
 
 class WidgetType(Enum):

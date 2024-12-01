@@ -1,21 +1,22 @@
 # src/micro_cold_spray/__main__.py
+import asyncio
 import sys
+from datetime import datetime
 from pathlib import Path
 
-import asyncio
 from loguru import logger
-from PySide6.QtWidgets import QApplication, QProgressDialog
 from PySide6.QtCore import Qt
-from datetime import datetime
+from PySide6.QtWidgets import QApplication, QProgressDialog
 
-
+from micro_cold_spray.core.components.ui.managers.ui_update_manager import (
+    UIUpdateManager,
+)
+from micro_cold_spray.core.components.ui.windows.main_window import MainWindow
+from micro_cold_spray.core.exceptions import ConfigurationError, CoreError
 from micro_cold_spray.core.infrastructure.config.config_manager import ConfigManager
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
-from micro_cold_spray.core.infrastructure.tags.tag_manager import TagManager
 from micro_cold_spray.core.infrastructure.state.state_manager import StateManager
-from micro_cold_spray.core.components.ui.managers.ui_update_manager import UIUpdateManager
-from micro_cold_spray.core.components.ui.windows.main_window import MainWindow
-from micro_cold_spray.core.exceptions import (CoreError, ConfigurationError)
+from micro_cold_spray.core.infrastructure.tags.tag_manager import TagManager
 
 src_path = Path(__file__).parent.parent
 if str(src_path) not in sys.path:

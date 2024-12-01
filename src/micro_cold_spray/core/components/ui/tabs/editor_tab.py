@@ -1,14 +1,12 @@
 """Editor tab for process sequence editing."""
-from typing import Dict, Any, Optional
 import logging
-from PySide6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QSplitter,
-    QFrame
-)
-from PySide6.QtCore import Qt
+from typing import Any, Dict, Optional
 
-from ..widgets.base_widget import BaseWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QFrame, QSplitter, QVBoxLayout
+
 from ..managers.ui_update_manager import UIUpdateManager
+from ..widgets.base_widget import BaseWidget
 from ..widgets.editor.parameter_editor import ParameterEditor
 from ..widgets.editor.pattern_editor import PatternEditor
 from ..widgets.editor.sequence_builder import SequenceBuilder

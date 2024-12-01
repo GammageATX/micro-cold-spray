@@ -1,24 +1,31 @@
 """Parameter editor widget for editing process parameters."""
-from typing import Dict, Any, Optional
 import logging
-from PySide6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QSpinBox,
-    QDoubleSpinBox, QComboBox, QLineEdit,
-    QFormLayout, QWidget, QComboBox
-)
-from PySide6.QtCore import Signal
+from typing import Any, Dict, Optional
 
-from ..base_widget import BaseWidget
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (
+    QComboBox,
+    QDoubleSpinBox,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
 from ...managers.ui_update_manager import UIUpdateManager
+from ..base_widget import BaseWidget
 
 logger = logging.getLogger(__name__)
 
+
 class ParameterEditor(BaseWidget):
     """Widget for editing process parameters."""
-    
+
     parameter_updated = Signal(dict)  # Emitted when parameters are modified
-    
+
     def __init__(
         self,
         ui_manager: UIUpdateManager,
@@ -35,10 +42,10 @@ class ParameterEditor(BaseWidget):
             ],
             parent=parent
         )
-        
+
         self._current_set: Optional[str] = None
         self._parameter_widgets: Dict[str, QWidget] = {}
-        
+
         self._init_ui()
         self._connect_signals()
         logger.info("Parameter editor initialized")
@@ -51,24 +58,24 @@ class ParameterEditor(BaseWidget):
                 sets = data["parameters.sets"]
                 self._set_combo.clear()
                 self._set_combo.addItems(sets)
-                
+
             if "parameters.current" in data:
                 # Update current parameter values
                 params = data["parameters.current"]
                 self._update_parameter_values(params)
-                
+
             if "parameters.validation" in data:
                 # Handle validation results
                 validation = data["parameters.validation"]
                 self._handle_validation_results(validation)
-                
+
         except Exception as e:
             logger.error(f"Error handling UI update: {e}")
 
     def _init_ui(self) -> None:
         """Initialize the widget UI."""
         layout = QVBoxLayout()
-        
+
         # Parameter set selection
         selection_layout = QHBoxLayout()
         self._set_combo = QComboBox()
@@ -79,11 +86,11 @@ class ParameterEditor(BaseWidget):
         selection_layout.addWidget(self._new_btn)
         selection_layout.addWidget(self._delete_btn)
         layout.addLayout(selection_layout)
-        
+
         # Parameter editor form
         self._form_layout = QFormLayout()
         layout.addLayout(self._form_layout)
-        
+
         # Control buttons
         control_layout = QHBoxLayout()
         self._save_btn = QPushButton("Save Changes")
@@ -91,7 +98,7 @@ class ParameterEditor(BaseWidget):
         control_layout.addWidget(self._save_btn)
         control_layout.addWidget(self._reset_btn)
         layout.addLayout(control_layout)
-        
+
         self.setLayout(layout)
 
     def _connect_signals(self) -> None:
