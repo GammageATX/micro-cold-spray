@@ -1,16 +1,24 @@
 """Pattern editor widget for editing spray patterns."""
-from typing import Dict, Any, Optional
 import logging
-from PySide6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QSpinBox,
-    QDoubleSpinBox, QComboBox, QLineEdit,
-    QFormLayout, QGroupBox, QWidget
-)
-from PySide6.QtCore import Signal
+from typing import Any, Dict, Optional
 
-from ..base_widget import BaseWidget
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (
+    QComboBox,
+    QDoubleSpinBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
+
 from ...managers.ui_update_manager import UIUpdateManager
+from ..base_widget import BaseWidget
 
 logger = logging.getLogger(__name__)
 

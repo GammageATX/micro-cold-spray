@@ -1,15 +1,13 @@
 """Widget for displaying sequence execution progress."""
-from typing import Dict, Any
 import logging
 from datetime import datetime
-from PySide6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout,
-    QLabel, QProgressBar, QFrame
-)
-from PySide6.QtCore import Qt, QTimer
+from typing import Any, Dict
 
-from ..base_widget import BaseWidget
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QProgressBar, QVBoxLayout
+
 from ...managers.ui_update_manager import UIUpdateManager
+from ..base_widget import BaseWidget
 
 logger = logging.getLogger(__name__)
 

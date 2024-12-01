@@ -1,24 +1,27 @@
 """Sequence builder widget for creating and editing operation sequences."""
-from typing import Dict, Any, Optional, List
 import logging
 import time
-from PySide6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, 
-    QPushButton, QListWidget, QComboBox,
-    QLabel, QSpinBox, QDoubleSpinBox
-)
+from typing import Any, Dict, List, Optional
 from PySide6.QtCore import Signal
-
-from ..base_widget import BaseWidget
+from PySide6.QtWidgets import (
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QPushButton,
+    QVBoxLayout,
+)
 from ...managers.ui_update_manager import UIUpdateManager
+from ..base_widget import BaseWidget
 
 logger = logging.getLogger(__name__)
 
+
 class SequenceBuilder(BaseWidget):
     """Widget for building operation sequences."""
-    
+
     sequence_updated = Signal(dict)  # Emitted when sequence is modified
-    
+
     def __init__(
         self,
         ui_manager: UIUpdateManager,
@@ -36,7 +39,7 @@ class SequenceBuilder(BaseWidget):
             ],
             parent=parent
         )
-        
+
         self._current_sequence: Optional[Dict[str, Any]] = None
         self._init_ui()
         self._connect_signals()
@@ -48,24 +51,24 @@ class SequenceBuilder(BaseWidget):
             if "sequences.list" in data:
                 sequences = data["sequences.list"]
                 self._update_sequence_list(sequences)
-                
+
             if "sequences.current" in data:
                 sequence = data["sequences.current"]
                 self._current_sequence = sequence
                 self._update_ui()
-                
+
             if "actions.available" in data:
                 actions = data["actions.available"]
                 self._action_combo.clear()
                 self._action_combo.addItems(actions)
-                
+
         except Exception as e:
             logger.error(f"Error handling UI update: {e}")
 
     def _init_ui(self) -> None:
         """Initialize the widget UI."""
         layout = QVBoxLayout()
-        
+
         # Sequence controls
         control_layout = QHBoxLayout()
         self._new_btn = QPushButton("New Sequence")
@@ -75,22 +78,22 @@ class SequenceBuilder(BaseWidget):
         control_layout.addWidget(self._load_btn)
         control_layout.addWidget(self._save_btn)
         layout.addLayout(control_layout)
-        
+
         # Step list
         self._step_list = QListWidget()
         layout.addWidget(QLabel("Sequence Steps:"))
         layout.addWidget(self._step_list)
-        
+
         # Step editor
         editor_layout = QVBoxLayout()
         self._action_combo = QComboBox()
         editor_layout.addWidget(QLabel("Action Type:"))
         editor_layout.addWidget(self._action_combo)
-        
+
         # Parameter editor
         self._param_layout = QVBoxLayout()
         editor_layout.addLayout(self._param_layout)
-        
+
         # Step controls
         step_controls = QHBoxLayout()
         self._add_step_btn = QPushButton("Add Step")
@@ -102,7 +105,7 @@ class SequenceBuilder(BaseWidget):
         step_controls.addWidget(self._move_up_btn)
         step_controls.addWidget(self._move_down_btn)
         editor_layout.addLayout(step_controls)
-        
+
         layout.addLayout(editor_layout)
         self.setLayout(layout)
 
@@ -115,7 +118,8 @@ class SequenceBuilder(BaseWidget):
         self._remove_step_btn.clicked.connect(self._remove_step)
         self._move_up_btn.clicked.connect(self._move_step_up)
         self._move_down_btn.clicked.connect(self._move_step_down)
-        self._action_combo.currentTextChanged.connect(self._update_parameter_editor)
+        self._action_combo.currentTextChanged.connect(
+            self._update_parameter_editor)
         self._step_list.currentRowChanged.connect(self._load_step)
 
     async def _new_sequence(self) -> None:
@@ -176,11 +180,11 @@ class SequenceBuilder(BaseWidget):
             # Create new sequence if none exists
             if self._current_sequence is None:
                 await self._new_sequence()
-            
+
             # Ensure sequence exists after creation attempt
             if self._current_sequence is None:
                 raise ValueError("Failed to create new sequence")
-            
+
             step = {
                 'type': 'pattern',
                 'action': 'execute_pattern',
@@ -190,10 +194,10 @@ class SequenceBuilder(BaseWidget):
                     'pattern_params': pattern_data.get('parameters', {})
                 }
             }
-            
+
             self._current_sequence['steps'].append(step)
             self._update_ui()
-            
+
             # Send update with type checking
             sequence_data = self._current_sequence
             if sequence_data is not None:
@@ -201,7 +205,7 @@ class SequenceBuilder(BaseWidget):
                     "sequences/current",
                     sequence_data
                 )
-            
+
         except Exception as e:
             logger.error(f"Error adding pattern to sequence: {e}")
 
@@ -232,22 +236,22 @@ class SequenceBuilder(BaseWidget):
 
     def _update_sequence_list(self, sequences: List[str]) -> None:
         """Update the list of available sequences.
-        
+
         Args:
             sequences: List of sequence names
         """
         try:
             # Store current selection
             current = self._step_list.currentRow()
-            
+
             # Update list
             self._step_list.clear()
             for sequence in sequences:
                 self._step_list.addItem(sequence)
-                
+
             # Restore selection if valid
             if current >= 0 and current < self._step_list.count():
                 self._step_list.setCurrentRow(current)
-                
+
         except Exception as e:
             logger.error(f"Error updating sequence list: {e}")

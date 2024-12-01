@@ -1,25 +1,33 @@
 """Hardware tag monitoring widget."""
-from typing import Dict, Any, Optional, List, Tuple
 import logging
 from datetime import datetime
-from PySide6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QGroupBox,
-    QTableWidget, QTableWidgetItem, QLineEdit,
-    QComboBox, QLabel, QHeaderView
-)
-from PySide6.QtCore import Qt, QTimer
+from typing import Any, Dict, List, Optional, Tuple
 
-from ..base_widget import BaseWidget
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import (
+    QComboBox,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+)
+
 from ...managers.ui_update_manager import UIUpdateManager
+from ..base_widget import BaseWidget
 
 logger = logging.getLogger(__name__)
 
+
 class TagMonitor(BaseWidget):
     """Real-time tag value monitoring widget."""
-    
+
     # Define tag types as constants
     TAG_TYPES = ["STATUS", "CONTROL", "SENSOR", "CONFIG", "ALL"]
-    
+
     def __init__(
         self,
         ui_manager: UIUpdateManager,
@@ -35,16 +43,16 @@ class TagMonitor(BaseWidget):
             ],
             parent=parent
         )
-        
+
         # Track tag values and history
         self._tag_values: Dict[str, Any] = {}
         self._tag_history: Dict[str, List[Tuple[datetime, Any]]] = {}
         self._history_length = 100  # Keep last 100 values
-        
+
         # Current filter settings
         self._filter_text = ""
         self._filter_type: Optional[str] = None
-        
+
         self._init_ui()
         self._start_timer()
         logger.info("Tag monitor initialized")
@@ -55,59 +63,60 @@ class TagMonitor(BaseWidget):
             if "tag_update" in data:
                 tag_data = data["tag_update"]
                 await self._handle_tag_update(tag_data)
-                
+
             if "tag_list" in data:
                 tag_list = data["tag_list"]
                 self._update_tag_list(tag_list)
-                
+
         except Exception as e:
             logger.error(f"Error handling UI update: {e}")
 
     def _init_ui(self) -> None:
         """Setup tag monitor UI."""
         layout = QVBoxLayout()
-        
+
         # Filter controls
         filter_group = QGroupBox("Filters")
         filter_layout = QHBoxLayout(filter_group)
-        
+
         # Search filter
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search tags...")
         self.search_input.textChanged.connect(self._on_filter_changed)
-        
+
         # Type filter
         self.type_combo = QComboBox()
         self.type_combo.addItem("All Types", None)
         for tag_type in self.TAG_TYPES:
             self.type_combo.addItem(tag_type, tag_type)
         self.type_combo.currentIndexChanged.connect(self._on_type_changed)
-        
+
         filter_layout.addWidget(QLabel("Search:"))
         filter_layout.addWidget(self.search_input)
         filter_layout.addWidget(QLabel("Type:"))
         filter_layout.addWidget(self.type_combo)
         layout.addWidget(filter_group)
-        
+
         # Tag table
         self.tag_table = QTableWidget(0, 4)  # rows will be added dynamically
         self.tag_table.setHorizontalHeaderLabels([
             "Tag Name", "Value", "Last Update", "Type"
         ])
-        
+
         # Set column stretching
         header = self.tag_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # Tag name stretches
+        header.setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch)  # Tag name stretches
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        
+
         layout.addWidget(self.tag_table)
-        
+
         # Status bar
         self.status_label = QLabel("Monitoring 0 tags")
         layout.addWidget(self.status_label)
-        
+
         self.setLayout(layout)
 
     def _start_timer(self) -> None:
@@ -131,11 +140,11 @@ class TagMonitor(BaseWidget):
         # Check text filter
         if self._filter_text and self._filter_text not in tag_name.lower():
             return False
-            
+
         # Check type filter
         if self._filter_type and tag_type != self._filter_type:
             return False
-            
+
         return True
 
     def _update_display(self) -> None:
@@ -143,36 +152,38 @@ class TagMonitor(BaseWidget):
         try:
             # Get current tags with proper tuple structure
             visible_tags = [
-                (name, self._tag_values[name])  # Return tuple of (name, (value, type))
+                # Return tuple of (name, (value, type))
+                (name, self._tag_values[name])
                 for name in self._tag_values
-                if self._should_show_tag(name, self._tag_values[name][1])  # Use type from tuple
+                # Use type from tuple
+                if self._should_show_tag(name, self._tag_values[name][1])
             ]
-            
+
             # Update table
             self.tag_table.setRowCount(len(visible_tags))
             for row, (name, (value, tag_type)) in enumerate(visible_tags):
                 # Tag name
                 self.tag_table.setItem(row, 0, QTableWidgetItem(name))
-                
+
                 # Value
                 value_str = str(value) if value is not None else "None"
                 self.tag_table.setItem(row, 1, QTableWidgetItem(value_str))
-                
+
                 # Last update
                 last_update = self._tag_history[name][-1][0]
                 update_str = last_update.strftime("%H:%M:%S")
                 self.tag_table.setItem(row, 2, QTableWidgetItem(update_str))
-                
+
                 # Type
                 self.tag_table.setItem(row, 3, QTableWidgetItem(tag_type))
-            
+
             # Update status
             total_tags = len(self._tag_values)
             visible_tags = self.tag_table.rowCount()
             self.status_label.setText(
                 f"Showing {visible_tags} of {total_tags} tags"
             )
-            
+
         except Exception as e:
             logger.error(f"Error updating display: {e}")
 
@@ -182,20 +193,20 @@ class TagMonitor(BaseWidget):
             tag_name = data["tag"]
             new_value = data["value"]
             tag_type = data.get("type", "STATUS")  # Default to STATUS type
-            
+
             # Update current value
             self._tag_values[tag_name] = (new_value, tag_type)
-            
+
             # Update history
             if tag_name not in self._tag_history:
                 self._tag_history[tag_name] = []
-                
+
             self._tag_history[tag_name].append((datetime.now(), new_value))
-            
+
             # Trim history if needed
             if len(self._tag_history[tag_name]) > self._history_length:
                 self._tag_history[tag_name].pop(0)
-            
+
         except Exception as e:
             logger.error(f"Error handling tag update: {e}")
 
@@ -207,15 +218,15 @@ class TagMonitor(BaseWidget):
                 if tag not in self._tag_values:
                     self._tag_values[tag] = (None, "STATUS")
                     self._tag_history[tag] = []
-                    
+
             # Remove any deleted tags
             for tag in list(self._tag_values.keys()):
                 if tag not in tag_list:
                     del self._tag_values[tag]
                     del self._tag_history[tag]
-                    
+
             self._update_display()
-            
+
         except Exception as e:
             logger.error(f"Error updating tag list: {e}")
 

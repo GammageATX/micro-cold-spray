@@ -1,19 +1,17 @@
 """Configuration backup management widget."""
-from typing import Dict, Any, List
 import logging
-from PySide6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QListWidget
-)
 
-from ..base_widget import BaseWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QListWidget, QPushButton, QVBoxLayout
+
 from ...managers.ui_update_manager import UIUpdateManager
+from ..base_widget import BaseWidget
 
 logger = logging.getLogger(__name__)
 
+
 class BackupManager(BaseWidget):
     """Widget for managing configuration backups."""
-    
+
     def __init__(
         self,
         ui_manager: UIUpdateManager,
@@ -28,19 +26,19 @@ class BackupManager(BaseWidget):
             ],
             parent=parent
         )
-        
+
         self._init_ui()
         logger.info("Backup manager initialized")
 
     def _init_ui(self) -> None:
         """Initialize the backup manager UI."""
         layout = QVBoxLayout()
-        
+
         # Backup list
         self._backup_list = QListWidget()
         layout.addWidget(QLabel("Available Backups:"))
         layout.addWidget(self._backup_list)
-        
+
         # Control buttons
         control_layout = QHBoxLayout()
         self._create_btn = QPushButton("Create Backup")
@@ -50,13 +48,13 @@ class BackupManager(BaseWidget):
         control_layout.addWidget(self._restore_btn)
         control_layout.addWidget(self._delete_btn)
         layout.addLayout(control_layout)
-        
+
         # Status label
         self._status_label = QLabel("Ready")
         layout.addWidget(self._status_label)
-        
+
         self.setLayout(layout)
-        
+
         # Connect signals
         self._create_btn.clicked.connect(self._create_backup)
         self._restore_btn.clicked.connect(self._restore_backup)

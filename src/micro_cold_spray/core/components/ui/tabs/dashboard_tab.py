@@ -1,19 +1,17 @@
 """Dashboard tab for system monitoring."""
 import logging
-from PySide6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout,
-    QLabel, QFrame
-)
-from PySide6.QtCore import Qt
+
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout
+
+from ..managers.ui_update_manager import UIUpdateManager
 
 # Import base widget first
 from ..widgets.base_widget import BaseWidget
-from ..managers.ui_update_manager import UIUpdateManager
+from ..widgets.data.data_widget import DataWidget
+from ..widgets.sequence.progress_display import ProgressDisplay
 
 # Import widgets after base imports
 from ..widgets.sequence.sequence_control import SequenceControl
-from ..widgets.sequence.progress_display import ProgressDisplay
-from ..widgets.data.data_widget import DataWidget
 
 logger = logging.getLogger(__name__)
 

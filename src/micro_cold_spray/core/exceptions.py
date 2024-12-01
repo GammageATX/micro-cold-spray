@@ -12,7 +12,6 @@ class CoreError(Exception):
 
 class ValidationError(CoreError):
     """Validation related errors."""
-    pass
 
 
 class OperationError(CoreError):
@@ -39,19 +38,15 @@ class HardwareError(CoreError):
 
 class ConfigurationError(CoreError):
     """Configuration related errors."""
-    pass
 
 
 class StateError(CoreError):
     """State management related errors."""
-    pass
 
 
 class MessageError(CoreError):
     """Message broker related errors."""
-    pass
 
 
 class UIError(CoreError):
     """UI related errors."""
-    pass
