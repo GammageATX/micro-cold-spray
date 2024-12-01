@@ -1,0 +1,23 @@
+process:
+  metadata:
+    name: "MCS-24 N2 Medium Flow"
+    version: "1.0"
+    created: "2024-03-20"
+    author: "John Doe"
+    description: "Medium flow rate parameters for MCS-24 nozzle with nitrogen"
+    
+  nozzle:
+    type: "MCS-24"
+    diameter: 0.24  # mm
+    manufacturer: "VRC"
+    serial: "N24-001"
+      
+  gas_flows:
+    main_gas: 50.0  # SLPM
+    feeder_gas: 5.0  # SLPM
+      
+  powder_feed:
+    frequency: 600  # Hz
+    deagglomerator:
+      enabled: true
+      speed: 25  # % 

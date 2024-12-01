@@ -1,74 +1,20 @@
-# Keep pytest configuration
-!pytest.ini
+# Exclude runtime data
+data/runs/**
+data/patterns/history/**
+data/parameters/history/**
+data/sequences/history/**
 
-# Python build artifacts and cache
+# Include library files
+!data/patterns/library/**
+!data/parameters/library/**
+!data/sequences/library/**
+!data/powders/**
+!data/nozzles/**
+
+# Exclude desktop.ini files
+*.ini
+
+# Exclude temporary/generated files
+*.pyc
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
-.mypy_cache/
-.pytest_cache/
-.pytype/
-.coverage
-htmlcov/
-
-# Virtual environments
-venv/
-env/
-ENV/
-.env
-.venv
-
-# Build and distribution directories
-build/
-dist/
-*.egg-info/
-
-# IDE specific
-.vscode/
-.idea/
-*.swp
-*.swo
-.spyderproject
-.spyproject
-.ropeproject
-
-# Jupyter
-.ipynb_checkpoints/
-*.ipynb
-
-# Documentation builds
-docs/_build/
-site/
-
-# Logs
-*.log
-logs/
-
-# Data - Allow test files but exclude runtime data
-data/*
-data/runs/*
-!data/runs/.gitkeep
-data/parameters/*
-!data/parameters/.gitkeep
-data/patterns/*
-!data/patterns/.gitkeep
-data/sequences/*
-!data/sequences/.gitkeep
-!data/parameters/library/.gitkeep
-!data/patterns/library/.gitkeep
-!data/sequences/library/.gitkeep
-
-# Databases
-*.sqlite3
-*.db
-
-# OS specific
-.DS_Store
-Thumbs.db
-desktop.ini
-$RECYCLE.BIN/
-
-# Local development
-local_settings.py
-*.env.*
+.venv/

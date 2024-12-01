@@ -1,0 +1,17 @@
+pattern:
+  metadata:
+    name: Serpentine_2.0mm_20.0mms
+    version: '1.0'
+    created: '2024-11-29T11:25:08.429038'
+    description: Generated serpentine pattern with 2.0mm spacing
+  type: serpentine
+  params:
+    origin:
+    - 100.0
+    - 100.0
+    length: 50.0
+    spacing: 2.0
+    speed: 20.0
+    z_height: 10.0
+    acceleration: 1000.0
+    direction: x_first

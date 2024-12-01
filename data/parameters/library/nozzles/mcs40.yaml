@@ -1,0 +1,13 @@
+nozzle:
+  metadata:
+    name: "MCS-40"
+    manufacturer: "VRC"
+    type: "Cold Spray"
+    description: "Micro cold spray nozzle, 0.40mm exit diameter"
+    
+  specifications:
+    throat_diameter: 0.40  # mm
+    exit_diameter: 1.08    # mm
+    expansion_ratio: 7.3
+    total_length: 150      # mm
+    material: "WC-Co" 
