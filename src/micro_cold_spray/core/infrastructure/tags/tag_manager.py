@@ -142,7 +142,15 @@ class TagManager:
                 logger.debug("Polling hardware for updates")
 
                 # Get PLC status
-                plc_connected = await self._plc_client.get()
+                plc_connected = False
+                if self._plc_client is not None:
+                    try:
+                        await self._plc_client.get_all_tags()
+                        plc_connected = True
+                    except Exception as e:
+                        logger.warning(f"PLC connection error: {e}")
+                        plc_connected = False
+
                 await self._message_broker.publish(
                     "tag/update",
                     {
@@ -153,7 +161,14 @@ class TagManager:
                 )
 
                 # Get SSH status
-                ssh_connected = await self._ssh_client.test_connection()
+                ssh_connected = False
+                if self._ssh_client is not None:
+                    try:
+                        ssh_connected = await self._ssh_client.test_connection()
+                    except Exception as e:
+                        logger.warning(f"SSH connection error: {e}")
+                        ssh_connected = False
+
                 await self._message_broker.publish(
                     "tag/update",
                     {
@@ -177,6 +192,8 @@ class TagManager:
 
         except Exception as e:
             logger.error(f"Error in polling loop: {e}")
+            # Re-raise to allow proper error handling
+            raise
 
     async def _poll_tags(self) -> None:
         """Poll PLC tags and publish updates."""
