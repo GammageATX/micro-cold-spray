@@ -210,3 +210,16 @@ class ParameterEditor(BaseWidget):
                         widget.setStyleSheet("background-color: #ffcccc;")
         except Exception as e:
             logger.error(f"Error handling validation results: {e}")
+
+    def update_file_list(self, files: list[str]) -> None:
+        """Update the list of available parameter files.
+
+        Args:
+            files: List of parameter file names
+        """
+        try:
+            self._set_combo.clear()
+            self._set_combo.addItems(files)
+            logger.debug(f"Updated parameter file list: {files}")
+        except Exception as e:
+            logger.error(f"Error updating parameter file list: {e}")

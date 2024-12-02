@@ -1,6 +1,7 @@
 """Configuration editor widget."""
 
 import logging
+from typing import Dict, Any, Optional
 
 from PySide6.QtWidgets import (
     QComboBox,
@@ -9,6 +10,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QTreeWidget,
     QVBoxLayout,
+    QTreeWidgetItem,
 )
 
 from ...managers.ui_update_manager import UIUpdateManager
@@ -101,3 +103,45 @@ class ConfigEditor(BaseWidget):
             await self._ui_manager.send_update("config/load", {"filename": filename})
         except Exception as e:
             logger.error(f"Error loading config file: {e}")
+
+    def _populate_config_tree(
+        self,
+        config: Dict[str, Any],
+        parent: Optional[QTreeWidgetItem] = None
+    ) -> None:
+        """Recursively populate config tree widget.
+
+        Args:
+            config: Configuration dictionary to display
+            parent: Parent tree item for nested config
+        """
+        try:
+            for key, value in config.items():
+                if isinstance(value, dict):
+                    # Create branch
+                    if parent is None:
+                        branch = QTreeWidgetItem(self._config_tree, [str(key)])
+                    else:
+                        branch = QTreeWidgetItem(parent, [str(key)])
+                    self._populate_config_tree(value, branch)
+                else:
+                    # Create leaf
+                    if parent is None:
+                        QTreeWidgetItem(self._config_tree, [str(key), str(value)])
+                    else:
+                        QTreeWidgetItem(parent, [str(key), str(value)])
+        except Exception as e:
+            logger.error(f"Error populating config tree: {e}")
+
+    def update_file_list(self, files: list[str]) -> None:
+        """Update the list of available config files.
+
+        Args:
+            files: List of config file names
+        """
+        try:
+            self._file_combo.clear()
+            self._file_combo.addItems(files)
+            logger.debug(f"Updated config file list: {files}")
+        except Exception as e:
+            logger.error(f"Error updating config file list: {e}")

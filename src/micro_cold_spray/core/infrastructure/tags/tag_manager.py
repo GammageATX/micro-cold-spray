@@ -5,9 +5,11 @@ from typing import Any, Dict, Optional, cast
 from loguru import logger
 
 from ...exceptions import HardwareError
-from ...hardware.communication.plc_client import PLCClient
-from ...hardware.communication.ssh_client import SSHClient
-from ...infrastructure.config.config_manager import ConfigManager
+from ...hardware.communication import (
+    create_plc_client, create_ssh_client,
+    PLCClientType, SSHClientType
+)
+from ..config.config_manager import ConfigManager
 from ..messaging.message_broker import MessageBroker
 
 
@@ -23,8 +25,8 @@ class TagManager:
         self._config_manager = config_manager
 
         # Hardware clients
-        self._plc_client: Optional[PLCClient] = None
-        self._ssh_client: Optional[SSHClient] = None
+        self._plc_client: Optional[PLCClientType] = None
+        self._ssh_client: Optional[SSHClientType] = None
 
         # Tag management
         self._tag_config = {}  # Full tag configuration from tags.yaml
@@ -36,45 +38,6 @@ class TagManager:
 
         logger.info("TagManager initialized")
 
-    async def test_connections(self) -> Dict[str, bool]:
-        """Test connections to all hardware clients."""
-        results = {"plc": False, "feeder": False}
-
-        # Test PLC connection
-        if self._plc_client is not None:
-            plc_client = cast(PLCClient, self._plc_client)
-            try:
-                # Test PLC by attempting to get tags
-                await plc_client.get_all_tags()
-                results["plc"] = True
-            except Exception as e:
-                logger.warning(f"PLC connection test failed: {str(e)}")
-                results["plc"] = False
-
-        # Test SSH connection
-        if self._ssh_client is not None:
-            ssh_client = cast(SSHClient, self._ssh_client)
-            try:
-                # Test SSH connection
-                await ssh_client.test_connection()
-                results["feeder"] = True
-            except Exception as e:
-                logger.warning(f"SSH connection test failed: {str(e)}")
-                results["feeder"] = False
-
-        # Publish connection status
-        for device, connected in results.items():
-            await self._message_broker.publish(
-                "tag/update",
-                {
-                    "tag": f"hardware.{device}.connected",
-                    "value": connected,
-                    "timestamp": datetime.now().isoformat(),
-                },
-            )
-
-        return results
-
     async def initialize(self) -> None:
         """Initialize tag manager."""
         try:
@@ -83,13 +46,22 @@ class TagManager:
             if not hw_config:
                 raise HardwareError("No hardware configuration found", "tags")
 
-            # Initialize PLC client
-            if not self._plc_client:
-                self._plc_client = PLCClient(hw_config)
+            # Get application config to check mock_hardware setting
+            app_config = await self._config_manager.get_config("application")
+            app_section = app_config.get("application", {})
+            dev_section = app_section.get("development", {})
+            use_mock = dev_section.get("mock_hardware", False)
+            logger.info(f"Using mock hardware: {use_mock}")
 
-            # Initialize SSH client
+            # Initialize PLC client using factory
+            if not self._plc_client:
+                self._plc_client = create_plc_client(hw_config, use_mock)
+                await self._plc_client.connect()
+
+            # Initialize SSH client using factory
             if not self._ssh_client:
-                self._ssh_client = SSHClient(hw_config)
+                self._ssh_client = create_ssh_client(hw_config, use_mock)
+                await self._ssh_client.connect()
 
             # Initialize tag definitions
             tag_config = await self._config_manager.get_config("tags")
@@ -111,10 +83,74 @@ class TagManager:
         except Exception as e:
             logger.error(f"Failed to initialize TagManager: {e}")
             raise HardwareError(
-                f"TagManager initialization failed: {
-                    str(e)}",
+                f"TagManager initialization failed: {str(e)}",
                 "tags",
             ) from e
+
+    async def shutdown(self) -> None:
+        """Shutdown tag manager."""
+        try:
+            self._shutdown = True
+
+            # Cancel polling task
+            if self._polling_task and not self._polling_task.done():
+                self._polling_task.cancel()
+                try:
+                    await self._polling_task
+                except asyncio.CancelledError:
+                    pass
+
+            # Disconnect clients
+            if self._ssh_client:
+                await self._ssh_client.disconnect()
+
+            if self._plc_client:
+                await self._plc_client.disconnect()
+
+            logger.info("TagManager shutdown complete")
+
+        except Exception as e:
+            logger.error(f"Error during TagManager shutdown: {e}")
+            raise HardwareError("Failed to shutdown TagManager", "tags") from e
+
+    async def test_connections(self) -> Dict[str, bool]:
+        """Test connections to all hardware clients."""
+        results = {"plc": False, "feeder": False}
+
+        # Test PLC connection
+        if self._plc_client is not None:
+            plc_client = cast(PLCClientType, self._plc_client)
+            try:
+                # Test PLC by attempting to get tags
+                await plc_client.get_all_tags()
+                results["plc"] = True
+            except Exception as e:
+                logger.warning(f"PLC connection test failed: {str(e)}")
+                results["plc"] = False
+
+        # Test SSH connection
+        if self._ssh_client is not None:
+            ssh_client = cast(SSHClientType, self._ssh_client)
+            try:
+                # Test SSH connection
+                await ssh_client.test_connection()
+                results["feeder"] = True
+            except Exception as e:
+                logger.warning(f"SSH connection test failed: {str(e)}")
+                results["feeder"] = False
+
+        # Publish connection status
+        for device, connected in results.items():
+            await self._message_broker.publish(
+                "tag/update",
+                {
+                    "tag": f"hardware.{device}.connected",
+                    "value": connected,
+                    "timestamp": datetime.now().isoformat(),
+                },
+            )
+
+        return results
 
     def _build_tag_maps(self) -> None:
         """Build mappings from tag configuration."""
@@ -201,7 +237,7 @@ class TagManager:
             if self._plc_client is None:
                 return
 
-            plc_client = cast(PLCClient, self._plc_client)
+            plc_client = cast(PLCClientType, self._plc_client)
             try:
                 plc_tags = await plc_client.get_all_tags()
             except Exception as e:
@@ -244,7 +280,7 @@ class TagManager:
                 if self._plc_client is None:
                     raise RuntimeError("PLC client not initialized")
 
-                plc_client = cast(PLCClient, self._plc_client)
+                plc_client = cast(PLCClientType, self._plc_client)
                 plc_tag = str(self._plc_tag_map[tag])
                 await plc_client.write_tag(plc_tag, value)
 
@@ -270,7 +306,7 @@ class TagManager:
                 if self._plc_client is None:
                     raise RuntimeError("PLC client not initialized")
 
-                plc_client = cast(PLCClient, self._plc_client)
+                plc_client = cast(PLCClientType, self._plc_client)
                 plc_tag = str(self._plc_tag_map[tag])
                 tags = await plc_client.get_all_tags()
 
@@ -293,31 +329,6 @@ class TagManager:
                 {"error": str(e), "context": "tag_get", "timestamp": datetime.now().isoformat()},
             )
 
-    async def shutdown(self) -> None:
-        """Shutdown tag manager."""
-        try:
-            self._shutdown = True
-
-            if self._polling_task:
-                self._polling_task.cancel()
-                try:
-                    await self._polling_task
-                except asyncio.CancelledError:
-                    pass
-
-            # No need to explicitly disconnect PLC - it's handled by the library
-            if self._ssh_client is not None:
-                try:
-                    await self._ssh_client.disconnect()
-                except Exception as e:
-                    logger.error(f"Error disconnecting SSH client: {e}")
-
-            logger.info("TagManager shutdown complete")
-
-        except Exception as e:
-            logger.error(f"Error during TagManager shutdown: {e}")
-            raise
-
     async def _write_tag(self, tag: str, value: Any) -> None:
         """Write tag value to hardware."""
         try:
@@ -328,7 +339,7 @@ class TagManager:
                 if self._plc_client is None:
                     raise RuntimeError("PLC client not initialized")
 
-                plc_client = cast(PLCClient, self._plc_client)
+                plc_client = cast(PLCClientType, self._plc_client)
                 plc_tag = str(self._plc_tag_map[tag])  # Ensure string type
                 await plc_client.write_tag(plc_tag, value)
 
@@ -352,7 +363,7 @@ class TagManager:
                 # Check PLC connection
                 plc_connected = False
                 if self._plc_client is not None:
-                    plc_client = cast(PLCClient, self._plc_client)
+                    plc_client = cast(PLCClientType, self._plc_client)
                     try:
                         # Test connection by attempting to get tags
                         await plc_client.get_all_tags()
@@ -373,7 +384,7 @@ class TagManager:
                 # Check SSH connection
                 ssh_connected = False
                 if self._ssh_client is not None:
-                    ssh_client = cast(SSHClient, self._ssh_client)
+                    ssh_client = cast(SSHClientType, self._ssh_client)
                     try:
                         await ssh_client.test_connection()
                         ssh_connected = True
@@ -402,7 +413,7 @@ class TagManager:
                 logger.warning("PLC client not initialized")
                 return
 
-            plc_client = cast(PLCClient, self._plc_client)
+            plc_client = cast(PLCClientType, self._plc_client)
             try:
                 plc_tags = await plc_client.get_all_tags()
             except Exception as e:
@@ -440,7 +451,7 @@ class TagManager:
                 if self._plc_client is None:
                     raise RuntimeError("PLC client not initialized")
 
-                plc_client = cast(PLCClient, self._plc_client)
+                plc_client = cast(PLCClientType, self._plc_client)
                 plc_tag = str(self._plc_tag_map[tag])
                 tags = await plc_client.get_all_tags()
                 if plc_tag in tags:

@@ -1,7 +1,7 @@
 """Motion jog control widget for manual motion control."""
 import asyncio
 import logging
-from typing import Dict, Optional, Protocol, runtime_checkable
+from typing import Dict, Optional, Protocol, runtime_checkable, Any
 from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
@@ -228,3 +228,41 @@ class JogControl(BaseWidget):
             self.z_pos_label.setText(f"{position.get('z', 0.0):.3f}")
         except Exception as e:
             logger.error(f"Error updating position display: {e}")
+
+    async def handle_ui_update(self, data: Dict[str, Any]) -> None:
+        """Handle UI updates."""
+        try:
+            if "motion.position" in data:
+                position_data = data.get("motion.position", {})
+                if isinstance(position_data, dict) and "position" in position_data:
+                    position = position_data["position"]
+                    self._update_position_display(position)
+                elif isinstance(position_data, dict):
+                    # Direct position data
+                    self._update_position_display(position_data)
+
+            elif "system.connection" in data:
+                connected = data.get("connected", False)
+                # Enable/disable controls based on connection state
+                self._update_control_state(connected)
+
+        except Exception as e:
+            logger.error(f"Error handling UI update: {e}")
+
+    def _update_control_state(self, connected: bool) -> None:
+        """Update control state based on connection status."""
+        try:
+            # In disconnected mode, we still allow jog controls for simulation
+            self.speed_spin.setEnabled(True)
+            self.step_combo.setEnabled(True)
+
+            # Enable all jog buttons
+            for btn in [
+                self.x_left_btn, self.x_right_btn,
+                self.y_up_btn, self.y_down_btn,
+                self.z_up_btn, self.z_down_btn
+            ]:
+                btn.setEnabled(True)
+
+        except Exception as e:
+            logger.error(f"Error updating control state: {e}")

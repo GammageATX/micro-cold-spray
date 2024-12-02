@@ -81,21 +81,26 @@ class ChamberView(BaseWidget):
         """Handle updates from UIUpdateManager."""
         try:
             if "motion.position" in data:
-                pos = data["motion.position"]
-                self.update_position(
-                    pos.get('x', 0.0),
-                    pos.get('y', 0.0),
-                    pos.get('z', 0.0)
-                )
+                position_data = data.get("motion.position", {})
+                if isinstance(position_data, dict):
+                    if "position" in position_data:
+                        pos = position_data["position"]
+                    else:
+                        pos = position_data
+
+                    self.update_position(
+                        pos.get('x', 0.0),
+                        pos.get('y', 0.0),
+                        pos.get('z', 0.0)
+                    )
+
             elif "hardware.stage" in data:
                 # Update stage dimensions if they change
                 if 'dimensions' in data["hardware.stage"]:
                     self._stage = data["hardware.stage"]["dimensions"]
                     # Recalculate stage offsets
-                    self.STAGE_OFFSET_X = (
-                        self.CHAMBER_SIZE - self._stage['x']) / 2
-                    self.STAGE_OFFSET_Y = (
-                        self.CHAMBER_SIZE - self._stage['y']) / 2
+                    self.STAGE_OFFSET_X = (self.CHAMBER_SIZE - self._stage['x']) / 2
+                    self.STAGE_OFFSET_Y = (self.CHAMBER_SIZE - self._stage['y']) / 2
                     self.update()
 
         except Exception as e:
@@ -299,30 +304,89 @@ class ChamberView(BaseWidget):
             painter.drawEllipse(QPointF(x, y), center_radius, center_radius)
 
     def _draw_position(self, painter: QPainter) -> None:
-        """Draw current position marker."""
-        if not all(v is not None for v in self._position.values()):
-            return
+        """Draw current position indicator."""
+        try:
+            # Convert stage coordinates to screen coordinates
+            stage_x = self.STAGE_OFFSET_X + self._position['x']
+            stage_y = self.STAGE_OFFSET_Y + self._position['y']
 
-        pen = QPen(Qt.GlobalColor.red)
-        pen.setWidth(2)
-        painter.setPen(pen)
+            screen_x, screen_y = self._world_to_screen(stage_x, stage_y)
 
-        # Convert stage coordinates to chamber coordinates
-        stage_pos_x = self.STAGE_OFFSET_X + self._position['x']
-        stage_pos_y = self.STAGE_OFFSET_Y + self._position['y']
+            # Draw position crosshair
+            pen = QPen(Qt.GlobalColor.red)
+            pen.setWidth(2)
+            painter.setPen(pen)
 
-        # Convert to screen coordinates
-        x, y = self._world_to_screen(stage_pos_x, stage_pos_y)
+            # Draw crosshair
+            size = 10
+            painter.drawLine(screen_x - size, screen_y, screen_x + size, screen_y)
+            painter.drawLine(screen_x, screen_y - size, screen_x, screen_y + size)
 
-        # Draw crosshair
-        size = 5
-        painter.drawLine(x - size, y, x + size, y)
-        painter.drawLine(x, y - size, x, y + size)
+            # Draw Z height indicator
+            z_height = self._position['z']
+            painter.drawText(
+                screen_x + 15,
+                screen_y - 15,
+                f"Z: {z_height:.1f}mm"
+            )
+
+        except Exception as e:
+            logger.error(f"Error drawing position: {e}")
 
     def update_position(self, x: float, y: float, z: float) -> None:
-        """Update current position."""
-        self._position = {'x': x, 'y': y, 'z': z}
-        self.update()  # Trigger repaint
+        """Update current position and trigger redraw.
+
+        Args:
+            x: X position in mm
+            y: Y position in mm
+            z: Z position in mm
+        """
+        try:
+            # Validate against stage limits
+            if not self._validate_position(x, y, z):
+                return
+
+            # Update position if valid
+            self._position['x'] = x
+            self._position['y'] = y
+            self._position['z'] = z
+            self.update()  # Trigger Qt repaint
+            logger.debug(f"Updated chamber view position to: x={x}, y={y}, z={z}")
+        except Exception as e:
+            logger.error(f"Error updating chamber view position: {e}")
+
+    def _validate_position(self, x: float, y: float, z: float) -> bool:
+        """Validate position against stage limits.
+
+        Args:
+            x: X position to validate
+            y: Y position to validate
+            z: Z position to validate
+
+        Returns:
+            bool: True if position is valid, False otherwise
+        """
+        try:
+            # Check X limits
+            if x < 0 or x > self._stage['x']:
+                logger.warning(f"X position {x} outside stage limits [0, {self._stage['x']}]")
+                return False
+
+            # Check Y limits
+            if y < 0 or y > self._stage['y']:
+                logger.warning(f"Y position {y} outside stage limits [0, {self._stage['y']}]")
+                return False
+
+            # Check Z limits
+            if z < 0 or z > self._stage['z']:
+                logger.warning(f"Z position {z} outside stage limits [0, {self._stage['z']}]")
+                return False
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error validating position: {e}")
+            return False
 
     def _get_stage_rect(self) -> tuple[float, float, float, float]:
         """Get stage rectangle coordinates."""

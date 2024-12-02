@@ -26,6 +26,10 @@ class WidgetLocation(Enum):
     """Valid widget locations."""
     DASHBOARD = "dashboard"
     SYSTEM = "system"
+    MOTION = "motion"
+    EDITOR = "editor"
+    CONFIG = "config"
+    DIAGNOSTICS = "diagnostics"
 
 
 class UIUpdateManager:
@@ -58,13 +62,13 @@ class UIUpdateManager:
                 raise ValidationError("Invalid widget ID format")
 
             widget_location = parts[1]
-            if (
-                widget_location != WidgetLocation.DASHBOARD.value
-                and widget_location != WidgetLocation.SYSTEM.value
-            ):
+            if widget_location not in [loc.value for loc in WidgetLocation]:
+                valid_locations = set(loc.value for loc in WidgetLocation)
                 raise ValidationError(
-                    "Only dashboard and system widgets are currently supported", {
-                        "widget_id": widget_id, "location": widget_location})
+                    f"Invalid widget location: {widget_location}. "
+                    f"Must be one of: {valid_locations}",
+                    {"widget_id": widget_id, "location": widget_location}
+                )
 
             # Rest of the existing registration code...
             if widget_id in self._registered_widgets:
@@ -85,7 +89,7 @@ class UIUpdateManager:
                 self._tag_subscriptions[tag].add(widget_id)
 
             logger.debug(
-                f"Registered dashboard widget {widget_id} for tags: {update_tags}")
+                f"Registered widget {widget_id} for tags: {update_tags}")
 
             await self._message_broker.publish(
                 "ui/widget/registered",
@@ -460,14 +464,25 @@ class UIUpdateManager:
         try:
             logger.debug(f"Handling sequence loaded event: {data}")
 
-            # Send sequence loaded notification to all subscribed widgets
-            for widget_id in self._tag_subscriptions.get(
-                    "sequence.loaded", set()):
-                widget = self._registered_widgets[widget_id].get('widget_ref')
-                if widget and hasattr(widget, 'handle_ui_update'):
-                    await widget.handle_ui_update({
-                        "sequence.loaded": data
-                    })
+            # Forward sequence loaded update to all subscribed widgets
+            for widget_id in self._tag_subscriptions.get("sequence.loaded", set()):
+                widget_data = self._registered_widgets.get(widget_id)
+                if not widget_data:
+                    logger.warning(f"Widget {widget_id} not found in registered widgets")
+                    continue
+
+                widget = widget_data.get('widget_ref')
+                if not widget:
+                    logger.warning(f"Widget reference not found for {widget_id}")
+                    continue
+
+                logger.debug(f"Sending sequence.loaded update to widget {widget_id}")
+                if hasattr(widget, 'handle_ui_update'):
+                    try:
+                        await widget.handle_ui_update({"sequence.loaded": data})
+                        logger.debug(f"Successfully sent update to widget {widget_id}")
+                    except Exception as e:
+                        logger.error(f"Error sending update to widget {widget_id}: {e}")
 
             # Also send through general update mechanism
             await self.send_update(
@@ -475,11 +490,7 @@ class UIUpdateManager:
                 data
             )
 
-            logger.debug(
-                f"Sequence loaded event handled: {
-                    data.get(
-                        'name',
-                        'unnamed')}")
+            logger.debug(f"Sequence loaded event handled: {data.get('name', 'unnamed')}")
 
         except Exception as e:
             logger.error(f"Error handling sequence loaded: {e}")

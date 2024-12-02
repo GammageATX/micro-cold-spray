@@ -47,6 +47,24 @@ class PLCClient:
                 self._address}, tag_file={
                 self._tag_file}")
 
+    async def connect(self) -> None:
+        """Connect to PLC.
+
+        For the real PLC client, this is a no-op since the ProductivityPLC library
+        handles connections automatically per-request.
+        """
+        self._connected = True
+        logger.debug("PLCClient ready")
+
+    async def disconnect(self) -> None:
+        """Disconnect from PLC.
+
+        For the real PLC client, this is a no-op since the ProductivityPLC library
+        handles connections automatically per-request.
+        """
+        self._connected = False
+        logger.debug("PLCClient disconnected")
+
     async def get_all_tags(self) -> Dict[str, Any]:
         """Get all tag values from PLC using CSV definitions."""
         try:
