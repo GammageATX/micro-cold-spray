@@ -3,6 +3,7 @@
 Python control system for micro cold spray deposition processes.
 
 ## Features
+
 - Real-time hardware control
 - Automated deposition sequences
 - Process parameter management
@@ -13,26 +14,27 @@ Python control system for micro cold spray deposition processes.
 
 1. Setup:
 
-```bash
-git clone https://github.com/GammageATX/micro-cold-spray.git
-cd micro-cold-spray
-python -m venv .venv
-source .venv/Scripts/activate  # Windows
-source .venv/bin/activate     # Linux/Mac
-pip install -r requirements.txt
-pip install -e .
-```
+    ```bash
+    git clone https://github.com/GammageATX/micro-cold-spray.git
+    cd micro-cold-spray
+    python -m venv .venv
+    source .venv/Scripts/activate  # Windows
+    source .venv/bin/activate     # Linux/Mac
+    pip install -r requirements.txt
+    pip install -e .
+    ```
 
 2. Run:
 
-```bash
-python -m micro_cold_spray
-```
+    ```bash
+    python -m micro_cold_spray
+    ```
 
 ## Development
 
 ### Structure
-```
+
+```text
 micro-cold-spray/
 ├── config/     # Configuration files
 ├── data/       # Process data
@@ -42,12 +44,14 @@ micro-cold-spray/
 ```
 
 ### Tools
+
 - Testing: `pytest`
 - Format: `black .`
 - Lint: `pylint src/`
 - Types: `mypy src/`
 
 ### Dependencies
+
 - PySide6: GUI framework
 - PyYAML: Configuration
 - paramiko: SSH communication
@@ -55,12 +59,15 @@ micro-cold-spray/
 - loguru: Logging
 
 ## Contributing
+
 1. Fork repository
 2. Create feature branch
 3. Submit pull request
 
 ## License
-[Add License]
+
+MIT License (Recommended - please specify)
 
 ## Author
+
 Michael Gammage (@GammageATX)
