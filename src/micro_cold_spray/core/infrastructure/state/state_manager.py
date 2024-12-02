@@ -1,33 +1,29 @@
-"""State Manager component.
-
-Manages system state according to state.yaml:
-- State transitions
-- State validation
-- State error handling
-- Message pattern compliance
-"""
+"""State Manager module."""
 from datetime import datetime
-from typing import Any, Dict
+from typing import Dict, Any
 from loguru import logger
+
 from micro_cold_spray.core.exceptions import StateError
-from micro_cold_spray.core.infrastructure.config.config_manager import ConfigManager
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
+from micro_cold_spray.core.infrastructure.config.config_manager import ConfigManager
 
 
 class StateManager:
-    """Manages system state transitions."""
+    """Manages system state transitions and conditions."""
 
     def __init__(
-            self,
-            message_broker: MessageBroker,
-            config_manager: ConfigManager):
+        self,
+        message_broker: MessageBroker,
+        config_manager: ConfigManager
+    ) -> None:
         """Initialize state manager."""
         self._message_broker = message_broker
         self._config_manager = config_manager
+        self._state_config = {}
         self._current_state = "INITIALIZING"
         self._previous_state = ""
-        self._hardware_ready = False
-        self._motion_ready = False
+        self._conditions = {}
+        self._is_initialized = False
         logger.info("State manager initialized")
 
     async def initialize(self) -> None:
@@ -37,9 +33,9 @@ class StateManager:
             await self._message_broker.subscribe("state/request", self._handle_state_request)
             await self._message_broker.subscribe("tag/update", self._handle_tag_update)
 
-            # Load state config directly from state.yaml
-            config = await self._config_manager.get_config("state")
-            self._state_config = config.get("transitions", {})
+            # Load state config from operation.yaml
+            config = await self._config_manager.get_config("operation")
+            self._state_config = config.get("operation", {}).get("states", {})
             logger.debug(f"Loaded state transitions: {self._state_config}")
 
             # Start in INITIALIZING state
@@ -65,170 +61,70 @@ class StateManager:
                 self._handle_hardware_status
             )
 
+            self._is_initialized = True
             logger.info("State manager initialization complete")
 
         except Exception as e:
             logger.exception("Failed to initialize state manager")
             raise StateError(
-                f"State manager initialization failed: {
-                    str(e)}") from e
-
-    async def _handle_tag_update(self, data: Dict[str, Any]) -> None:
-        """Handle tag updates and check conditions."""
-        try:
-            tag = data.get("tag")
-            value = data.get("value")
-            logger.debug(f"Handling tag update: {tag} = {value}")
-
-            # Update condition based on tag
-            if tag == "hardware.connected":
-                if not isinstance(value, bool):
-                    logger.warning(f"Invalid value type for hardware.connected: {type(value)}")
-                    return
-                self._conditions["hardware.connected"] = value
-                logger.debug(f"Updated hardware.connected to {value}")
-                await self._check_conditions()
-
-            elif tag == "hardware.enabled":
-                if not isinstance(value, bool):
-                    logger.warning(f"Invalid value type for hardware.enabled: {type(value)}")
-                    return
-                self._conditions["hardware.enabled"] = value
-                logger.debug(f"Updated hardware.enabled to {value}")
-                await self._check_conditions()
-
-            elif tag == "sequence.active":
-                if not isinstance(value, bool):
-                    logger.warning(f"Invalid value type for sequence.active: {type(value)}")
-                    return
-                self._conditions["sequence.active"] = value
-                logger.debug(f"Updated sequence.active to {value}")
-                await self._check_conditions()
-
-        except Exception as e:
-            logger.error(f"Error handling tag update: {e}")
-            await self._message_broker.publish("error", {
-                "error": str(e),
-                "topic": "tag/update",
-                "context": "tag_update",
-                "timestamp": datetime.now().isoformat()
-            })
-
-    async def _check_conditions(self) -> None:
-        """Check if conditions are met for state transition."""
-        try:
-            logger.debug(f"Checking conditions: {self._conditions}")
-
-            # Check INITIALIZING -> READY transition
-            if self._current_state == "INITIALIZING":
-                if self._conditions.get(
-                        "hardware.connected") and self._conditions.get("config.loaded"):
-                    logger.debug("Conditions met for READY transition")
-                    # Directly set state since we are the state manager
-                    await self.set_state("READY")
-
-        except Exception as e:
-            logger.error(f"Error checking conditions: {e}")
-            await self._message_broker.publish("error", {
-                "error": str(e),
-                "topic": "state/conditions",
-                "context": "condition_check",
-                "timestamp": datetime.now().isoformat()
-            })
-
-    async def set_state(self, new_state: str) -> None:
-        """Set system state and publish change."""
-        try:
-            if not self._is_valid_transition(new_state):
-                error_msg = {
-                    "error": f"Invalid state transition from {
-                        self._current_state} to {new_state}",
-                    "context": "state_transition",
-                    "current_state": self._current_state,
-                    "requested_state": new_state,
-                    "timestamp": datetime.now().isoformat()}
-                await self._message_broker.publish("error", error_msg)
-                raise StateError("Invalid state transition", error_msg)
-
-            # Update state
-            self._previous_state = self._current_state
-            self._current_state = new_state
-
-            await self._message_broker.publish(
-                "state/change",
-                {
-                    "state": new_state,
-                    "previous": self._previous_state,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-
-        except Exception as e:
-            error_msg = {
-                "error": str(e),
-                "context": "state_transition",
-                "current_state": self._current_state,
-                "requested_state": new_state,
-                "timestamp": datetime.now().isoformat()
-            }
-            logger.error(f"Error setting state: {error_msg}")
-            await self._message_broker.publish("error", error_msg)
-            raise
+                f"State manager initialization failed: {str(e)}") from e
 
     async def _handle_state_request(self, data: Dict[str, Any]) -> None:
-        """Handle state change requests."""
+        """Handle state change request."""
         try:
-            # Check both keys for compatibility
-            requested_state = data.get("state") or data.get("requested_state")
-            logger.debug(f"Handling state request: {requested_state}")
-
+            requested_state = data.get("state")
             if not requested_state:
-                error_msg = f"Invalid state request - no state specified: {data}"
-                logger.error(error_msg)
-                await self._message_broker.publish("error", {
-                    "error": error_msg,
-                    "topic": "state/request",
-                    "context": "state_request",
-                    "timestamp": datetime.now().isoformat()
-                })
-                return
+                raise StateError("No state specified in request")
 
             # Get current state config
-            current_state_config = self._state_config.get(
-                self._current_state, {})
-            valid_transitions = current_state_config.get("next_states", [])
-            required_conditions = current_state_config.get("conditions", [])
+            current_state_config = self._state_config.get(self._current_state, {})
+            valid_transitions = current_state_config.get("transitions", [])
 
-            # Check if transition is valid and conditions are met
+            # Check if transition is valid
             if requested_state in valid_transitions:
-                # Check conditions
-                conditions_met = all(self._conditions.get(cond, False)
-                                     for cond in required_conditions)
+                # Get required conditions for requested state
+                required_conditions = self._state_config.get(
+                    requested_state, {}).get("conditions", [])
 
-                if conditions_met:
-                    # Update state
+                # Check if conditions are met
+                conditions_met = all(
+                    self._conditions.get(condition, False)
+                    for condition in required_conditions
+                )
+
+                if conditions_met or requested_state == "ERROR":
+                    # Perform state transition
                     self._previous_state = self._current_state
                     self._current_state = requested_state
 
                     # Publish state change
-                    await self._message_broker.publish("state/change", {
-                        "state": self._current_state,
+                    change_data = {
+                        "state": requested_state,
                         "previous": self._previous_state,
                         "timestamp": datetime.now().isoformat()
-                    })
+                    }
+
+                    if "error" in data:
+                        change_data["error"] = data["error"]
+
+                    await self._message_broker.publish(
+                        "state/change",
+                        change_data
+                    )
                     logger.info(
                         f"State changed from {
-                            self._previous_state} to {
-                            self._current_state}")
+                            self._previous_state} to {requested_state}")
+
                 else:
-                    error_msg = f"Conditions not met for transition to {requested_state}"
+                    error_msg = f"Required conditions not met for {requested_state}"
                     logger.error(error_msg)
                     await self._message_broker.publish("error", {
                         "error": error_msg,
                         "topic": "state/transition",
-                        "context": "state_transition",
+                        "context": "state_conditions",
                         "timestamp": datetime.now().isoformat()
                     })
+
             else:
                 error_msg = f"Invalid state transition from {
                     self._current_state} to {requested_state}"
@@ -249,71 +145,66 @@ class StateManager:
                 "timestamp": datetime.now().isoformat()
             })
 
-    def _is_valid_transition(self, new_state: str) -> bool:
-        """Check if state transition is valid."""
-        # Use cached state config
-        current_state_config = self._state_config.get(self._current_state, {})
-        valid_transitions = current_state_config.get("next_states", [])
-        return new_state in valid_transitions
-
-    async def get_current_state(self) -> str:
-        """Get current state."""
-        return self._current_state
-
-    async def get_previous_state(self) -> str:
-        """Get previous state."""
-        return self._previous_state
-
-    async def shutdown(self) -> None:
-        """Shutdown state manager."""
+    async def _handle_tag_update(self, data: Dict[str, Any]) -> None:
+        """Handle tag updates that affect state conditions."""
         try:
-            await self._message_broker.unsubscribe("state/request", self._handle_state_request)
-            await self._message_broker.unsubscribe("tag/update", self._handle_tag_update)
-            logger.info("State manager shutdown complete")
+            tag = data.get("tag")
+            value = data.get("value")
+
+            # Skip if tag or value is None
+            if tag is None or value is None:
+                return
+
+            # Map tag updates to conditions
+            condition_map = {
+                "hardware.plc.connected": "hardware.connected",
+                "hardware.motion.connected": "hardware.connected",
+                "hardware.plc.enabled": "hardware.enabled",
+                "hardware.motion.enabled": "hardware.enabled",
+                "sequence.active": "sequence.active",
+                "hardware.safe": "hardware.safe"
+            }
+
+            if tag in condition_map:
+                condition = condition_map[tag]
+                # Convert value to bool to ensure type safety
+                self._conditions[condition] = bool(value)
+                logger.debug(f"Updated condition {condition}: {value}")
+
         except Exception as e:
-            logger.error(f"Error during shutdown: {e}")
-            raise
+            logger.error(f"Error handling tag update: {e}")
 
     async def _handle_hardware_status(self, data: Dict[str, Any]) -> None:
         """Handle hardware status updates."""
         try:
-            # Update hardware status
-            if "connected" in data:
-                # Get topic from data
-                if "source" in data and data["source"] == "plc":
-                    self._conditions["hardware.connected"] = data["connected"]
+            status = data.get("status")
+            if status == "connected":
+                self._conditions["hardware.connected"] = True
+            elif status == "disconnected":
+                self._conditions["hardware.connected"] = False
 
-                # Check if we should transition to READY
-                if (self._current_state == "INITIALIZING"
-                        and self._conditions.get("hardware.connected")
-                        and self._conditions.get("config.loaded")):
-
-                    # Update state
-                    self._previous_state = self._current_state
-                    self._current_state = "READY"
-
-                    # Publish state change
-                    await self._message_broker.publish(
-                        "state/change",
-                        {
-                            "state": self._current_state,
-                            "previous": self._previous_state,
-                            "timestamp": datetime.now().isoformat()
-                        }
-                    )
-                    logger.info(
-                        f"State changed from {
-                            self._previous_state} to {
-                            self._current_state}")
+            logger.debug(
+                f"Updated hardware connection status: {
+                    self._conditions['hardware.connected']}")
 
         except Exception as e:
             logger.error(f"Error handling hardware status: {e}")
-            await self._message_broker.publish(
-                "error",
-                {
-                    "error": str(e),
-                    "topic": "hardware/status",
-                    "context": "hardware_status",
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
+
+    async def shutdown(self) -> None:
+        """Shutdown state manager."""
+        try:
+            # Unsubscribe from topics with their handlers
+            topics_and_handlers = [
+                ("state/request", self._handle_state_request),
+                ("tag/update", self._handle_tag_update),
+                ("hardware/status/plc", self._handle_hardware_status),
+                ("hardware/status/motion", self._handle_hardware_status)
+            ]
+
+            for topic, handler in topics_and_handlers:
+                await self._message_broker.unsubscribe(topic, handler)
+
+            logger.info("State manager shutdown complete")
+
+        except Exception as e:
+            logger.error(f"Error during state manager shutdown: {e}")
