@@ -1,45 +1,29 @@
 # Micro Cold Spray Control System
 
-A Python-based control system for micro cold spray deposition processes. This system provides automated control and monitoring of cold spray equipment for precision material deposition.
+Python control system for micro cold spray deposition processes.
 
 ## Features
-
-- Real-time hardware control and monitoring
-- Automated deposition sequence management
-- Pattern-based deposition control
+- Real-time hardware control
+- Automated deposition sequences
 - Process parameter management
 - Equipment state monitoring
-- Configurable process validation
+- Process validation
 
-## Installation
+## Quick Start
 
-1. Clone the repository:
+1. Setup:
+
 ```bash
 git clone https://github.com/GammageATX/micro-cold-spray.git
 cd micro-cold-spray
-```
-
-2. Create and activate virtual environment:
-```bash
 python -m venv .venv
-
-# Windows (Git Bash)
-source .venv/Scripts/activate
-
-# Windows (CMD)
-.venv\Scripts\activate
-
-# Linux/Mac
-source .venv/bin/activate
-```
-
-3. Install dependencies:
-```bash
+source .venv/Scripts/activate  # Windows
+source .venv/bin/activate     # Linux/Mac
 pip install -r requirements.txt
 pip install -e .
 ```
 
-## Running the Application
+2. Run:
 
 ```bash
 python -m micro_cold_spray
@@ -47,59 +31,36 @@ python -m micro_cold_spray
 
 ## Development
 
-### Project Structure
+### Structure
 ```
 micro-cold-spray/
-├── config/               # Configuration files
-├── data/                # Data storage
-│   ├── parameters/      # Process parameters
-│   ├── patterns/        # Deposition patterns
-│   ├── runs/           # Run data
-│   └── sequences/      # Operation sequences
-├── src/                 # Source code
-│   └── micro_cold_spray/
-│       └── core/       # Core functionality
-├── tests/              # Test suite
-└── logs/               # Application logs
+├── config/     # Configuration files
+├── data/       # Process data
+├── src/        # Source code
+├── tests/      # Test suite
+└── logs/       # Application logs
 ```
 
-### Testing
-```bash
-pytest
-```
+### Tools
+- Testing: `pytest`
+- Format: `black .`
+- Lint: `pylint src/`
+- Types: `mypy src/`
 
-### Code Quality
-- Format code with black: `black .`
-- Run linting: `pylint src/`
-- Type checking: `mypy src/`
-
-## Dependencies
-
-### Core Dependencies
-- PySide6: Qt6 GUI framework
-- PyYAML: Configuration handling
+### Dependencies
+- PySide6: GUI framework
+- PyYAML: Configuration
 - paramiko: SSH communication
 - productivity: PLC communication
-- loguru: Enhanced logging
-
-### Development Tools
-- pytest: Testing framework
-- black: Code formatting
-- pylint: Code linting
-- mypy: Type checking
+- loguru: Logging
 
 ## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+1. Fork repository
+2. Create feature branch
+3. Submit pull request
 
 ## License
+[Add License]
 
-[Add License Information]
-
-## Authors
-
-- Michael Gammage (@GammageATX) 
+## Author
+Michael Gammage (@GammageATX)

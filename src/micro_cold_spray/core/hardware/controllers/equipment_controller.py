@@ -1,44 +1,55 @@
 """Equipment control component."""
-from typing import Dict, Any
+import asyncio
 import logging
 import time
-import asyncio
 from datetime import datetime
+from typing import Any, Dict
 
-from ...infrastructure.messaging.message_broker import MessageBroker
-from ...infrastructure.config.config_manager import ConfigManager
 from ...exceptions import HardwareError
+from ...infrastructure.config.config_manager import ConfigManager
+from ...infrastructure.messaging.message_broker import MessageBroker
 
 logger = logging.getLogger(__name__)
 
+
 class EquipmentController:
     """Controls equipment through MessageBroker to TagManager."""
-    
-    def __init__(self, config_manager: ConfigManager):
+
+    async def __init__(self, config_manager: ConfigManager):
+        """Initialize equipment controller."""
         self._config = config_manager
         self._message_broker = MessageBroker()
-        
+
         # Load configs
-        self._load_config()
-        
+        await self._load_config()
+
         # Subscribe to equipment commands
-        self._message_broker.subscribe("equipment/gas/flow", self._handle_gas_flow)
-        self._message_broker.subscribe("equipment/gas/valve", self._handle_gas_valve)
-        self._message_broker.subscribe("equipment/vacuum/pump", self._handle_pump)
-        self._message_broker.subscribe("equipment/vacuum/valve", self._handle_vacuum_valve)
-        self._message_broker.subscribe("equipment/feeder", self._handle_feeder)
-        self._message_broker.subscribe("equipment/deagglomerator", self._handle_deagglomerator)
-        self._message_broker.subscribe("equipment/nozzle", self._handle_nozzle)
-        self._message_broker.subscribe("equipment/shutter", self._handle_shutter)
-        self._message_broker.subscribe("config/update/hardware", self._handle_config_update)
-        
+        await self._message_broker.subscribe(
+            "equipment/gas/flow", self._handle_gas_flow)
+        await self._message_broker.subscribe(
+            "equipment/gas/valve", self._handle_gas_valve)
+        await self._message_broker.subscribe(
+            "equipment/vacuum/pump", self._handle_pump)
+        await self._message_broker.subscribe(
+            "equipment/vacuum/valve", self._handle_vacuum_valve)
+        await self._message_broker.subscribe(
+            "equipment/feeder", self._handle_feeder)
+        await self._message_broker.subscribe(
+            "equipment/deagglomerator", self._handle_deagglomerator)
+        await self._message_broker.subscribe(
+            "equipment/nozzle", self._handle_nozzle)
+        await self._message_broker.subscribe(
+            "equipment/shutter", self._handle_shutter)
+        await self._message_broker.subscribe(
+            "config/update/hardware", self._handle_config_update)
+
         logger.info("Equipment controller initialized")
 
-    def _load_config(self) -> None:
+    async def _load_config(self) -> None:
         """Load initial configuration."""
         try:
-            hw_config = self._config.get_config('hardware')['hardware']
-            self._hw_config = hw_config
+            config = await self._config.get_config('hardware')
+            self._hw_config = config['hardware']
         except Exception as e:
             logger.error(f"Error loading config: {e}")
 
@@ -47,21 +58,21 @@ class EquipmentController:
         try:
             flow_type = message.get('type')
             value = message.get('value')
-            
+
             # Get safety limits from config
             safety_limits = self._hw_config["safety"]["gas"]
-            
+
             # Validate against limits
             if flow_type == "main":
                 if value < safety_limits["main_pressure"]["min"]:
                     raise ValueError(
-                        f"Main flow too low: {value} PSI (min {safety_limits['main_pressure']['min']} PSI)"
-                    )
+                        f"Main flow too low: {value} PSI (min {
+                            safety_limits['main_pressure']['min']} PSI)")
             elif flow_type == "feeder":
                 if value < safety_limits["feeder_pressure"]["min"]:
                     raise ValueError(
-                        f"Feeder flow too low: {value} PSI (min {safety_limits['feeder_pressure']['min']} PSI)"
-                    )
+                        f"Feeder flow too low: {value} PSI (min {
+                            safety_limits['feeder_pressure']['min']} PSI)")
 
             await self._message_broker.publish(
                 "tag/set",
@@ -86,7 +97,7 @@ class EquipmentController:
         try:
             valve = message.get('valve')  # 'main' or 'feeder'
             state = message.get('state')  # bool
-            
+
             if not valve or state is None:
                 raise ValueError("Missing required parameters")
 
@@ -115,7 +126,7 @@ class EquipmentController:
             # Monitor status change with timeout
             start_time = time.time()
             timeout = 5.0  # 5 second timeout
-            
+
             while (time.time() - start_time) < timeout:
                 response = await self._message_broker.request(  # Changed from publish to request
                     "tag/get",
@@ -135,7 +146,8 @@ class EquipmentController:
         """Handle vacuum valve control."""
         try:
             valve = message.get('valve')  # 'gate' or 'vent'
-            position = message.get('position')  # For gate: 'partial'/'open', For vent: bool
+            # For gate: 'partial'/'open', For vent: bool
+            position = message.get('position')
 
             if valve == 'gate':
                 await self._message_broker.publish(
@@ -209,7 +221,7 @@ class EquipmentController:
         """Handle nozzle selection."""
         try:
             nozzle = message.get('nozzle')  # 1 or 2
-            
+
             await self._message_broker.publish(
                 "tag/set",
                 {
@@ -226,7 +238,7 @@ class EquipmentController:
         """Handle shutter control."""
         try:
             state = message.get('state')  # bool
-            
+
             await self._message_broker.publish(
                 "tag/set",
                 {
@@ -239,7 +251,10 @@ class EquipmentController:
             logger.error(f"Shutter control failed: {e}")
             raise
 
-    async def _set_momentary_tag(self, tag: str, pulse_time: float = 0.5) -> None:
+    async def _set_momentary_tag(
+            self,
+            tag: str,
+            pulse_time: float = 0.5) -> None:
         """Set a tag momentarily then reset it."""
         try:
             await self._message_broker.publish("tag/set", {"tag": tag, "value": True})

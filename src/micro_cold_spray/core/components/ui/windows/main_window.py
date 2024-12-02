@@ -372,7 +372,7 @@ class MainWindow(QMainWindow):
         try:
             self.is_closing = True
             event.accept()
-        except Exception as e:
+        except Exception:
             error_context = {
                 "window": "MainWindow",
                 "operation": "close",

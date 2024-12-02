@@ -1,29 +1,45 @@
 """Motion jog control widget for manual motion control."""
-from typing import Dict, Any, Optional, Protocol, runtime_checkable
-import logging
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QDoubleSpinBox,
-    QComboBox, QGroupBox, QGridLayout
-)
-from PySide6.QtCore import Qt
-import time
 import asyncio
-
+import logging
+from typing import Dict, Optional, Protocol, runtime_checkable
+from PySide6.QtWidgets import (
+    QComboBox,
+    QDoubleSpinBox,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+)
 from ...managers.ui_update_manager import UIUpdateManager
 from ..base_widget import BaseWidget
 
 logger = logging.getLogger(__name__)
 
+
 @runtime_checkable
 class MotionTabProtocol(Protocol):
     """Protocol for motion tab interface."""
-    async def handle_jog_command(self, axis: str, direction: int, speed: float, step_size: float) -> None: ...
-    async def handle_stop_command(self) -> None: ...
+
+    async def handle_jog_command(
+        self,
+        axis: str,
+        direction: int,
+        speed: float,
+        step_size: float
+    ) -> None:
+        """Handle jog command."""
+        pass
+
+    async def handle_stop_command(self) -> None:
+        """Handle stop command."""
+        pass
+
 
 class JogControl(BaseWidget):
     """Jog control widget for manual motion control."""
-    
+
     def __init__(
         self,
         ui_manager: UIUpdateManager,
@@ -40,12 +56,12 @@ class JogControl(BaseWidget):
             ],
             parent=parent
         )
-        
+
         # Store protocol implementation
         self._motion_tab = motion_tab
         if not motion_tab:
             logger.warning("No motion tab protocol implementation provided")
-            
+
         self._init_ui()
         logger.info("Jog control initialized")
 
@@ -55,10 +71,10 @@ class JogControl(BaseWidget):
             if self._motion_tab:
                 # Get current step size and convert to float
                 step_size = float(self.step_combo.currentText())
-                
+
                 # Calculate speed based on step size
                 speed = self._get_current_speed()
-                
+
                 # Pass both speed and step size to motion tab
                 await self._motion_tab.handle_jog_command(
                     axis=axis,
@@ -67,7 +83,8 @@ class JogControl(BaseWidget):
                     step_size=step_size
                 )
             else:
-                logger.warning("No motion tab protocol implementation available")
+                logger.warning(
+                    "No motion tab protocol implementation available")
         except Exception as e:
             logger.error(f"Error handling jog command: {e}")
 
@@ -77,14 +94,15 @@ class JogControl(BaseWidget):
             if self._motion_tab:
                 await self._motion_tab.handle_stop_command()
             else:
-                logger.warning("No motion tab protocol implementation available")
+                logger.warning(
+                    "No motion tab protocol implementation available")
         except Exception as e:
             logger.error(f"Error handling stop command: {e}")
 
     def _init_ui(self) -> None:
         """Setup the widget UI."""
         layout = QVBoxLayout()
-        
+
         # Speed control
         speed_group = QGroupBox("Jog Speed")
         speed_layout = QHBoxLayout()
@@ -95,7 +113,7 @@ class JogControl(BaseWidget):
         speed_layout.addWidget(self.speed_spin)
         speed_group.setLayout(speed_layout)
         layout.addWidget(speed_group)
-        
+
         # Step size control
         step_group = QGroupBox("Step Size")
         step_layout = QHBoxLayout()
@@ -106,28 +124,28 @@ class JogControl(BaseWidget):
         step_layout.addWidget(QLabel("mm"))
         step_group.setLayout(step_layout)
         layout.addWidget(step_group)
-        
+
         # Jog buttons
         jog_group = QGroupBox("Jog Control")
         jog_layout = QGridLayout()
-        
+
         # Z axis controls (up/down)
         self.z_up_btn = QPushButton("Z+")
         self.z_down_btn = QPushButton("Z-")
         jog_layout.addWidget(self.z_up_btn, 0, 1)
         jog_layout.addWidget(self.z_down_btn, 2, 1)
-        
+
         # X/Y axis controls
         self.y_down_btn = QPushButton("Y+")
         self.y_up_btn = QPushButton("Y-")
         self.x_left_btn = QPushButton("X-")
         self.x_right_btn = QPushButton("X+")
-        
+
         jog_layout.addWidget(self.y_up_btn, 0, 2)
         jog_layout.addWidget(self.y_down_btn, 2, 2)
         jog_layout.addWidget(self.x_left_btn, 1, 1)
         jog_layout.addWidget(self.x_right_btn, 1, 3)
-        
+
         # Connect jog buttons with proper async handling
         for btn, (axis, direction) in [
             (self.x_left_btn, ('x', -1)),
@@ -149,37 +167,42 @@ class JogControl(BaseWidget):
                 return handler
 
             # Connect with proper handlers
-            btn.pressed.connect(lambda a=axis, d=direction: 
-                asyncio.create_task(self._handle_jog_button(a, d)))
-            btn.released.connect(lambda a=axis: 
-                asyncio.create_task(self._handle_stop_button()))
-        
+            btn.pressed.connect(
+                lambda a=axis,
+                d=direction: asyncio.create_task(
+                    self._handle_jog_button(
+                        a,
+                        d)))
+            btn.released.connect(
+                lambda a=axis: asyncio.create_task(
+                    self._handle_stop_button()))
+
         jog_group.setLayout(jog_layout)
         layout.addWidget(jog_group)
-        
+
         # Position display
         pos_group = QGroupBox("Current Position")
         pos_layout = QGridLayout()
-        
+
         self.x_pos_label = QLabel("0.000")
         self.y_pos_label = QLabel("0.000")
         self.z_pos_label = QLabel("0.000")
-        
+
         pos_layout.addWidget(QLabel("X:"), 0, 0)
         pos_layout.addWidget(self.x_pos_label, 0, 1)
         pos_layout.addWidget(QLabel("mm"), 0, 2)
-        
+
         pos_layout.addWidget(QLabel("Y:"), 1, 0)
         pos_layout.addWidget(self.y_pos_label, 1, 1)
         pos_layout.addWidget(QLabel("mm"), 1, 2)
-        
+
         pos_layout.addWidget(QLabel("Z:"), 2, 0)
         pos_layout.addWidget(self.z_pos_label, 2, 1)
         pos_layout.addWidget(QLabel("mm"), 2, 2)
-        
+
         pos_group.setLayout(pos_layout)
         layout.addWidget(pos_group)
-        
+
         self.setLayout(layout)
 
     def _get_current_speed(self) -> float:
@@ -195,7 +218,7 @@ class JogControl(BaseWidget):
 
     def _update_position_display(self, position: Dict[str, float]) -> None:
         """Update position display labels.
-        
+
         Args:
             position: Dictionary containing x, y, z positions
         """
