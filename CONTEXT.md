@@ -294,8 +294,6 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
    - Uses MessageBroker for all communication
    - Topics: state/change, state/error
 
-### Message Patterns (Updated)
-
 4. Monitor Operations:
 
    - Must use "hardware/status/*" for hardware updates
@@ -303,49 +301,6 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
    - Must use "state/change" for state updates
    - Must include timestamps in all messages
    - Must include error context in error messages
-   -
-
-   - ## Test Organization
-
-   -
-
-   - ### Test Execution Order
-
-   - 1. Infrastructure Layer:
-   - - MessageBroker tests
-   - - ConfigManager tests
-   - - TagManager tests
-   - - StateManager tests
-   - Purpose: Verify core infrastructure functionality
-   -
-   - 2. Monitor Layer:
-   - - HardwareMonitor tests
-   - - ProcessMonitor tests
-   - - StateMonitor tests
-   - Purpose: Verify system monitoring functionality
-   -
-   - 3. Process Layer:
-   - - ProcessValidator tests
-   - - ParameterManager tests
-   - - PatternManager tests
-   - - ActionManager tests
-   - - SequenceManager tests
-   - Purpose: Verify process control functionality
-   -
-   - 4. UI Layer:
-   - - UIUpdateManager tests
-   - - Widget tests
-   - Purpose: Verify user interface functionality
-   -
-
-   - ### Test Dependencies
-
-   - - All tests must use TestOrder marks
-   - - All tests must follow component dependency chain
-   - - All tests must use proper async patterns
-   - - All tests must include proper cleanup
-   - - All tests must mock hardware access
-   - - All tests must prevent config file modifications
 
 ## Testing Standards
 
