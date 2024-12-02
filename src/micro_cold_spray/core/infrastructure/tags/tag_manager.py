@@ -19,10 +19,16 @@ class TagManager:
     Single Source of Truth for all hardware interactions.
     """
 
-    def __init__(self, message_broker: MessageBroker, config_manager: ConfigManager):
+    def __init__(
+        self,
+        message_broker: MessageBroker,
+        config_manager: ConfigManager,
+        test_mode: bool = False
+    ) -> None:
         """Initialize with required dependencies."""
         self._message_broker = message_broker
         self._config_manager = config_manager
+        self._test_mode = test_mode
 
         # Hardware clients
         self._plc_client: Optional[PLCClientType] = None
@@ -186,6 +192,16 @@ class TagManager:
                     except Exception as e:
                         logger.warning(f"PLC connection error: {e}")
                         plc_connected = False
+                        # Publish error
+                        await self._message_broker.publish(
+                            "error",
+                            {
+                                "error": str(e),
+                                "source": "plc",
+                                "context": "polling",
+                                "timestamp": datetime.now().isoformat()
+                            }
+                        )
 
                 await self._message_broker.publish(
                     "tag/update",
@@ -204,6 +220,16 @@ class TagManager:
                     except Exception as e:
                         logger.warning(f"SSH connection error: {e}")
                         ssh_connected = False
+                        # Publish error
+                        await self._message_broker.publish(
+                            "error",
+                            {
+                                "error": str(e),
+                                "source": "ssh",
+                                "context": "polling",
+                                "timestamp": datetime.now().isoformat()
+                            }
+                        )
 
                 await self._message_broker.publish(
                     "tag/update",
@@ -223,6 +249,10 @@ class TagManager:
                         "timestamp": datetime.now().isoformat(),
                     },
                 )
+
+                # In test mode, break after one iteration
+                if self._test_mode:
+                    break
 
                 await asyncio.sleep(1.0)  # Poll every second
 
@@ -268,91 +298,125 @@ class TagManager:
             raise HardwareError("Failed to poll tags", "plc", error_msg)
 
     async def _handle_tag_set(self, data: Dict[str, Any]) -> None:
-        """Handle tag set requests."""
+        """Handle tag set messages."""
         try:
             tag = data.get("tag")
             value = data.get("value")
+            if not tag or "value" not in data:
+                raise ValueError("Missing tag or value in request")
 
-            if not isinstance(tag, str):
-                raise ValueError(f"Tag must be a string, got {type(tag)}")
-
-            if tag in self._plc_tag_map:
-                if self._plc_client is None:
-                    raise RuntimeError("PLC client not initialized")
-
-                plc_client = cast(PLCClientType, self._plc_client)
-                plc_tag = str(self._plc_tag_map[tag])
-                await plc_client.write_tag(plc_tag, value)
+            await self.write_tag(tag, value)
 
         except Exception as e:
-            error_msg = {
-                "error": str(e),
-                "context": "tag_set",
-                "tag": data.get("tag"),
-                "value": data.get("value"),
-                "timestamp": datetime.now().isoformat(),
-            }
-            logger.error(f"Error setting tag: {error_msg}")
-            await self._message_broker.publish("error", error_msg)
-
-    async def _handle_tag_get(self, data: Dict[str, Any]) -> None:
-        """Handle tag get requests."""
-        try:
-            tag = data.get("tag")
-            if not isinstance(tag, str):
-                raise ValueError(f"Tag must be a string, got {type(tag)}")
-
-            if tag in self._plc_tag_map:
-                if self._plc_client is None:
-                    raise RuntimeError("PLC client not initialized")
-
-                plc_client = cast(PLCClientType, self._plc_client)
-                plc_tag = str(self._plc_tag_map[tag])
-                tags = await plc_client.get_all_tags()
-
-                if plc_tag in tags:
-                    await self._message_broker.publish(
-                        "tag/get/response",
-                        {
-                            "tag": tag,
-                            "value": tags[plc_tag],
-                            "timestamp": datetime.now().isoformat(),
-                        },
-                    )
-                else:
-                    raise ValueError(f"Tag {plc_tag} not found in PLC tags")
-
-        except Exception as e:
-            logger.error(f"Error getting tag {tag}: {e}")
+            logger.error(f"Error handling tag set: {e}")
             await self._message_broker.publish(
                 "error",
-                {"error": str(e), "context": "tag_get", "timestamp": datetime.now().isoformat()},
+                {
+                    "source": "tags",
+                    "error": str(e),
+                    "data": data,
+                    "timestamp": datetime.now().isoformat()
+                }
             )
 
-    async def _write_tag(self, tag: str, value: Any) -> None:
-        """Write tag value to hardware."""
+    async def _handle_tag_get(self, data: Dict[str, Any]) -> None:
+        """Handle tag get messages."""
         try:
-            if not isinstance(tag, str):
-                raise ValueError(f"Tag must be a string, got {type(tag)}")
+            tag = data.get("tag")
+            if not tag:
+                raise ValueError("Missing tag in request")
 
-            if tag in self._plc_tag_map:
-                if self._plc_client is None:
-                    raise RuntimeError("PLC client not initialized")
+            # Get current value from cache
+            value = self._tag_values.get(tag)
 
-                plc_client = cast(PLCClientType, self._plc_client)
-                plc_tag = str(self._plc_tag_map[tag])  # Ensure string type
-                await plc_client.write_tag(plc_tag, value)
+            # Publish response
+            await self._message_broker.publish(
+                "tag/get/response",
+                {
+                    "tag": tag,
+                    "value": value,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
 
         except Exception as e:
-            error_msg = {
-                "error": str(e),
-                "context": "tag_set",
-                "tag": tag,
-                "value": value,
-                "timestamp": datetime.now().isoformat(),
-            }
-            logger.error(f"Error setting tag: {error_msg}")
-            await self._message_broker.publish("error", error_msg)
+            logger.error(f"Error handling tag get: {e}")
+            await self._message_broker.publish(
+                "error",
+                {
+                    "source": "tags",
+                    "error": str(e),
+                    "data": data,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+
+    async def write_tag(self, tag_name: str, value: Any) -> None:
+        """Write a tag value to hardware."""
+        try:
+            # Parse tag path to determine hardware target
+            parts = tag_name.split(".")
+            if not parts:
+                raise ValueError(f"Invalid tag name: {tag_name}")
+
+            if parts[0] == "plc" and self._plc_client:
+                # Get PLC tag address from config
+                tag_config = self._tag_definitions.get("plc", {}).get(parts[1], {})
+                if not tag_config:
+                    raise ValueError(f"Tag not found in config: {tag_name}")
+
+                address = tag_config.get("address")
+                if not address:
+                    raise ValueError(f"No address for tag: {tag_name}")
+
+                await self._plc_client.write_tag(address, value)
+
+                # Publish update
+                await self._message_broker.publish(
+                    "tag/update",
+                    {
+                        "tag": tag_name,
+                        "value": value,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+
+            elif parts[0] == "motion" and self._ssh_client:
+                # Get motion command from config
+                tag_config = self._tag_definitions.get("motion", {}).get(parts[1], {})
+                if not tag_config:
+                    raise ValueError(f"Tag not found in config: {tag_name}")
+
+                command = tag_config.get("command", "").format(value=value)
+                if not command:
+                    raise ValueError(f"No command for tag: {tag_name}")
+
+                await self._ssh_client.write_command(command)
+
+                # Publish update
+                await self._message_broker.publish(
+                    "tag/update",
+                    {
+                        "tag": tag_name,
+                        "value": value,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+            else:
+                raise ValueError(f"Unsupported tag type: {parts[0]}")
+
+        except Exception as e:
+            logger.error(f"Error writing tag {tag_name}: {e}")
+            await self._message_broker.publish(
+                "error",
+                {
+                    "source": "tags",
+                    "error": str(e),
+                    "tag": tag_name,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+            raise HardwareError(f"Failed to write tag {tag_name}: {str(e)}", "tags") from e
 
     async def _poll_hardware(self) -> None:
         """Poll hardware for updates."""

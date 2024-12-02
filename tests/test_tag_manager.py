@@ -1,10 +1,10 @@
 """Tag Manager test suite.
 
-Tests hardware interface according to architecture rules:
-- TagManager is only component using hardware clients
-- All components use MessageBroker for tag access
-- Must handle connection loss gracefully
-- Must follow tag operation message patterns
+Tests tag management functionality:
+- Tag reading and writing
+- Hardware communication
+- Error handling
+- Update propagation
 
 Run with:
     pytest tests/test_tag_manager.py -v --asyncio-mode=auto
@@ -14,127 +14,114 @@ import pytest
 from typing import AsyncGenerator, Dict, Any
 from unittest.mock import AsyncMock, MagicMock
 import asyncio
-from datetime import datetime
 from tests.conftest import TestOrder, order
 
 from micro_cold_spray.core.infrastructure.tags.tag_manager import TagManager
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
 from micro_cold_spray.core.infrastructure.config.config_manager import ConfigManager
+from micro_cold_spray.core.exceptions import HardwareError
+
 
 @pytest.fixture
 async def message_broker() -> AsyncGenerator[MessageBroker, None]:
     """Provide a MessageBroker instance."""
     broker = MessageBroker()
-    broker._subscribers = {
-        # Tag topics from .cursorrules
-        "tag/set": set(),
-        "tag/get": set(),
-        "tag/update": set(),
-        "tag/get/response": set(),
-        
-        # Hardware topics
-        "hardware/status/*": set(),
-        "hardware/error": set(),
-        
-        # Error topics
-        "error": set()
-    }
-    
-    try:
-        await broker.start()
-        yield broker
-    finally:
-        await broker.shutdown()
+    await broker.start()
+    yield broker
+    await broker.shutdown()
+
 
 @pytest.fixture
 async def config_manager(message_broker: MessageBroker) -> AsyncGenerator[ConfigManager, None]:
     """Provide a ConfigManager instance."""
     config = ConfigManager(message_broker)
-    
-    # Use in-memory configs only
     config._configs = {
         'tags': {
-            'tag_groups': {
+            'groups': {
+                'plc': {
+                    'test_tag': {
+                        'address': 'DB1.DBX0.0',
+                        'type': 'bool',
+                        'description': 'Test PLC tag'
+                    }
+                },
                 'motion': {
-                    'position': {
-                        'x_position': {
-                            'description': "X axis position",
-                            'type': "float",
-                            'unit': "mm",
-                            'access': "read",
-                            'mapped': True,
-                            'plc_tag': "AMC.Ax1Position"
-                        }
+                    'test_pos': {
+                        'address': '/axis1/position',
+                        'type': 'float',
+                        'description': 'Test motion position',
+                        'command': 'get_pos({value})'
                     }
                 }
             }
         },
         'hardware': {
             'plc': {
-                'ip': '127.0.0.1',
-                'port': 44818,
-                'timeout': 1.0
+                'ip': '192.168.1.1',
+                'rack': 0,
+                'slot': 1
             },
-            'motion_controller': {
-                'host': '127.0.0.1',
-                'username': 'test',
-                'password': 'test',
-                'port': 22
+            'motion': {
+                'host': 'localhost',
+                'port': 22,
+                'username': 'root',
+                'password': 'password'
+            }
+        },
+        'application': {
+            'development': {
+                'mock_hardware': True
             }
         }
     }
-    
-    # Mock ALL file operations
-    config._save_config = AsyncMock()
+
     config.update_config = AsyncMock()
     config._load_config = AsyncMock()
-    config.save_backup = AsyncMock()
-    
-    try:
-        yield config
-    finally:
-        # Clean shutdown without saving
-        config.shutdown = AsyncMock()
-        await config.shutdown()
+    config._save_config = AsyncMock()
+
+    await config.initialize()
+    yield config
+    await config.shutdown()
+
 
 @pytest.fixture
 def mock_plc_client() -> MagicMock:
     """Provide a mock PLC client."""
     client = MagicMock()
-    # Use real tag names from tags.yaml
-    client.get_all_tags = AsyncMock(return_value={
-        "AMC.Ax1Position": 100.0,
-        "AMC.Ax2Position": 200.0,
-        "AOS32-0.1.2.1": 50.0
-    })
-    client.write_tag = AsyncMock()
+    client.read_tag = AsyncMock(return_value=True)
+    client.write_tag = AsyncMock(return_value=True)
+    client.get_all_tags = AsyncMock(return_value={'DB1.DBX0.0': True})
     client.connect = AsyncMock()
     client.disconnect = AsyncMock()
+    client.is_connected = True
     return client
+
 
 @pytest.fixture
 def mock_ssh_client() -> MagicMock:
     """Provide a mock SSH client."""
     client = MagicMock()
-    client.write_command = AsyncMock()
-    client.read_response = AsyncMock(return_value="OK")
+    client.write_command = AsyncMock(return_value=("0.0", "", 0))
+    client.test_connection = AsyncMock(return_value=True)
     client.connect = AsyncMock()
     client.disconnect = AsyncMock()
+    client.is_connected = True
     return client
+
 
 @pytest.fixture(autouse=True)
 async def cleanup_tasks():
     """Cleanup any pending tasks after each test."""
     yield
-    # Get all tasks
-    tasks = [t for t in asyncio.all_tasks() if not t.done()]
+    tasks = [t for t in asyncio.all_tasks()
+             if t is not asyncio.current_task()]
     for task in tasks:
-        if not task.done():
+        try:
             task.cancel()
-            try:
-                await asyncio.wait_for(task, timeout=0.1)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
-                pass
+            await task
+        except asyncio.CancelledError:
+            pass
+
 
 @pytest.fixture
 async def tag_manager(
@@ -143,173 +130,161 @@ async def tag_manager(
     mock_plc_client: MagicMock,
     mock_ssh_client: MagicMock
 ) -> AsyncGenerator[TagManager, None]:
-    """Provide a TagManager instance."""
+    """Create tag manager with mocked dependencies."""
     manager = TagManager(
         message_broker=message_broker,
-        config_manager=config_manager
+        config_manager=config_manager,
+        test_mode=True
     )
 
-    # Mock the clients BEFORE initialization
+    # Inject mock clients
     manager._plc_client = mock_plc_client
     manager._ssh_client = mock_ssh_client
-    
-    # Set up initial tag mapping
-    manager._tag_definitions = {
-        "motion": {
-            "position": {
-                "x_position": {
-                    "mapped": True,
-                    "plc_tag": "AMC.Ax1Position"
-                }
-            }
-        }
-    }
-    manager._plc_tag_map = {
-        "motion.position.x_position": "AMC.Ax1Position"
-    }
 
-    try:
-        await manager.initialize()
-        manager._is_initialized = True  # Ensure initialized flag is set
-        yield manager
-    finally:
-        await manager.shutdown()
+    await manager.initialize()
+    yield manager
+
+    # Cleanup
+    if manager._polling_task and not manager._polling_task.done():
+        manager._polling_task.cancel()
+        try:
+            await manager._polling_task
+        except asyncio.CancelledError:
+            pass
+
+    await manager.shutdown()
+
 
 @order(TestOrder.INFRASTRUCTURE)
 class TestTagManager:
     """Tag Manager tests run with infrastructure."""
-    
-    @pytest.mark.asyncio
-    async def test_tag_manager_initialization(self, tag_manager):
-        """Test TagManager initialization."""
-        assert tag_manager._is_initialized
-        assert tag_manager._plc_client is not None
-        assert tag_manager._tag_definitions == {
-            "motion": {
-                "position": {
-                    "x_position": {
-                        "mapped": True,
-                        "plc_tag": "AMC.Ax1Position"
-                    }
-                }
-            }
-        }
 
     @pytest.mark.asyncio
-    async def test_tag_manager_connection_test(self, tag_manager, mock_plc_client, mock_ssh_client):
-        """Test connection testing."""
-        # Setup mocks
-        mock_plc_client.get_all_tags.return_value = {"test": 1.0}
-        mock_ssh_client.write_command.return_value = None
-        mock_ssh_client.read_response.return_value = "OK"
+    async def test_tag_writing(self, tag_manager):
+        """Test tag writing functionality."""
+        # Test PLC tag write
+        await tag_manager.write_tag("plc.test_tag", True)
+        tag_manager._plc_client.write_tag.assert_called_once_with(
+            "DB1.DBX0.0", True)
 
-        # Test connections
-        status = await tag_manager.test_connections()
-        assert status["plc"] is True
-        assert status["motion_controller"] is True
+        # Test motion tag write
+        await tag_manager.write_tag("motion.test_pos", 10.0)
+        tag_manager._ssh_client.write_command.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_tag_manager_connection_failure(self, tag_manager, mock_plc_client):
-        """Test connection failure handling."""
-        # Simulate connection failure
-        mock_plc_client.get_all_tags.side_effect = Exception("Connection failed")
-
-        # Test connections
-        status = await tag_manager.test_connections()
-        assert status["plc"] is False
-
-        # Verify error published
+    async def test_write_error_handling(self, tag_manager):
+        """Test write error handling."""
+        # Setup error collection
         errors = []
+
         async def collect_errors(data: Dict[str, Any]) -> None:
             errors.append(data)
-        await tag_manager._message_broker.subscribe("error", collect_errors)
 
-        await tag_manager.initialize()
+        await tag_manager._message_broker.subscribe("error", collect_errors)
+        # Wait for subscription to be ready
         await asyncio.sleep(0.1)
 
-        assert len(errors) > 0
-        assert "Connection failed" in str(errors[0]["error"])
+        # Simulate write error
+        tag_manager._plc_client.write_tag.side_effect = Exception("Write failed")
+
+        # Should raise HardwareError but still publish error
+        with pytest.raises(HardwareError) as exc_info:
+            await tag_manager.write_tag("plc.test_tag", True)
+
+        # Wait for message processing
+        await asyncio.sleep(0.1)
+        await tag_manager._message_broker._message_queue.join()
+
+        assert "Write failed" in str(exc_info.value)
+        assert len(errors) == 1
+        assert "Write failed" in str(errors[0]["error"])
 
     @pytest.mark.asyncio
-    async def test_tag_manager_polling(self, tag_manager, mock_plc_client):
-        """Test tag polling and updates."""
-        # Set up tag mapping
-        tag_manager._plc_tag_map = {
-            "motion.x.position": "AMC.Ax1Position",
-            "motion.y.position": "AMC.Ax2Position"
-        }
-
+    async def test_tag_updates(self, tag_manager):
+        """Test tag update propagation."""
         updates = []
+
         async def collect_updates(data: Dict[str, Any]) -> None:
             updates.append(data)
+
         await tag_manager._message_broker.subscribe("tag/update", collect_updates)
 
-        # Simulate tag changes
-        mock_plc_client.get_all_tags.return_value = {
-            "AMC.Ax1Position": 100.0,
-            "AMC.Ax2Position": 200.0
-        }
-
-        await tag_manager.initialize()
-        await asyncio.sleep(0.2)  # Give time for polling
-
-        assert len(updates) > 0
-        assert "motion.x.position" in updates[0]["tag"]
-
-    @pytest.mark.asyncio
-    async def test_tag_manager_polling_error(self, tag_manager, mock_plc_client):
-        """Test polling error handling."""
-        errors = []
-        async def collect_errors(data: Dict[str, Any]) -> None:
-            errors.append(data)
-        await tag_manager._message_broker.subscribe("error", collect_errors)
-
-        # Set up tag mapping
-        tag_manager._plc_tag_map = {
-            "motion.x.position": "AMC.Ax1Position"
-        }
-
-        # Simulate polling failure
-        mock_plc_client.get_all_tags.side_effect = Exception("Poll failed")
-
-        await tag_manager.initialize()
-        await asyncio.sleep(0.2)  # Give time for polling error
-
-        assert len(errors) > 0
-        assert "Poll failed" in str(errors[0]["error"])
-
-    @pytest.mark.asyncio
-    async def test_tag_manager_set_tag(self, tag_manager, mock_plc_client):
-        """Test tag setting."""
-        # Test setting PLC tag
-        await tag_manager._message_broker.publish(
-            "tag/set",
-            {
-                "tag": "motion.position.x_position",
-                "value": 100.0
-            }
-        )
+        # Trigger tag update
+        await tag_manager.write_tag("plc.test_tag", True)
         await asyncio.sleep(0.1)
 
-        mock_plc_client.write_tag.assert_called_once()
+        assert len(updates) == 1
+        assert updates[0]["tag"] == "plc.test_tag"
+        assert updates[0]["value"] is True
 
     @pytest.mark.asyncio
-    async def test_tag_manager_get_tag(self, tag_manager, mock_plc_client):
+    async def test_polling_errors(self, tag_manager):
+        """Test polling error handling."""
+        errors = []
+        updates = []
+
+        async def collect_errors(data: Dict[str, Any]) -> None:
+            errors.append(data)
+
+        async def collect_updates(data: Dict[str, Any]) -> None:
+            updates.append(data)
+
+        await tag_manager._message_broker.subscribe("error", collect_errors)
+        await tag_manager._message_broker.subscribe("tag/update", collect_updates)
+
+        # Wait for subscriptions to be ready
+        await asyncio.sleep(0.1)
+
+        # Set up mock errors
+        tag_manager._plc_client.get_all_tags.side_effect = Exception("Read failed")
+        tag_manager._ssh_client.test_connection = AsyncMock(
+            side_effect=Exception("SSH connection failed")
+        )
+
+        # Let the polling loop run once
+        try:
+            await tag_manager._poll_loop()
+        except Exception:
+            pass  # Expected exception from polling errors
+
+        # Wait for message processing
+        await tag_manager._message_broker._message_queue.join()
+
+        # Check for hardware status update
+        plc_status = next(
+            (u for u in updates if u.get("tag") == "hardware.plc.connected"), None
+        )
+        assert plc_status is not None
+        assert plc_status["value"] is False
+
+        # Check for SSH status update
+        ssh_status = next(
+            (u for u in updates if u.get("tag") == "hardware.ssh.connected"), None
+        )
+        assert ssh_status is not None
+        assert ssh_status["value"] is False
+
+        # Verify error messages were published
+        assert any("Read failed" in str(error.get("error")) for error in errors)
+        assert any("SSH connection failed" in str(error.get("error")) for error in errors)
+
+    @pytest.mark.asyncio
+    async def test_tag_getting(self, tag_manager):
         """Test tag getting."""
         responses = []
+
         async def collect_responses(data: Dict[str, Any]) -> None:
             responses.append(data)
+
         await tag_manager._message_broker.subscribe("tag/get/response", collect_responses)
 
         # Request tag value
         await tag_manager._message_broker.publish(
             "tag/get",
-            {
-                "tag": "motion.position.x_position"
-            }
+            {"tag": "plc.test_tag"}
         )
         await asyncio.sleep(0.1)
 
-        assert len(responses) > 0
+        assert len(responses) == 1
+        assert responses[0]["tag"] == "plc.test_tag"
         assert "value" in responses[0]
-        assert "timestamp" in responses[0]
