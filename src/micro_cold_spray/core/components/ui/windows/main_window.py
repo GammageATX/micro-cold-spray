@@ -19,7 +19,11 @@ from PySide6.QtWidgets import (
 from micro_cold_spray.core.components.ui.managers.ui_update_manager import (
     UIUpdateManager,
 )
+from micro_cold_spray.core.components.ui.tabs.config_tab import ConfigTab
 from micro_cold_spray.core.components.ui.tabs.dashboard_tab import DashboardTab
+from micro_cold_spray.core.components.ui.tabs.diagnostics_tab import DiagnosticsTab
+from micro_cold_spray.core.components.ui.tabs.editor_tab import EditorTab
+from micro_cold_spray.core.components.ui.tabs.motion_tab import MotionTab
 from micro_cold_spray.core.components.ui.widgets.base_widget import BaseWidget
 from micro_cold_spray.core.components.ui.widgets.status.connection_status import (
     ConnectionStatus,
@@ -174,8 +178,12 @@ class MainWindow(QMainWindow):
             if self._is_initialized:
                 return
 
-            # Initialize only dashboard tab
+            # Initialize all tabs
             await self.dashboard_tab.initialize()
+            await self.motion_tab.initialize()
+            await self.editor_tab.initialize()
+            await self.config_tab.initialize()
+            await self.diagnostics_tab.initialize()
 
             # Subscribe to system messages
             await self._message_broker.subscribe(
@@ -274,10 +282,28 @@ class MainWindow(QMainWindow):
             # Add top strip to main layout
             main_layout.addWidget(top_strip)
 
-            # Create and add only dashboard tab
+            # Create and add all tabs
             self.tab_widget = QTabWidget()
+
+            # Dashboard Tab
             self.dashboard_tab = DashboardTab(self._ui_manager)
             self.tab_widget.addTab(self.dashboard_tab, "Dashboard")
+
+            # Motion Tab
+            self.motion_tab = MotionTab(self._ui_manager)
+            self.tab_widget.addTab(self.motion_tab, "Motion")
+
+            # Editor Tab
+            self.editor_tab = EditorTab(self._ui_manager)
+            self.tab_widget.addTab(self.editor_tab, "Editor")
+
+            # Config Tab
+            self.config_tab = ConfigTab(self._ui_manager)
+            self.tab_widget.addTab(self.config_tab, "Config")
+
+            # Diagnostics Tab
+            self.diagnostics_tab = DiagnosticsTab(self._ui_manager)
+            self.tab_widget.addTab(self.diagnostics_tab, "Diagnostics")
 
             main_layout.addWidget(self.tab_widget)
 
@@ -341,9 +367,17 @@ class MainWindow(QMainWindow):
     async def cleanup(self) -> None:
         """Clean up all widgets and resources."""
         try:
-            # Clean up only dashboard tab
+            # Clean up all tabs
             if hasattr(self, 'dashboard_tab'):
                 await self.dashboard_tab.cleanup()
+            if hasattr(self, 'motion_tab'):
+                await self.motion_tab.cleanup()
+            if hasattr(self, 'editor_tab'):
+                await self.editor_tab.cleanup()
+            if hasattr(self, 'config_tab'):
+                await self.config_tab.cleanup()
+            if hasattr(self, 'diagnostics_tab'):
+                await self.diagnostics_tab.cleanup()
 
             # Clean up widgets
             if hasattr(self, 'system_state'):

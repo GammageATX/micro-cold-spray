@@ -1,8 +1,8 @@
 """Motion control tab for manual motion and position management."""
 import asyncio
-import logging
 from typing import Any, Dict, Protocol, runtime_checkable
 
+from loguru import logger
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QLabel, QMessageBox, QSplitter, QVBoxLayout
 
@@ -11,8 +11,6 @@ from ..widgets.base_widget import BaseWidget
 from ..widgets.motion.chamber_view import ChamberView
 from ..widgets.motion.jog_control import JogControl
 from ..widgets.motion.position_table import PositionTable
-
-logger = logging.getLogger(__name__)
 
 
 @runtime_checkable
@@ -76,7 +74,10 @@ class MotionTab(BaseWidget):
         """Load motion limits from config."""
         try:
             hardware_config = await self._ui_manager._config_manager.get_config('hardware')
-            self._motion_limits = hardware_config['hardware']['motion']['limits']
+            limits = hardware_config.get('hardware', {})
+            limits = limits.get('motion', {})
+            self._motion_limits = limits.get('limits', {})
+            logger.debug(f"Loaded motion limits: {self._motion_limits}")
         except Exception as e:
             logger.error(f"Error loading motion limits: {e}")
 
@@ -111,8 +112,8 @@ class MotionTab(BaseWidget):
 
         # Right side - Controls and positions
         controls_frame = QFrame()
-        controls_frame.setFrameShape(QFrame.Shape.StyledPanel)
-        controls_frame.setFrameShadow(QFrame.Shadow.Raised)
+        controls_frame.setFrameShape(QFrame.Shape.Panel)
+        controls_frame.setFrameShadow(QFrame.Shadow.Sunken)
         controls_layout = QVBoxLayout()
 
         # Add jog control with explicit parent and protocol reference
@@ -137,6 +138,26 @@ class MotionTab(BaseWidget):
         main_layout.addWidget(splitter)
 
         self.setLayout(main_layout)
+
+    async def _update_simulated_position(self, new_position: Dict[str, float]) -> None:
+        """Update simulated position and notify widgets."""
+        try:
+            self._simulated_position = new_position
+
+            # Send position update through UI manager
+            await self._ui_manager.send_update(
+                "motion.position",
+                {
+                    "position": self._simulated_position,
+                    "simulated": True,
+                    "timestamp": None
+                }
+            )
+
+            logger.debug(f"Updated simulated position: {self._simulated_position}")
+
+        except Exception as e:
+            logger.error(f"Error updating simulated position: {e}")
 
     async def handle_jog_command(
             self,
@@ -170,8 +191,35 @@ class MotionTab(BaseWidget):
 
                 # Apply validated move
                 new_position[axis.lower()] = new_pos
-                await self._update_simulated_position(new_position)
-                self._simulated_moving = True
+                self._simulated_position = new_position
+
+                # Update chamber view first
+                if self._chamber_view:
+                    self._chamber_view.update_position(
+                        new_position['x'],
+                        new_position['y'],
+                        new_position['z']
+                    )
+
+                # Update jog control display
+                if self._jog_control:
+                    self._jog_control._update_position_display(new_position)
+
+                # Update position table
+                if self._position_table:
+                    await self._position_table.update_position(new_position)
+
+                # Send position update through UI manager
+                await self._ui_manager.send_update(
+                    "motion.position",
+                    {
+                        "position": new_position,
+                        "simulated": True,
+                        "timestamp": None
+                    }
+                )
+
+                logger.debug(f"Updated position to: {new_position}")
 
             else:
                 # Send real motion command with validation
@@ -185,36 +233,12 @@ class MotionTab(BaseWidget):
                     }
                 )
 
-            await self._ui_manager.register_widget(
-                self._widget_id,
-                ["motion/error"],
-                self
-            )
-
         except Exception as e:
             logger.error(f"Error handling jog command: {e}")
             await self._ui_manager.send_update(
-                "system/error",
+                "system.error",
                 {"error": f"Motion error: {str(e)}"}
             )
-
-    async def _handle_motion_error(self, error_data: Dict[str, Any]) -> None:
-        """Handle motion error messages."""
-        try:
-            error_msg = error_data.get("error", "Unknown motion error")
-            # Show error in UI
-            await self._ui_manager.send_update(
-                "system/error",
-                {"error": error_msg}
-            )
-            # Could also show in a popup or status bar
-            QMessageBox.warning(
-                self,
-                "Motion Error",
-                error_msg
-            )
-        except Exception as e:
-            logger.error(f"Error handling motion error: {e}")
 
     async def handle_stop_command(self) -> None:
         """Handle stop command from jog control."""
@@ -237,150 +261,75 @@ class MotionTab(BaseWidget):
             if "system.connection" in data:
                 was_connected = self._connected
                 self._connected = data.get("connected", False)
-
-                # If connection state changed, update position source
                 if was_connected != self._connected:
-                    if self._connected:
-                        # Switch to real position updates
-                        logger.debug("Switching to hardware position updates")
+                    # Reset simulated position when connection state changes
+                    if not self._connected:
+                        self._simulated_position = {'x': 0.0, 'y': 0.0, 'z': 0.0}
+                        # Update all widgets with initial position
+                        if self._chamber_view:
+                            self._chamber_view.update_position(0.0, 0.0, 0.0)
+                        if self._jog_control:
+                            self._jog_control._update_position_display(self._simulated_position)
+                        if self._position_table:
+                            await self._position_table.update_position(self._simulated_position)
+
+            elif "motion.position" in data:
+                position_data = data.get("motion.position", {})
+                if isinstance(position_data, dict):
+                    if "position" in position_data:
+                        position = position_data["position"]
                     else:
-                        # Switch to simulation
-                        logger.debug("Switching to simulated position updates")
-                        # Initialize simulation position
-                        await self._update_simulated_position(self._simulated_position)
+                        position = position_data
 
-            elif "motion.position" in data and self._connected:
-                # Only use hardware position updates when connected
-                position = data["motion.position"]
-                await self._update_position_displays(position)
+                    # Update all widgets with new position
+                    if self._chamber_view:
+                        self._chamber_view.update_position(
+                            position.get('x', 0.0),
+                            position.get('y', 0.0),
+                            position.get('z', 0.0)
+                        )
+                    if self._jog_control:
+                        self._jog_control._update_position_display(position)
+                    if self._position_table:
+                        await self._position_table.update_position(position)
 
-            elif "hardware_status" in data:
-                # Handle hardware status updates
-                status = data.get("hardware_status", {})
-                self._connected = status.get("plc_connected", False)
-
-            elif "tag_update" in data:
-                # Handle tag updates
-                for tag, value in data.items():
-                    if tag.startswith("motion.position"):
-                        if self._connected:
-                            await self._update_position_displays(value)
+                    # Store position
+                    self._simulated_position = position.copy()
 
         except Exception as e:
-            logger.error(f"Error handling UI update in MotionTab: {e}")
-            await self.send_update("system.error", f"Motion tab error: {str(e)}")
+            logger.error(f"Error handling UI update: {e}")
 
-    async def _update_simulated_position(
-            self, position: Dict[str, float]) -> None:
-        """Update simulated position when in disconnected mode."""
+    async def _handle_motion_error(self, error_data: Dict[str, Any]) -> None:
+        """Handle motion error messages."""
         try:
-            self._simulated_position = position
-            await self._update_position_displays(position)
-            # Also update the position table
-            if self._position_table:
-                self._position_table._current_position = position
+            error_msg = error_data.get("error", "Unknown motion error")
+            # Show error in UI
+            await self._ui_manager.send_update(
+                "system.error",
+                {"error": error_msg}
+            )
+            # Could also show in a popup or status bar
+            QMessageBox.warning(
+                self,
+                "Motion Error",
+                error_msg
+            )
         except Exception as e:
-            logger.error(f"Error updating simulated position: {e}")
-
-    async def _update_position_displays(
-            self, position: Dict[str, float]) -> None:
-        """Update all position displays."""
-        try:
-            # Update chamber view
-            if self._chamber_view:
-                self._chamber_view.update_position(
-                    position['x'],
-                    position['y'],
-                    position['z']
-                )
-
-            # Update jog control display
-            if self._jog_control:
-                self._jog_control._update_position_display(position)
-
-            # Update position table
-            if self._position_table:
-                self._position_table._current_position = position
-
-        except Exception as e:
-            logger.error(f"Error updating position displays: {e}")
+            logger.error(f"Error handling motion error: {e}")
 
     async def cleanup(self) -> None:
         """Clean up motion tab and child widgets."""
         try:
             # Clean up child widgets first
             if self._chamber_view is not None:
-                if (
-                        hasattr(self._chamber_view, 'cleanup')
-                        and asyncio.iscoroutinefunction(self._chamber_view.cleanup)
-                ):
-                    try:
-                        await self._chamber_view.cleanup()
-                    except Exception as e:
-                        logger.error(f"Error cleaning up chamber view: {e}")
-                elif hasattr(self._chamber_view, 'cleanup'):
-                    try:
-                        # Call async cleanup with await
-                        await self._chamber_view.cleanup()
-                    except Exception as e:
-                        logger.error(f"Error cleaning up chamber view: {e}")
-
+                await self._chamber_view.cleanup()
             if self._jog_control is not None:
-                if (
-                        hasattr(self._jog_control, 'cleanup')
-                        and asyncio.iscoroutinefunction(self._jog_control.cleanup)
-                ):
-                    try:
-                        await self._jog_control.cleanup()
-                    except Exception as e:
-                        logger.error(f"Error cleaning up jog control: {e}")
-                elif hasattr(self._jog_control, 'cleanup'):
-                    try:
-                        # Call async cleanup with await
-                        await self._jog_control.cleanup()
-                    except Exception as e:
-                        logger.error(f"Error cleaning up jog control: {e}")
-
+                await self._jog_control.cleanup()
             if self._position_table is not None:
-                if (
-                        hasattr(self._position_table, 'cleanup')
-                        and asyncio.iscoroutinefunction(self._position_table.cleanup)
-                ):
-                    try:
-                        await self._position_table.cleanup()
-                    except Exception as e:
-                        logger.error(f"Error cleaning up position table: {e}")
-                elif hasattr(self._position_table, 'cleanup'):
-                    try:
-                        # Call async cleanup with await
-                        await self._position_table.cleanup()
-                    except Exception as e:
-                        logger.error(f"Error cleaning up position table: {e}")
+                await self._position_table.cleanup()
 
             # Then clean up self
             await super().cleanup()
 
         except Exception as e:
             logger.error(f"Error during motion tab cleanup: {e}")
-
-    def _validate_position(self, axis: str, position: float) -> bool:
-        """Validate position against axis limits."""
-        try:
-            axis_limits = self._motion_limits.get(axis.lower(), {})
-            min_limit = axis_limits.get('min', float('-inf'))
-            max_limit = axis_limits.get('max', float('inf'))
-
-            if position < min_limit:
-                logger.warning(
-                    f"{axis} position {position} below minimum limit {min_limit}")
-                return False
-            if position > max_limit:
-                logger.warning(
-                    f"{axis} position {position} above maximum limit {max_limit}")
-                return False
-
-            return True
-
-        except Exception as e:
-            logger.error(f"Error validating position: {e}")
-            return False

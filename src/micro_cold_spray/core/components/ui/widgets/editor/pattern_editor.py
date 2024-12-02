@@ -230,3 +230,16 @@ class PatternEditor(BaseWidget):
                         widget.setStyleSheet("background-color: #ffcccc;")
         except Exception as e:
             logger.error(f"Error handling validation results: {e}")
+
+    def update_file_list(self, files: list[str]) -> None:
+        """Update the list of available pattern files.
+
+        Args:
+            files: List of pattern file names
+        """
+        try:
+            self._pattern_combo.clear()
+            self._pattern_combo.addItems(files)
+            logger.debug(f"Updated pattern file list: {files}")
+        except Exception as e:
+            logger.error(f"Error updating pattern file list: {e}")
