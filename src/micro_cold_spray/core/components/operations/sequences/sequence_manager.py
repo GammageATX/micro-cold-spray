@@ -448,10 +448,7 @@ class SequenceManager:
                     for field in required_step_fields.get("fields", []):
                         if field not in step:
                             errors.append(
-                                f"Step {
-                                    i +
-                                    1}: {
-                                    required_step_fields['message']}")
+                                f"Step {i + 1}: {required_step_fields['message']}")
                             break
 
                     # Check for unknown fields
@@ -461,10 +458,7 @@ class SequenceManager:
                             and field not in optional_step_fields.get("fields", [])
                         ):
                             errors.append(
-                                f"Step {
-                                    i +
-                                    1}: {
-                                    optional_step_fields['message']}")
+                                f"Step {i + 1}: {optional_step_fields['message']}")
                             break
 
                     # Validate action if present

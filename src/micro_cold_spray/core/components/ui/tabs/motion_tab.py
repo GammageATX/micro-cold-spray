@@ -320,8 +320,8 @@ class MotionTab(BaseWidget):
                         logger.error(f"Error cleaning up chamber view: {e}")
                 elif hasattr(self._chamber_view, 'cleanup'):
                     try:
-                        # Call sync cleanup directly
-                        self._chamber_view.cleanup()
+                        # Call async cleanup with await
+                        await self._chamber_view.cleanup()
                     except Exception as e:
                         logger.error(f"Error cleaning up chamber view: {e}")
 
@@ -336,7 +336,7 @@ class MotionTab(BaseWidget):
                         logger.error(f"Error cleaning up jog control: {e}")
                 elif hasattr(self._jog_control, 'cleanup'):
                     try:
-                        # Call sync cleanup directly
+                        # Call async cleanup with await
                         await self._jog_control.cleanup()
                     except Exception as e:
                         logger.error(f"Error cleaning up jog control: {e}")
@@ -352,7 +352,7 @@ class MotionTab(BaseWidget):
                         logger.error(f"Error cleaning up position table: {e}")
                 elif hasattr(self._position_table, 'cleanup'):
                     try:
-                        # Call sync cleanup directly
+                        # Call async cleanup with await
                         await self._position_table.cleanup()
                     except Exception as e:
                         logger.error(f"Error cleaning up position table: {e}")

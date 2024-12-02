@@ -1,119 +1,47 @@
-# Project Architecture Rules
+# Core Architecture Rules
 
-## Core Principles
+## Single Source of Truth (SSOT)
 
-- Single Source of Truth (SSOT):
-  - TagManager: Only component that uses hardware clients
-  - ConfigManager: Handles all configurations
-  - MessageBroker: Controls all pub/sub messaging
-  - UIUpdateManager: Manages all UI updates
-  - StateManager: Manages all system state
+- TagManager: All hardware communication
+- ConfigManager: All configuration management
+- MessageBroker: All pub/sub messaging
+- UIUpdateManager: All UI updates
+- StateManager: All system state
 
-## Python Environment Requirements
+## Component Requirements
 
-1. Virtual Environment:
-   - Must use venv for isolation
-   - Must be named .venv
-   - Must be excluded from git
-   - Must install all dependencies from requirements.txt
+1. Hardware Communication:
+   - Only TagManager can use hardware clients
+   - Must handle connection failures gracefully
+   - Must validate all hardware operations
 
-2. Package Management:
-   - Must use requirements.txt for dependencies
-   - Must use setup.py for development installation
-   - Must use pip install -e . for local development
-   - Must specify version constraints
+2. UI Components:
+   - Must inherit from BaseWidget
+   - Must register with UIUpdateManager
+   - Must implement async cleanup
+   - Must use Qt6 enum classes
+
+3. Error Handling:
+   - Must catch and log all exceptions
+   - Must provide context in error messages
+   - Must handle async operations properly
+
+## Development Standards
+
+1. Code Style:
+   - Follow PEP 8
+   - Use type hints
+   - Document public interfaces
+   - Keep methods focused and small
+
+2. Testing:
+   - Write unit tests for new features
+   - Mock hardware dependencies
+   - Test error conditions
+   - Verify message patterns
 
 3. Dependencies:
-   - Core dependencies must be explicitly versioned
-   - Development tools must be in separate section
-   - Must document purpose of each dependency
-   - Must maintain minimum Python version compatibility
-
-## UI Component Rules
-
-1. Widget Requirements:
-   - Must register with UIUpdateManager
-   - Must implement update() method
-   - Must handle async operations
-   - Must cleanup on destroy
-
-2. Frame Style Constants:
-   - Must use QFrame.Shape.* for frame shapes
-   - Must use QFrame.Shadow.* for frame shadows
-   - Must use proper Qt6 enum classes
-
-3. Alignment Constants:
-   - Must use Qt.AlignmentFlag.* for alignments
-   - No direct use of Qt5-style constants
-
-4. Size Policy Constants:
-   - Must use QSizePolicy.Policy.* for size policies
-   - Must use proper enum classes
-
-## Testing Standards
-
-1. Test Requirements:
-   - Must use pytest framework
-   - Must use pytest-asyncio for async tests
-   - Must use pytest-qt for UI tests
-   - Must maintain test coverage standards
-
-2. Test Fixtures:
-   - Must initialize required message topics
-   - Must provide proper cleanup
-   - Must handle async operations
-   - Must mock hardware clients
-
-3. Test Patterns:
-   - Must test error conditions
-   - Must verify message publishing
-   - Must check state transitions
-   - Must validate UI updates
-
-4. Test Organization:
-   - Must use class-based structure
-   - Must follow component dependency order
-   - Must import TestOrder from conftest.py
-   - Must mark classes with correct dependency
-
-5. Test Dependencies:
-   - Infrastructure tests must run first:
-     - MessageBroker
-     - ConfigManager
-     - TagManager
-     - StateManager
-   - Process tests:
-     - ProcessValidator
-     - ParameterManager
-     - PatternManager
-     - ActionManager
-     - SequenceManager
-   - UI tests must run last:
-     - UIUpdateManager
-     - Widget tests
-
-6. Test File Structure:
-   - Must include descriptive docstring header
-   - Must document test requirements
-   - Must document test patterns
-   - Must document message patterns
-   - Must include run instructions
-
-## Error Handling Rules
-
-1. Required Checks:
-   - All MessageBroker operations
-   - All cleanup chains
-   - All widget references
-   - All manager references
-
-2. Async Requirements:
-   - All cleanup methods
-   - All UI update handlers
-   - All message operations
-   - All hardware operations
-
-3. Error Logging:
-   - All exceptions must be caught and logged
-   - All error messages must be descriptive
-   - All error handlers must include context
+   - Document in requirements.txt
+   - Pin major versions
+   - Use virtual environment
+   - Minimize external dependencies

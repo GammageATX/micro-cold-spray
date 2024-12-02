@@ -1,11 +1,11 @@
-from typing import Dict, Any
+from typing import Any, Dict
+from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QWidget
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QPainter, QPen
+
 
 class PatternPreviewWidget(QWidget):
     """Widget for displaying pattern previews."""
-    
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._pattern = None
@@ -22,10 +22,10 @@ class PatternPreviewWidget(QWidget):
         """Draw pattern preview."""
         if not self._pattern:
             return
-            
+
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
         # Draw pattern based on type
         pattern_type = self._pattern["pattern"]["type"]
         if pattern_type == "serpentine":
@@ -33,4 +33,16 @@ class PatternPreviewWidget(QWidget):
         elif pattern_type == "spiral":
             self._draw_spiral(painter)
         elif pattern_type == "linear":
-            self._draw_linear(painter) 
+            self._draw_linear(painter)
+
+    def _draw_serpentine(self, painter: QPainter) -> None:
+        """Draw serpentine pattern."""
+        pass
+
+    def _draw_spiral(self, painter: QPainter) -> None:
+        """Draw spiral pattern."""
+        pass
+
+    def _draw_linear(self, painter: QPainter) -> None:
+        """Draw linear pattern."""
+        pass

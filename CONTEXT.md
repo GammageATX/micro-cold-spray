@@ -18,12 +18,14 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
    # OR
    source .venv/bin/activate     # Linux/Mac
    ```
+
 2. Package Installation:
 
    ```bash
    pip install -r requirements.txt
    pip install -e .  # Install package in development mode
    ```
+
 3. Running the Application:
 
    ```bash
@@ -301,48 +303,54 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
    - Must use "state/change" for state updates
    - Must include timestamps in all messages
    - Must include error context in error messages
-   - 
+   -
 
-   + ## Test Organization
-   + 
-   + ### Test Execution Order
-   + 1. Infrastructure Layer:
-   + - MessageBroker tests
-   + - ConfigManager tests
-   + - TagManager tests
-   + - StateManager tests
-   + Purpose: Verify core infrastructure functionality
-   + 
-   + 2. Monitor Layer:
-   + - HardwareMonitor tests
-   + - ProcessMonitor tests
-   + - StateMonitor tests
-   + Purpose: Verify system monitoring functionality
-   + 
-   + 3. Process Layer:
-   + - ProcessValidator tests
-   + - ParameterManager tests
-   + - PatternManager tests
-   + - ActionManager tests
-   + - SequenceManager tests
-   + Purpose: Verify process control functionality
-   + 
-   + 4. UI Layer:
-   + - UIUpdateManager tests
-   + - Widget tests
-   + Purpose: Verify user interface functionality
-   + 
-   + ### Test Dependencies
-   + - All tests must use TestOrder marks
-   + - All tests must follow component dependency chain
-   + - All tests must use proper async patterns
-   + - All tests must include proper cleanup
-   + - All tests must mock hardware access
-   + - All tests must prevent config file modifications
+   - ## Test Organization
+
+   -
+
+   - ### Test Execution Order
+
+   - 1. Infrastructure Layer:
+   - - MessageBroker tests
+   - - ConfigManager tests
+   - - TagManager tests
+   - - StateManager tests
+   - Purpose: Verify core infrastructure functionality
+   -
+   - 2. Monitor Layer:
+   - - HardwareMonitor tests
+   - - ProcessMonitor tests
+   - - StateMonitor tests
+   - Purpose: Verify system monitoring functionality
+   -
+   - 3. Process Layer:
+   - - ProcessValidator tests
+   - - ParameterManager tests
+   - - PatternManager tests
+   - - ActionManager tests
+   - - SequenceManager tests
+   - Purpose: Verify process control functionality
+   -
+   - 4. UI Layer:
+   - - UIUpdateManager tests
+   - - Widget tests
+   - Purpose: Verify user interface functionality
+   -
+
+   - ### Test Dependencies
+
+   - - All tests must use TestOrder marks
+   - - All tests must follow component dependency chain
+   - - All tests must use proper async patterns
+   - - All tests must include proper cleanup
+   - - All tests must mock hardware access
+   - - All tests must prevent config file modifications
 
 ## Testing Standards
 
 ### Test Organization
+
 1. Infrastructure Tests (Run First):
    - MessageBroker
    - ConfigManager
@@ -361,6 +369,7 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
    - Widget tests
 
 ### Test Requirements
+
 - Must use pytest framework
 - Must use pytest-asyncio for async tests
 - Must use pytest-qt for UI tests
@@ -371,6 +380,7 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
 - Must mark classes with correct dependency
 
 ### Test File Structure
+
 - Must include descriptive docstring header
 - Must document test requirements
 - Must document test patterns
@@ -378,6 +388,7 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
 - Must include run instructions
 
 ### Test Fixtures
+
 - Must initialize required message topics
 - Must provide proper cleanup
 - Must handle async operations
@@ -386,18 +397,21 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
 ## Error Handling
 
 ### Required Checks
+
 - All MessageBroker operations
 - All cleanup chains
 - All widget references
 - All manager references
 
 ### Async Requirements
+
 - All cleanup methods
 - All UI update handlers
 - All message operations
 - All hardware operations
 
 ### Error Logging
+
 - All exceptions must be caught and logged
 - All error messages must be descriptive
 - All error handlers must include context
@@ -405,28 +419,30 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
 ### State Management
 
 #### System States
+
 1. Core States:
    - INITIALIZING: Initial state on system startup
      - Requires conditions: hardware.connected, config.loaded
      - Can transition to: READY
-   
+
    - READY: System is initialized and operational
      - Requires conditions: hardware.connected, hardware.enabled
      - Can transition to: RUNNING, SHUTDOWN
-   
+
    - RUNNING: System is executing operations
      - Requires conditions: hardware.connected, hardware.enabled, sequence.active
      - Can transition to: READY, ERROR
-   
+
    - ERROR: System has encountered an error
      - No specific conditions required
      - Can transition to: READY, SHUTDOWN
-   
+
    - SHUTDOWN: System is shutting down
      - Requires conditions: hardware.safe
      - Can transition to: INITIALIZING
 
 #### State Conditions
+
 - hardware.connected: Hardware communication established
 - config.loaded: Configuration files loaded successfully
 - hardware.enabled: Hardware systems are enabled
@@ -434,6 +450,7 @@ The Micro Cold Spray system is an automated manufacturing solution that controls
 - hardware.safe: Hardware is in safe state for shutdown
 
 #### State Transition Rules
+
 - All transitions must be explicitly defined in state.yaml
 - Each state must specify its required conditions
 - Each state must list valid next_states
