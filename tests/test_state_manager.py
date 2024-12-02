@@ -21,30 +21,31 @@ from micro_cold_spray.core.infrastructure.state.state_manager import StateManage
 @pytest.fixture
 async def state_manager(message_broker, config_manager) -> AsyncGenerator[StateManager, None]:
     """Create state manager with mocked dependencies."""
-    # Mock state config
-    config_manager._configs['state'] = {
-        'states': {
-            'IDLE': {
-                'transitions': ['READY']
-            },
-            'READY': {
-                'transitions': ['RUNNING', 'IDLE']
-            },
-            'RUNNING': {
-                'transitions': ['READY', 'ERROR']
-            },
-            'ERROR': {
-                'transitions': ['IDLE']
-            }
-        },
-        'initial': 'IDLE'
-    }
-
     manager = StateManager(
         message_broker=message_broker,
         config_manager=config_manager
     )
     await manager.initialize()
+
+    # Set required conditions for transitions
+    await message_broker.publish("tag/update", {
+        "tag": "hardware.plc.connected",
+        "value": True
+    })
+    await message_broker.publish("tag/update", {
+        "tag": "hardware.motion.connected",
+        "value": True
+    })
+    await message_broker.publish("tag/update", {
+        "tag": "hardware.plc.enabled",
+        "value": True
+    })
+    await message_broker.publish("tag/update", {
+        "tag": "hardware.motion.enabled",
+        "value": True
+    })
+    await asyncio.sleep(0.1)  # Wait for conditions to update
+
     yield manager
     await manager.shutdown()
 
@@ -73,7 +74,7 @@ class TestStateManager:
 
         assert len(changes) == 1
         assert changes[0]["state"] == "READY"
-        assert changes[0]["previous"] == "IDLE"
+        assert changes[0]["previous"] == "INITIALIZING"
 
     @pytest.mark.asyncio
     async def test_invalid_transition(self, state_manager):
@@ -89,7 +90,7 @@ class TestStateManager:
         # Request invalid transition
         await state_manager._message_broker.publish(
             "state/request",
-            {"state": "RUNNING"}  # Can't go directly to RUNNING from IDLE
+            {"state": "RUNNING"}  # Can't go directly to RUNNING from INITIALIZING
         )
         await asyncio.sleep(0.1)
 
@@ -112,6 +113,14 @@ class TestStateManager:
             {"state": "READY"}
         )
         await asyncio.sleep(0.1)
+
+        # Set sequence.active condition for RUNNING state
+        await state_manager._message_broker.publish("tag/update", {
+            "tag": "sequence.active",
+            "value": True
+        })
+        await asyncio.sleep(0.1)
+
         await state_manager._message_broker.publish(
             "state/request",
             {"state": "RUNNING"}

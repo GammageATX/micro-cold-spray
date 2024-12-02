@@ -1,0 +1,46 @@
+operation:
+  states:
+    INITIALIZING:
+      description: System is starting up and initializing
+      transitions:
+        - READY
+        - ERROR
+      conditions:
+        - hardware.connected
+        - config.loaded
+
+    IDLE:
+      description: System is idle and ready for initialization
+      transitions:
+        - READY
+      conditions:
+        - hardware.connected
+        - config.loaded
+
+    READY:
+      description: System is initialized and operational
+      transitions:
+        - RUNNING
+        - IDLE
+      conditions:
+        - hardware.connected
+        - hardware.enabled
+
+    RUNNING:
+      description: System is executing operations
+      transitions:
+        - READY
+        - ERROR
+      conditions:
+        - hardware.connected
+        - hardware.enabled
+        - sequence.active
+
+    ERROR:
+      description: System has encountered an error
+      transitions:
+        - IDLE
+      conditions: []
+
+  initial_state: INITIALIZING
+  version: 1.0.0
