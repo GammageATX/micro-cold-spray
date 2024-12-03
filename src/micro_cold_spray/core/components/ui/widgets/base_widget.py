@@ -1,28 +1,25 @@
 """Base widget class with standardized ID handling and cleanup."""
 import asyncio
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from loguru import logger
 from PySide6.QtWidgets import QWidget
 
 from ....exceptions import UIError, ValidationError
-from ..managers.ui_update_manager import UIUpdateManager
+
+# Avoid circular import
+if TYPE_CHECKING:
+    from ..managers.ui_update_manager import UIUpdateManager
 
 
 class BaseWidget(QWidget):
     """Base class for all custom widgets with standardized ID handling."""
 
-    # Valid widget type prefixes
-    VALID_TYPES = {'widget', 'tab', 'control', 'display', 'monitor'}
-
-    # Valid location identifiers
-    VALID_LOCATIONS = {'dashboard', 'system', 'main', 'motion', 'editor'}
-
     def __init__(
         self,
         widget_id: str,
-        ui_manager: UIUpdateManager,
+        ui_manager: 'UIUpdateManager',
         update_tags: Optional[List[str]] = None,
         parent: Optional[QWidget] = None
     ):
@@ -38,47 +35,28 @@ class BaseWidget(QWidget):
     async def initialize(self) -> None:
         """Async initialization."""
         try:
-            # Validate widget ID format
-            parts = self._widget_id.split('_')
-            if len(parts) < 2:
-                raise ValidationError(
-                    "Invalid widget ID format - must be type_location_name")
+            # Register with UI manager
+            error_context = {
+                'widget_id': self._widget_id,
+                'update_tags': self._update_tags,
+                'timestamp': datetime.now().isoformat()
+            }
 
-            widget_type, location = parts[0], parts[1]
-
-            if widget_type not in self.VALID_TYPES:
-                raise ValidationError(
-                    f"Invalid widget type: {widget_type}. Must be one of: {
-                        self.VALID_TYPES}")
-
-            if location not in self.VALID_LOCATIONS:
-                raise ValidationError(
-                    f"Invalid widget location: {location}. Must be one of: {
-                        self.VALID_LOCATIONS}")
-
-            # Register with UI manager if validation passes
-            await self._ui_manager.register_widget(
-                widget_id=self._widget_id,
-                update_tags=self._update_tags,
-                widget=self
-            )
-            logger.debug(
-                f"Registered {
-                    self._widget_id} for tags: {
-                    self._update_tags}")
+            try:
+                await self._ui_manager.register_widget(
+                    self._widget_id,
+                    self._update_tags,
+                    self
+                )
+            except Exception as e:
+                raise UIError("Failed to register widget", error_context) from e
 
         except ValidationError as e:
-            logger.warning(f"Widget validation failed: {e}")
-            self.setEnabled(False)  # Disable invalid widgets
-
+            logger.error(f"Widget validation failed: {e}")
+            raise
         except Exception as e:
-            error_context = {
-                "widget_id": self._widget_id,
-                "update_tags": self._update_tags,
-                "timestamp": datetime.now().isoformat()
-            }
             logger.error(f"Error registering widget: {error_context}")
-            raise UIError("Failed to register widget", error_context) from e
+            raise UIError("Widget initialization failed", error_context) from e
 
     @property
     def widget_id(self) -> str:

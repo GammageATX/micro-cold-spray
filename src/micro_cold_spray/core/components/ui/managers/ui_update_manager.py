@@ -1,8 +1,7 @@
 """UI update manager component."""
-from collections import defaultdict
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 
 from loguru import logger
 from PySide6.QtCore import Qt
@@ -11,6 +10,7 @@ from PySide6.QtWidgets import QFrame, QSizePolicy, QWidget
 from ....exceptions import CoreError, UIError, ValidationError
 from ....infrastructure.config.config_manager import ConfigManager
 from ....infrastructure.messaging.message_broker import MessageBroker
+from ..widgets.base_widget import BaseWidget
 
 
 class WidgetType(Enum):
@@ -33,20 +33,42 @@ class WidgetLocation(Enum):
 
 
 class UIUpdateManager:
-    """Manages UI updates and widget registration."""
+    """Manager for coordinating UI updates and widget registration."""
+
+    # Valid widget types and locations
+    VALID_TYPES = {
+        'widget',        # Generic widgets
+        'tab',          # Tab containers
+        'control',      # Control widgets
+        'display',      # Display widgets
+    }
+
+    VALID_LOCATIONS = {
+        'system',       # System-level widgets
+        'dashboard',    # Dashboard tab widgets
+        'motion',       # Motion control tab widgets
+        'editor',       # Sequence editor tab widgets
+        'config',       # Configuration tab widgets
+        'diagnostics',  # Diagnostics tab widgets
+    }
 
     def __init__(
         self,
         message_broker: MessageBroker,
         config_manager: ConfigManager
     ) -> None:
-        """Initialize with required dependencies."""
+        """Initialize UI update manager."""
         self._message_broker = message_broker
         self._config_manager = config_manager
-        self._registered_widgets: Dict[str, Dict[str, Any]] = {}
-        self._tag_subscriptions: Dict[str, Set[str]] = defaultdict(set)
+        self._registered_widgets = {}
+        self._tag_subscriptions = {}
+        self._stage_dimensions = {}
         self._is_initialized = False
         logger.info("UI update manager initialized")
+
+    def _validate_widget_location(self, location: str) -> bool:
+        """Validate widget location against allowed values."""
+        return location in BaseWidget.VALID_LOCATIONS
 
     async def register_widget(
         self,
@@ -54,59 +76,57 @@ class UIUpdateManager:
         update_tags: List[str],
         widget: Optional[QWidget] = None
     ) -> None:
-        """Register a widget for updates."""
+        """Register a widget for tag updates."""
         try:
-            # Validate widget location
+            # Validate widget ID format and location
             parts = widget_id.split('_')
             if len(parts) < 2:
-                raise ValidationError("Invalid widget ID format")
-
-            widget_location = parts[1]
-            if widget_location not in [loc.value for loc in WidgetLocation]:
-                valid_locations = set(loc.value for loc in WidgetLocation)
                 raise ValidationError(
-                    f"Invalid widget location: {widget_location}. "
-                    f"Must be one of: {valid_locations}",
-                    {"widget_id": widget_id, "location": widget_location}
+                    f"Invalid widget ID format: {widget_id}. Expected format: type_location_name"
                 )
 
-            # Rest of the existing registration code...
+            widget_type, location = parts[0], parts[1]
+            if widget_type not in self.VALID_TYPES:
+                raise ValidationError(
+                    f"Invalid widget type: {widget_type}. Must be one of: {self.VALID_TYPES}"
+                )
+            if location not in self.VALID_LOCATIONS:
+                raise ValidationError(
+                    f"Invalid widget location: {location}. Must be one of: {self.VALID_LOCATIONS}"
+                )
+
+            # Update registrations
             if widget_id in self._registered_widgets:
-                logger.warning(
-                    f"Widget {widget_id} already registered - updating tags")
-                await self.unregister_widget(widget_id)
+                old_tags = self._registered_widgets[widget_id]['tags']
+                new_tags = set(update_tags)
+                added_tags = new_tags - set(old_tags)
+                removed_tags = set(old_tags) - new_tags
 
-            if widget:
-                self._verify_widget_style(widget)
+                if added_tags or removed_tags:
+                    logger.debug(
+                        f"Updating tags for {widget_id}:\n"
+                        f"  Added: {added_tags if added_tags else 'none'}\n"
+                        f"  Removed: {removed_tags if removed_tags else 'none'}"
+                    )
 
+            # Store registration
             self._registered_widgets[widget_id] = {
                 'tags': update_tags,
                 'timestamp': datetime.now().isoformat(),
                 'widget_ref': widget
             }
 
+            # Update tag subscriptions
             for tag in update_tags:
+                if tag not in self._tag_subscriptions:
+                    self._tag_subscriptions[tag] = set()
                 self._tag_subscriptions[tag].add(widget_id)
 
-            logger.debug(
-                f"Registered widget {widget_id} for tags: {update_tags}")
+            logger.info(f"Registered widget {widget_id} with {len(update_tags)} tags")
 
-            await self._message_broker.publish(
-                "ui/widget/registered",
-                {
-                    "widget_id": widget_id,
-                    "tags": update_tags,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-
-        except ValidationError as e:
-            logger.error(f"Widget validation failed for {widget_id}: {e}")
-            raise
         except Exception as e:
-            error_msg = f"Failed to register widget {widget_id}: {str(e)}"
-            logger.error(error_msg)
-            raise UIError(error_msg) from e
+            logger.error(f"Failed to register widget {widget_id}: {str(e)}")
+            raise UIError(f"Widget registration failed: {str(e)}") from e
 
     async def initialize(self) -> None:
         """Initialize UI update manager."""

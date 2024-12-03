@@ -1,0 +1,68 @@
+[MASTER]
+# Discover python modules and packages in the file system subtree
+recursive=yes
+
+# Files or directories to be skipped. They should be base names, not paths
+ignore=CVS,.git,__pycache__,.venv
+
+# Add any Python module names here where you want to disable all warnings
+ignore-patterns=
+
+[MESSAGES CONTROL]
+# Disable specific warnings
+disable=C0111,  # missing-docstring
+        C0103,  # invalid-name
+        C0301,  # line-too-long
+        C0303,  # trailing-whitespace
+        C0326,  # bad-whitespace
+        W0311,  # bad-indentation
+        W0603,  # global-statement
+        R0903,  # too-few-public-methods
+        R0913,  # too-many-arguments
+        R0914,  # too-many-locals
+        W0621,  # redefined-outer-name
+        W0703,  # broad-except
+        W0702,  # bare-except
+        W0511,  # fixme
+        W0212,  # protected-access
+        W0201,  # attribute-defined-outside-init
+        R0902,  # too-many-instance-attributes
+        R0904,  # too-many-public-methods
+        R0912,  # too-many-branches
+        R0915,  # too-many-statements
+        R0801   # duplicate-code
+
+[REPORTS]
+# Set the output format
+output-format=text
+
+# Include a brief explanation of each error
+msg-template={path}:{line}: [{msg_id}({symbol}), {obj}] {msg}
+
+# Don't show the score
+score=no
+
+[FORMAT]
+# Maximum number of characters on a single line
+max-line-length=120
+
+# Maximum number of lines in a module
+max-module-lines=2000
+
+[BASIC]
+# Regular expression which should only match function or class names
+function-rgx=[a-z_][a-z0-9_]{2,50}$
+class-rgx=[A-Z_][a-zA-Z0-9_]+$
+
+# Regular expression which should only match correct variable names
+variable-rgx=[a-z_][a-z0-9_]{2,50}$
+
+# Good variable names which should always be accepted
+good-names=i,j,k,ex,Run,_,id,qt,ui,x,y,z
+
+[SIMILARITIES]
+# Minimum lines number of a similarity
+min-similarity-lines=10
+
+# Ignore imports when computing similarities
+ignore-imports=yes 

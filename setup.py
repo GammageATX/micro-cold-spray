@@ -31,7 +31,7 @@ setup(
             "sphinx>=7.0.1",
             "sphinx-rtd-theme>=1.2.0",
             "sphinx-autodoc-typehints>=1.23.0",
-        ],
+        ]
     },
     entry_points={
         "console_scripts": [
