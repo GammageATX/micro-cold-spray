@@ -3,6 +3,7 @@ import asyncio
 import sys
 from datetime import datetime
 from pathlib import Path
+import yaml
 
 from loguru import logger
 from PySide6.QtCore import Qt
@@ -17,6 +18,7 @@ from micro_cold_spray.core.infrastructure.config.config_manager import ConfigMan
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
 from micro_cold_spray.core.infrastructure.state.state_manager import StateManager
 from micro_cold_spray.core.infrastructure.tags.tag_manager import TagManager
+from micro_cold_spray.core.components.process.data.data_manager import DataManager
 
 src_path = Path(__file__).parent.parent
 if str(src_path) not in sys.path:
@@ -63,11 +65,9 @@ def ensure_directories() -> None:
     project_root = get_project_root()
     directories = [
         "config",
-        "data/parameters/library/materials",
-        "data/parameters/library/process",
+        "data/parameters/library",
         "data/parameters/history",
         "data/patterns/library",
-        "data/patterns/custom",
         "data/patterns/history",
         "data/sequences/library",
         "data/sequences/history",
@@ -122,7 +122,8 @@ async def initialize_system() -> tuple[
     MessageBroker,
     TagManager,
     StateManager,
-    UIUpdateManager
+    UIUpdateManager,
+    DataManager
 ]:
     """Initialize all system components."""
     logger.info("Starting system initialization")
@@ -165,6 +166,14 @@ async def initialize_system() -> tuple[
         )
         await state_manager.initialize()
 
+        # Create and initialize data manager
+        logger.debug("Initializing DataManager")
+        data_manager = DataManager(
+            message_broker=message_broker,
+            config_manager=config_manager
+        )
+        await data_manager.initialize()
+
         # Create and initialize UI manager
         logger.debug("Initializing UIUpdateManager")
         ui_manager = UIUpdateManager(
@@ -174,7 +183,7 @@ async def initialize_system() -> tuple[
         await ui_manager.initialize()
 
         logger.info("System initialization complete")
-        return config_manager, message_broker, tag_manager, state_manager, ui_manager
+        return config_manager, message_broker, tag_manager, state_manager, ui_manager, data_manager
 
     except Exception as e:
         error_msg = {
@@ -210,7 +219,7 @@ async def main() -> None:
         splash.setLabelText("Initializing System Components...")
         app.processEvents()
         system_components = await initialize_system()
-        config_manager, message_broker, tag_manager, state_manager, ui_manager = system_components
+        config_manager, message_broker, tag_manager, state_manager, ui_manager, data_manager = system_components
 
         # Create and initialize main window
         splash.setLabelText("Initializing Dashboard Interface...")
@@ -264,7 +273,8 @@ async def main() -> None:
                     message_broker,
                     tag_manager,
                     state_manager,
-                    ui_manager
+                    ui_manager,
+                    data_manager
                 ) = system_components
 
                 logger.info("Shutting down system components")
@@ -280,6 +290,10 @@ async def main() -> None:
                     await tag_manager.shutdown()
                 except Exception as e:
                     logger.error(f"Error shutting down tag manager: {e}")
+                try:
+                    await data_manager.shutdown()
+                except Exception as e:
+                    logger.error(f"Error shutting down data manager: {e}")
                 try:
                     await message_broker.shutdown()
                 except Exception as e:

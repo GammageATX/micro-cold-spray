@@ -1,0 +1,16 @@
+pattern:
+  metadata:
+    name: "Spiral 2mm Standard"
+    version: "1.0"
+    created: "2024-03-20"
+    author: "John Doe"
+    description: "Standard spiral pattern with 2mm pitch"
+    
+  type: "spiral"
+  params:
+    origin: [100.0, 100.0]  # Center point
+    diameter: 40.0          # Total diameter in mm
+    pitch: 2.0             # Distance between revolutions
+    speed: 15.0            # Travel speed in mm/s
+    z_height: 30.0         # Spray height in mm
+    acceleration: 100.0     # mm/s²

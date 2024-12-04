@@ -1,0 +1,10 @@
+sequence:
+  metadata:
+    author: Test Author
+    created: '2024-03-20'
+    description: Test sequence for state transitions
+    name: Flow Study Test
+    version: '1.0'
+  steps:
+  - action_group: ready_system
+    name: Initialize

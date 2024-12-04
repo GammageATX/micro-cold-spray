@@ -6,39 +6,30 @@ application:
     version: "1.0.0"
     description: "Control system for micro cold spray deposition"
 
-  # Layer Configuration Files
-  config_files:
-    application: "config/application.yaml"
-    hardware: "config/hardware.yaml"
-    operations: "config/operations.yaml"
-    process: "config/process.yaml"
-    state: "config/state.yaml"
-    tags: "config/tags.yaml"
-    ui: "config/ui.yaml"
-
-  # Core Paths
   paths:
     config:
       root: "config/"
-    
+      application: "config/application.yaml"
+      file_format: "config/file_format.yaml"
+      hardware: "config/hardware.yaml"
+      process: "config/process.yaml"
+      state: "config/state.yaml"
+      tags: "config/tags.yaml"
+      ui: "config/ui.yaml"
+
     data:
       root: "data/"
-      parameters:
-        library:
-          materials: "data/parameters/library/materials/"
-          process: "data/parameters/library/process/"
-        history: "data/parameters/history/"
+      parameters: "data/parameters/"
       patterns:
-        library: "data/patterns/library/"
+        root: "data/patterns/"
         custom: "data/patterns/custom/"
-        history: "data/patterns/history/"
-      sequences:
-        library: "data/sequences/library/"
-        history: "data/sequences/history/"
+        serpentine: "data/patterns/serpentine/"
+        spiral: "data/patterns/spiral/"
+      sequences: "data/sequences/"
+      powders: "data/powders/"
       runs: "data/runs/"
     
     logs: "logs/"
-
     resources: "resources/"    
     tags: "resources/tags/"
 
@@ -56,11 +47,25 @@ application:
         tag_operations: ["tag/set", "tag/get", "tag/update", "tag/get/response"]
         state_operations: ["state/request", "state/change", "state/error"]
         config_operations: ["config/update/*", "config/update/response"]
+        data_operations: ["data/list_files", "data/load", "data/save", "data/delete", "data/error"]
         pattern_operations: ["patterns/created", "patterns/updated", "patterns/deleted", "patterns/error"]
         action_operations: ["action/execute", "action/status", "action/complete", "action/error"]
         validation_operations: ["validation/request", "validation/response"]
         ui_operations: ["ui/widget/registered", "ui/widget/unregistered", "ui/update", "ui/error"]
         error_topic: "error"
+
+    data_manager:
+      validation_enabled: true
+      formats:
+        - parameters
+        - patterns
+        - sequences
+        - nozzles
+        - powders
+        - runs
+        - spray_data
+      cache_enabled: true
+      cache_timeout: 1000
 
     config_manager:
       validation_enabled: true
@@ -95,16 +100,16 @@ window:
   geometry:
     x: 100
     y: 100
-    width: 1280  # Standard desktop width
-    height: 800  # Standard desktop height
+    width: 1920  # Standard desktop width
+    height: 1080  # Standard desktop height
     
   layout:
     main:
       - dashboard  # System overview
       - motion     # Motion control
       - process    # Process control
-      - editor     # Pattern/sequence editor
-      - system     # System configuration
+      - editor     # File editors
+      - config     # System configuration
       - diagnostics # System diagnostics
       
   style:
@@ -127,12 +132,10 @@ window:
       - pattern_editor
       - sequence_builder
       - sequence_visualizer
-    system:
+    config:
       - config_editor
       - hardware_setup
     diagnostics:
       - tag_monitor
       - validation_panel
-
-# Add only the specific configurations needed for your tab/widget
 

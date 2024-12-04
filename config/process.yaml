@@ -479,35 +479,6 @@ process:
             name: pitch
             type: float
             unit: mm
-    powder:
-      feeders:
-        active_set: set1
-        set1:
-          deagglomerator:
-            duty_cycle:
-              default: 35
-              max: 100
-              min: 0
-            frequency:
-              default: 500
-          frequency:
-            default: 600
-            max: 1200
-            min: 200
-            step: 200
-        set2:
-          deagglomerator:
-            duty_cycle:
-              default: 35
-              max: 100
-              min: 0
-            frequency:
-              default: 500
-          frequency:
-            default: 600
-            max: 1200
-            min: 200
-            step: 200
   validation:
     hardware_sets:
       active_set:

@@ -1,6 +1,8 @@
 """Pattern editor widget for editing spray patterns."""
 import logging
 from typing import Any, Dict, Optional
+import asyncio
+from datetime import datetime
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
@@ -15,6 +17,8 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QVBoxLayout,
     QWidget,
+    QInputDialog,
+    QMessageBox,
 )
 
 from ...managers.ui_update_manager import UIUpdateManager
@@ -51,7 +55,6 @@ class PatternEditor(BaseWidget):
         self._parameter_widgets: Dict[str, QWidget] = {}
 
         self._init_ui()
-        self._connect_signals()
         logger.info("Pattern editor initialized")
 
     async def handle_ui_update(self, data: Dict[str, Any]) -> None:
@@ -79,7 +82,7 @@ class PatternEditor(BaseWidget):
             logger.error(f"Error handling UI update: {e}")
 
     def _init_ui(self) -> None:
-        """Initialize the widget UI."""
+        """Initialize the pattern editor UI."""
         layout = QVBoxLayout()
 
         # Pattern selection
@@ -96,61 +99,129 @@ class PatternEditor(BaseWidget):
         # Pattern type selection
         type_layout = QHBoxLayout()
         self._type_combo = QComboBox()
-        type_layout.addWidget(QLabel("Pattern Type:"))
+        self._type_combo.addItems(["serpentine", "spiral", "linear", "custom"])
+        type_layout.addWidget(QLabel("Type:"))
         type_layout.addWidget(self._type_combo)
         layout.addLayout(type_layout)
 
-        # Parameter editor group
-        param_group = QGroupBox("Pattern Parameters")
-        self._param_layout = QFormLayout()
-        param_group.setLayout(self._param_layout)
-        layout.addWidget(param_group)
-
-        # Preview group
-        preview_group = QGroupBox("Pattern Preview")
-        preview_layout = QVBoxLayout()
-        preview_group.setLayout(preview_layout)
-        layout.addWidget(preview_group)
-
-        # Control buttons
-        control_layout = QHBoxLayout()
+        # Save/Reset buttons
+        button_layout = QHBoxLayout()
         self._save_btn = QPushButton("Save Changes")
-        self._reset_btn = QPushButton("Reset")
-        control_layout.addWidget(self._save_btn)
-        control_layout.addWidget(self._reset_btn)
-        layout.addLayout(control_layout)
+        self._reset_btn = QPushButton("Reset Changes")
+        button_layout.addWidget(self._save_btn)
+        button_layout.addWidget(self._reset_btn)
+        layout.addLayout(button_layout)
+
+        # Connect all signals
+        self._new_btn.clicked.connect(self._on_new_clicked)
+        self._delete_btn.clicked.connect(self._on_delete_clicked)
+        self._pattern_combo.currentTextChanged.connect(self._on_pattern_changed)
+        self._type_combo.currentTextChanged.connect(self._on_type_changed)
+        self._save_btn.clicked.connect(lambda: asyncio.create_task(self._save_changes()))
+        self._reset_btn.clicked.connect(lambda: asyncio.create_task(self._reset_changes()))
+        self._type_combo.currentTextChanged.connect(
+            lambda t: asyncio.create_task(self._update_parameter_editor(t)))
 
         self.setLayout(layout)
 
-    def _connect_signals(self) -> None:
-        """Connect widget signals to slots."""
-        self._new_btn.clicked.connect(self._create_new_pattern)
-        self._delete_btn.clicked.connect(self._delete_current_pattern)
-        self._save_btn.clicked.connect(self._save_changes)
-        self._reset_btn.clicked.connect(self._reset_changes)
-        self._type_combo.currentTextChanged.connect(
-            self._update_parameter_editor)
+    def _on_new_clicked(self) -> None:
+        """Handle new pattern button click."""
+        asyncio.create_task(self._create_new_pattern())
+
+    def _on_delete_clicked(self) -> None:
+        """Handle delete pattern button click."""
+        asyncio.create_task(self._delete_current_pattern())
 
     async def _create_new_pattern(self) -> None:
         """Create a new pattern."""
         try:
-            await self._ui_manager.send_update(
-                "patterns/create",
-                {"name": "New Pattern"}
+            # Get new pattern name from user
+            name, ok = QInputDialog.getText(
+                self,
+                "New Pattern",
+                "Enter name for new pattern:"
             )
+
+            if ok and name:
+                pattern_type = self._type_combo.currentText()
+                # Create new pattern
+                await self._ui_manager.send_update(
+                    "patterns/create",
+                    {
+                        "name": name,
+                        "type": pattern_type,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+
         except Exception as e:
             logger.error(f"Error creating new pattern: {e}")
 
     async def _delete_current_pattern(self) -> None:
-        """Delete current pattern."""
+        """Delete the current pattern."""
         try:
-            if self._current_pattern:
+            current = self._pattern_combo.currentText()
+            if not current:
+                return
+
+            # Confirm deletion
+            reply = QMessageBox.question(
+                self,
+                "Delete Pattern",
+                f"Are you sure you want to delete '{current}'?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+
+            if reply == QMessageBox.StandardButton.Yes:
                 await self._ui_manager.send_update(
                     "patterns/delete",
-                    {"name": self._current_pattern}
+                    {
+                        "name": current,
+                        "timestamp": datetime.now().isoformat()
+                    }
                 )
+
         except Exception as e:
             logger.error(f"Error deleting pattern: {e}")
+
+    def _on_pattern_changed(self, pattern_name: str) -> None:
+        """Handle pattern selection change."""
+        if pattern_name:
+            asyncio.create_task(self._load_pattern(pattern_name))
+
+    def _on_type_changed(self, pattern_type: str) -> None:
+        """Handle pattern type change."""
+        if pattern_type:
+            asyncio.create_task(self._update_pattern_type(pattern_type))
+
+    async def _load_pattern(self, pattern_name: str) -> None:
+        """Load the selected pattern."""
+        try:
+            await self._ui_manager.send_update(
+                "patterns/load",
+                {
+                    "name": pattern_name,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+        except Exception as e:
+            logger.error(f"Error loading pattern: {e}")
+
+    async def _update_pattern_type(self, pattern_type: str) -> None:
+        """Update the current pattern type."""
+        try:
+            current = self._pattern_combo.currentText()
+            if current:
+                await self._ui_manager.send_update(
+                    "patterns/update_type",
+                    {
+                        "name": current,
+                        "type": pattern_type,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+        except Exception as e:
+            logger.error(f"Error updating pattern type: {e}")
 
     async def _save_changes(self) -> None:
         """Save pattern changes."""
@@ -231,7 +302,7 @@ class PatternEditor(BaseWidget):
         except Exception as e:
             logger.error(f"Error handling validation results: {e}")
 
-    def update_file_list(self, files: list[str]) -> None:
+    async def update_file_list(self, files: list[str]) -> None:
         """Update the list of available pattern files.
 
         Args:

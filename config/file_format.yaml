@@ -1,0 +1,452 @@
+file_format:
+  parameters:
+    metadata:
+      name:
+        type: string
+        label: Name
+        default: ""
+      version:
+        type: string
+        label: Version
+        default: "1.0"
+      created:
+        type: string
+        label: Created
+        default: "%Y-%m-%d"  # Will be formatted with current date
+      author:
+        type: string
+        label: Author
+        default: ""
+        readonly: true
+      description:
+        type: string
+        label: Description
+        default: ""
+    nozzle:
+      type:
+        type: choice
+        label: Type
+        default: ""
+        choices: []  # Populated from nozzles folder
+      diameter:
+        type: number
+        label: Diameter (mm)
+        default: 1.78
+        min: 0.5
+        max: 3.0
+        step: 0.01
+      manufacturer:
+        type: string
+        label: Manufacturer
+        default: ""
+        readonly: true
+    gas_flows:
+      gas_type:
+        type: choice
+        label: Gas Type
+        default: "N2"
+        choices: ["N2", "He", "Ar"]
+      main_gas:
+        type: number
+        label: Main Gas (SLPM)
+        default: 50.0
+        min: 0
+        max: 100
+        step: 1
+      feeder_gas:
+        type: number
+        label: Feeder Gas (SLPM)
+        default: 5.0
+        min: 0
+        max: 10
+        step: 1
+    powder_feed:
+      frequency:
+        type: number
+        label: Frequency (Hz)
+        default: 600
+        min: 0
+        max: 1200
+        step: 200
+      deagglomerator:
+        enabled:
+          type: choice
+          label: Deagglomerator Enabled
+          default: "true"
+          choices: ["true", "false"]
+        speed:
+          type: choice
+          label: Deagglomerator Speed
+          default: "Medium"
+          choices: ["Off", "Low", "Medium", "High"]
+
+  patterns:
+    metadata:
+      name:
+        type: string
+        label: Name
+        default: ""
+      version:
+        type: string
+        label: Version
+        default: "1.0"
+      created:
+        type: string
+        label: Created
+        default: "%Y-%m-%d"
+      author:
+        type: string
+        label: Author
+        default: ""
+        readonly: true
+      description:
+        type: string
+        label: Description
+        default: ""
+    type:
+      type: choice
+      label: Pattern Type
+      default: "serpentine"
+      choices: ["serpentine", "spiral", "linear", "custom"]
+    parameters:
+      serpentine:
+        length:
+          type: number
+          label: Length (mm)
+          default: 50.0
+          min: 0
+          max: 200
+          step: 1.0
+        spacing:
+          type: number
+          label: Line Spacing (mm)
+          default: 2.0
+          min: 0.1
+          max: 10.0
+          step: 0.1
+        direction:
+          type: choice
+          label: Primary Direction
+          default: "x_first"
+          choices: ["x_first", "y_first"]
+      spiral:
+        diameter:
+          type: number
+          label: Diameter (mm)
+          default: 50.0
+          min: 0
+          max: 200
+          step: 1.0
+        pitch:
+          type: number
+          label: Pitch (mm)
+          default: 2.0
+          min: 0.1
+          max: 10.0
+          step: 0.1
+      linear:
+        length:
+          type: number
+          label: Length (mm)
+          default: 50.0
+          min: 0
+          max: 200
+          step: 1.0
+        angle:
+          type: number
+          label: Angle (deg)
+          default: 0.0
+          min: -180
+          max: 180
+          step: 1.0
+      custom:
+        file:
+          type: string
+          label: Path File
+          default: ""
+          file_type: "csv"
+    common:
+      speed:
+        type: number
+        label: Speed (mm/s)
+        default: 10.0
+        min: 0.1
+        max: 100.0
+        step: 0.1
+      passes:
+        type: number
+        label: Number of Passes
+        default: 1
+        min: 1
+        max: 100
+        step: 1
+      origin:
+        x:
+          type: number
+          label: X Origin (mm)
+          default: 0.0
+          min: -100
+          max: 100
+          step: 0.1
+        y:
+          type: number
+          label: Y Origin (mm)
+          default: 0.0
+          min: -100
+          max: 100
+          step: 0.1
+
+  sequences:
+    metadata:
+      name:
+        type: string
+        label: Name
+        default: ""
+      version:
+        type: string
+        label: Version
+        default: "1.0"
+      created:
+        type: string
+        label: Created
+        default: "%Y-%m-%d"
+      author:
+        type: string
+        label: Author
+        default: ""
+        readonly: true
+      description:
+        type: string
+        label: Description
+        default: ""
+    hardware:
+      set:
+        type: choice
+        label: Hardware Set
+        choices: ["set1", "set2"]
+        default: "set1"
+    materials:
+      powder:
+        type: string
+        label: Powder Material
+        default: ""  # References material file
+      substrate:
+        type: string
+        label: Substrate Material
+        default: ""  # References material file
+    files:
+      parameters:
+        type: list
+        label: Parameter Files
+        items:
+          type: string
+          default: ""  # References parameter files
+      patterns:
+        type: list
+        label: Pattern Files
+        items:
+          type: string
+          default: ""  # References pattern files
+    steps:
+      type: list
+      items:
+        type:
+          type: choice
+          label: Step Type
+          choices: ["pattern", "parameter", "delay", "move"]
+        pattern:  # For pattern steps
+          file:
+            type: string
+            label: Pattern File
+            default: ""  # Must be in patterns list
+          passes:
+            type: number
+            label: Passes
+            default: 1
+            min: 1
+            max: 100
+        parameter:  # For parameter steps
+          file:
+            type: string
+            label: Parameter File
+            default: ""  # Must be in parameters list
+        delay:  # For delay steps
+          duration:
+            type: number
+            label: Duration (s)
+            default: 1.0
+            min: 0
+            max: 3600
+        move:  # For move steps
+          x:
+            type: number
+            label: X Position (mm)
+            default: 0.0
+            min: -100
+            max: 100
+          y:
+            type: number
+            label: Y Position (mm)
+            default: 0.0
+            min: -100
+            max: 100
+          z:
+            type: number
+            label: Z Position (mm)
+            default: 0.0
+            min: -100
+            max: 100
+
+  runs:
+    metadata:
+      id:
+        type: string
+        label: Run ID
+        default: ""  # Generated timestamp-based ID
+      started:
+        type: string
+        label: Start Time
+        default: "%Y-%m-%d %H:%M:%S"
+      completed:
+        type: string
+        label: End Time
+        default: ""
+      operator:
+        type: string
+        label: Operator
+        default: ""
+      status:
+        type: choice
+        label: Status
+        default: "completed"
+        choices: ["completed", "aborted", "failed"]
+    parameters:
+      file:
+        type: string
+        label: Parameter File
+        default: ""
+      values:
+        type: dict  # Actual parameter values used
+    pattern:
+      file:
+        type: string
+        label: Pattern File
+        default: ""
+      values:
+        type: dict  # Actual pattern values used
+    data:
+      spray_data:
+        type: string
+        label: Spray Data File
+        default: ""
+      motion_data:
+        type: string
+        label: Motion Data File
+        default: ""
+
+  spray_data:
+    format: csv
+    columns:
+      timestamp:
+        type: datetime
+        format: "%Y-%m-%d %H:%M:%S.%f"
+        required: true
+      gas_type:
+        type: string
+        choices: ["N2", "He", "Ar"]
+        required: true
+      main_gas_flow:
+        type: float
+        unit: SLPM
+        required: true
+      feeder_gas_flow:
+        type: float
+        unit: SLPM
+        required: true
+      powder_feed_frequency:
+        type: float
+        unit: Hz
+        required: true
+      deagg_duty_cycle:
+        type: float
+        unit: "%"
+        required: true
+      nozzle_pressure_start:
+        type: float
+        unit: torr
+        required: true
+      nozzle_pressure_end:
+        type: float
+        unit: torr
+        required: true
+      nozzle_pressure_mean:
+        type: float
+        unit: torr
+        required: true
+      nozzle_pressure_std:
+        type: float
+        unit: torr
+        required: true
+      chamber_pressure_start:
+        type: float
+        unit: torr
+        required: true
+      chamber_pressure_end:
+        type: float
+        unit: torr
+        required: true
+      chamber_pressure_mean:
+        type: float
+        unit: torr
+        required: true
+      chamber_pressure_std:
+        type: float
+        unit: torr
+        required: true
+
+  nozzles:
+    format: yaml
+    schema:
+      nozzle:
+        metadata:
+          name:
+            type: string
+            label: Name
+            required: true
+          manufacturer:
+            type: string
+            label: Manufacturer
+            required: true
+          type:
+            type: string
+            label: Type
+            required: true
+          description:
+            type: string
+            label: Description
+            required: true
+
+  powders:
+    format: yaml
+    schema:
+      powder:
+        name:
+          type: string
+          label: Name
+          required: true
+        type:
+          type: string
+          label: Type
+          required: true
+        size:
+          type: string
+          label: Size
+          required: true
+        manufacturer:
+          type: string
+          label: Manufacturer
+          required: true
+        lot:
+          type: string
+          label: Lot Number
+          required: true

@@ -1,16 +1,14 @@
-import csv
-import json
-import shutil
+"""Data Manager module."""
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
-
 import yaml
+from typing import Dict, Any, Optional
+
 from loguru import logger
 
-from ....exceptions import CoreError, ValidationError
-from ....infrastructure.config.config_manager import ConfigManager
-from ....infrastructure.messaging.message_broker import MessageBroker
+from micro_cold_spray.core.exceptions import CoreError, ValidationError
+from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
+from micro_cold_spray.core.infrastructure.config.config_manager import ConfigManager
 
 
 class DataManager:
@@ -21,28 +19,24 @@ class DataManager:
             message_broker: MessageBroker,
             config_manager: ConfigManager):
         """Initialize with required dependencies."""
-        if message_broker is None:
-            raise ValidationError("MessageBroker is required", {
-                "error": "No message broker provided",
-                "timestamp": datetime.now().isoformat()
-            })
-
-        if config_manager is None:
-            raise ValidationError("ConfigManager is required", {
-                "error": "No config manager provided",
-                "timestamp": datetime.now().isoformat()
-            })
-
         self._message_broker = message_broker
         self._config_manager = config_manager
-        self._process_data: Dict[str, Dict[str, Any]] = {}
-        self._data_path = Path("data/process")
+
+        # Data paths
+        self._run_path = Path("data/runs")
+        self._parameter_path = Path("data/parameters")
+        self._nozzle_path = Path("data/parameters/nozzles")
+        self._pattern_path = Path("data/patterns")
+        self._sequence_path = Path("data/sequences")
+        self._powder_path = Path("data/powders")
+
+        # State tracking
         self._current_user: Optional[str] = None
+        self._current_sequence: Optional[str] = None
+        self._process_data: Dict[str, Any] = {}
+        self._spray_active = False
         self._cancelled = False
         self._is_initialized = False
-        self._spray_active = False
-        self._current_spray = None
-        self._current_sequence: Optional[str] = None
 
         logger.info("Data manager initialized")
 
@@ -58,48 +52,28 @@ class DataManager:
 
             # Set up data directories
             self._run_path = Path(data_paths.get("runs", "data/runs"))
-            self._parameter_path = Path(
-                data_paths.get(
-                    "parameters",
-                    "data/parameters"))
-            self._pattern_path = Path(
-                data_paths.get(
-                    "patterns",
-                    "data/patterns"))
-            self._sequence_path = Path(
-                data_paths.get(
-                    "sequences",
-                    "data/sequences"))
+            self._parameter_path = Path(data_paths.get("parameters", "data/parameters"))
+            self._nozzle_path = self._parameter_path / "nozzles"
+            self._pattern_path = Path(data_paths.get("patterns", {}).get("root", "data/patterns"))
+            self._sequence_path = Path(data_paths.get("sequences", "data/sequences"))
+            self._powder_path = Path(data_paths.get("powders", "data/powders"))
 
             # Create directories if they don't exist
             for path in [
-                self._run_path, self._parameter_path,
-                self._pattern_path, self._sequence_path
+                self._run_path,
+                self._parameter_path,
+                self._nozzle_path,
+                self._pattern_path / "custom",
+                self._pattern_path / "serpentine",
+                self._pattern_path / "spiral",
+                self._sequence_path,
+                self._powder_path
             ]:
                 path.mkdir(parents=True, exist_ok=True)
 
-            # Create year directory for runs
-            year = datetime.now().strftime("%Y")
-            self._year_path = self._run_path / year
-            self._year_path.mkdir(parents=True, exist_ok=True)
-
-            # Subscribe to tag updates for data collection
-            await self._message_broker.subscribe(
-                "tag/update",
-                self._handle_tag_update
-            )
-
-            # Subscribe to data compression requests
-            await self._message_broker.subscribe(
-                "data/compress",
-                self._handle_compression_request
-            )
-
-            # Subscribe to backup requests
-            await self._message_broker.subscribe(
-                "data/backup",
-                self._handle_backup_request
-            )
+            # Subscribe to message topics
+            await self._message_broker.subscribe("tag/update", self._handle_tag_update)
+            await self._message_broker.subscribe("config/request/list_files", self._handle_list_files_request)
 
             self._is_initialized = True
             logger.info("Data manager initialization complete")
@@ -111,723 +85,171 @@ class DataManager:
                 "timestamp": datetime.now().isoformat()
             })
 
-    async def shutdown(self) -> None:
-        """Shutdown data manager."""
+    async def _handle_list_files_request(self, data: Dict[str, Any]) -> None:
+        """Handle request to list available files."""
         try:
-            # Save any pending data
-            if self._process_data:
-                await self.save_process_data("shutdown_save")
+            file_type = data.get("type")
+            if not file_type:
+                raise ValidationError("No file type specified in request")
 
-            self._is_initialized = False
-            logger.info("Data manager shutdown complete")
+            # Map file type to directory
+            type_mapping = {
+                "parameters": self._parameter_path,
+                "nozzles": self._nozzle_path,
+                "patterns": {
+                    "custom": self._pattern_path / "custom",
+                    "serpentine": self._pattern_path / "serpentine",
+                    "spiral": self._pattern_path / "spiral"
+                },
+                "sequences": self._sequence_path,
+                "powders": self._powder_path
+            }
 
-        except Exception as e:
-            logger.exception("Error during data manager shutdown")
-            raise CoreError("Data manager shutdown failed", {
-                "error": str(e),
-                "timestamp": datetime.now().isoformat()
-            })
+            if file_type not in type_mapping:
+                raise ValidationError(f"Invalid file type: {file_type}")
 
-    async def set_user(self, username: str) -> None:
-        """Set the current user for data collection."""
-        try:
-            self._current_user = username
-            logger.debug(f"Current user set to: {username}")
+            files = []
+            if isinstance(type_mapping[file_type], dict):
+                # For patterns, list files from all subdirectories
+                for subdir in type_mapping[file_type].values():
+                    if subdir.exists():
+                        for file_path in subdir.glob("*.yaml"):
+                            # Include subdirectory in path
+                            rel_path = file_path.relative_to(self._pattern_path)
+                            files.append(str(rel_path.with_suffix("")))
+            else:
+                # For other types, list files directly
+                base_path = type_mapping[file_type]
+                if base_path.exists():
+                    for file_path in base_path.glob("*.yaml"):
+                        rel_path = file_path.relative_to(base_path)
+                        files.append(str(rel_path.with_suffix("")))
+
+            # Sort files for consistent ordering
+            files.sort()
+
+            # Add empty option for dropdowns
+            files.insert(0, "")
 
             await self._message_broker.publish(
-                "data/user/changed",
+                "data/files/listed",
                 {
-                    "username": username,
-                    "timestamp": datetime.now().isoformat()
+                    "type": file_type,
+                    "files": files
                 }
             )
+            logger.debug(f"Listed {len(files)} {file_type} files")
+            return {"files": files}
 
         except Exception as e:
-            logger.error(f"Error setting user: {e}")
-            raise CoreError("Failed to set user", {
-                "error": str(e),
-                "username": username,
-                "timestamp": datetime.now().isoformat()
-            })
-
-    async def set_cancelled(self, cancelled: bool = True) -> None:
-        """Mark the current run as cancelled."""
-        try:
-            self._cancelled = cancelled
-            logger.debug(
-                f"Run marked as {
-                    'cancelled' if cancelled else 'not cancelled'}")
-
+            logger.error(f"Error listing files: {e}")
             await self._message_broker.publish(
-                "data/run/status",
+                "data/files/error",
                 {
-                    "cancelled": cancelled,
-                    "timestamp": datetime.now().isoformat()
+                    "type": file_type,
+                    "error": str(e)
                 }
             )
+            return {"files": []}
+
+    async def _handle_nozzle_save(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Save nozzle configuration to file."""
+        try:
+            name = data.get("name")
+            nozzle_data = data.get("value")
+            if not name or not nozzle_data:
+                raise ValidationError("Missing name or nozzle data")
+
+            # Get nozzle schema from file_format.yaml
+            file_format = await self._config_manager.get_config("file_format")
+            nozzle_schema = file_format.get("nozzles", {}).get("schema", {}).get("nozzle", {}).get("metadata", {})
+
+            # Validate against schema
+            if not self._validate_against_schema(nozzle_data.get("metadata", {}), nozzle_schema):
+                raise ValidationError("Nozzle metadata does not match schema")
+
+            # Save to file
+            file_path = self._nozzle_path / f"{name}.yaml"
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+
+            with open(file_path, "w") as f:
+                yaml.safe_dump(nozzle_data, f, default_flow_style=False)
+
+            logger.info(f"Nozzle configuration saved: {name}")
+            return {"success": True}
 
         except Exception as e:
-            logger.error(f"Error setting cancelled state: {e}")
-            raise CoreError("Failed to set cancelled state", {
-                "error": str(e),
-                "cancelled": cancelled,
-                "timestamp": datetime.now().isoformat()
-            })
+            logger.error(f"Error saving nozzle configuration: {e}")
+            return {"error": str(e)}
 
-    def generate_filename(self, sequence_name: str) -> str:
-        """Generate a filename for the process data."""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        user_prefix = self._current_user or "unknown_user"
-        cancelled_suffix = "_cancelled" if self._cancelled else ""
-        return f"{user_prefix}_{sequence_name}_{timestamp}{cancelled_suffix}.json"
+    async def _handle_nozzle_load(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Load nozzle configuration from file."""
+        try:
+            name = data.get("name")
+            if not name:
+                raise ValidationError("No nozzle name specified")
+
+            file_path = self._nozzle_path / f"{name}.yaml"
+            if not file_path.exists():
+                raise FileNotFoundError(f"Nozzle not found: {name}")
+
+            with open(file_path, "r") as f:
+                nozzle_data = yaml.safe_load(f)
+
+            return {"value": nozzle_data}
+
+        except Exception as e:
+            logger.error(f"Error loading nozzle configuration: {e}")
+            return {"error": str(e)}
+
+    async def _handle_nozzle_delete(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Delete nozzle configuration file."""
+        try:
+            name = data.get("name")
+            if not name:
+                raise ValidationError("No nozzle name specified")
+
+            file_path = self._nozzle_path / f"{name}.yaml"
+            if file_path.exists():
+                file_path.unlink()
+                return {"success": True}
+            else:
+                raise FileNotFoundError(f"Nozzle not found: {name}")
+
+        except Exception as e:
+            logger.error(f"Error deleting nozzle configuration: {e}")
+            return {"error": str(e)}
+
+    def _validate_against_schema(self, data: Dict[str, Any], schema: Dict[str, Any]) -> bool:
+        """Validate data against schema definition."""
+        try:
+            # Basic schema validation
+            for field, field_schema in schema.items():
+                if field_schema.get("required", False):
+                    if field not in data:
+                        logger.error(f"Missing required field: {field}")
+                        return False
+                    
+                    value = data[field]
+                    field_type = field_schema.get("type")
+                    
+                    # Type validation
+                    if field_type == "string" and not isinstance(value, str):
+                        logger.error(f"Field {field} must be string")
+                        return False
+                    
+                    # Choice validation
+                    choices = field_schema.get("choices", [])
+                    if choices and value not in choices:
+                        logger.error(f"Field {field} must be one of: {choices}")
+                        return False
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error during schema validation: {e}")
+            return False
 
     async def _handle_tag_update(self, data: Dict[str, Any]) -> None:
-        """Handle incoming process data from tag updates."""
-        try:
-            # Track spray events
-            spray_active = False
-            feeder_active = False
-            pattern_active = False
-
-            # Get tag and value from update
-            tag = data.get("tag")
-            value = data.get("value")
-            timestamp = data.get("timestamp", datetime.now().isoformat())
-
-            if tag and value is not None:
-                # Collect process data for process.* and chamber.* tags
-                if tag.startswith("process.") or tag.startswith("chamber."):
-                    self._process_data[tag] = {
-                        "value": value,
-                        "timestamp": timestamp
-                    }
-
-                    # Publish process status update
-                    await self._message_broker.publish(
-                        "process/status/data",
-                        {
-                            "data": {tag: value},
-                            "timestamp": timestamp
-                        }
-                    )
-
-                # Track spray conditions
-                if tag == "feeder.status":
-                    feeder_active = value
-                elif tag == "pattern.active":
-                    pattern_active = value
-
-            # Check if this is a spray event
-            spray_active = feeder_active and pattern_active
-            if spray_active and not self._spray_active:
-                # New spray started
-                await self._record_spray_start()
-            elif not spray_active and self._spray_active:
-                # Spray ended
-                await self._record_spray_end()
-
-            self._spray_active = spray_active
-
-        except Exception as e:
-            logger.error(f"Error handling tag update: {e}")
-            raise CoreError("Failed to handle tag update", {
-                "error": str(e),
-                "data": data,
-                "timestamp": datetime.now().isoformat()
-            })
-
-    async def _record_spray_start(self) -> None:
-        """Record start of spray event."""
-        try:
-            # Get current parameters
-            params = await self._message_broker.request(
-                "parameters/get/current",
-                {"timestamp": datetime.now().isoformat()}
-            )
-
-            # Get current pattern
-            pattern = await self._message_broker.request(
-                "patterns/get/current",
-                {"timestamp": datetime.now().isoformat()}
-            )
-
-            # Record spray start
-            chamber_pressure = self._process_data.get(
-                "process.chamber.pressure", {}
-            ).get("value", 0)
-            nozzle_pressure = self._process_data.get(
-                "process.nozzle.pressure", {}
-            ).get("value", 0)
-
-            spray_data = {
-                "spray_index": self._get_next_spray_index(),
-                "sequence_file": self._current_sequence,
-                "material_type": params.get("powder", {}).get("type", ""),
-                "pattern_name": pattern.get("name", ""),
-                "operator": self._current_user,
-                "start_time": datetime.now().isoformat(),
-                "powder_size": params.get("powder", {}).get("size_range", ""),
-                "powder_lot": params.get("powder", {}).get("lot_number", ""),
-                "manufacturer": params.get("powder", {}).get("manufacturer", ""),
-                "nozzle_type": params.get("hardware", {}).get("nozzle_type", ""),
-                "nozzle_diameter": params.get("hardware", {}).get("nozzle_diameter", ""),
-                "nozzle_serial": params.get("hardware", {}).get("nozzle_serial", ""),
-                "chamber_pressure_start": chamber_pressure,
-                "nozzle_pressure_start": nozzle_pressure,
-                "main_flow": params.get("gas", {}).get("main_flow", 0),
-                "feeder_flow": params.get("gas", {}).get("feeder_flow", 0),
-                "feeder_frequency": params.get("powder", {}).get("feeder", {}).get("frequency", 0),
-                "pattern_type": pattern.get("type", ""),
-                "completed": False,
-                "error": ""
-            }
-
-            self._current_spray = spray_data
-            self._append_to_spray_history(spray_data)
-
-        except Exception as e:
-            logger.error(f"Error recording spray start: {e}")
-            await self._message_broker.publish(
-                "data/spray/error",
-                {
-                    "error": str(e),
-                    "context": "spray_start",
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-
-    async def _record_spray_end(self) -> None:
-        """Record end of spray event."""
-        try:
-            if not self._current_spray:
-                return
-
-            # Update spray data
-            chamber_pressure = self._process_data.get(
-                "process.chamber.pressure", {}
-            ).get("value", 0)
-            nozzle_pressure = self._process_data.get(
-                "process.nozzle.pressure", {}
-            ).get("value", 0)
-
-            self._current_spray.update({
-                "end_time": datetime.now().isoformat(),
-                "chamber_pressure_end": chamber_pressure,
-                "nozzle_pressure_end": nozzle_pressure,
-                "completed": True
-            })
-
-            # Update history file
-            self._append_to_spray_history(self._current_spray)
-
-            # Clear current spray
-            self._current_spray = None
-
-        except Exception as e:
-            logger.error(f"Error recording spray end: {e}")
-            await self._message_broker.publish(
-                "data/spray/error",
-                {
-                    "error": str(e),
-                    "context": "spray_end",
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-
-    def _append_to_spray_history(self, spray_data: Dict[str, Any]) -> None:
-        """Append spray data to history CSV."""
-        try:
-            history_file = self._run_path / "spray_history.csv"
-
-            # Create file with headers if it doesn't exist
-            if not history_file.exists():
-                headers = [
-                    "spray_index",
-                    "sequence_file",
-                    "material_type",
-                    "pattern_name",
-                    "operator",
-                    "start_time",
-                    "end_time",
-                    "powder_size",
-                    "powder_lot",
-                    "manufacturer",
-                    "nozzle_type",
-                    "nozzle_diameter",
-                    "nozzle_serial",
-                    "chamber_pressure_start",
-                    "chamber_pressure_end",
-                    "nozzle_pressure_start",
-                    "nozzle_pressure_end",
-                    "main_flow",
-                    "feeder_flow",
-                    "feeder_frequency",
-                    "pattern_type",
-                    "completed",
-                    "error"]
-                with open(history_file, 'w', newline='') as f:
-                    writer = csv.writer(f)
-                    writer.writerow(headers)
-
-            # Append spray data
-            with open(history_file, 'a', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow([
-                    spray_data[key] for key in [
-                        "spray_index", "sequence_file", "material_type", "pattern_name",
-                        "operator", "start_time", "end_time", "powder_size", "powder_lot",
-                        "manufacturer", "nozzle_type", "nozzle_diameter", "nozzle_serial",
-                        "chamber_pressure_start", "chamber_pressure_end",
-                        "nozzle_pressure_start", "nozzle_pressure_end", "main_flow",
-                        "feeder_flow", "feeder_frequency", "pattern_type", "completed", "error"
-                    ]
-                ])
-
-        except Exception as e:
-            logger.error(f"Error appending to spray history: {e}")
-            raise CoreError(f"Failed to update spray history: {str(e)}") from e
-
-    def _get_next_spray_index(self) -> int:
-        """Get next spray index from history file."""
-        try:
-            history_file = self._run_path / "spray_history.csv"
-            if not history_file.exists():
-                return 1
-
-            with open(history_file, 'r') as f:
-                reader = csv.reader(f)
-                next(reader)  # Skip header
-                return max((int(row[0]) for row in reader), default=0) + 1
-
-        except Exception as e:
-            logger.error(f"Error getting next spray index: {e}")
-            return 1
-
-    async def save_process_data(self, sequence_name: str) -> None:
-        """Save collected process data to file."""
-        try:
-            # Create year directory
-            year = datetime.now().strftime("%Y")
-            year_dir = self._run_path / year
-            year_dir.mkdir(parents=True, exist_ok=True)
-
-            # Generate filename with .yaml extension
-            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            user_prefix = self._current_user or "unknown_user"
-            cancelled_suffix = "_cancelled" if self._cancelled else ""
-            filename = f"{user_prefix}_{sequence_name}_{timestamp}{cancelled_suffix}.yaml"
-            filepath = year_dir / filename
-
-            # Format run data in YAML structure
-            run_data = {
-                "run": {
-                    "metadata": {
-                        "name": sequence_name,
-                        "timestamp": datetime.now().isoformat(),
-                        "operator": self._current_user,
-                        "description": ""
-                    },
-                    "sequence": {
-                        "name": sequence_name,
-                        "version": "1.0"
-                    },
-                    "data": {
-                        "equipment": {
-                            "chamber_readings": [],
-                            "motion_data": []
-                        },
-                        "events": []
-                    },
-                    "results": {
-                        "completion": 100 if not self._cancelled else 0,
-                        "duration": 0.0,
-                        "errors": 0,
-                        "warnings": 0
-                    }
-                }
-            }
-
-            # Add process data
-            for tag, data in self._process_data.items():
-                if tag.startswith("chamber."):
-                    run_data["run"]["data"]["equipment"]["chamber_readings"].append({
-                        "timestamp": data["timestamp"],
-                        "pressure": data["value"]
-                    })
-                elif tag.startswith("motion."):
-                    position = (
-                        data["value"] if isinstance(data["value"], list)
-                        else [data["value"], 0, 0]
-                    )
-                    run_data["run"]["data"]["equipment"]["motion_data"].append({
-                        "timestamp": data["timestamp"],
-                        "position": position
-                    })
-
-            # Save as YAML
-            with open(filepath, 'w') as f:
-                yaml.safe_dump(run_data, f, sort_keys=False)
-
-            logger.info(f"Process data saved to {filepath}")
-
-            # Notify data saved
-            await self._message_broker.publish(
-                "data/saved",
-                {
-                    "filename": str(filepath),
-                    "metadata": run_data["run"]["metadata"],
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-
-            # Clear collected data and reset cancelled flag after saving
-            self._process_data.clear()
-            self._cancelled = False
-
-        except Exception as e:
-            logger.error(f"Error saving process data: {e}")
-            await self._message_broker.publish(
-                "data/save/error",
-                {
-                    "error": str(e),
-                    "sequence_name": sequence_name,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-            raise CoreError(f"Failed to save process data: {str(e)}") from e
-
-    async def load_process_data(self, filepath: Path) -> Dict[str, Any]:
-        """Load process data from file."""
-        try:
-            if not filepath.exists():
-                raise FileNotFoundError(
-                    f"Process data file not found: {filepath}")
-
-            with open(filepath, 'r') as f:
-                data = json.load(f)
-
-            logger.info(f"Process data loaded from {filepath}")
-
-            # Notify data loaded
-            await self._message_broker.publish(
-                "data/loaded",
-                {
-                    "filename": str(filepath),
-                    "metadata": data.get("metadata", {}),
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-
-            return data
-
-        except Exception as e:
-            logger.error(f"Error loading process data: {e}")
-            await self._message_broker.publish(
-                "data/load/error",
-                {
-                    "error": str(e),
-                    "filepath": str(filepath),
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-            raise CoreError(f"Failed to load process data: {str(e)}") from e
-
-    def get_current_data(self) -> Dict[str, Any]:
-        """Get current process data."""
-        return self._process_data.copy()
-
-    async def clear_data(self) -> None:
-        """Clear collected process data."""
-        try:
-            self._process_data.clear()
-            logger.debug("Process data cleared")
-
-            await self._message_broker.publish(
-                "data/cleared",
-                {
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-
-        except Exception as e:
-            logger.error(f"Error clearing data: {e}")
-            raise CoreError(f"Failed to clear data: {str(e)}") from e
-
-    async def compress_data(self, run_id: str) -> None:
-        """Compress run data to save space."""
-        try:
-            run_path = self._run_path / f"{run_id}.json"
-            if not run_path.exists():
-                raise CoreError(f"Run data not found: {run_id}")
-
-            # Load data
-            with open(run_path, 'r') as f:
-                data = json.load(f)
-
-            # Compress process data
-            compressed_data = {
-                "metadata": data["metadata"],
-                "process_data": {}
-            }
-
-            for tag, values in data["process_data"].items():
-                # Only keep values that changed
-                unique_values = []
-                last_value = None
-                for entry in values:
-                    if entry["value"] != last_value:
-                        unique_values.append(entry)
-                        last_value = entry["value"]
-                compressed_data["process_data"][tag] = unique_values
-
-            # Save compressed data
-            compressed_path = self._run_path / f"{run_id}_compressed.json"
-            with open(compressed_path, 'w') as f:
-                json.dump(compressed_data, f)
-
-            logger.info(f"Compressed run data saved to {compressed_path}")
-
-            # Publish compression complete
-            await self._message_broker.publish(
-                "data/compressed",
-                {
-                    "run_id": run_id,
-                    "original_size": run_path.stat().st_size,
-                    "compressed_size": compressed_path.stat().st_size,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-
-        except Exception as e:
-            logger.error(f"Error compressing data: {e}")
-            raise CoreError(f"Failed to compress data: {str(e)}") from e
-
-    async def create_backup(self, backup_path: Path) -> None:
-        """Create backup of all data directories."""
-        try:
-            # Create backup directory
-            backup_path.mkdir(parents=True, exist_ok=True)
-
-            # Copy all data directories
-            data_paths = [
-                self._run_path, self._parameter_path,
-                self._pattern_path, self._sequence_path
-            ]
-            for src_path in data_paths:
-                dst_path = backup_path / src_path.name
-                if src_path.exists():
-                    shutil.copytree(src_path, dst_path, dirs_exist_ok=True)
-
-            logger.info(f"Data backup created at {backup_path}")
-
-            # Publish backup complete
-            await self._message_broker.publish(
-                "data/backup/complete",
-                {
-                    "backup_path": str(backup_path),
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-
-        except Exception as e:
-            logger.error(f"Error creating backup: {e}")
-            raise CoreError(f"Failed to create backup: {str(e)}") from e
-
-    async def save_parameters(
-            self, name: str, parameters: Dict[str, Any]) -> None:
-        """Save parameters to history."""
-        try:
-            # Save to parameter history file
-            history_file = self._parameter_path / f"{name}.json"
-
-            # Add metadata
-            parameter_data = {
-                "metadata": {
-                    "name": name,
-                    "timestamp": datetime.now().isoformat(),
-                    "user": self._current_user
-                },
-                "parameters": parameters
-            }
-
-            # Save to file
-            with open(history_file, 'w') as f:
-                json.dump(parameter_data, f, indent=2)
-
-            # Publish to parameter history
-            await self._message_broker.publish(
-                "parameters/history",
-                {
-                    "name": name,
-                    "parameters": parameters,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-
-            logger.info(f"Parameters saved to history: {name}")
-
-        except Exception as e:
-            logger.error(f"Error saving parameters to history: {e}")
-            raise CoreError(
-                f"Failed to save parameters to history: {
-                    str(e)}") from e
-
-    async def load_parameters(self, name: str) -> Dict[str, Any]:
-        """Load parameters from history."""
-        try:
-            history_file = self._parameter_path / f"{name}.json"
-
-            if not history_file.exists():
-                raise FileNotFoundError(f"Parameter history not found: {name}")
-
-            with open(history_file, 'r') as f:
-                parameter_data = json.load(f)
-
-            logger.info(f"Parameters loaded from history: {name}")
-
-            return parameter_data["parameters"]
-
-        except Exception as e:
-            logger.error(f"Error loading parameters from history: {e}")
-            raise CoreError(
-                f"Failed to load parameters from history: {
-                    str(e)}") from e
-
-    async def save_run_data(self, run_name: str, data: Dict[str, Any]) -> None:
-        """Save run data to YAML file."""
-        try:
-            # Create year directory
-            year = datetime.now().strftime("%Y")
-            year_dir = self._run_path / year
-            year_dir.mkdir(parents=True, exist_ok=True)
-
-            # Generate filename
-            filename = f"{run_name}.yaml"
-            filepath = year_dir / filename
-
-            # Format run data
-            run_data = {
-                "run": {
-                    "metadata": {
-                        "name": run_name,
-                        "timestamp": datetime.now().isoformat(),
-                        "operator": self._current_user,
-                        "description": data.get("description", "")
-                    },
-                    "sequence": data.get("sequence", {}),
-                    "parameters": data.get("parameters", {}),
-                    "patterns": data.get("patterns", {}),
-                    "data": {
-                        "equipment": {
-                            "chamber_readings": [],
-                            "motion_data": []
-                        },
-                        "events": []
-                    },
-                    "results": {
-                        "completion": 0,
-                        "duration": 0.0,
-                        "errors": 0,
-                        "warnings": 0
-                    }
-                }
-            }
-
-            # Save to file
-            with open(filepath, 'w') as f:
-                yaml.safe_dump(run_data, f, sort_keys=False)
-
-            logger.info(f"Run data saved to {filepath}")
-
-        except Exception as e:
-            logger.error(f"Error saving run data: {e}")
-            raise CoreError(f"Failed to save run data: {str(e)}") from e
-
-    async def set_current_sequence(self, sequence_name: str) -> None:
-        """Set the current sequence name."""
-        try:
-            self._current_sequence = sequence_name
-            logger.debug(f"Current sequence set to: {sequence_name}")
-
-            await self._message_broker.publish(
-                "data/sequence/changed",
-                {
-                    "sequence": sequence_name,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-
-        except Exception as e:
-            logger.error(f"Error setting current sequence: {e}")
-            raise CoreError("Failed to set current sequence", {
-                "error": str(e),
-                "sequence": sequence_name,
-                "timestamp": datetime.now().isoformat()
-            })
-
-    async def _handle_compression_request(self, data: Dict[str, Any]) -> None:
-        """Handle data compression requests."""
-        try:
-            # Get original data size
-            original_data = json.dumps(data).encode('utf-8')
-            original_size = len(original_data)
-
-            # Compress data (simple example - in practice use proper compression)
-            compressed_data = json.dumps(data, separators=(',', ':'))
-            compressed_size = len(compressed_data.encode('utf-8'))
-
-            # Publish compression results
-            await self._message_broker.publish(
-                "data/compressed",
-                {
-                    "original_size": original_size,
-                    "compressed_size": compressed_size,
-                    "compression_ratio": original_size / compressed_size,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-
-        except Exception as e:
-            logger.error(f"Error compressing data: {e}")
-            raise CoreError("Failed to compress data", {
-                "error": str(e),
-                "data": data,
-                "timestamp": datetime.now().isoformat()
-            })
-
-    async def _handle_backup_request(self, data: Dict[str, Any]) -> None:
-        """Handle data backup requests."""
-        try:
-            backup_path = Path(data.get("path"))
-            if not backup_path.exists():
-                backup_path.mkdir(parents=True)
-
-            # Copy data directories
-            for src_path in [
-                self._run_path,
-                self._parameter_path,
-                self._pattern_path,
-                self._sequence_path
-            ]:
-                if src_path.exists():
-                    dst_path = backup_path / src_path.name
-                    if dst_path.exists():
-                        shutil.rmtree(dst_path)
-                    shutil.copytree(src_path, dst_path)
-
-            # Publish backup completion
-            await self._message_broker.publish(
-                "data/backup/complete",
-                {
-                    "backup_path": str(backup_path),
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-
-        except Exception as e:
-            logger.error(f"Error backing up data: {e}")
-            raise CoreError("Failed to backup data", {
-                "error": str(e),
-                "path": str(backup_path),
-                "timestamp": datetime.now().isoformat()
-            })
+        """Handle tag updates."""
+        pass  # Implement if needed for process monitoring
