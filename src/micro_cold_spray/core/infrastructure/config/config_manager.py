@@ -46,10 +46,14 @@ class ConfigManager:
             # Load all config files
             await self._load_all_configs()
 
-            # Subscribe to config update requests
+            # Subscribe to config requests
             await self._message_broker.subscribe(
                 "config/update/request",  # Config update request topic
                 self._handle_config_update  # Handler method
+            )
+            await self._message_broker.subscribe(
+                "config/get",  # Config get request topic
+                self._handle_config_get  # Handler method
             )
 
             self._is_initialized = True
@@ -187,3 +191,58 @@ class ConfigManager:
             raise ConfigurationError(
                 "Failed to handle config update",
                 error_context) from e
+
+    async def _handle_config_get(self, data: Dict[str, Any]) -> None:
+        """Handle configuration get requests."""
+        try:
+            config_type = data.get("config_type")
+            key = data.get("key")
+
+            if not config_type:
+                raise ConfigurationError("No config type specified")
+
+            # Get the config
+            config = await self.get_config(config_type)
+
+            # Extract specific key if provided
+            if key:
+                # Navigate nested keys
+                value = config
+                for k in key.split('.'):
+                    value = value.get(k, {})
+            else:
+                value = config
+
+            # Send response
+            await self._message_broker.publish(
+                "config/response",
+                {
+                    "config_type": config_type,
+                    "key": key,
+                    "value": value,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+
+            # Also publish as a config update for the system
+            await self._message_broker.publish(
+                f"config/update/{config_type}",
+                {
+                    "config_type": config_type,
+                    "data": value,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+
+        except Exception as e:
+            error_msg = {
+                "error": str(e),
+                "config_type": config_type,
+                "key": key,
+                "timestamp": datetime.now().isoformat()
+            }
+            logger.error(f"Failed to get configuration: {error_msg}")
+            await self._message_broker.publish(
+                "config/error",
+                error_msg
+            )

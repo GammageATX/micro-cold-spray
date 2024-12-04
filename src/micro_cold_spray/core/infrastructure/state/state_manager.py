@@ -20,7 +20,7 @@ class StateManager:
         self._message_broker = message_broker
         self._config_manager = config_manager
         self._state_config = {}
-        self._current_state = "INITIALIZING"
+        self._current_state = None
         self._previous_state = ""
         self._conditions = {}
         self._is_initialized = False
@@ -33,14 +33,15 @@ class StateManager:
             await self._message_broker.subscribe("state/request", self._handle_state_request)
             await self._message_broker.subscribe("tag/update", self._handle_tag_update)
 
-            # Load state config from operation.yaml
-            config = await self._config_manager.get_config("operation")
-            self._state_config = config.get("operation", {}).get("states", {})
-            logger.debug(f"Loaded state transitions: {self._state_config}")
-
-            # Start in INITIALIZING state
-            self._current_state = "INITIALIZING"
+            # Load state config from state.yaml
+            config = await self._config_manager.get_config("state")
+            self._state_config = config.get("state", {}).get("transitions", {})
+            
+            # Set initial state from config
+            self._current_state = config.get("state", {}).get("initial_state", "INITIALIZING")
             self._previous_state = ""
+            logger.debug(f"Loaded state transitions: {self._state_config}")
+            logger.debug(f"Initial state set to: {self._current_state}")
 
             # Initialize condition tracking
             self._conditions = {
@@ -78,7 +79,7 @@ class StateManager:
 
             # Get current state config
             current_state_config = self._state_config.get(self._current_state, {})
-            valid_transitions = current_state_config.get("transitions", [])
+            valid_transitions = current_state_config.get("next_states", [])
 
             # Check if transition is valid
             if requested_state in valid_transitions:
@@ -101,6 +102,7 @@ class StateManager:
                     change_data = {
                         "state": requested_state,
                         "previous": self._previous_state,
+                        "description": self._state_config.get(requested_state, {}).get("description", ""),
                         "timestamp": datetime.now().isoformat()
                     }
 

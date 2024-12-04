@@ -32,6 +32,18 @@ hardware:
         feeder: feeder2
         nozzle: nozzle2
         offset_x: 38.1
+      deagglomerator:
+        speeds:
+          off: 35
+          low: 30
+          medium: 25
+          high: 20
+      feeder:
+        frequency:
+          default: 600
+          max: 1200
+          min: 200
+          step: 200
     nozzles:
       common_y: 100.0
       nozzle1_offset_x: 0.0
@@ -64,15 +76,15 @@ hardware:
         min: 2.0
         warning: 3.0
       feeder_pressure:
-        max: 60.0
-        min: 30.0
-        warning: 40.0
+        max: 30.8
+        min: -15.4
+        warning: 16.0
       main_flow:
         max: 100.0
-        min: 20.0
-        warning: 30.0
+        min: 10.0
+        warning: 9.0
       main_pressure:
-        max: 150.0
+        max: 130.0
         min: 80.0
         warning: 100.0
       regulator_pressure:
@@ -93,9 +105,6 @@ hardware:
             max: 90
             min: 10
           frequency:
-            max: 1000
-            min: 100
-        frequency:
-          max: 1000
-          min: 100
+            max: 1200
+            min: 200
 version: 1.0.0

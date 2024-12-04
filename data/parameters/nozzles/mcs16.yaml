@@ -1,0 +1,6 @@
+nozzle:
+  metadata:
+    name: "MCS-16"
+    manufacturer: "VRC"
+    type: "Cold Spray"
+    description: "Micro cold spray nozzle, 0.16mm exit diameter"

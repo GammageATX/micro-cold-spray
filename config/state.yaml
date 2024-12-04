@@ -1,23 +1,36 @@
 state:
+  initial_state: INITIALIZING
   transitions:
     ERROR:
+      description: System has encountered an error
       next_states:
       - READY
       - SHUTDOWN
     INITIALIZING:
+      description: System is starting up and initializing
+      conditions:
+      - hardware.connected
+      - config.loaded
+      next_states:
+      - READY
+    IDLE:
+      description: System is idle and ready for initialization
       conditions:
       - hardware.connected
       - config.loaded
       next_states:
       - READY
     READY:
+      description: System is initialized and operational
       conditions:
       - hardware.connected
       - hardware.enabled
       next_states:
       - RUNNING
       - SHUTDOWN
+      - IDLE
     RUNNING:
+      description: System is executing operations
       conditions:
       - hardware.connected
       - hardware.enabled
@@ -26,6 +39,7 @@ state:
       - READY
       - ERROR
     SHUTDOWN:
+      description: System is shutting down safely
       conditions:
       - hardware.safe
       next_states:

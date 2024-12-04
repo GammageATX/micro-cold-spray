@@ -1,7 +1,7 @@
 """UI update manager component."""
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from loguru import logger
 from PySide6.QtCore import Qt
@@ -11,6 +11,9 @@ from ....exceptions import CoreError, UIError, ValidationError
 from ....infrastructure.config.config_manager import ConfigManager
 from ....infrastructure.messaging.message_broker import MessageBroker
 from ..widgets.base_widget import BaseWidget
+
+import yaml
+from pathlib import Path
 
 
 class WidgetType(Enum):
@@ -60,15 +63,98 @@ class UIUpdateManager:
         """Initialize UI update manager."""
         self._message_broker = message_broker
         self._config_manager = config_manager
-        self._registered_widgets = {}
-        self._tag_subscriptions = {}
-        self._stage_dimensions = {}
+        self._widgets: Dict[str, BaseWidget] = {}
+        self._tag_subscriptions: Dict[str, Set[str]] = {}
+        self._stage_dimensions: Dict[str, float] = {}
         self._is_initialized = False
+
         logger.debug("UI update manager initialized")
+
+    async def initialize(self) -> None:
+        """Initialize UI update manager."""
+        try:
+            if self._is_initialized:
+                return
+
+            # Subscribe to required topics
+            await self._message_broker.subscribe("ui/update", self._handle_ui_update)
+            await self._message_broker.subscribe("ui/error", self._handle_ui_error)
+            await self._message_broker.subscribe("config/response/list_files", self._handle_list_files_response)
+            await self._message_broker.subscribe("tag/update", self._handle_tag_update)
+            await self._message_broker.subscribe("config/update", self._handle_config_update)
+            await self._message_broker.subscribe("config/update/hardware", self._handle_hardware_config_update)
+            await self._message_broker.subscribe("config/update/process", self._handle_config_update)
+            await self._message_broker.subscribe("config/update/ui", self._handle_config_update)
+            await self._message_broker.subscribe("sequence/loaded", self._handle_sequence_loaded)
+            await self._message_broker.subscribe("sequence/state", self._handle_sequence_state)
+
+            # Load initial hardware config
+            hardware_config = await self._config_manager.get_config("hardware")
+            self._stage_dimensions = hardware_config.get(
+                "stage", {}).get("dimensions", {})
+
+            self._is_initialized = True
+            logger.debug("UI update manager initialization complete")
+
+        except Exception as e:
+            logger.error(f"Failed to initialize UI update manager: {e}")
+            raise UIError("UI update manager initialization failed") from e
+
+    async def _handle_ui_update(self, data: Dict[str, Any]) -> None:
+        """Handle UI update messages."""
+        try:
+            update_type = data.get("type")
+            update_data = data.get("data", {})
+
+            if not update_type:
+                raise ValueError("No update type specified")
+
+            # Find widgets that need this update
+            for widget_id, widget in self._widgets.items():
+                if hasattr(widget, "handle_ui_update"):
+                    await widget.handle_ui_update(update_data)
+
+            logger.debug(f"Processed UI update: {update_type}")
+
+        except Exception as e:
+            logger.error(f"Error handling UI update: {e}")
+            await self._message_broker.publish("ui/error", {
+                "error": str(e),
+                "context": "ui_update_handler",
+                "timestamp": datetime.now().isoformat()
+            })
+
+    async def _handle_ui_error(self, data: Dict[str, Any]) -> None:
+        """Handle UI error messages."""
+        try:
+            error = data.get("error")
+            context = data.get("context", "unknown")
+
+            logger.error(f"UI error in {context}: {error}")
+
+            # Notify widgets of error
+            for widget in self._widgets.values():
+                if hasattr(widget, "handle_error"):
+                    await widget.handle_error(data)
+
+        except Exception as e:
+            logger.error(f"Error handling UI error: {e}")
 
     def _validate_widget_location(self, location: str) -> bool:
         """Validate widget location against allowed values."""
-        return location in BaseWidget.VALID_LOCATIONS
+        allowed_prefixes = [
+            "widget_dashboard",
+            "widget_motion",
+            "widget_editor",
+            "widget_config",
+            "widget_diagnostics",
+            "tab_dashboard",
+            "tab_motion",
+            "tab_editor",
+            "tab_config",
+            "tab_diagnostics"
+        ]
+        return any(location.startswith(prefix) for prefix in allowed_prefixes)
 
     async def register_widget(
         self,
@@ -100,8 +186,8 @@ class UIUpdateManager:
                 self._verify_widget_style(widget)
 
             # Update registrations
-            if widget_id in self._registered_widgets:
-                old_tags = self._registered_widgets[widget_id]['tags']
+            if widget_id in self._widgets:
+                old_tags = self._widgets[widget_id]['tags']
                 new_tags = set(update_tags)
                 added_tags = new_tags - set(old_tags)
                 removed_tags = set(old_tags) - new_tags
@@ -114,7 +200,7 @@ class UIUpdateManager:
                     )
 
             # Store registration
-            self._registered_widgets[widget_id] = {
+            self._widgets[widget_id] = {
                 'tags': update_tags,
                 'timestamp': datetime.now().isoformat(),
                 'widget_ref': widget
@@ -132,52 +218,18 @@ class UIUpdateManager:
             logger.error(f"Failed to register widget {widget_id}: {str(e)}")
             raise UIError(f"Widget registration failed: {str(e)}") from e
 
-    async def initialize(self) -> None:
-        """Initialize UI update manager."""
-        try:
-            if self._is_initialized:
-                return
-
-            # Subscribe to required topics
-            subscriptions = [
-                ("tag/update", self._handle_tag_update),
-                ("config/update", self._handle_config_update),
-                ("config/update/hardware", self._handle_hardware_config_update),
-                ("config/update/process", self._handle_config_update),
-                ("config/update/ui", self._handle_config_update),
-                ("sequence/loaded", self._handle_sequence_loaded),
-                ("sequence/state", self._handle_sequence_state)
-            ]
-
-            for topic, handler in subscriptions:
-                await self._message_broker.subscribe(topic, handler)
-
-            # Load initial hardware config
-            hardware_config = await self._config_manager.get_config("hardware")
-            self._stage_dimensions = hardware_config.get(
-                "stage", {}).get("dimensions", {})
-
-            self._is_initialized = True
-            logger.debug("UI update manager initialization complete")
-
-        except Exception as e:
-            logger.exception("Failed to initialize UI update manager")
-            raise CoreError("Failed to initialize UI update manager", {
-                "error": str(e)
-            })
-
     async def unregister_widget(self, widget_id: str) -> None:
         """Unregister a widget from updates."""
         try:
-            if widget_id in self._registered_widgets:
+            if widget_id in self._widgets:
                 # Remove subscriptions
-                for tag in self._registered_widgets[widget_id]['tags']:
+                for tag in self._widgets[widget_id]['tags']:
                     if tag in self._tag_subscriptions:
                         self._tag_subscriptions[tag].discard(widget_id)
 
                 # Remove registration
-                widget_data = self._registered_widgets[widget_id]
-                del self._registered_widgets[widget_id]
+                widget_data = self._widgets[widget_id]
+                del self._widgets[widget_id]
 
                 # Clean up widget if it exists
                 widget = widget_data.get('widget_ref')
@@ -236,7 +288,7 @@ class UIUpdateManager:
     async def _cleanup_widget_chain(self, widget_id: str) -> None:
         """Handle widget cleanup chain."""
         try:
-            widget_data = self._registered_widgets.get(widget_id)
+            widget_data = self._widgets.get(widget_id)
             if not widget_data:
                 return
 
@@ -278,7 +330,7 @@ class UIUpdateManager:
 
             # Update each subscribed widget
             for widget_id in widget_ids:
-                widget_data = self._registered_widgets.get(widget_id)
+                widget_data = self._widgets.get(widget_id)
                 if not widget_data:
                     continue
 
@@ -314,19 +366,36 @@ class UIUpdateManager:
         """Handle config updates."""
         try:
             # Forward config update to UI
-            await self._message_broker.publish("ui/update", {
-                "type": "config",
-                "data": data,
-                "timestamp": datetime.now().isoformat()
-            })
+            await self._message_broker.publish(
+                "ui/update",
+                {
+                    "type": "config",
+                    "data": data,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+
+            # Find widgets that need this config
+            for widget_id, widget_data in self._widgets.items():
+                widget = widget_data.get('widget_ref')
+                if not widget:
+                    continue
+
+                # Check if widget wants this config update
+                update_tags = getattr(widget, '_update_tags', [])
+                if any(t.startswith("config.") for t in update_tags):
+                    await widget.handle_ui_update({"config": data})
 
         except Exception as e:
             logger.error(f"Error handling config update: {e}")
-            await self._message_broker.publish("ui/error", {
-                "error": str(e),
-                "context": "config_update_handler",
-                "timestamp": datetime.now().isoformat()
-            })
+            await self._message_broker.publish(
+                "ui/error",
+                {
+                    "error": str(e),
+                    "context": "config_update_handler",
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
 
     async def _handle_hardware_config_update(
             self, data: Dict[str, Any]) -> None:
@@ -362,7 +431,7 @@ class UIUpdateManager:
         """Shutdown UI update manager."""
         try:
             # Cleanup all registered widgets
-            for widget_id in list(self._registered_widgets.keys()):
+            for widget_id in list(self._widgets.keys()):
                 await self.unregister_widget(widget_id)
 
             self._is_initialized = False
@@ -374,43 +443,128 @@ class UIUpdateManager:
                 "error": str(e)
             })
 
-    async def send_update(self, topic: str, data: Dict[str, Any]) -> None:
-        """Send UI update via message broker.
-
-        Args:
-            topic: Topic to publish update to
-            data: Update data or string message
-
-        Raises:
-            UIError: If update fails
-        """
+    async def _handle_data_operation(self, tag: str, data: Dict[str, Any]) -> None:
+        """Handle data operations through DataManager."""
         try:
-            # Convert string messages to proper format
-            if isinstance(data, str):
-                data = {
-                    "message": data,
+            if tag.endswith("/list"):
+                # Handle file listing through DataManager
+                response = await self._message_broker.request(
+                    "data/list_files",
+                    {
+                        "type": tag.split("/")[0],  # Extract type from tag
+                        **data
+                    },
+                    timeout=2.0
+                )
+            else:
+                # Handle other data operations (load/save/delete)
+                response = await self._message_broker.request(
+                    f"data/{tag}",
+                    data,
+                    timeout=2.0
+                )
+
+            if response and "error" in response:
+                logger.error(f"Data operation failed: {response['error']}")
+                return
+
+            # Update UI based on operation type
+            if tag.endswith("/list"):
+                await self._handle_file_list_update(tag.split("/")[0], response.get("files", []))
+            elif tag.endswith("/load"):
+                await self._handle_file_load_update(tag.split("/")[0], response.get("value", {}))
+            elif tag.endswith("/save"):
+                await self._handle_file_save_update(tag.split("/")[0], data.get("name", ""))
+            elif tag.endswith("/delete"):
+                await self._handle_file_delete_update(tag.split("/")[0], data.get("name", ""))
+
+        except Exception as e:
+            logger.error(f"Error handling data operation: {e}")
+
+    async def _handle_config_operation(self, tag: str, data: Dict[str, Any]) -> None:
+        """Handle configuration operations through ConfigManager."""
+        try:
+            # Config operations go directly to ConfigManager
+            if tag == "config/get":
+                # Get config value
+                response = await self._message_broker.request(
+                    "config/get",
+                    {
+                        "config_type": data.get("config_type"),
+                        "key": data.get("key")
+                    },
+                    timeout=2.0
+                )
+            else:
+                # Other config operations
+                response = await self._message_broker.request(
+                    tag,
+                    data,
+                    timeout=2.0
+                )
+
+            if response and "error" in response:
+                logger.error(f"Config operation failed: {response['error']}")
+                return
+
+            # Forward config update to UI
+            await self._message_broker.publish(
+                "ui/update",
+                {
+                    "type": "config",
+                    "data": response,
                     "timestamp": datetime.now().isoformat()
                 }
-            elif isinstance(data, dict) and 'timestamp' not in data:
-                data['timestamp'] = datetime.now().isoformat()
-
-            # Forward update through message broker
-            await self._message_broker.publish(
-                f"ui/update/{topic}",
-                data
             )
 
-            # Also publish to original topic for other subscribers
+        except Exception as e:
+            logger.error(f"Error handling config operation: {e}")
             await self._message_broker.publish(
-                topic,
-                data
+                "ui/error",
+                {
+                    "error": str(e),
+                    "context": "config_operation",
+                    "timestamp": datetime.now().isoformat()
+                }
             )
 
-            logger.debug(f"Sent update on topic {topic}: {data}")
+    async def _handle_user_operation(self, tag: str, data: Dict[str, Any]) -> None:
+        """Handle user operations."""
+        try:
+            # User operations go to UserManager
+            response = await self._message_broker.request(
+                tag,
+                data,
+                timeout=2.0
+            )
+
+            if response and "error" in response:
+                logger.error(f"User operation failed: {response['error']}")
+                return
+
+            # Handle user update
+            if response:
+                await self._handle_user_update(tag, response)
+
+        except Exception as e:
+            logger.error(f"Error handling user operation: {e}")
+
+    async def send_update(self, tag: str, data: Dict[str, Any]) -> None:
+        """Send a UI update request."""
+        try:
+            # Route based on operation type
+            if tag.startswith(("parameters/", "patterns/", "sequences/")):
+                await self._handle_data_operation(tag, data)
+            elif tag.startswith("config/"):
+                await self._handle_config_operation(tag, data)
+            elif tag.startswith("user/"):
+                await self._handle_user_operation(tag, data)
+            else:
+                # Handle other UI updates
+                await self._message_broker.publish(f"ui/update/{tag}", data)
 
         except Exception as e:
             logger.error(f"Error sending UI update: {e}")
-            raise UIError(f"Failed to send UI update: {str(e)}") from e
 
     async def _handle_system_state(self, data: Dict[str, Any]) -> None:
         """Handle system state updates."""
@@ -522,7 +676,7 @@ class UIUpdateManager:
 
             # Forward sequence loaded update to all subscribed widgets
             for widget_id in self._tag_subscriptions.get("sequence.loaded", set()):
-                widget_data = self._registered_widgets.get(widget_id)
+                widget_data = self._widgets.get(widget_id)
                 if not widget_data:
                     logger.warning(f"Widget {widget_id} not found in registered widgets")
                     continue
@@ -564,3 +718,35 @@ class UIUpdateManager:
             'widget_system_'  # Add this to allow system widgets
         ]
         return any(widget_id.startswith(prefix) for prefix in allowed_prefixes)
+
+    async def _handle_list_files_response(self, data: Dict[str, Any]) -> None:
+        """Handle response to list files request."""
+        try:
+            file_type = data.get("type")
+            files = data.get("files", [])
+
+            if not file_type:
+                raise ValueError("No file type in response")
+
+            # Find widgets that requested this file type
+            for widget_id, widget_data in self._widgets.items():
+                widget = widget_data.get('widget_ref')
+                if not widget or not hasattr(widget, "update_file_list"):
+                    continue
+
+                # Match widget type to file type
+                if (
+                    ("parameter_editor" in widget_id and file_type == "parameters") or
+                    ("pattern_editor" in widget_id and file_type == "patterns") or
+                    ("sequence_builder" in widget_id and file_type == "sequences")
+                ):
+                    await widget.update_file_list(files)
+                    logger.debug(f"Updated {widget_id} with {len(files)} {file_type} files")
+
+        except Exception as e:
+            logger.error(f"Error handling list files response: {e}")
+            await self._message_broker.publish("ui/error", {
+                "error": str(e),
+                "context": "list_files_response",
+                "timestamp": datetime.now().isoformat()
+            })

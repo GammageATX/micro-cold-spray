@@ -1,6 +1,9 @@
 """Editor tab for process sequence editing."""
 from typing import Any, Dict, Protocol, runtime_checkable, cast
 import asyncio
+from datetime import datetime
+import os
+from pathlib import Path
 
 from loguru import logger
 from PySide6.QtCore import Qt
@@ -60,74 +63,75 @@ class EditorTab(BaseWidget):
 
     def _init_ui(self) -> None:
         """Initialize the editor tab UI."""
-        layout = QVBoxLayout()
-        layout.setContentsMargins(10, 5, 10, 10)
+        try:
+            layout = QVBoxLayout()
+            layout.setContentsMargins(10, 5, 10, 10)
 
-        # Create main splitter
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+            # Create main splitter
+            splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # Left side - Editors
-        left_frame = QFrame()
-        left_layout = QVBoxLayout()
-        left_frame.setLayout(left_layout)
+            # Left side - Editors
+            left_frame = QFrame()
+            left_layout = QVBoxLayout()
+            left_frame.setLayout(left_layout)
 
-        # Parameter editor
-        editor = ParameterEditor(self._ui_manager)
-        self._parameter_editor = cast(ParameterEditorProtocol, editor)
-        left_layout.addWidget(cast(QWidget, editor))
+            # Parameter editor
+            self._parameter_editor = ParameterEditor(self._ui_manager)
+            left_layout.addWidget(self._parameter_editor)
 
-        # Load available parameter files
-        asyncio.create_task(self._load_parameter_files())
+            # Pattern editor
+            self._pattern_editor = PatternEditor(self._ui_manager)
+            left_layout.addWidget(self._pattern_editor)
 
-        # Pattern editor
-        self._pattern_editor = PatternEditor(self._ui_manager)
-        left_layout.addWidget(self._pattern_editor)
+            splitter.addWidget(left_frame)
 
-        # Load available pattern files
-        asyncio.create_task(self._load_pattern_files())
+            # Right side - Sequence builder and visualizer
+            right_frame = QFrame()
+            right_layout = QVBoxLayout()
+            right_frame.setLayout(right_layout)
 
-        splitter.addWidget(left_frame)
+            # Sequence builder
+            self._sequence_builder = SequenceBuilder(self._ui_manager)
+            right_layout.addWidget(self._sequence_builder)
 
-        # Right side - Sequence builder and visualizer
-        right_frame = QFrame()
-        right_layout = QVBoxLayout()
-        right_frame.setLayout(right_layout)
+            # Sequence visualizer
+            self._sequence_visualizer = SequenceVisualizer(self._ui_manager)
+            right_layout.addWidget(self._sequence_visualizer)
 
-        # Sequence builder
-        self._sequence_builder = SequenceBuilder(self._ui_manager)
-        right_layout.addWidget(self._sequence_builder)
+            splitter.addWidget(right_frame)
 
-        # Load available sequence files
-        asyncio.create_task(self._load_sequence_files())
+            # Set initial splitter sizes
+            splitter.setSizes([400, 600])  # 40/60 split
 
-        # Sequence visualizer
-        self._sequence_visualizer = SequenceVisualizer(self._ui_manager)
-        right_layout.addWidget(self._sequence_visualizer)
+            layout.addWidget(splitter)
+            self.setLayout(layout)
 
-        splitter.addWidget(right_frame)
+            # Load files after widgets are created
+            logger.debug("Loading editor files...")
+            asyncio.create_task(self._load_editor_files())
 
-        # Set initial splitter sizes
-        splitter.setSizes([400, 600])  # 40/60 split
-
-        layout.addWidget(splitter)
-        self.setLayout(layout)
+        except Exception as e:
+            logger.error(f"Error initializing editor UI: {e}")
 
     def _update_status_label(self) -> None:
         """Update the status label based on connection state."""
         if self._connected:
-            self._status_label.setText("Connected - Using hardware parameters")
+            self._status_label.setText("Connected - Hardware validation enabled")
         else:
-            self._status_label.setText("Disconnected - Using simulated parameters")
+            self._status_label.setText("Disconnected - Hardware validation disabled")
 
     async def handle_ui_update(self, data: Dict[str, Any]) -> None:
         """Handle UI updates from UIUpdateManager."""
         try:
             if "system.connection" in data:
-                was_connected = self._connected
+                # Only notify child widgets that need hardware state
+                # Don't disable any editor functionality
                 self._connected = data.get("connected", False)
-                if was_connected != self._connected:
-                    self._update_status_label()
-                    await self._notify_connection_state()
+                self._update_status_label()
+                
+                # Only notify sequence builder since it might need to validate against hardware limits
+                if self._sequence_builder is not None:
+                    await self._sequence_builder.handle_connection_change(self._connected)
 
             if "editor.sequence" in data:
                 sequence_data = data["editor.sequence"]
@@ -142,58 +146,11 @@ class EditorTab(BaseWidget):
             if "editor.parameters" in data:
                 parameters = data.get("editor.parameters", {})
                 if self._parameter_editor is not None:
-                    # In disconnected mode, use default/simulated parameters
-                    if not self._connected:
-                        parameters = self._get_simulated_parameters(parameters)
+                    # Always pass parameters directly - no simulation needed
                     await self._parameter_editor.update_parameters(parameters)
 
         except Exception as e:
             logger.error(f"Error handling UI update in editor tab: {e}")
-
-    def _get_simulated_parameters(self, base_params: Dict[str, Any]) -> Dict[str, Any]:
-        """Get simulated parameters when in disconnected mode."""
-        try:
-            # Start with base parameters
-            simulated = base_params.copy()
-
-            # Add default values for common parameters if not present
-            defaults = {
-                "powder_feed_rate": 2.0,  # g/min
-                "carrier_gas_pressure": 30.0,  # psi
-                "process_gas_pressure": 40.0,  # psi
-                "nozzle_temperature": 400.0,  # °C
-                "substrate_temperature": 25.0,  # °C
-                "scan_speed": 10.0,  # mm/s
-                "layer_height": 0.1,  # mm
-                "track_overlap": 0.5,  # ratio
-            }
-
-            for key, value in defaults.items():
-                if key not in simulated:
-                    simulated[key] = value
-
-            return simulated
-
-        except Exception as e:
-            logger.error(f"Error generating simulated parameters: {e}")
-            return base_params
-
-    async def _notify_connection_state(self) -> None:
-        """Notify child widgets of connection state change."""
-        try:
-            widgets = [
-                self._parameter_editor,
-                self._pattern_editor,
-                self._sequence_builder,
-                self._sequence_visualizer
-            ]
-
-            for widget in widgets:
-                if widget is not None and hasattr(widget, 'handle_connection_change'):
-                    await widget.handle_connection_change(self._connected)
-
-        except Exception as e:
-            logger.error(f"Error notifying widgets of connection state: {e}")
 
     async def cleanup(self) -> None:
         """Clean up editor tab and child widgets."""
@@ -219,47 +176,98 @@ class EditorTab(BaseWidget):
         except Exception as e:
             logger.error(f"Error during editor tab cleanup: {e}")
 
+    async def _load_editor_files(self) -> None:
+        """Load all editor files."""
+        try:
+            # Load files in parallel
+            await asyncio.gather(
+                self._load_parameter_files(),
+                self._load_pattern_files(),
+                self._load_sequence_files()
+            )
+            logger.info("Editor files loaded successfully")
+        except Exception as e:
+            logger.error(f"Error loading editor files: {e}")
+
     async def _load_parameter_files(self) -> None:
         """Load available parameter files from disk."""
         try:
-            # Get parameter files from config manager
-            files = await self._ui_manager.send_update(
-                "config/request/list_files",
-                {"type": "parameters"}
-            )
+            logger.debug("Loading parameter files directly...")
+            param_path = Path("data/parameters/library")
+            
+            if not param_path.exists():
+                logger.error(f"Parameter directory not found: {param_path}")
+                return
 
-            if files and isinstance(files, list):
-                self._parameter_editor.update_file_list(files)
-                logger.debug(f"Loaded parameter files: {files}")
+            # Get all yaml files in the directory
+            parameter_files = [
+                f.stem for f in param_path.glob("*.yaml")
+                if f.is_file() and "nozzles" not in str(f)
+            ]
+            
+            if parameter_files:
+                logger.info(f"Found parameter sets: {parameter_files}")
+                # Add empty option first
+                parameter_files.insert(0, "")
+                await self._parameter_editor.update_file_list(parameter_files)
+            else:
+                logger.warning("No parameter files found")
+                # Still add blank option
+                await self._parameter_editor.update_file_list([""])
+
         except Exception as e:
-            logger.error(f"Error loading parameter files: {e}")
+            logger.error(f"Error loading parameter files: {e}", exc_info=True)
 
     async def _load_pattern_files(self) -> None:
         """Load available pattern files from disk."""
         try:
-            # Get pattern files from config manager
-            files = await self._ui_manager.send_update(
-                "config/request/list_files",
-                {"type": "patterns"}
-            )
+            logger.debug("Loading pattern files directly...")
+            pattern_path = Path("data/patterns/library")
+            
+            if not pattern_path.exists():
+                logger.error(f"Pattern directory not found: {pattern_path}")
+                return
 
-            if files and isinstance(files, list):
-                self._pattern_editor.update_file_list(files)
-                logger.debug(f"Loaded pattern files: {files}")
+            # Get all yaml files recursively
+            pattern_files = []
+            for subdir in ["serpentine", "spiral"]:
+                subpath = pattern_path / subdir
+                if subpath.exists():
+                    pattern_files.extend([
+                        f"{subdir}/{f.stem}" for f in subpath.glob("*.yaml")
+                        if f.is_file()
+                    ])
+
+            if pattern_files:
+                logger.info(f"Found patterns: {pattern_files}")
+                await self._pattern_editor.update_file_list(pattern_files)
+            else:
+                logger.warning("No pattern files found")
+
         except Exception as e:
-            logger.error(f"Error loading pattern files: {e}")
+            logger.error(f"Error loading pattern files: {e}", exc_info=True)
 
     async def _load_sequence_files(self) -> None:
         """Load available sequence files from disk."""
         try:
-            # Get sequence files from config manager
-            files = await self._ui_manager.send_update(
-                "config/request/list_files",
-                {"type": "sequences"}
-            )
+            logger.debug("Loading sequence files directly...")
+            seq_path = Path("data/sequences/library")
+            
+            if not seq_path.exists():
+                logger.error(f"Sequence directory not found: {seq_path}")
+                return
 
-            if files and isinstance(files, list):
-                self._sequence_editor.update_file_list(files)
-                logger.debug(f"Loaded sequence files: {files}")
+            # Get all yaml files in the directory
+            sequence_files = [
+                f.stem for f in seq_path.glob("*.yaml")
+                if f.is_file()
+            ]
+            
+            if sequence_files:
+                logger.info(f"Found sequences: {sequence_files}")
+                await self._sequence_builder.update_file_list(sequence_files)
+            else:
+                logger.warning("No sequence files found")
+
         except Exception as e:
-            logger.error(f"Error loading sequence files: {e}")
+            logger.error(f"Error loading sequence files: {e}", exc_info=True)

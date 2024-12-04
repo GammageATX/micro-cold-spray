@@ -256,7 +256,7 @@ class SequenceBuilder(BaseWidget):
         except Exception as e:
             logger.error(f"Error updating sequence list: {e}")
 
-    def update_file_list(self, files: list[str]) -> None:
+    async def update_file_list(self, files: list[str]) -> None:
         """Update the list of available sequence files.
 
         Args:
