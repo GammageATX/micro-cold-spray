@@ -52,7 +52,8 @@ class JogControl(BaseWidget):
             update_tags=[
                 "motion.position",
                 "motion.state",
-                "system.connection"
+                "system.connection",
+                "hardware.stage"
             ],
             parent=parent
         )
@@ -60,31 +61,42 @@ class JogControl(BaseWidget):
         # Store protocol implementation
         self._motion_tab = motion_tab
         if not motion_tab:
-            logger.warning("No motion tab protocol implementation provided")
+            logger.warning("No motion tab protocol implementation available")
+
+        # Initialize current position and stage limits
+        self._current_position = {'x': 0.0, 'y': 0.0, 'z': 0.0}
+        self._stage_limits = {
+            'x': {'min': 0.0, 'max': 200.0},
+            'y': {'min': 0.0, 'max': 200.0},
+            'z': {'min': 0.0, 'max': 40.0}
+        }
+
+        # Store button handlers for cleanup
+        self._button_handlers = []
 
         self._init_ui()
-        logger.info("Jog control initialized")
 
     async def _handle_jog_button(self, axis: str, direction: int) -> None:
         """Handle jog button press."""
         try:
             if self._motion_tab:
-                # Get current step size and convert to float
+                # Get step size and speed
                 step_size = float(self.step_combo.currentText())
-
-                # Calculate speed based on step size
                 speed = self._get_current_speed()
 
-                # Pass both speed and step size to motion tab
+                # Log the move attempt
+                logger.debug(
+                    f"Jog {axis}{'+' if direction > 0 else '-'}: "
+                    f"step={step_size}, direction={direction}, speed={speed}"
+                )
+
+                # Let motion tab handle validation and execution
                 await self._motion_tab.handle_jog_command(
                     axis=axis,
                     direction=direction,
                     speed=speed,
                     step_size=step_size
                 )
-            else:
-                logger.warning(
-                    "No motion tab protocol implementation available")
         except Exception as e:
             logger.error(f"Error handling jog command: {e}")
 
@@ -93,9 +105,6 @@ class JogControl(BaseWidget):
         try:
             if self._motion_tab:
                 await self._motion_tab.handle_stop_command()
-            else:
-                logger.warning(
-                    "No motion tab protocol implementation available")
         except Exception as e:
             logger.error(f"Error handling stop command: {e}")
 
@@ -155,27 +164,27 @@ class JogControl(BaseWidget):
             (self.z_up_btn, ('z', 1)),
             (self.z_down_btn, ('z', -1))
         ]:
-            # Create a closure to capture the current axis and direction
+            # Create press and release handlers using proper function definitions
             def make_press_handler(a=axis, d=direction):
-                async def handler():
-                    await self._handle_jog_button(a, d)
+                def handler():
+                    return asyncio.create_task(self._handle_jog_button(a, d))
                 return handler
 
             def make_release_handler(a=axis):
-                async def handler():
-                    await self._handle_stop_button()
+                def handler():
+                    return asyncio.create_task(self._handle_stop_button())
                 return handler
 
-            # Connect with proper handlers
-            btn.pressed.connect(
-                lambda a=axis,
-                d=direction: asyncio.create_task(
-                    self._handle_jog_button(
-                        a,
-                        d)))
-            btn.released.connect(
-                lambda a=axis: asyncio.create_task(
-                    self._handle_stop_button()))
+            # Create handler instances
+            press_handler = make_press_handler()
+            release_handler = make_release_handler()
+
+            # Connect handlers
+            btn.pressed.connect(press_handler)
+            btn.released.connect(release_handler)
+
+            # Store handlers for cleanup
+            self._button_handlers.append((btn, press_handler, release_handler))
 
         jog_group.setLayout(jog_layout)
         layout.addWidget(jog_group)
@@ -212,16 +221,22 @@ class JogControl(BaseWidget):
     async def cleanup(self) -> None:
         """Clean up resources."""
         try:
-            await self._ui_manager.unregister_widget("jog_control")
+            # Disconnect all button handlers
+            for btn, press_handler, release_handler in self._button_handlers:
+                try:
+                    btn.pressed.disconnect(press_handler)
+                    btn.released.disconnect(release_handler)
+                except Exception:
+                    pass  # Ignore disconnection errors
+            self._button_handlers.clear()
+
+            # Call parent cleanup
+            await super().cleanup()
         except Exception as e:
             logger.error(f"Error during jog control cleanup: {e}")
 
     def _update_position_display(self, position: Dict[str, float]) -> None:
-        """Update position display labels.
-
-        Args:
-            position: Dictionary containing x, y, z positions
-        """
+        """Update position display labels."""
         try:
             self.x_pos_label.setText(f"{position.get('x', 0.0):.3f}")
             self.y_pos_label.setText(f"{position.get('y', 0.0):.3f}")
@@ -229,21 +244,43 @@ class JogControl(BaseWidget):
         except Exception as e:
             logger.error(f"Error updating position display: {e}")
 
+    def _validate_position(self, axis: str, value: float) -> bool:
+        """Validate position is within stage limits."""
+        min_limit = self._stage_limits[axis]['min']
+        max_limit = self._stage_limits[axis]['max']
+        if value < min_limit:
+            logger.error(f"{axis} position {value} below min {min_limit}")
+            return False
+        if value > max_limit:
+            logger.error(f"{axis} position {value} above max {max_limit}")
+            return False
+        return True
+
     async def handle_ui_update(self, data: Dict[str, Any]) -> None:
         """Handle UI updates."""
         try:
             if "motion.position" in data:
                 position_data = data.get("motion.position", {})
-                if isinstance(position_data, dict) and "position" in position_data:
-                    position = position_data["position"]
-                    self._update_position_display(position)
-                elif isinstance(position_data, dict):
-                    # Direct position data
-                    self._update_position_display(position_data)
+                if isinstance(position_data, dict):
+                    position = position_data.get("position", position_data)
+                    if isinstance(position, dict):
+                        self._current_position = position
+                        self._update_position_display(position)
+
+            elif "hardware.stage" in data:
+                stage_data = data.get("hardware.stage", {})
+                if isinstance(stage_data, dict):
+                    dimensions = stage_data.get("dimensions", {})
+                    if dimensions:
+                        # Use full range from 0 to max dimension
+                        self._stage_limits = {
+                            'x': {'min': 0.0, 'max': dimensions.get('x', 200.0)},
+                            'y': {'min': 0.0, 'max': dimensions.get('y', 200.0)},
+                            'z': {'min': 0.0, 'max': dimensions.get('z', 40.0)}
+                        }
 
             elif "system.connection" in data:
                 connected = data.get("connected", False)
-                # Enable/disable controls based on connection state
                 self._update_control_state(connected)
 
         except Exception as e:
@@ -266,3 +303,25 @@ class JogControl(BaseWidget):
 
         except Exception as e:
             logger.error(f"Error updating control state: {e}")
+
+    def _is_move_valid(self, axis: str, direction: int, step_size: float) -> bool:
+        """Check if the proposed move is within stage bounds."""
+        try:
+            # Get current position
+            current_pos = self._current_position.get(axis, 0.0)
+
+            # Calculate new position
+            new_pos = current_pos + (direction * step_size)
+
+            # Check if move would exceed limits
+            if new_pos < self._stage_limits[axis]['min'] or new_pos > self._stage_limits[axis]['max']:
+                logger.warning(
+                    f"Move would exceed {axis} axis limits: {new_pos} not in "
+                    f"[{self._stage_limits[axis]['min']}, {self._stage_limits[axis]['max']}]"
+                )
+                return False
+
+            return True
+        except Exception as e:
+            logger.error(f"Error validating move: {e}")
+            return False

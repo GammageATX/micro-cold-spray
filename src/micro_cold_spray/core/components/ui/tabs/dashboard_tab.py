@@ -120,33 +120,22 @@ class DashboardTab(BaseWidget):
         """Clean up resources."""
         try:
             # Clean up child widgets first
-            if hasattr(
-                    self,
-                    '_sequence_control') and self._sequence_control is not None:
-                if hasattr(
-                        self._sequence_control,
-                        'cleanup') and callable(
-                        self._sequence_control.cleanup):
-                    await self._sequence_control.cleanup()
+            child_widgets = [
+                self._sequence_control,
+                self._progress_display,
+                self._data_widget
+            ]
 
-            if hasattr(
-                    self,
-                    '_progress_display') and self._progress_display is not None:
-                if hasattr(
-                        self._progress_display,
-                        'cleanup') and callable(
-                        self._progress_display.cleanup):
-                    await self._progress_display.cleanup()
-
-            if hasattr(self, '_data_widget') and self._data_widget is not None:
-                if hasattr(
-                        self._data_widget,
-                        'cleanup') and callable(
-                        self._data_widget.cleanup):
-                    await self._data_widget.cleanup()
+            for widget in child_widgets:
+                if widget is not None and hasattr(widget, 'cleanup'):
+                    try:
+                        await widget.cleanup()
+                    except Exception as e:
+                        logger.error(f"Error cleaning up widget {widget.widget_id}: {e}")
 
             # Then clean up base widget
-            await super(DashboardTab, self).cleanup()
+            await super().cleanup()
 
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")
+            # Don't re-raise to allow other cleanup to continue

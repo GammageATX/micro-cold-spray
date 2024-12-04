@@ -43,7 +43,7 @@ def setup_logging() -> None:
     logger.add(
         sys.stderr,
         format=log_format,
-        level="INFO",
+        level="WARNING",
         enqueue=True  # Enable async logging
     )
 
