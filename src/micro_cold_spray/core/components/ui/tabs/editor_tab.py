@@ -1,13 +1,11 @@
 """Editor tab for process sequence editing."""
-from typing import Any, Dict, Protocol, runtime_checkable, cast
+from typing import Any, Dict, Protocol, runtime_checkable
 import asyncio
-from datetime import datetime
-import os
 from pathlib import Path
 
 from loguru import logger
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QLabel, QSplitter, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QLabel, QSplitter, QVBoxLayout
 
 from ..managers.ui_update_manager import UIUpdateManager
 from ..widgets.base_widget import BaseWidget
@@ -128,7 +126,7 @@ class EditorTab(BaseWidget):
                 # Don't disable any editor functionality
                 self._connected = data.get("connected", False)
                 self._update_status_label()
-                
+
                 # Only notify sequence builder since it might need to validate against hardware limits
                 if self._sequence_builder is not None:
                     await self._sequence_builder.handle_connection_change(self._connected)
@@ -194,7 +192,7 @@ class EditorTab(BaseWidget):
         try:
             logger.debug("Loading parameter files directly...")
             param_path = Path("data/parameters/library")
-            
+
             if not param_path.exists():
                 logger.error(f"Parameter directory not found: {param_path}")
                 return
@@ -204,7 +202,7 @@ class EditorTab(BaseWidget):
                 f.stem for f in param_path.glob("*.yaml")
                 if f.is_file() and "nozzles" not in str(f)
             ]
-            
+
             if parameter_files:
                 logger.info(f"Found parameter sets: {parameter_files}")
                 # Add empty option first
@@ -223,7 +221,7 @@ class EditorTab(BaseWidget):
         try:
             logger.debug("Loading pattern files directly...")
             pattern_path = Path("data/patterns/library")
-            
+
             if not pattern_path.exists():
                 logger.error(f"Pattern directory not found: {pattern_path}")
                 return
@@ -252,7 +250,7 @@ class EditorTab(BaseWidget):
         try:
             logger.debug("Loading sequence files directly...")
             seq_path = Path("data/sequences/library")
-            
+
             if not seq_path.exists():
                 logger.error(f"Sequence directory not found: {seq_path}")
                 return
@@ -262,7 +260,7 @@ class EditorTab(BaseWidget):
                 f.stem for f in seq_path.glob("*.yaml")
                 if f.is_file()
             ]
-            
+
             if sequence_files:
                 logger.info(f"Found sequences: {sequence_files}")
                 await self._sequence_builder.update_file_list(sequence_files)

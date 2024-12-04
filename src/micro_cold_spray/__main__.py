@@ -3,7 +3,6 @@ import asyncio
 import sys
 from datetime import datetime
 from pathlib import Path
-import yaml
 
 from loguru import logger
 from PySide6.QtCore import Qt

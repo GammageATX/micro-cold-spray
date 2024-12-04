@@ -12,9 +12,6 @@ from ....infrastructure.config.config_manager import ConfigManager
 from ....infrastructure.messaging.message_broker import MessageBroker
 from ..widgets.base_widget import BaseWidget
 
-import yaml
-from pathlib import Path
-
 
 class WidgetType(Enum):
     """Valid widget types."""
