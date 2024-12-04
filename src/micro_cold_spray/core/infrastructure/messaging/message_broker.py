@@ -33,7 +33,7 @@ class MessageBroker:
                                                  Dict[str, Any]]] = asyncio.Queue()
         self._processing_task: Optional[asyncio.Task] = None
         self._test_mode = test_mode
-        logger.info("MessageBroker initialized")
+        logger.debug("MessageBroker initialized")
 
     async def start(self) -> None:
         """Start the message processing loop."""
@@ -46,7 +46,7 @@ class MessageBroker:
             if not self._test_mode:
                 self._processing_task = asyncio.create_task(
                     self._process_messages())
-            logger.info("MessageBroker started")
+            logger.debug("MessageBroker started")
 
         except Exception as e:
             logger.exception("Failed to start MessageBroker")
@@ -55,7 +55,7 @@ class MessageBroker:
     async def shutdown(self) -> None:
         """Gracefully shutdown the message broker."""
         try:
-            logger.info("Shutting down MessageBroker")
+            logger.debug("Shutting down MessageBroker")
             self._running = False
 
             if self._processing_task:
@@ -75,7 +75,7 @@ class MessageBroker:
 
             self._subscribers.clear()
             self._wildcard_subscribers.clear()
-            logger.info("MessageBroker shutdown complete")
+            logger.debug("MessageBroker shutdown complete")
 
         except Exception as e:
             logger.exception("Error during MessageBroker shutdown")

@@ -70,9 +70,27 @@ class BaseWidget(QWidget):
             "Override in derived class."
         )
 
+    async def _cleanup_resources(self) -> None:
+        """Clean up widget-specific resources. Override in derived classes."""
+        pass
+
     async def cleanup(self) -> None:
-        """Clean up widget resources."""
+        """Clean up widget resources and unregister."""
         try:
+            # Clean up child widgets first
+            for child in self.findChildren(QWidget):
+                if hasattr(child, 'cleanup') and hasattr(child, 'widget_id'):
+                    try:
+                        await child.cleanup()
+                    except Exception as e:
+                        logger.error(f"Error cleaning up child widget {child.widget_id}: {e}")
+
+            # Clean up widget-specific resources
+            try:
+                await self._cleanup_resources()
+            except Exception as e:
+                logger.error(f"Error cleaning up widget resources: {e}")
+
             # Unregister from UI manager
             if hasattr(self, '_ui_manager') and self._ui_manager is not None:
                 try:
@@ -84,27 +102,8 @@ class BaseWidget(QWidget):
                         "operation": "unregister",
                         "timestamp": datetime.now().isoformat()
                     }
-                    logger.error(
-                        f"Error unregistering widget: {error_context}")
-                    raise UIError(
-                        "Failed to unregister widget",
-                        error_context) from e
-
-            # Call parent cleanup if exists and is a BaseWidget
-            parent = self.parent()
-            if parent is not None and isinstance(parent, BaseWidget):
-                try:
-                    await parent.cleanup()
-                except Exception as e:
-                    error_context = {
-                        "widget_id": self._widget_id,
-                        "parent_id": parent.widget_id,
-                        "timestamp": datetime.now().isoformat()
-                    }
-                    logger.error(f"Error in parent cleanup: {error_context}")
-                    raise UIError(
-                        "Parent cleanup failed",
-                        error_context) from e
+                    logger.error(f"Error unregistering widget: {error_context}")
+                    raise UIError("Failed to unregister widget", error_context) from e
 
         except Exception:
             error_context = {

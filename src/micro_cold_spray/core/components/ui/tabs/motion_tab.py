@@ -1,5 +1,4 @@
 """Motion control tab for manual motion and position management."""
-import asyncio
 from typing import Any, Dict, Protocol, runtime_checkable
 
 from loguru import logger
@@ -48,7 +47,7 @@ class MotionTab(BaseWidget):
                 "system.state",
                 "system.connection",
                 "hardware_status",
-                "tag_update"
+                "hardware.stage"
             ],
             parent=parent
         )
@@ -64,22 +63,14 @@ class MotionTab(BaseWidget):
         self._position_table = None
 
         # Initialize motion limits
-        self._motion_limits = {}  # Initialize empty
-        asyncio.create_task(self._load_motion_limits())  # Load async
+        self._motion_limits = {
+            'x': {'min': 0.0, 'max': 200.0},
+            'y': {'min': 0.0, 'max': 200.0},
+            'z': {'min': 0.0, 'max': 40.0}
+        }
 
         self._init_ui()
         logger.info("Motion tab initialized")
-
-    async def _load_motion_limits(self):
-        """Load motion limits from config."""
-        try:
-            hardware_config = await self._ui_manager._config_manager.get_config('hardware')
-            limits = hardware_config.get('hardware', {})
-            limits = limits.get('motion', {})
-            self._motion_limits = limits.get('limits', {})
-            logger.debug(f"Loaded motion limits: {self._motion_limits}")
-        except Exception as e:
-            logger.error(f"Error loading motion limits: {e}")
 
     def _init_ui(self):
         """Initialize the motion tab UI."""
@@ -159,6 +150,100 @@ class MotionTab(BaseWidget):
         except Exception as e:
             logger.error(f"Error updating simulated position: {e}")
 
+    def _validate_position(self, position: Dict[str, float]) -> bool:
+        """Validate position against motion limits."""
+        try:
+            for axis, value in position.items():
+                axis_limits = self._motion_limits.get(axis.lower(), {})
+                min_limit = axis_limits.get('min', 0.0)
+                max_limit = axis_limits.get('max', float('inf'))
+
+                if value < min_limit or value > max_limit:
+                    logger.warning(
+                        f"{axis} position {value} outside limits "
+                        f"[{min_limit}, {max_limit}]"
+                    )
+                    return False
+            return True
+        except Exception as e:
+            logger.error(f"Error validating position: {e}")
+            return False
+
+    async def handle_ui_update(self, data: Dict[str, Any]) -> None:
+        """Handle UI updates from UIUpdateManager."""
+        try:
+            if "system.connection" in data:
+                was_connected = self._connected
+                self._connected = data.get("connected", False)
+                if was_connected != self._connected:
+                    # Reset simulated position when connection state changes
+                    if not self._connected:
+                        self._simulated_position = {'x': 0.0, 'y': 0.0, 'z': 0.0}
+                        # Update all widgets with initial position
+                        await self._update_all_displays(self._simulated_position)
+
+            elif "motion.position" in data:
+                position_data = data.get("motion.position", {})
+                if isinstance(position_data, dict):
+                    if "position" in position_data:
+                        position = position_data["position"]
+                    else:
+                        position = position_data
+
+                    # Only update if position is valid
+                    if self._validate_position(position):
+                        # Update all widgets with validated position
+                        await self._update_all_displays(position)
+                        # Store position
+                        self._simulated_position = position.copy()
+                    else:
+                        logger.warning("Received invalid position update - ignoring")
+
+            elif "hardware.stage" in data:
+                stage_data = data.get("hardware.stage", {})
+                if isinstance(stage_data, dict):
+                    dimensions = stage_data.get("dimensions", {})
+                    if dimensions:
+                        self._motion_limits = {
+                            'x': {'min': 0.0, 'max': dimensions.get('x', 200.0)},
+                            'y': {'min': 0.0, 'max': dimensions.get('y', 200.0)},
+                            'z': {'min': 0.0, 'max': dimensions.get('z', 40.0)}
+                        }
+
+        except Exception as e:
+            logger.error(f"Error handling UI update: {e}")
+
+    async def _update_all_displays(self, position: Dict[str, float]) -> None:
+        """Update all displays with a validated position."""
+        try:
+            # Update chamber view first
+            if self._chamber_view:
+                self._chamber_view.update_position(
+                    position['x'],
+                    position['y'],
+                    position['z']
+                )
+
+            # Update jog control display
+            if self._jog_control:
+                self._jog_control._update_position_display(position)
+
+            # Update position table
+            if self._position_table:
+                await self._position_table.update_position(position)
+
+            # Send position update through UI manager
+            await self._ui_manager.send_update(
+                "motion.position",
+                {
+                    "position": position,
+                    "simulated": True,
+                    "timestamp": None
+                }
+            )
+        except Exception as e:
+            logger.error(f"Error updating displays: {e}")
+
     async def handle_jog_command(
             self,
             axis: str,
@@ -171,55 +256,17 @@ class MotionTab(BaseWidget):
                 # Calculate new position
                 new_position = self._simulated_position.copy()
                 increment = direction * step_size
+                new_position[axis.lower()] = new_position[axis.lower()] + increment
 
-                # Validate against limits
-                axis_limits = self._motion_limits.get(axis.lower(), {})
-                min_limit = axis_limits.get('min', float('-inf'))
-                max_limit = axis_limits.get('max', float('inf'))
-
-                new_pos = new_position[axis.lower()] + increment
-
-                # Check if move would exceed limits
-                if new_pos < min_limit:
-                    logger.warning(
-                        f"{axis} move would exceed minimum limit of {min_limit}")
-                    return
-                if new_pos > max_limit:
-                    logger.warning(
-                        f"{axis} move would exceed maximum limit of {max_limit}")
-                    return
-
-                # Apply validated move
-                new_position[axis.lower()] = new_pos
-                self._simulated_position = new_position
-
-                # Update chamber view first
-                if self._chamber_view:
-                    self._chamber_view.update_position(
-                        new_position['x'],
-                        new_position['y'],
-                        new_position['z']
-                    )
-
-                # Update jog control display
-                if self._jog_control:
-                    self._jog_control._update_position_display(new_position)
-
-                # Update position table
-                if self._position_table:
-                    await self._position_table.update_position(new_position)
-
-                # Send position update through UI manager
-                await self._ui_manager.send_update(
-                    "motion.position",
-                    {
-                        "position": new_position,
-                        "simulated": True,
-                        "timestamp": None
-                    }
-                )
-
-                logger.debug(f"Updated position to: {new_position}")
+                # Validate entire position
+                if self._validate_position(new_position):
+                    # Move is valid, update position
+                    self._simulated_position = new_position
+                    # Update all displays with the valid position
+                    await self._update_all_displays(new_position)
+                    logger.debug(f"Updated position to: {new_position}")
+                else:
+                    logger.warning(f"Invalid move rejected: {new_position}")
 
             else:
                 # Send real motion command with validation
@@ -254,50 +301,6 @@ class MotionTab(BaseWidget):
                 )
         except Exception as e:
             logger.error(f"Error handling stop command: {e}")
-
-    async def handle_ui_update(self, data: Dict[str, Any]) -> None:
-        """Handle UI updates from UIUpdateManager."""
-        try:
-            if "system.connection" in data:
-                was_connected = self._connected
-                self._connected = data.get("connected", False)
-                if was_connected != self._connected:
-                    # Reset simulated position when connection state changes
-                    if not self._connected:
-                        self._simulated_position = {'x': 0.0, 'y': 0.0, 'z': 0.0}
-                        # Update all widgets with initial position
-                        if self._chamber_view:
-                            self._chamber_view.update_position(0.0, 0.0, 0.0)
-                        if self._jog_control:
-                            self._jog_control._update_position_display(self._simulated_position)
-                        if self._position_table:
-                            await self._position_table.update_position(self._simulated_position)
-
-            elif "motion.position" in data:
-                position_data = data.get("motion.position", {})
-                if isinstance(position_data, dict):
-                    if "position" in position_data:
-                        position = position_data["position"]
-                    else:
-                        position = position_data
-
-                    # Update all widgets with new position
-                    if self._chamber_view:
-                        self._chamber_view.update_position(
-                            position.get('x', 0.0),
-                            position.get('y', 0.0),
-                            position.get('z', 0.0)
-                        )
-                    if self._jog_control:
-                        self._jog_control._update_position_display(position)
-                    if self._position_table:
-                        await self._position_table.update_position(position)
-
-                    # Store position
-                    self._simulated_position = position.copy()
-
-        except Exception as e:
-            logger.error(f"Error handling UI update: {e}")
 
     async def _handle_motion_error(self, error_data: Dict[str, Any]) -> None:
         """Handle motion error messages."""

@@ -78,7 +78,7 @@ class SequenceControl(BaseWidget):
 
         self._init_ui()
         self._load_sequence_library()
-        logger.info("Sequence control initialized")
+        logger.debug("Sequence control initialized")
 
     def _init_ui(self) -> None:
         """Initialize the sequence control UI."""
@@ -443,10 +443,29 @@ class SequenceControl(BaseWidget):
             logger.error(f"Error updating button states: {e}")
             await self.send_update("system.error", f"Error updating controls: {str(e)}")
 
-    async def cleanup(self) -> None:
-        """Clean up resources."""
+    async def _cleanup_resources(self) -> None:
+        """Clean up widget-specific resources."""
         try:
-            # Clean up any resources
+            # Stop any active timers or tasks
+            if hasattr(self, '_timer'):
+                self._timer.stop()
+
+            # Clear sequences
+            self._sequences.clear()
+
+            # Clear state
+            self._system_state = "SHUTDOWN"
+            self._connection_state = {"connected": False}
+
+            logger.debug(f"Cleaned up resources for {self.widget_id}")
+
+        except Exception as e:
+            logger.error(f"Error cleaning up resources: {e}")
+
+    async def cleanup(self) -> None:
+        """Clean up widget resources and unregister."""
+        try:
             await super().cleanup()
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")
+            # Don't re-raise to allow other cleanup to continue

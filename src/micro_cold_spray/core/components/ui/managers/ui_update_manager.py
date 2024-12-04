@@ -64,7 +64,7 @@ class UIUpdateManager:
         self._tag_subscriptions = {}
         self._stage_dimensions = {}
         self._is_initialized = False
-        logger.info("UI update manager initialized")
+        logger.debug("UI update manager initialized")
 
     def _validate_widget_location(self, location: str) -> bool:
         """Validate widget location against allowed values."""
@@ -126,7 +126,7 @@ class UIUpdateManager:
                     self._tag_subscriptions[tag] = set()
                 self._tag_subscriptions[tag].add(widget_id)
 
-            logger.info(f"Registered widget {widget_id} with {len(update_tags)} tags")
+            logger.debug(f"Registered widget {widget_id} with {len(update_tags)} tags")
 
         except Exception as e:
             logger.error(f"Failed to register widget {widget_id}: {str(e)}")
@@ -158,7 +158,7 @@ class UIUpdateManager:
                 "stage", {}).get("dimensions", {})
 
             self._is_initialized = True
-            logger.info("UI update manager initialization complete")
+            logger.debug("UI update manager initialization complete")
 
         except Exception as e:
             logger.exception("Failed to initialize UI update manager")
@@ -170,15 +170,22 @@ class UIUpdateManager:
         """Unregister a widget from updates."""
         try:
             if widget_id in self._registered_widgets:
-                # Call cleanup chain
-                await self._cleanup_widget_chain(widget_id)
-
                 # Remove subscriptions
                 for tag in self._registered_widgets[widget_id]['tags']:
-                    self._tag_subscriptions[tag].discard(widget_id)
+                    if tag in self._tag_subscriptions:
+                        self._tag_subscriptions[tag].discard(widget_id)
 
                 # Remove registration
+                widget_data = self._registered_widgets[widget_id]
                 del self._registered_widgets[widget_id]
+
+                # Clean up widget if it exists
+                widget = widget_data.get('widget_ref')
+                if widget and hasattr(widget, '_cleanup_resources'):
+                    try:
+                        await widget._cleanup_resources()
+                    except Exception as e:
+                        logger.error(f"Error cleaning up widget resources: {e}")
 
                 # Notify unregistration
                 await self._message_broker.publish("ui/widget/unregistered", {
@@ -239,8 +246,11 @@ class UIUpdateManager:
 
             # Clean up child widgets first
             for child in widget.findChildren(QWidget):
-                if hasattr(child, 'cleanup'):
-                    await child.cleanup()
+                if hasattr(child, 'cleanup') and hasattr(child, 'widget_id'):
+                    try:
+                        await child.cleanup()
+                    except Exception as e:
+                        logger.error(f"Error cleaning up child widget {child.widget_id}: {e}")
 
             # Clean up main widget
             if hasattr(widget, 'cleanup'):
@@ -356,7 +366,7 @@ class UIUpdateManager:
                 await self.unregister_widget(widget_id)
 
             self._is_initialized = False
-            logger.info("UI update manager shutdown complete")
+            logger.debug("UI update manager shutdown complete")
 
         except Exception as e:
             logger.exception("Error during UI update manager shutdown")

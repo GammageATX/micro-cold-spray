@@ -88,7 +88,9 @@ class TestDashboardTab:
     """Dashboard tab tests."""
 
     @pytest.mark.asyncio
-    async def test_dashboard_initialization(self, qapp, ui_manager, mock_sequence_control, mock_progress_display, mock_data_widget):  # pylint: disable=unused-argument
+    async def test_dashboard_initialization(
+        self, qapp, ui_manager, mock_sequence_control, mock_progress_display, mock_data_widget
+    ):  # pylint: disable=unused-argument
         """Test dashboard tab initialization."""
         logger.debug("Starting dashboard initialization test")
 
@@ -120,7 +122,9 @@ class TestDashboardTab:
             ]
 
     @pytest.mark.asyncio
-    async def test_ui_update_handling(self, qapp, ui_manager, mock_sequence_control, mock_progress_display, mock_data_widget):  # pylint: disable=unused-argument
+    async def test_ui_update_handling(
+        self, qapp, ui_manager, mock_sequence_control, mock_progress_display, mock_data_widget
+    ):  # pylint: disable=unused-argument
         """Test UI update handling."""
         # Create dashboard tab with mocked QWidget base
         with patch(BASE_WIDGET_PATH, MockQWidget), \
@@ -145,7 +149,9 @@ class TestDashboardTab:
             assert dashboard_widget._data_widget.handle_ui_update.call_count > 0
 
     @pytest.mark.asyncio
-    async def test_cleanup_chain(self, qapp, ui_manager, mock_sequence_control, mock_progress_display, mock_data_widget):  # pylint: disable=unused-argument
+    async def test_cleanup_chain(
+        self, qapp, ui_manager, mock_sequence_control, mock_progress_display, mock_data_widget
+    ):  # pylint: disable=unused-argument
         """Test cleanup chain."""
         # Create dashboard tab with mocked QWidget base
         with patch(BASE_WIDGET_PATH, MockQWidget), \
@@ -165,7 +171,9 @@ class TestDashboardTab:
             assert dashboard_widget._data_widget.cleanup.call_count > 0
 
     @pytest.mark.asyncio
-    async def test_error_handling(self, qapp, ui_manager, mock_sequence_control, mock_progress_display, mock_data_widget):  # pylint: disable=unused-argument
+    async def test_error_handling(
+        self, qapp, ui_manager, mock_sequence_control, mock_progress_display, mock_data_widget
+    ):  # pylint: disable=unused-argument
         """Test error handling."""
         # Create dashboard tab with mocked QWidget base
         with patch(BASE_WIDGET_PATH, MockQWidget), \
@@ -190,7 +198,9 @@ class TestDashboardTab:
             assert dashboard_widget._data_widget.handle_ui_update.call_count > 0
 
     @pytest.mark.asyncio
-    async def test_child_widget_updates(self, qapp, ui_manager, mock_sequence_control, mock_progress_display, mock_data_widget):  # pylint: disable=unused-argument
+    async def test_child_widget_updates(
+        self, qapp, ui_manager, mock_sequence_control, mock_progress_display, mock_data_widget
+    ):  # pylint: disable=unused-argument
         """Test child widget updates."""
         # Create dashboard tab with mocked QWidget base
         with patch(BASE_WIDGET_PATH, MockQWidget), \
