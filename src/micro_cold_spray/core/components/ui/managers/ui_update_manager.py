@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QFrame, QSizePolicy, QWidget, QLabel
 from ....exceptions import CoreError, UIError, ValidationError
 from ....infrastructure.config.config_manager import ConfigManager
 from ....infrastructure.messaging.message_broker import MessageBroker
+from ...process.data.data_manager import DataManager
 from ..widgets.base_widget import BaseWidget
 
 
@@ -55,11 +56,13 @@ class UIUpdateManager:
     def __init__(
         self,
         message_broker: MessageBroker,
-        config_manager: ConfigManager
+        config_manager: ConfigManager,
+        data_manager: DataManager
     ) -> None:
         """Initialize UI update manager."""
         self._message_broker = message_broker
         self._config_manager = config_manager
+        self._data_manager = data_manager
         self._widgets: Dict[str, BaseWidget] = {}
         self._tag_subscriptions: Dict[str, Set[str]] = {}
         self._stage_dimensions: Dict[str, float] = {}
@@ -76,19 +79,12 @@ class UIUpdateManager:
             # Subscribe to required topics
             await self._message_broker.subscribe("ui/update", self._handle_ui_update)
             await self._message_broker.subscribe("ui/error", self._handle_ui_error)
-            await self._message_broker.subscribe("config/response/list_files", self._handle_list_files_response)
+            await self._message_broker.subscribe("config/response", self._handle_config_response)
+            await self._message_broker.subscribe("data/files/listed", self._handle_data_files_listed)
             await self._message_broker.subscribe("tag/update", self._handle_tag_update)
             await self._message_broker.subscribe("config/update", self._handle_config_update)
-            await self._message_broker.subscribe("config/update/hardware", self._handle_hardware_config_update)
-            await self._message_broker.subscribe("config/update/process", self._handle_config_update)
-            await self._message_broker.subscribe("config/update/ui", self._handle_config_update)
             await self._message_broker.subscribe("sequence/loaded", self._handle_sequence_loaded)
             await self._message_broker.subscribe("sequence/state", self._handle_sequence_state)
-
-            # Load initial hardware config
-            hardware_config = await self._config_manager.get_config("hardware")
-            self._stage_dimensions = hardware_config.get(
-                "stage", {}).get("dimensions", {})
 
             self._is_initialized = True
             logger.debug("UI update manager initialization complete")
@@ -440,128 +436,153 @@ class UIUpdateManager:
                 "error": str(e)
             })
 
-    async def _handle_data_operation(self, tag: str, data: Dict[str, Any]) -> None:
-        """Handle data operations through DataManager."""
+    async def send_update(self, operation: str, data: Dict[str, Any]) -> None:
+        """Send an update to the message broker."""
         try:
-            if tag.endswith("/list"):
-                # Handle file listing through DataManager
-                response = await self._message_broker.request(
-                    "data/list_files",
-                    {
-                        "type": tag.split("/")[0],  # Extract type from tag
-                        **data
-                    },
-                    timeout=2.0
-                )
-            else:
-                # Handle other data operations (load/save/delete)
-                response = await self._message_broker.request(
-                    f"data/{tag}",
-                    data,
-                    timeout=2.0
-                )
+            logger.debug(f"Sending update: {operation} with data: {data}")
 
-            if response and "error" in response:
-                logger.error(f"Data operation failed: {response['error']}")
+            if operation == "data/list":
+                # Request file list from DataManager
+                await self._message_broker.publish("data/list_files", {
+                    "type": data.get("type")
+                })
                 return
 
-            # Update UI based on operation type
-            if tag.endswith("/list"):
-                await self._handle_file_list_update(tag.split("/")[0], response.get("files", []))
-            elif tag.endswith("/load"):
-                await self._handle_file_load_update(tag.split("/")[0], response.get("value", {}))
-            elif tag.endswith("/save"):
-                await self._handle_file_save_update(tag.split("/")[0], data.get("name", ""))
-            elif tag.endswith("/delete"):
-                await self._handle_file_delete_update(tag.split("/")[0], data.get("name", ""))
+            if operation.startswith("config/get"):
+                # Handle config get operations
+                config_type = data.get("type")
+                if not config_type:
+                    raise ValueError("No config type specified for config get operation")
+
+                await self._message_broker.publish("config/get", {
+                    "config_type": config_type,
+                    "key": data.get("key")
+                })
+                return
+
+            if operation.startswith("data/"):
+                # Handle other data operations
+                await self._handle_data_operation(operation, data)
+                return
+
+            if operation.startswith("config/"):
+                # Handle other config operations
+                await self._handle_config_operation(operation, data)
+                return
+
+            # Default to UI update
+            await self._message_broker.publish("ui/update", {
+                "type": operation,
+                "data": data,
+                "timestamp": datetime.now().isoformat()
+            })
+
+        except Exception as e:
+            logger.error(f"Error sending update: {e}")
+            await self._message_broker.publish("ui/error", {
+                "error": str(e),
+                "context": "send_update",
+                "operation": operation,
+                "data": data,
+                "timestamp": datetime.now().isoformat()
+            })
+
+    async def _handle_config_operation(self, operation: str, data: Dict[str, Any]) -> None:
+        """Handle config operations."""
+        try:
+            if operation == "get_format":
+                # Get format from file_format.yaml
+                format_type = data.get("type")
+                config = await self._config_manager.get_config("file_format")
+                format_data = config.get(format_type, {})
+                await self._message_broker.publish("ui/update", {
+                    "type": "config.format",
+                    "format": format_data
+                })
+            elif operation == "request":
+                # Get config from ConfigManager
+                config_type = data.get("type")
+                config_data = await self._config_manager.get_config(config_type)
+                await self._message_broker.publish("ui/update", {
+                    "type": "config.update",
+                    "data": config_data
+                })
+        except Exception as e:
+            logger.error(f"Error handling config operation: {e}")
+            await self._message_broker.publish("ui/error", {
+                "error": str(e),
+                "context": "config_operation",
+                "timestamp": datetime.now().isoformat()
+            })
+
+    async def _handle_data_operation(self, operation: str, data: Dict[str, Any]) -> None:
+        """Handle data operations."""
+        try:
+            logger.debug(f"Handling data operation: {operation} with data: {data}")
+
+            if operation == "data/list":
+                # Request file list from DataManager
+                logger.debug(f"Requesting file list for type: {data.get('type')}")
+                await self._message_broker.publish("data/list_files", {
+                    "type": data.get("type")
+                })
+                return
+
+            if operation == "data/load":
+                # Load file through DataManager
+                await self._message_broker.publish("data/load", {
+                    "type": data.get("type"),
+                    "name": data.get("name")
+                })
+                return
+
+            if operation == "data/save":
+                # Save file through DataManager
+                await self._message_broker.publish("data/save", {
+                    "type": data.get("type"),
+                    "name": data.get("name"),
+                    "value": data.get("value")
+                })
+                return
+
+            if operation == "data/delete":
+                # Delete file through DataManager
+                await self._message_broker.publish("data/delete", {
+                    "type": data.get("type"),
+                    "name": data.get("name")
+                })
+                return
+
+            logger.warning(f"Unknown data operation: {operation}")
 
         except Exception as e:
             logger.error(f"Error handling data operation: {e}")
+            await self._message_broker.publish("ui/error", {
+                "error": str(e),
+                "context": "data_operation_handler",
+                "operation": operation,
+                "data": data,
+                "timestamp": datetime.now().isoformat()
+            })
 
-    async def _handle_config_operation(self, tag: str, data: Dict[str, Any]) -> None:
-        """Handle configuration operations through ConfigManager."""
-        try:
-            # Config operations go directly to ConfigManager
-            if tag == "config/get":
-                # Get config value
-                response = await self._message_broker.request(
-                    "config/get",
-                    {
-                        "config_type": data.get("config_type"),
-                        "key": data.get("key")
-                    },
-                    timeout=2.0
-                )
-            else:
-                # Other config operations
-                response = await self._message_broker.request(
-                    tag,
-                    data,
-                    timeout=2.0
-                )
-
-            if response and "error" in response:
-                logger.error(f"Config operation failed: {response['error']}")
-                return
-
-            # Forward config update to UI
-            await self._message_broker.publish(
-                "ui/update",
-                {
-                    "type": "config",
-                    "data": response,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-
-        except Exception as e:
-            logger.error(f"Error handling config operation: {e}")
-            await self._message_broker.publish(
-                "ui/error",
-                {
-                    "error": str(e),
-                    "context": "config_operation",
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-
-    async def _handle_user_operation(self, tag: str, data: Dict[str, Any]) -> None:
+    async def _handle_user_operation(self, operation: str, data: Dict[str, Any]) -> None:
         """Handle user operations."""
         try:
-            # User operations go to UserManager
-            response = await self._message_broker.request(
-                tag,
-                data,
-                timeout=2.0
-            )
-
-            if response and "error" in response:
-                logger.error(f"User operation failed: {response['error']}")
-                return
-
-            # Handle user update
-            if response:
-                await self._handle_user_update(tag, response)
-
+            if operation == "current":
+                # Get current user from application config
+                config = await self._config_manager.get_config("application")
+                user = config.get("environment", {}).get("user", "")
+                await self._message_broker.publish("ui/update", {
+                    "type": "user.current",
+                    "value": user
+                })
         except Exception as e:
             logger.error(f"Error handling user operation: {e}")
-
-    async def send_update(self, tag: str, data: Dict[str, Any]) -> None:
-        """Send a UI update request."""
-        try:
-            # Route based on operation type
-            if tag.startswith(("parameters/", "patterns/", "sequences/")):
-                await self._handle_data_operation(tag, data)
-            elif tag.startswith("config/"):
-                await self._handle_config_operation(tag, data)
-            elif tag.startswith("user/"):
-                await self._handle_user_operation(tag, data)
-            else:
-                # Handle other UI updates
-                await self._message_broker.publish(f"ui/update/{tag}", data)
-
-        except Exception as e:
-            logger.error(f"Error sending UI update: {e}")
+            await self._message_broker.publish("ui/error", {
+                "error": str(e),
+                "context": "user_operation",
+                "timestamp": datetime.now().isoformat()
+            })
 
     async def _handle_system_state(self, data: Dict[str, Any]) -> None:
         """Handle system state updates."""
@@ -725,25 +746,81 @@ class UIUpdateManager:
             if not file_type:
                 raise ValueError("No file type in response")
 
-            # Find widgets that requested this file type
-            for widget_id, widget_data in self._widgets.items():
-                widget = widget_data.get('widget_ref')
-                if not widget or not hasattr(widget, "update_file_list"):
-                    continue
+            # Send data.{type} update for all widgets
+            update_data = {
+                f"data.{file_type}": {
+                    "files": files
+                }
+            }
 
-                # Match widget type to file type
-                if (
-                    ("parameter_editor" in widget_id and file_type == "parameters") or
-                    ("pattern_editor" in widget_id and file_type == "patterns") or
-                    ("sequence_builder" in widget_id and file_type == "sequences")
-                ):
-                    await widget.update_file_list(files)
-                    logger.debug(f"Updated {widget_id} with {len(files)} {file_type} files")
+            for widget_id, widget in self._widgets.items():
+                if hasattr(widget, "handle_ui_update"):
+                    await widget.handle_ui_update(update_data)
+
+            logger.debug(f"Updated widgets with {len(files)} {file_type} files")
 
         except Exception as e:
             logger.error(f"Error handling list files response: {e}")
             await self._message_broker.publish("ui/error", {
                 "error": str(e),
                 "context": "list_files_response",
+                "timestamp": datetime.now().isoformat()
+            })
+
+    async def _handle_config_response(self, data: Dict[str, Any]) -> None:
+        """Handle configuration response messages."""
+        try:
+            config_type = data.get("config_type")
+            value = data.get("value")
+
+            if not config_type or value is None:
+                raise ValueError("Invalid config response - missing required fields")
+
+            # Notify widgets of config update
+            update_data = {
+                f"config.{config_type}": value
+            }
+
+            for widget in self._widgets.values():
+                if hasattr(widget, "handle_ui_update"):
+                    await widget.handle_ui_update(update_data)
+
+            logger.debug(f"Processed config response for {config_type}")
+
+        except Exception as e:
+            logger.error(f"Error handling config response: {e}")
+            await self._message_broker.publish("ui/error", {
+                "error": str(e),
+                "context": "config_response_handler",
+                "data": data,
+                "timestamp": datetime.now().isoformat()
+            })
+
+    async def _handle_data_files_listed(self, data: Dict[str, Any]) -> None:
+        """Handle data files listed response."""
+        try:
+            file_type = data.get("type")
+            files = data.get("files", [])
+            logger.debug(f"Received file list for {file_type}: {files}")
+
+            # Send data.{type} update to all widgets
+            update_data = {
+                f"data.{file_type}": {
+                    "files": files
+                }
+            }
+
+            for widget_id, widget in self._widgets.items():
+                if hasattr(widget, "handle_update"):
+                    await widget.handle_update(f"data.{file_type}", update_data[f"data.{file_type}"])
+
+            logger.debug(f"Processed file list for {file_type}")
+
+        except Exception as e:
+            logger.error(f"Error handling data files listed: {e}")
+            await self._message_broker.publish("ui/error", {
+                "error": str(e),
+                "context": "data_files_listed_handler",
+                "data": data,
                 "timestamp": datetime.now().isoformat()
             })

@@ -64,12 +64,9 @@ def ensure_directories() -> None:
     project_root = get_project_root()
     directories = [
         "config",
-        "data/parameters/library",
-        "data/parameters/history",
-        "data/patterns/library",
-        "data/patterns/history",
-        "data/sequences/library",
-        "data/sequences/history",
+        "data/parameters",
+        "data/patterns",
+        "data/sequences",
         "data/runs",
         "logs",
         "resources"
@@ -177,7 +174,8 @@ async def initialize_system() -> tuple[
         logger.debug("Initializing UIUpdateManager")
         ui_manager = UIUpdateManager(
             message_broker=message_broker,
-            config_manager=config_manager
+            config_manager=config_manager,
+            data_manager=data_manager
         )
         await ui_manager.initialize()
 

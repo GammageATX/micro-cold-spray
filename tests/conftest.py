@@ -13,6 +13,7 @@ from micro_cold_spray.core.infrastructure.config.config_manager import ConfigMan
 
 # Process components
 from micro_cold_spray.core.components.process.validation.process_validator import ProcessValidator
+from micro_cold_spray.core.components.process.data.data_manager import DataManager
 
 # Operation components
 from micro_cold_spray.core.components.operations.actions.action_manager import ActionManager
@@ -165,14 +166,16 @@ async def pattern_manager(
 
 
 @pytest.fixture
-async def ui_update_manager(
+async def ui_manager(
     message_broker,
-    config_manager
+    config_manager,
+    data_manager
 ) -> AsyncGenerator[UIUpdateManager, None]:
     """Create UI update manager instance."""
     manager = UIUpdateManager(
         message_broker=message_broker,
-        config_manager=config_manager
+        config_manager=config_manager,
+        data_manager=data_manager
     )
     await manager.initialize()
     yield manager
@@ -180,4 +183,19 @@ async def ui_update_manager(
     # Cleanup all registered widgets before manager
     for widget_id in list(manager._registered_widgets.keys()):
         await manager.unregister_widget(widget_id)
+    await manager.shutdown()
+
+
+@pytest.fixture
+async def data_manager(
+    message_broker,
+    config_manager
+) -> AsyncGenerator[DataManager, None]:
+    """Create data manager instance."""
+    manager = DataManager(
+        message_broker=message_broker,
+        config_manager=config_manager
+    )
+    await manager.initialize()
+    yield manager
     await manager.shutdown()

@@ -22,6 +22,7 @@ from PySide6.QtWidgets import QLabel
 from tests.conftest import TestOrder, order
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
 from micro_cold_spray.core.infrastructure.config.config_manager import ConfigManager
+from micro_cold_spray.core.components.process.data.data_manager import DataManager
 from micro_cold_spray.core.components.ui.managers.ui_update_manager import UIUpdateManager
 
 
@@ -44,7 +45,18 @@ async def config_manager():
 
 
 @pytest.fixture
-async def ui_update_manager(message_broker, config_manager):
+async def data_manager():
+    """Create a mock data manager."""
+    manager = MagicMock(spec=DataManager)
+    manager.list_files = AsyncMock()
+    manager.load_file = AsyncMock()
+    manager.save_file = AsyncMock()
+    manager.delete_file = AsyncMock()
+    return manager
+
+
+@pytest.fixture
+async def ui_manager(message_broker, config_manager, data_manager):
     """Create a mock UI update manager instance."""
     manager = MagicMock(spec=UIUpdateManager)
     manager.register_widget = AsyncMock()
@@ -58,7 +70,7 @@ class TestUIUpdateManager:
     """UI Update Manager tests."""
 
     @pytest.mark.asyncio
-    async def test_widget_style_validation(self, ui_update_manager):
+    async def test_widget_style_validation(self, ui_manager):
         """Test Qt6 style constant validation."""
         # Create widget with invalid style
         class InvalidWidget(QLabel):
@@ -70,12 +82,12 @@ class TestUIUpdateManager:
         widget = InvalidWidget()
 
         # Register widget should succeed since we're using new-style enum
-        await ui_update_manager.register_widget(
+        await ui_manager.register_widget(
             widget=widget,
             widget_id="widget_system_invalid",
             update_tags=["system.state"]
         )
 
         # Verify widget was registered
-        assert ui_update_manager.register_widget.call_count > 0
-        assert ui_update_manager.register_widget.call_args.kwargs['widget'] == widget
+        assert ui_manager.register_widget.call_count > 0
+        assert ui_manager.register_widget.call_args.kwargs['widget'] == widget

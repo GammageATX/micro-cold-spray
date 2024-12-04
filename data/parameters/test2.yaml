@@ -1,0 +1,10 @@
+process:
+  name: test2
+  created: '2024-12-04'
+  author: Default User
+  description: test2
+  nozzle: small
+  main_gas: 48.0
+  feeder_gas: 7.0
+  feeder_frequency: 600
+  deagglomerator_speed: 25

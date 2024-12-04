@@ -1,115 +1,97 @@
 """Parameter editor widget for editing process parameters."""
 import logging
-from typing import Any, Dict, Optional
-import asyncio
+from pathlib import Path
+import yaml
+from typing import Dict, Any
 from datetime import datetime
 
-from PySide6.QtCore import Signal, Qt
 from PySide6.QtWidgets import (
     QComboBox,
+    QDialog,
     QDoubleSpinBox,
     QFormLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QVBoxLayout,
     QWidget,
-    QInputDialog,
-    QMessageBox,
-    QScrollArea,
-    QGroupBox,
 )
+from PySide6.QtCore import Qt
 from ...managers.ui_update_manager import UIUpdateManager
 from ..base_widget import BaseWidget
 
 logger = logging.getLogger(__name__)
 
 
+class AddNozzleDialog(QDialog):
+    """Dialog for adding a new nozzle."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add New Nozzle")
+        self._init_ui()
+
+    def _init_ui(self):
+        layout = QFormLayout()
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(5)
+
+        # Create input fields
+        self.name_edit = QLineEdit()
+        self.manufacturer_edit = QLineEdit()
+        self.type_edit = QLineEdit()
+        self.type_edit.setText("Cold Spray")  # Default value
+        self.description_edit = QLineEdit()
+
+        # Add fields to layout
+        layout.addRow("Name:", self.name_edit)
+        layout.addRow("Manufacturer:", self.manufacturer_edit)
+        layout.addRow("Type:", self.type_edit)
+        layout.addRow("Description:", self.description_edit)
+
+        # Add buttons
+        button_box = QHBoxLayout()
+        button_box.setSpacing(5)
+        save_button = QPushButton("Save")
+        cancel_button = QPushButton("Cancel")
+        button_box.addWidget(save_button)
+        button_box.addWidget(cancel_button)
+
+        # Connect signals
+        save_button.clicked.connect(self.accept)
+        cancel_button.clicked.connect(self.reject)
+
+        # Add to main layout
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(5, 5, 5, 5)
+        main_layout.setSpacing(5)
+        main_layout.addLayout(layout)
+        main_layout.addLayout(button_box)
+        self.setLayout(main_layout)
+
+    def get_nozzle_data(self) -> Dict[str, str]:
+        """Get the nozzle data from the dialog."""
+        return {
+            "name": self.name_edit.text(),
+            "manufacturer": self.manufacturer_edit.text(),
+            "type": self.type_edit.text(),
+            "description": self.description_edit.text()
+        }
+
+
 class ParameterEditor(BaseWidget):
     """Widget for editing process parameters."""
 
-    parameter_updated = Signal(dict)  # Emitted when parameters are modified
-
-    # Default parameter definitions based on YAML structure
-    DEFAULT_DEFINITIONS = {
-        "metadata": {
-            "name": {"type": "string", "label": "Name", "default": ""},
-            "version": {"type": "string", "label": "Version", "default": "1.0"},
-            "created": {
-                "type": "string",
-                "label": "Created",
-                "default": datetime.now().strftime("%Y-%m-%d")
-            },
-            "author": {"type": "string", "label": "Author", "default": "", "readonly": True},
-            "description": {"type": "string", "label": "Description", "default": ""},
-        },
-        "nozzle": {
-            "type": {
-                "type": "choice",
-                "label": "Type",
-                "default": "",
-                "choices": []  # Will be populated from nozzles folder
-            },
-            "diameter": {
-                "type": "number",
-                "label": "Diameter (mm)",
-                "default": 1.78,
-                "min": 0.5,
-                "max": 3.0,
-                "step": 0.01
-            },
-            "manufacturer": {"type": "string", "label": "Manufacturer", "default": "", "readonly": True},
-        },
-        "gas_flows": {
-            "gas_type": {
-                "type": "choice",
-                "label": "Gas Type",
-                "default": "N2",
-                "choices": ["N2", "He", "Ar"]
-            },
-            "main_gas": {
-                "type": "number",
-                "label": "Main Gas (SLPM)",
-                "default": 50.0,
-                "min": 0,
-                "max": 100,
-                "step": 1
-            },
-            "feeder_gas": {
-                "type": "number",
-                "label": "Feeder Gas (SLPM)",
-                "default": 5.0,
-                "min": 0,
-                "max": 10,
-                "step": 1
-            },
-        },
-        "powder_feed": {
-            "frequency": {
-                "type": "number",
-                "label": "Frequency (Hz)",
-                "default": 600,
-                "min": 0,
-                "max": 1000,
-                "step": 200
-            },
-            "deagglomerator": {
-                "enabled": {
-                    "type": "choice",
-                    "label": "Deagglomerator Enabled",
-                    "default": "true",
-                    "choices": ["true", "false"]
-                },
-                "speed": {
-                    "type": "choice",
-                    "label": "Deagglomerator Speed",
-                    "default": "Medium",
-                    "choices": ["Low", "Medium", "High"]
-                },
-            }
-        }
+    # Deagglomerator speed mapping
+    DEAGG_SPEEDS = {
+        "Off": 0,
+        "Low": 15,
+        "Medium": 25,
+        "High": 35
     }
 
     def __init__(
@@ -120,552 +102,355 @@ class ParameterEditor(BaseWidget):
         super().__init__(
             widget_id="widget_editor_parameters",
             ui_manager=ui_manager,
-            update_tags=[
-                "parameters.sets",
-                "parameters.current",
-                "parameters.validation",
-                "parameters.definitions",
-                "parameters.nozzles",
-                "config.hardware",
-                "user.current"
-            ],
             parent=parent
         )
 
-        self._current_set: Optional[str] = None
-        self._parameter_widgets: Dict[str, QWidget] = {}
-        self._parameter_definitions = self.DEFAULT_DEFINITIONS
-        self._nozzle_specs: Dict[str, Dict[str, Any]] = {}
-        self._current_user: Optional[str] = None
-        self._deagg_speeds = {
-            "off": 35,   # Off state
-            "low": 30,   # High speed (inverted duty cycle)
-            "medium": 25,  # Medium speed (inverted duty cycle)
-            "high": 20    # Low speed (inverted duty cycle)
-        }
-
+        self._current_data: Dict[str, Any] = {}
+        self._parameter_widgets: Dict[str, QWidget] = {}  # Track widgets for saving
+        self._form_widget = None  # Main form widget
         self._init_ui()
-        # Request initial data
-        self._request_initial_data()
+        self._load_parameter_files()
+        self._load_nozzle_files()
         logger.info("Parameter editor initialized")
 
-    def _request_initial_data(self) -> None:
-        """Request initial data from the server."""
-        # Request parameter list
-        asyncio.create_task(self._ui_manager.send_update(
-            "parameters/list",
-            {}
-        ))
+    def _init_ui(self) -> None:
+        """Initialize the UI."""
+        layout = QVBoxLayout()
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(2)
 
-        # Request nozzle list
-        asyncio.create_task(self._ui_manager.send_update(
-            "parameters/nozzles/list",
-            {}
-        ))
+        # Parameter Set Selection
+        select_layout = QHBoxLayout()
+        select_layout.setContentsMargins(0, 0, 0, 0)
+        select_layout.setSpacing(5)
+        select_label = QLabel("Parameter Set:")
+        select_label.setFixedWidth(80)
+        self._set_combo = QComboBox()
+        self._set_combo.setFixedHeight(24)
+        self.new_button = QPushButton("New")
+        self.new_button.setFixedHeight(24)
+        self.save_button = QPushButton("Save")
+        self.save_button.setFixedHeight(24)
+        self.save_button.setEnabled(False)  # Disabled until parameters are loaded
+        select_layout.addWidget(select_label)
+        select_layout.addWidget(self._set_combo, 1)  # Give combo box more space
+        select_layout.addWidget(self.new_button)
+        select_layout.addWidget(self.save_button)
+        layout.addLayout(select_layout)
 
-        # Request hardware config for deagglomerator settings
-        asyncio.create_task(self._ui_manager.send_update(
-            "config/request",
-            {
-                "type": "hardware",
-                "key": "physical.hardware_sets.deagglomerator.speeds"
-            }
-        ))
+        # Scroll Area for Parameters
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        layout.addWidget(self._scroll)
 
-        # Request current user
-        asyncio.create_task(self._ui_manager.send_update(
-            "user/current",
-            {}
-        ))
+        self.setLayout(layout)
 
-    def _update_deagg_speeds(self, config: Dict[str, Any]) -> None:
-        """Update deagglomerator speeds from config."""
-        try:
-            physical = config.get("physical", {})
-            hardware_sets = physical.get("hardware_sets", {})
-            deagg = hardware_sets.get("deagglomerator", {})
-            speeds = deagg.get("speeds", {})
+        # Connect signals
+        self.new_button.clicked.connect(self._on_new_clicked)
+        self.save_button.clicked.connect(self._on_save_clicked)
+        self._set_combo.currentTextChanged.connect(self._on_set_selected)
 
-            if speeds:
-                self._deagg_speeds = speeds
-                logger.debug(f"Updated deagglomerator speeds: {self._deagg_speeds}")
-        except Exception as e:
-            logger.error(f"Error updating deagglomerator speeds: {e}")
-
-    async def handle_ui_update(self, data: Dict[str, Any]) -> None:
-        """Handle UI updates."""
-        try:
-            if "user.current" in data:
-                # Update current user and author field
-                self._current_user = data.get("value", "")
-                if "metadata.author" in self._parameter_widgets:
-                    widget = self._parameter_widgets["metadata.author"]
-                    if isinstance(widget, QLineEdit):
-                        widget.setText(self._current_user)
-
-            if "parameters.list" in data:
-                # Update parameter set list
-                sets = data.get("files", [])
-                self._set_combo.clear()
-                self._set_combo.addItems(sets)
-
-            if "parameters.nozzles" in data:
-                # Update nozzle specifications and choices
-                self._nozzle_specs = data.get("files", {})
-                if "nozzle.type" in self._parameter_widgets:
-                    combo = self._parameter_widgets["nozzle.type"]
-                    if isinstance(widget, QComboBox):
-                        current = combo.currentText()
-                        combo.clear()
-                        combo.addItems(sorted(self._nozzle_specs.keys()))
-                        if current in self._nozzle_specs:
-                            combo.setCurrentText(current)
-
-            if "config.update" in data:
-                # Update deagglomerator speed mappings from hardware config
-                config = data.get("data", {})
-                if isinstance(config, dict):
-                    self._update_deagg_speeds(config)
-
-            if "parameters.current" in data:
-                # Update current parameter values
-                params = data.get("value", {})
-                self._update_parameter_values(params)
-
-            if "parameters.validation" in data:
-                # Handle validation results
-                validation = data.get("result", {})
-                self._handle_validation_results(validation)
-
-        except Exception as e:
-            logger.error(f"Error handling UI update: {e}")
-
-    def _convert_speed_to_percent(self, speed: str) -> int:
-        """Convert speed setting to percentage."""
-        return self._deagg_speeds.get(speed.lower(), self._deagg_speeds.get("off", 35))
-
-    def _convert_percent_to_speed(self, percent: int) -> str:
-        """Convert percentage to speed setting."""
-        # Find closest speed setting
-        closest = "Off"
-        min_diff = float('inf')
-        for speed, value in self._deagg_speeds.items():
-            diff = abs(value - percent)
-            if diff < min_diff:
-                min_diff = diff
-                closest = speed.title()
-        return closest
-
-    def _get_current_values(self) -> Dict[str, Any]:
-        """Get current parameter values from UI."""
-        values = {}
-        try:
-            for path, widget in self._parameter_widgets.items():
-                # Split path into sections (e.g. "gas_flows.main_gas")
-                sections = path.split(".")
-
-                # Get the value based on widget type
-                if isinstance(widget, QDoubleSpinBox):
-                    value = widget.value()
-                elif isinstance(widget, QSpinBox):
-                    value = widget.value()
-                elif isinstance(widget, QComboBox):
-                    value = widget.currentText()
-                    # Convert deagglomerator speed to percentage
-                    if path == "powder_feed.deagglomerator.speed":
-                        value = self._convert_speed_to_percent(value)
-                else:
-                    value = widget.text()
-
-                # Build nested dictionary structure
-                current = values
-                for section in sections[:-1]:
-                    if section not in current:
-                        current[section] = {}
-                    current = current[section]
-                current[sections[-1]] = value
-
-        except Exception as e:
-            logger.error(f"Error getting parameter values: {e}")
-        return {"process": values}  # Wrap in process key to match YAML structure
-
-    async def _update_parameter_values(self, parameters: Dict[str, Any]) -> None:
-        """Update UI with parameter values."""
-        try:
-            # Extract process section
-            process_params = parameters.get("process", {})
-            logger.debug(f"Updating parameter values: {process_params}")
-
-            # Update each widget with its value
-            for path, widget in self._parameter_widgets.items():
-                # Navigate through nested dictionary
-                value = process_params
-                for section in path.split("."):
-                    value = value.get(section, {})
-
-                if not isinstance(value, dict):
-                    if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
-                        widget.setValue(float(value))
-                    elif isinstance(widget, QComboBox):
-                        if path == "powder_feed.deagglomerator.speed":
-                            # Convert percentage to speed setting
-                            speed = self._convert_percent_to_speed(int(value))
-                            widget.setCurrentText(speed)
-                        else:
-                            widget.setCurrentText(str(value))
-                    else:
-                        widget.setText(str(value))
-
-        except Exception as e:
-            logger.error(f"Error updating parameter values: {e}")
-
-    def _on_nozzle_type_changed(self, nozzle_type: str) -> None:
-        """Handle nozzle type selection change."""
-        if nozzle_type in self._nozzle_specs:
-            specs = self._nozzle_specs[nozzle_type]
-            # Update diameter and manufacturer from specs
-            if "nozzle.diameter" in self._parameter_widgets:
-                widget = self._parameter_widgets["nozzle.diameter"]
-                if isinstance(widget, QDoubleSpinBox):
-                    widget.setValue(float(specs.get("specifications", {}).get("throat_diameter", 0.24)))
-
-            if "nozzle.manufacturer" in self._parameter_widgets:
-                widget = self._parameter_widgets["nozzle.manufacturer"]
-                if isinstance(widget, QLineEdit):
-                    widget.setText(specs.get("metadata", {}).get("manufacturer", ""))
-
-    def _create_parameter_widget(self, definition: Dict[str, Any]) -> QWidget:
-        """Create an appropriate widget based on parameter definition."""
-        param_type = definition.get("type", "string")
-        default = definition.get("default")
-        readonly = definition.get("readonly", False)
-
-        if param_type == "number":
-            widget = QDoubleSpinBox()
-            widget.setMinimum(definition.get("min", -1000000))
-            widget.setMaximum(definition.get("max", 1000000))
-            widget.setSingleStep(definition.get("step", 0.1))
-            if default is not None:
-                widget.setValue(float(default))
-            widget.setReadOnly(readonly)
-
-        elif param_type == "choice":
+    def _create_widget_for_value(self, value: Any, key: str = "") -> QWidget:
+        """Create appropriate widget based on value type and key."""
+        widget = None
+        if key == "nozzle":
             widget = QComboBox()
-            widget.addItems(definition.get("choices", []))
-            if default is not None:
-                widget.setCurrentText(str(default))
-            widget.setEnabled(not readonly)
-
-        else:  # string or unknown type
+            widget.addItems(self._nozzle_names)
+            widget.addItem("Add Nozzle...")
+            if isinstance(value, str) and value in self._nozzle_names:
+                widget.setCurrentText(value)
+            widget.currentTextChanged.connect(self._on_nozzle_selected)
+        elif key == "deagglomerator_speed":
+            widget = QComboBox()
+            widget.addItems(list(self.DEAGG_SPEEDS.keys()))
+            # Find closest speed setting
+            if isinstance(value, (int, float)):
+                closest = min(self.DEAGG_SPEEDS.items(), key=lambda x: abs(x[1] - value))
+                widget.setCurrentText(closest[0])
+        elif key == "feeder_frequency":
+            widget = QSpinBox()
+            widget.setRange(0, 1200)
+            widget.setSingleStep(200)
+            widget.setValue(int(value))
+        elif key in ["main_gas", "feeder_gas"]:
+            widget = QDoubleSpinBox()
+            widget.setRange(0, 100)
+            widget.setDecimals(1)
+            widget.setSingleStep(0.1)
+            widget.setValue(float(value))
+        elif isinstance(value, bool):
+            widget = QComboBox()
+            widget.addItems(["True", "False"])
+            widget.setCurrentText(str(value))
+        elif isinstance(value, int):
+            widget = QSpinBox()
+            widget.setRange(-1000000, 1000000)
+            widget.setValue(value)
+        elif isinstance(value, float):
+            widget = QDoubleSpinBox()
+            widget.setRange(-1000000, 1000000)
+            widget.setDecimals(3)
+            widget.setValue(value)
+        else:
             widget = QLineEdit()
-            if default is not None:
-                widget.setText(str(default))
-            widget.setReadOnly(readonly)
+            widget.setText(str(value))
 
+        if widget:
+            widget.setFixedHeight(24)
         return widget
 
-    async def _create_new_set(self) -> None:
-        """Create a new parameter set."""
-        try:
-            # Get new set name from user
-            name, ok = QInputDialog.getText(
-                self,
-                "New Parameter Set",
-                "Enter name for new parameter set:"
-            )
+    def _get_widget_value(self, widget: QWidget) -> Any:
+        """Get value from a widget based on its type."""
+        if isinstance(widget, QComboBox):
+            text = widget.currentText()
+            # Handle deagglomerator speed conversion
+            if text in self.DEAGG_SPEEDS:
+                return self.DEAGG_SPEEDS[text]
+            return text
+        elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+            return widget.value()
+        elif isinstance(widget, QLineEdit):
+            return widget.text()
+        return None
 
-            if ok and name:
-                # Just set up the UI with default values
-                self._current_set = name
-                # Set author to current user
-                if "metadata.author" in self._parameter_widgets:
-                    widget = self._parameter_widgets["metadata.author"]
-                    if isinstance(widget, QLineEdit):
-                        widget.setText(self._current_user or "")
-                # Set name in metadata
-                if "metadata.name" in self._parameter_widgets:
-                    widget = self._parameter_widgets["metadata.name"]
-                    if isinstance(widget, QLineEdit):
-                        widget.setText(name)
-                logger.info(f"Created new parameter set: {name}")
+    def _get_current_values(self) -> Dict[str, Any]:
+        """Get current values from all widgets."""
+        values = {}
+        for path, widget in self._parameter_widgets.items():
+            values[path] = self._get_widget_value(widget)
+        return {"process": values}
+
+    def _get_current_user(self) -> str:
+        """Get current user from main window."""
+        parent_window = self.window()
+        if hasattr(parent_window, 'connection_status'):
+            return parent_window.connection_status.user_combo.currentText()
+        return "Default User"
+
+    def _on_new_clicked(self) -> None:
+        """Handle New button click."""
+        try:
+            # Create empty parameter set with default values
+            self._current_data = {
+                "process": {
+                    "name": "",
+                    "created": datetime.now().strftime("%Y-%m-%d"),
+                    "author": self._get_current_user(),
+                    "description": "",
+                    "nozzle": "",
+                    "main_gas": 50.0,
+                    "feeder_gas": 5.0,
+                    "feeder_frequency": 600,
+                    "deagglomerator_speed": 25
+                }
+            }
+            self._update_form()
+            self.save_button.setEnabled(True)
 
         except Exception as e:
             logger.error(f"Error creating new parameter set: {e}")
 
-    async def _save_changes(self) -> None:
-        """Save parameter changes."""
+    def _on_save_clicked(self) -> None:
+        """Handle Save button click."""
         try:
-            if not self._current_set:
-                # If no set is selected, create a new one
-                await self._create_new_set()
+            # Get the name from the form
+            name_widget = self._parameter_widgets.get("name")
+            if not name_widget or not name_widget.text():
+                QMessageBox.warning(self, "Save Error", "Please enter a name for the parameter set.")
                 return
 
-            # Get current values including metadata
-            params = self._get_current_values()
+            set_name = name_widget.text().lower().replace(" ", "_")
+            
+            # Get current values
+            data = self._get_current_values()
 
-            # Ensure author is set
-            if not params.get("process", {}).get("metadata", {}).get("author"):
-                params["process"]["metadata"]["author"] = self._current_user or ""
+            # Save to file
+            file_path = Path("data/parameters") / f"{set_name}.yaml"
+            with open(file_path, 'w') as f:
+                yaml.safe_dump(data, f, sort_keys=False)
 
-            # Save through DataManager
-            await self._ui_manager.send_update(
-                "parameters/save",
-                {
-                    "name": self._current_set,
-                    "value": params
-                }
-            )
-            logger.info(f"Saved parameters for set: {self._current_set}")
-
-            # Reload to ensure consistency
-            await self._ui_manager.send_update(
-                "parameters/load",
-                {
-                    "name": self._current_set
-                }
-            )
+            # Reload parameter files list and select the saved file
+            current_selection = self._set_combo.currentText()
+            self._load_parameter_files()
+            if set_name != current_selection:
+                self._set_combo.setCurrentText(set_name)
+            
+            logger.debug(f"Saved parameter set: {set_name}")
 
         except Exception as e:
-            logger.error(f"Error saving parameters: {e}")
-            QMessageBox.critical(
-                self,
-                "Save Error",
-                f"Failed to save parameter set: {e}"
-            )
+            logger.error(f"Error saving parameter set: {e}")
+            QMessageBox.critical(self, "Save Error", f"Failed to save parameter set: {e}")
 
-    def _init_ui(self) -> None:
-        """Initialize the parameter editor UI."""
-        layout = QVBoxLayout()
-
-        # Parameter set selection
-        selection_layout = QHBoxLayout()
-        self._set_combo = QComboBox()
-        self._new_btn = QPushButton("New Set")
-        self._delete_btn = QPushButton("Delete Set")
-        selection_layout.addWidget(QLabel("Parameter Set:"))
-        selection_layout.addWidget(self._set_combo)
-        selection_layout.addWidget(self._new_btn)
-        selection_layout.addWidget(self._delete_btn)
-        layout.addLayout(selection_layout)
-
-        # Parameter form in a scroll area
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-        self._form_widget = QWidget()
-        self._form_layout = QVBoxLayout()
-        self._form_widget.setLayout(self._form_layout)
-        scroll.setWidget(self._form_widget)
-        layout.addWidget(scroll)
-
-        # Create parameter sections
-        self._create_parameter_widgets()
-
-        # Save/Reset buttons
-        button_layout = QHBoxLayout()
-        self._save_btn = QPushButton("Save Changes")
-        self._reset_btn = QPushButton("Reset Changes")
-        button_layout.addWidget(self._save_btn)
-        button_layout.addWidget(self._reset_btn)
-        layout.addLayout(button_layout)
-
-        # Connect signals
-        self._new_btn.clicked.connect(self._on_new_clicked)
-        self._delete_btn.clicked.connect(self._on_delete_clicked)
-        self._set_combo.currentTextChanged.connect(
-            lambda text: asyncio.create_task(self._on_set_changed(text))
-        )
-        self._save_btn.clicked.connect(
-            lambda: asyncio.create_task(self._save_changes())
-        )
-        self._reset_btn.clicked.connect(
-            lambda: asyncio.create_task(self._reset_changes())
-        )
-
-        # Request initial parameter list
-        asyncio.create_task(self._ui_manager.send_update(
-            "parameters/list",
-            {"timestamp": datetime.now().isoformat()}
-        ))
-
-        self.setLayout(layout)
-
-    def _create_parameter_widgets(self) -> None:
-        """Create parameter input widgets based on definitions."""
+    def _on_set_selected(self, set_name: str) -> None:
+        """Handle parameter set selection."""
         try:
-            # Clear existing widgets
-            while self._form_layout.count():
-                item = self._form_layout.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
-            self._parameter_widgets.clear()
-
-            # Create sections for each parameter group
-            for section_name, section_params in self._parameter_definitions.items():
-                group = QGroupBox(section_name.replace("_", " ").title())
-                form = QFormLayout()
-
-                self._create_section_widgets(section_params, form, parent_key=section_name)
-
-                group.setLayout(form)
-                self._form_layout.addWidget(group)
-
-        except Exception as e:
-            logger.error(f"Error creating parameter widgets: {e}")
-
-    def _create_section_widgets(self, params: Dict[str, Any], form: QFormLayout, parent_key: str = "") -> None:
-        """Create widgets for a parameter section."""
-        for name, definition in params.items():
-            if isinstance(definition, dict) and "type" not in definition:
-                # This is a nested section
-                nested_group = QGroupBox(name.replace("_", " ").title())
-                nested_form = QFormLayout()
-                self._create_section_widgets(definition, nested_form, f"{parent_key}.{name}")
-                nested_group.setLayout(nested_form)
-                form.addRow(nested_group)
-            else:
-                # This is a parameter
-                full_name = f"{parent_key}.{name}" if parent_key else name
-                widget = self._create_parameter_widget(definition)
-                form.addRow(definition.get("label", name), widget)
-                self._parameter_widgets[full_name] = widget
-
-    def _on_new_clicked(self) -> None:
-        """Handle new parameter set button click."""
-        asyncio.create_task(self._create_new_set())
-
-    def _on_delete_clicked(self) -> None:
-        """Handle delete parameter set button click."""
-        asyncio.create_task(self._delete_current_set())
-
-    async def _delete_current_set(self) -> None:
-        """Delete the current parameter set."""
-        try:
-            current = self._set_combo.currentText()
-            if not current:
+            if not set_name:
+                self.save_button.setEnabled(False)
+                self._clear_form()
                 return
 
-            # Confirm deletion
-            reply = QMessageBox.question(
-                self,
-                "Delete Parameter Set",
-                f"Are you sure you want to delete '{current}'?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
+            # Load the YAML file
+            file_path = Path("data/parameters") / f"{set_name}.yaml"
+            if not file_path.exists():
+                logger.error(f"Parameter file not found: {file_path}")
+                return
 
-            if reply == QMessageBox.StandardButton.Yes:
-                await self._ui_manager.send_update(
-                    "parameters/delete",
-                    {
-                        "name": current
-                    }
-                )
+            with open(file_path, 'r') as f:
+                self._current_data = yaml.safe_load(f)
 
-        except Exception as e:
-            logger.error(f"Error deleting parameter set: {e}")
+            # Update the form
+            self._update_form()
+            self.save_button.setEnabled(True)
+            logger.debug(f"Loaded parameter set: {set_name}")
 
-    async def _reset_changes(self) -> None:
-        """Reset parameters to last saved values."""
-        try:
-            if self._current_set:
-                await self._ui_manager.send_update(
-                    "parameters/load",
-                    {
-                        "name": self._current_set
-                    }
-                )
-        except Exception as e:
-            logger.error(f"Error resetting parameters: {e}")
-
-    async def _load_parameter_set(self, set_name: str) -> None:
-        """Load a parameter set."""
-        try:
-            if set_name:
-                await self._ui_manager.send_update(
-                    "parameters/load",
-                    {
-                        "name": set_name
-                    }
-                )
         except Exception as e:
             logger.error(f"Error loading parameter set: {e}")
 
-    def _handle_validation_results(self, validation: Dict[str, Any]) -> None:
-        """Handle parameter validation results."""
+    def _on_nozzle_selected(self, text: str) -> None:
+        """Handle nozzle selection."""
+        if text == "Add Nozzle...":
+            dialog = AddNozzleDialog(self)
+            if dialog.exec():
+                nozzle_data = dialog.get_nozzle_data()
+                self._save_new_nozzle(nozzle_data)
+                # Refresh nozzle list
+                self._load_nozzle_files()
+                # Update combo box
+                combo = self._parameter_widgets.get("nozzle")
+                if combo and isinstance(combo, QComboBox):
+                    combo.clear()
+                    combo.addItems(self._nozzle_names)
+                    combo.addItem("Add Nozzle...")
+                    combo.setCurrentText(nozzle_data["name"])
+
+    def _save_new_nozzle(self, nozzle_data: Dict[str, str]) -> None:
+        """Save a new nozzle file."""
         try:
-            for name, result in validation.items():
-                if name in self._parameter_widgets:
-                    widget = self._parameter_widgets[name]
-                    if result.get("valid", True):
-                        widget.setStyleSheet("")
-                    else:
-                        widget.setStyleSheet("background-color: #ffcccc;")
+            name = nozzle_data["name"].lower().replace(" ", "_")
+            file_path = Path("data/parameters/nozzles") / f"{name}.yaml"
+            
+            # Create nozzles directory if it doesn't exist
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Save nozzle file
+            with open(file_path, 'w') as f:
+                yaml.safe_dump({"nozzle": nozzle_data}, f, sort_keys=False)
+            
+            logger.debug(f"Saved new nozzle: {name}")
+
         except Exception as e:
-            logger.error(f"Error handling validation results: {e}")
+            logger.error(f"Error saving nozzle file: {e}")
+            QMessageBox.critical(self, "Save Error", f"Failed to save nozzle file: {e}")
 
-    async def update_file_list(self, files: list[str]) -> None:
-        """Update the list of available parameter files.
+    def _clear_form(self) -> None:
+        """Clear the parameter form."""
+        # Remove old form widget if it exists
+        if self._form_widget is not None:
+            self._form_widget.deleteLater()
+            self._form_widget = None
+        
+        # Clear widget tracking
+        self._parameter_widgets.clear()
 
-        Args:
-            files: List of parameter file names
-        """
+    def _update_form(self) -> None:
+        """Update form with current parameter values."""
         try:
-            self._set_combo.clear()
-            self._set_combo.addItems(files)
-            logger.debug(f"Updated parameter file list: {files}")
-        except Exception as e:
-            logger.error(f"Error updating parameter file list: {e}")
+            self._clear_form()
 
-    async def _on_set_changed(self, set_name: str) -> None:
-        """Handle parameter set selection change."""
-        try:
-            logger.debug(f"Parameter set selection changed to: {set_name}")
+            # Create new form widget with a single group box
+            self._form_widget = QWidget()
+            main_layout = QVBoxLayout()
+            main_layout.setContentsMargins(2, 2, 2, 2)
+            main_layout.setSpacing(2)
+            self._form_widget.setLayout(main_layout)
 
-            if not set_name:
-                logger.debug("No set selected, clearing values")
-                self._clear_parameter_values()
+            group = QGroupBox("Process Parameters")
+            group.setStyleSheet("""
+                QGroupBox {
+                    margin-top: 5px;
+                    padding-top: 10px;
+                    padding-bottom: 2px;
+                }
+                QGroupBox::title {
+                    subcontrol-origin: margin;
+                    subcontrol-position: top left;
+                    padding: 0 3px;
+                }
+            """)
+            form = QFormLayout()
+            form.setContentsMargins(5, 5, 5, 5)
+            form.setSpacing(2)
+            form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+
+            # Get process parameters
+            process = self._current_data.get("process", {})
+            if not process:
+                logger.warning("No process parameters found in file")
                 return
 
-            # Load the selected parameter set
-            logger.debug(f"Loading parameter set: {set_name}")
-            file_path = f"data/parameters/library/{set_name}.yaml"
+            # Add parameters in a flat structure
+            for key, value in process.items():
+                label = QLabel(key.replace("_", " ").title())
+                label.setFixedHeight(24)
+                widget = self._create_widget_for_value(value, key)
+                label.setToolTip(key)
+                widget.setToolTip(str(value))
+                self._parameter_widgets[key] = widget
+                form.addRow(label, widget)
 
-            # Request file load through UI manager
-            response = await self._ui_manager.send_update(
-                "parameters/load",
-                {
-                    "file": file_path,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-            logger.debug(f"Load response: {response}")
+            group.setLayout(form)
+            main_layout.addWidget(group)
 
-            if response:
-                self._current_set = set_name
-                # Update UI with loaded values if response contains parameters
-                if isinstance(response, dict) and "parameters" in response:
-                    await self._update_parameter_values(response["parameters"])
-                else:
-                    logger.warning(f"Unexpected load response format: {response}")
-            else:
-                logger.error(f"Failed to load parameter set: {set_name}")
+            # Set the form widget in scroll area
+            self._scroll.setWidget(self._form_widget)
+            logger.debug("Updated parameter form")
 
         except Exception as e:
-            logger.error(f"Error loading parameter set: {e}", exc_info=True)
-            self._clear_parameter_values()  # Reset on error
+            logger.error(f"Error updating form: {e}")
 
-    def _clear_parameter_values(self) -> None:
-        """Clear all parameter input fields."""
+    def _load_parameter_files(self) -> None:
+        """Load parameter files from data/parameters directory."""
         try:
-            for widget in self._parameter_widgets.values():
-                if isinstance(widget, QDoubleSpinBox):
-                    widget.setValue(widget.minimum())
-                elif isinstance(widget, QSpinBox):
-                    widget.setValue(widget.minimum())
-                elif isinstance(widget, QLineEdit):
-                    widget.clear()
-                elif isinstance(widget, QComboBox):
-                    widget.setCurrentIndex(0)
+            # Get list of yaml files in data/parameters
+            param_dir = Path("data/parameters")
+            if not param_dir.exists():
+                logger.error(f"Parameters directory not found: {param_dir}")
+                return
+
+            # Clear combobox
+            self._set_combo.clear()
+            self._set_combo.addItem("")  # Add empty option
+
+            # Add all yaml files
+            for file_path in param_dir.glob("*.yaml"):
+                if file_path.parent == param_dir:  # Only files in root directory
+                    name = file_path.stem  # Get filename without extension
+                    self._set_combo.addItem(name)
+
+            logger.debug(f"Loaded {self._set_combo.count()-1} parameter files")
+
         except Exception as e:
-            logger.error(f"Error clearing parameter values: {e}")
+            logger.error(f"Error loading parameter files: {e}")
+
+    def _load_nozzle_files(self) -> None:
+        """Load nozzle files and populate the list of nozzle names."""
+        try:
+            self._nozzle_names = []
+            nozzle_dir = Path("data/parameters/nozzles")
+            
+            if nozzle_dir.exists():
+                for file_path in nozzle_dir.glob("*.yaml"):
+                    with open(file_path, 'r') as f:
+                        data = yaml.safe_load(f)
+                        if data and "nozzle" in data and "name" in data["nozzle"]:
+                            self._nozzle_names.append(data["nozzle"]["name"])
+            
+            self._nozzle_names.sort()
+            logger.debug(f"Loaded {len(self._nozzle_names)} nozzle files")
+
+        except Exception as e:
+            logger.error(f"Error loading nozzle files: {e}")
+            self._nozzle_names = []
