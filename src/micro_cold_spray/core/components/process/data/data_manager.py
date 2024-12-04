@@ -229,15 +229,15 @@ class DataManager:
                     if field not in data:
                         logger.error(f"Missing required field: {field}")
                         return False
-                    
+
                     value = data[field]
                     field_type = field_schema.get("type")
-                    
+
                     # Type validation
                     if field_type == "string" and not isinstance(value, str):
                         logger.error(f"Field {field} must be string")
                         return False
-                    
+
                     # Choice validation
                     choices = field_schema.get("choices", [])
                     if choices and value not in choices:

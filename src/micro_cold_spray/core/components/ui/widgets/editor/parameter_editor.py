@@ -38,8 +38,8 @@ class ParameterEditor(BaseWidget):
             "name": {"type": "string", "label": "Name", "default": ""},
             "version": {"type": "string", "label": "Version", "default": "1.0"},
             "created": {
-                "type": "string", 
-                "label": "Created", 
+                "type": "string",
+                "label": "Created",
                 "default": datetime.now().strftime("%Y-%m-%d")
             },
             "author": {"type": "string", "label": "Author", "default": "", "readonly": True},
@@ -47,7 +47,7 @@ class ParameterEditor(BaseWidget):
         },
         "nozzle": {
             "type": {
-                "type": "choice", 
+                "type": "choice",
                 "label": "Type",
                 "default": "",
                 "choices": []  # Will be populated from nozzles folder
@@ -78,8 +78,8 @@ class ParameterEditor(BaseWidget):
                 "step": 1
             },
             "feeder_gas": {
-                "type": "number", 
-                "label": "Feeder Gas (SLPM)", 
+                "type": "number",
+                "label": "Feeder Gas (SLPM)",
                 "default": 5.0,
                 "min": 0,
                 "max": 10,
@@ -88,23 +88,23 @@ class ParameterEditor(BaseWidget):
         },
         "powder_feed": {
             "frequency": {
-                "type": "number", 
-                "label": "Frequency (Hz)", 
-                "default": 600, 
-                "min": 0, 
-                "max": 1000, 
+                "type": "number",
+                "label": "Frequency (Hz)",
+                "default": 600,
+                "min": 0,
+                "max": 1000,
                 "step": 200
             },
             "deagglomerator": {
                 "enabled": {
-                    "type": "choice", 
-                    "label": "Deagglomerator Enabled", 
-                    "default": "true", 
+                    "type": "choice",
+                    "label": "Deagglomerator Enabled",
+                    "default": "true",
                     "choices": ["true", "false"]
                 },
                 "speed": {
-                    "type": "choice", 
-                    "label": "Deagglomerator Speed", 
+                    "type": "choice",
+                    "label": "Deagglomerator Speed",
                     "default": "Medium",
                     "choices": ["Low", "Medium", "High"]
                 },
@@ -156,7 +156,7 @@ class ParameterEditor(BaseWidget):
             "parameters/list",
             {}
         ))
-        
+
         # Request nozzle list
         asyncio.create_task(self._ui_manager.send_update(
             "parameters/nozzles/list",
@@ -185,7 +185,7 @@ class ParameterEditor(BaseWidget):
             hardware_sets = physical.get("hardware_sets", {})
             deagg = hardware_sets.get("deagglomerator", {})
             speeds = deagg.get("speeds", {})
-            
+
             if speeds:
                 self._deagg_speeds = speeds
                 logger.debug(f"Updated deagglomerator speeds: {self._deagg_speeds}")
@@ -263,7 +263,7 @@ class ParameterEditor(BaseWidget):
             for path, widget in self._parameter_widgets.items():
                 # Split path into sections (e.g. "gas_flows.main_gas")
                 sections = path.split(".")
-                
+
                 # Get the value based on widget type
                 if isinstance(widget, QDoubleSpinBox):
                     value = widget.value()
@@ -276,7 +276,7 @@ class ParameterEditor(BaseWidget):
                         value = self._convert_speed_to_percent(value)
                 else:
                     value = widget.text()
-                
+
                 # Build nested dictionary structure
                 current = values
                 for section in sections[:-1]:
@@ -284,7 +284,7 @@ class ParameterEditor(BaseWidget):
                         current[section] = {}
                     current = current[section]
                 current[sections[-1]] = value
-                
+
         except Exception as e:
             logger.error(f"Error getting parameter values: {e}")
         return {"process": values}  # Wrap in process key to match YAML structure
@@ -295,14 +295,14 @@ class ParameterEditor(BaseWidget):
             # Extract process section
             process_params = parameters.get("process", {})
             logger.debug(f"Updating parameter values: {process_params}")
-            
+
             # Update each widget with its value
             for path, widget in self._parameter_widgets.items():
                 # Navigate through nested dictionary
                 value = process_params
                 for section in path.split("."):
                     value = value.get(section, {})
-                
+
                 if not isinstance(value, dict):
                     if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
                         widget.setValue(float(value))
@@ -315,7 +315,7 @@ class ParameterEditor(BaseWidget):
                             widget.setCurrentText(str(value))
                     else:
                         widget.setText(str(value))
-                        
+
         except Exception as e:
             logger.error(f"Error updating parameter values: {e}")
 
@@ -328,7 +328,7 @@ class ParameterEditor(BaseWidget):
                 widget = self._parameter_widgets["nozzle.diameter"]
                 if isinstance(widget, QDoubleSpinBox):
                     widget.setValue(float(specs.get("specifications", {}).get("throat_diameter", 0.24)))
-            
+
             if "nozzle.manufacturer" in self._parameter_widgets:
                 widget = self._parameter_widgets["nozzle.manufacturer"]
                 if isinstance(widget, QLineEdit):
@@ -339,7 +339,7 @@ class ParameterEditor(BaseWidget):
         param_type = definition.get("type", "string")
         default = definition.get("default")
         readonly = definition.get("readonly", False)
-        
+
         if param_type == "number":
             widget = QDoubleSpinBox()
             widget.setMinimum(definition.get("min", -1000000))
@@ -348,14 +348,14 @@ class ParameterEditor(BaseWidget):
             if default is not None:
                 widget.setValue(float(default))
             widget.setReadOnly(readonly)
-        
+
         elif param_type == "choice":
             widget = QComboBox()
             widget.addItems(definition.get("choices", []))
             if default is not None:
                 widget.setCurrentText(str(default))
             widget.setEnabled(not readonly)
-        
+
         else:  # string or unknown type
             widget = QLineEdit()
             if default is not None:
@@ -402,7 +402,7 @@ class ParameterEditor(BaseWidget):
 
             # Get current values including metadata
             params = self._get_current_values()
-            
+
             # Ensure author is set
             if not params.get("process", {}).get("metadata", {}).get("author"):
                 params["process"]["metadata"]["author"] = self._current_user or ""
@@ -452,7 +452,7 @@ class ParameterEditor(BaseWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        
+
         self._form_widget = QWidget()
         self._form_layout = QVBoxLayout()
         self._form_widget.setLayout(self._form_layout)
@@ -505,9 +505,9 @@ class ParameterEditor(BaseWidget):
             for section_name, section_params in self._parameter_definitions.items():
                 group = QGroupBox(section_name.replace("_", " ").title())
                 form = QFormLayout()
-                
+
                 self._create_section_widgets(section_params, form, parent_key=section_name)
-                
+
                 group.setLayout(form)
                 self._form_layout.addWidget(group)
 
@@ -621,7 +621,7 @@ class ParameterEditor(BaseWidget):
         """Handle parameter set selection change."""
         try:
             logger.debug(f"Parameter set selection changed to: {set_name}")
-            
+
             if not set_name:
                 logger.debug("No set selected, clearing values")
                 self._clear_parameter_values()
@@ -630,7 +630,7 @@ class ParameterEditor(BaseWidget):
             # Load the selected parameter set
             logger.debug(f"Loading parameter set: {set_name}")
             file_path = f"data/parameters/library/{set_name}.yaml"
-            
+
             # Request file load through UI manager
             response = await self._ui_manager.send_update(
                 "parameters/load",
@@ -640,7 +640,7 @@ class ParameterEditor(BaseWidget):
                 }
             )
             logger.debug(f"Load response: {response}")
-            
+
             if response:
                 self._current_set = set_name
                 # Update UI with loaded values if response contains parameters

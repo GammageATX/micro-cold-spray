@@ -36,7 +36,7 @@ class StateManager:
             # Load state config from state.yaml
             config = await self._config_manager.get_config("state")
             self._state_config = config.get("state", {}).get("transitions", {})
-            
+
             # Set initial state from config
             self._current_state = config.get("state", {}).get("initial_state", "INITIALIZING")
             self._previous_state = ""
