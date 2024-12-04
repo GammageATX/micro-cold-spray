@@ -1,10 +1,8 @@
 """Sequence control widget for loading and controlling sequences."""
 import asyncio
 import time
-from pathlib import Path
 from typing import Any, Dict, Protocol, runtime_checkable
 
-import yaml
 from loguru import logger
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -67,7 +65,8 @@ class SequenceControl(BaseWidget):
                 "sequence.error",
                 "system.state",
                 "system.connection",
-                "system.message"
+                "system.message",
+                "data.sequences"
             ],
             parent=parent
         )
@@ -77,7 +76,7 @@ class SequenceControl(BaseWidget):
         self._connection_state = {"connected": False}
 
         self._init_ui()
-        self._load_sequence_library()
+        asyncio.create_task(self._load_sequence_library())
         logger.debug("Sequence control initialized")
 
     def _init_ui(self) -> None:
@@ -160,43 +159,31 @@ class SequenceControl(BaseWidget):
         self.sequence_combo.currentTextChanged.connect(
             self._on_sequence_selected)
 
-    def _load_sequence_library(self):
-        """Load available sequences from the library directory."""
+    async def _load_sequence_library(self):
+        """Load available sequences from DataManager."""
         try:
-            library_path = Path("data/sequences/library")
-            logger.debug(f"Loading sequences from {library_path}")
-
-            if not library_path.exists():
-                logger.warning(f"Sequence library path not found: {library_path}")
-                return
-
-            # Load all yaml files from the library
-            for sequence_file in library_path.glob("*.yaml"):
-                try:
-                    logger.debug(f"Loading sequence file: {sequence_file}")
-                    with open(sequence_file, 'r') as f:
-                        sequence_data = yaml.safe_load(f)
-
-                    # Extract sequence name from metadata
-                    if sequence_data and 'sequence' in sequence_data:
-                        metadata = sequence_data['sequence'].get('metadata', {})
-                        name = metadata.get('name')
-                        if name:
-                            self._sequences[name] = sequence_data
-                            self.sequence_combo.addItem(name)
-                            logger.debug(f"Added sequence '{name}' to combo box")
-                        else:
-                            logger.warning(f"No name found in sequence metadata: {metadata}")
-                    else:
-                        logger.warning(f"Invalid sequence format in {sequence_file}")
-
-                except Exception as e:
-                    logger.error(f"Error loading sequence file {sequence_file}: {str(e)}")
-
-            logger.debug(f"Loaded {len(self._sequences)} sequences")
-
+            logger.debug("Requesting sequence list from DataManager")
+            await self._ui_manager.send_update("data/list", {"type": "sequences"})
         except Exception as e:
-            logger.error(f"Error loading sequence library: {str(e)}")
+            logger.error(f"Error requesting sequence list: {str(e)}")
+
+    async def handle_update(self, tag: str, value: Any) -> None:
+        """Handle updates from UIUpdateManager."""
+        await super().handle_update(tag, value)
+
+        if tag == "data.sequences":
+            try:
+                self.sequence_combo.clear()
+                self.sequence_combo.addItem("")  # Blank default option
+
+                if isinstance(value, dict) and "files" in value:
+                    for sequence in value["files"]:
+                        if isinstance(sequence, str):
+                            self.sequence_combo.addItem(sequence)
+                            self._sequences[sequence] = {"name": sequence}
+                    logger.debug(f"Updated sequence list with {len(self._sequences)} sequences")
+            except Exception as e:
+                logger.error(f"Error updating sequence list: {str(e)}")
 
     def _on_sequence_selected(self, sequence_name: str) -> None:
         """Handle sequence selection change."""
@@ -229,8 +216,17 @@ class SequenceControl(BaseWidget):
                 return
 
             if selected in self._sequences:
-                sequence_data = self._sequences[selected]
-                logger.debug(f"Loading sequence data: {sequence_data}")
+                sequence_info = self._sequences[selected]
+                logger.debug(f"Loading sequence: {sequence_info}")
+
+                # Request sequence data from DataManager
+                await self._ui_manager.send_update(
+                    "data/request",
+                    {
+                        "type": "sequences",
+                        "name": selected
+                    }
+                )
 
                 self.start_button.setEnabled(True)
                 self.cancel_button.setEnabled(False)
@@ -247,29 +243,6 @@ class SequenceControl(BaseWidget):
                     user = parent_window.connection_status.user_combo.currentText()
                 else:
                     logger.warning("Could not find main window, using default user")
-
-                # Create sequence loaded data
-                sequence_loaded_data = {
-                    "name": selected,
-                    "user": user,
-                    "metadata": sequence_data.get("sequence", {}).get("metadata", {}),
-                    "timestamp": time.time()
-                }
-
-                # Add debug logging
-                logger.debug(f"Sending sequence.loaded update: {sequence_loaded_data}")
-
-                # First publish to message broker
-                await self._ui_manager._message_broker.publish(
-                    "sequence/loaded",
-                    sequence_loaded_data
-                )
-
-                # Then send through UIUpdateManager for UI updates
-                await self.send_update(
-                    "sequence.loaded",
-                    sequence_loaded_data
-                )
 
         except Exception as e:
             logger.error(f"Error loading sequence: {e}")

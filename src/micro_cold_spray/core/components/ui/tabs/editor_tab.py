@@ -1,7 +1,6 @@
 """Editor tab for process sequence editing."""
 from typing import Any, Dict, Protocol, runtime_checkable
 import asyncio
-from pathlib import Path
 
 from loguru import logger
 from PySide6.QtCore import Qt
@@ -40,7 +39,8 @@ class EditorTab(BaseWidget):
                 "editor.sequence",
                 "editor.pattern",
                 "editor.parameters",
-                "system.connection"
+                "system.connection",
+                "data.list"
             ],
             parent=parent
         )
@@ -118,18 +118,43 @@ class EditorTab(BaseWidget):
         else:
             self._status_label.setText("Disconnected - Hardware validation disabled")
 
+    async def _handle_data_list(self, data: Dict[str, Any]) -> None:
+        """Handle data list updates."""
+        data_type = data.get("type")
+        files = data.get("files", [])
+
+        if data_type == "parameters":
+            # Add empty option first for parameters
+            files.insert(0, "")
+            if self._parameter_editor is not None:
+                self._parameter_editor._set_combo.clear()
+                self._parameter_editor._set_combo.addItems(files)
+        elif data_type == "patterns":
+            if self._pattern_editor is not None:
+                self._pattern_editor._set_combo.clear()
+                self._pattern_editor._set_combo.addItems(files)
+        elif data_type == "sequences":
+            if self._sequence_builder is not None:
+                self._sequence_builder._set_combo.clear()
+                self._sequence_builder._set_combo.addItems(files)
+
+    async def _handle_connection_change(self, data: Dict[str, Any]) -> None:
+        """Handle connection state changes."""
+        self._connected = data.get("connected", False)
+        self._update_status_label()
+
+        # Only notify sequence builder since it might need to validate against hardware limits
+        if self._sequence_builder is not None:
+            await self._sequence_builder.handle_connection_change(self._connected)
+
     async def handle_ui_update(self, data: Dict[str, Any]) -> None:
         """Handle UI updates from UIUpdateManager."""
         try:
             if "system.connection" in data:
-                # Only notify child widgets that need hardware state
-                # Don't disable any editor functionality
-                self._connected = data.get("connected", False)
-                self._update_status_label()
+                await self._handle_connection_change(data)
 
-                # Only notify sequence builder since it might need to validate against hardware limits
-                if self._sequence_builder is not None:
-                    await self._sequence_builder.handle_connection_change(self._connected)
+            if "data.list" in data:
+                await self._handle_data_list(data)
 
             if "editor.sequence" in data:
                 sequence_data = data["editor.sequence"]
@@ -144,7 +169,6 @@ class EditorTab(BaseWidget):
             if "editor.parameters" in data:
                 parameters = data.get("editor.parameters", {})
                 if self._parameter_editor is not None:
-                    # Always pass parameters directly - no simulation needed
                     await self._parameter_editor.update_parameters(parameters)
 
         except Exception as e:
@@ -177,95 +201,25 @@ class EditorTab(BaseWidget):
     async def _load_editor_files(self) -> None:
         """Load all editor files."""
         try:
-            # Load files in parallel
-            await asyncio.gather(
-                self._load_parameter_files(),
-                self._load_pattern_files(),
-                self._load_sequence_files()
+            # Request file lists through DataManager
+            await self._ui_manager.send_update(
+                "data/list",
+                {
+                    "type": "parameters"
+                }
+            )
+            await self._ui_manager.send_update(
+                "data/list",
+                {
+                    "type": "patterns"
+                }
+            )
+            await self._ui_manager.send_update(
+                "data/list",
+                {
+                    "type": "sequences"
+                }
             )
             logger.info("Editor files loaded successfully")
         except Exception as e:
             logger.error(f"Error loading editor files: {e}")
-
-    async def _load_parameter_files(self) -> None:
-        """Load available parameter files from disk."""
-        try:
-            logger.debug("Loading parameter files directly...")
-            param_path = Path("data/parameters/library")
-
-            if not param_path.exists():
-                logger.error(f"Parameter directory not found: {param_path}")
-                return
-
-            # Get all yaml files in the directory
-            parameter_files = [
-                f.stem for f in param_path.glob("*.yaml")
-                if f.is_file() and "nozzles" not in str(f)
-            ]
-
-            if parameter_files:
-                logger.info(f"Found parameter sets: {parameter_files}")
-                # Add empty option first
-                parameter_files.insert(0, "")
-                await self._parameter_editor.update_file_list(parameter_files)
-            else:
-                logger.warning("No parameter files found")
-                # Still add blank option
-                await self._parameter_editor.update_file_list([""])
-
-        except Exception as e:
-            logger.error(f"Error loading parameter files: {e}", exc_info=True)
-
-    async def _load_pattern_files(self) -> None:
-        """Load available pattern files from disk."""
-        try:
-            logger.debug("Loading pattern files directly...")
-            pattern_path = Path("data/patterns/library")
-
-            if not pattern_path.exists():
-                logger.error(f"Pattern directory not found: {pattern_path}")
-                return
-
-            # Get all yaml files recursively
-            pattern_files = []
-            for subdir in ["serpentine", "spiral"]:
-                subpath = pattern_path / subdir
-                if subpath.exists():
-                    pattern_files.extend([
-                        f"{subdir}/{f.stem}" for f in subpath.glob("*.yaml")
-                        if f.is_file()
-                    ])
-
-            if pattern_files:
-                logger.info(f"Found patterns: {pattern_files}")
-                await self._pattern_editor.update_file_list(pattern_files)
-            else:
-                logger.warning("No pattern files found")
-
-        except Exception as e:
-            logger.error(f"Error loading pattern files: {e}", exc_info=True)
-
-    async def _load_sequence_files(self) -> None:
-        """Load available sequence files from disk."""
-        try:
-            logger.debug("Loading sequence files directly...")
-            seq_path = Path("data/sequences/library")
-
-            if not seq_path.exists():
-                logger.error(f"Sequence directory not found: {seq_path}")
-                return
-
-            # Get all yaml files in the directory
-            sequence_files = [
-                f.stem for f in seq_path.glob("*.yaml")
-                if f.is_file()
-            ]
-
-            if sequence_files:
-                logger.info(f"Found sequences: {sequence_files}")
-                await self._sequence_builder.update_file_list(sequence_files)
-            else:
-                logger.warning("No sequence files found")
-
-        except Exception as e:
-            logger.error(f"Error loading sequence files: {e}", exc_info=True)

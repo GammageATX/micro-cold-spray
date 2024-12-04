@@ -39,6 +39,8 @@ application:
     debug: true
     async_mode: true
     log_level: "INFO"
+    user: ""  # Current user name
+    user_history: []  # List of recent users
 
   # Core Services
   services:

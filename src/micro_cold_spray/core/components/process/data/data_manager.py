@@ -22,13 +22,13 @@ class DataManager:
         self._message_broker = message_broker
         self._config_manager = config_manager
 
-        # Data paths
-        self._run_path = Path("data/runs")
-        self._parameter_path = Path("data/parameters")
-        self._nozzle_path = Path("data/parameters/nozzles")
-        self._pattern_path = Path("data/patterns")
-        self._sequence_path = Path("data/sequences")
-        self._powder_path = Path("data/powders")
+        # Data paths will be set during initialization from application config
+        self._run_path: Optional[Path] = None
+        self._parameter_path: Optional[Path] = None
+        self._nozzle_path: Optional[Path] = None
+        self._pattern_path: Optional[Path] = None
+        self._sequence_path: Optional[Path] = None
+        self._powder_path: Optional[Path] = None
 
         # State tracking
         self._current_user: Optional[str] = None
@@ -50,7 +50,7 @@ class DataManager:
             app_config = await self._config_manager.get_config("application")
             data_paths = app_config.get("paths", {}).get("data", {})
 
-            # Set up data directories
+            # Set up data directories from config
             self._run_path = Path(data_paths.get("runs", "data/runs"))
             self._parameter_path = Path(data_paths.get("parameters", "data/parameters"))
             self._nozzle_path = self._parameter_path / "nozzles"
@@ -58,22 +58,33 @@ class DataManager:
             self._sequence_path = Path(data_paths.get("sequences", "data/sequences"))
             self._powder_path = Path(data_paths.get("powders", "data/powders"))
 
-            # Create directories if they don't exist
+            # Create only the base directories
             for path in [
                 self._run_path,
                 self._parameter_path,
                 self._nozzle_path,
-                self._pattern_path / "custom",
-                self._pattern_path / "serpentine",
-                self._pattern_path / "spiral",
+                self._pattern_path,
                 self._sequence_path,
                 self._powder_path
             ]:
                 path.mkdir(parents=True, exist_ok=True)
+                logger.debug(f"Created directory: {path}")
+
+            # Create pattern subdirectories from config
+            pattern_paths = data_paths.get("patterns", {})
+            if isinstance(pattern_paths, dict):
+                for subdir in ["custom", "serpentine", "spiral"]:
+                    if subdir in pattern_paths:
+                        path = Path(pattern_paths[subdir])
+                        path.mkdir(parents=True, exist_ok=True)
+                        logger.debug(f"Created pattern directory: {path}")
 
             # Subscribe to message topics
             await self._message_broker.subscribe("tag/update", self._handle_tag_update)
-            await self._message_broker.subscribe("config/request/list_files", self._handle_list_files_request)
+            await self._message_broker.subscribe("data/list_files", self._handle_list_files_request)
+            await self._message_broker.subscribe("data/load", self._handle_load_request)
+            await self._message_broker.subscribe("data/save", self._handle_save_request)
+            await self._message_broker.subscribe("data/delete", self._handle_delete_request)
 
             self._is_initialized = True
             logger.info("Data manager initialization complete")
@@ -85,10 +96,116 @@ class DataManager:
                 "timestamp": datetime.now().isoformat()
             })
 
+    async def list_files(self, file_type: str) -> Dict[str, Any]:
+        """List available files of given type."""
+        try:
+            if not file_type:
+                raise ValidationError("No file type specified")
+
+            # Map file type to directory
+            type_mapping = {
+                "parameters": self._parameter_path,
+                "nozzles": self._nozzle_path,
+                "patterns": {
+                    "custom": self._pattern_path / "custom",
+                    "serpentine": self._pattern_path / "serpentine",
+                    "spiral": self._pattern_path / "spiral"
+                },
+                "sequences": self._sequence_path,
+                "powders": self._powder_path
+            }
+
+            if file_type not in type_mapping:
+                raise ValidationError(f"Invalid file type: {file_type}")
+
+            files = []
+            if isinstance(type_mapping[file_type], dict):
+                # For patterns, list files from all subdirectories
+                for subdir in type_mapping[file_type].values():
+                    if subdir.exists():
+                        for file_path in subdir.glob("*.yaml"):
+                            # Include subdirectory in path
+                            rel_path = file_path.relative_to(self._pattern_path)
+                            name = str(rel_path.with_suffix(""))
+                            try:
+                                with open(file_path, 'r') as f:
+                                    data = yaml.safe_load(f)
+                                    files.append({
+                                        "name": name,
+                                        "path": str(file_path),
+                                        "metadata": data.get("metadata", {})
+                                    })
+                            except Exception as e:
+                                logger.error(f"Error reading file {file_path}: {e}")
+                                files.append({
+                                    "name": name,
+                                    "path": str(file_path),
+                                    "metadata": {}
+                                })
+            else:
+                # For other types, list files directly
+                base_path = type_mapping[file_type]
+                if base_path.exists():
+                    # Skip library and history directories for parameters
+                    if file_type == "parameters":
+                        for file_path in base_path.glob("*.yaml"):
+                            # Only include files in the root parameters directory
+                            if file_path.parent == base_path:
+                                rel_path = file_path.relative_to(base_path)
+                                name = str(rel_path.with_suffix(""))
+                                try:
+                                    with open(file_path, 'r') as f:
+                                        data = yaml.safe_load(f)
+                                        files.append({
+                                            "name": name,
+                                            "path": str(file_path),
+                                            "metadata": data.get("metadata", {})
+                                        })
+                                except Exception as e:
+                                    logger.error(f"Error reading file {file_path}: {e}")
+                                    files.append({
+                                        "name": name,
+                                        "path": str(file_path),
+                                        "metadata": {}
+                                    })
+                    else:
+                        for file_path in base_path.glob("*.yaml"):
+                            rel_path = file_path.relative_to(base_path)
+                            name = str(rel_path.with_suffix(""))
+                            try:
+                                with open(file_path, 'r') as f:
+                                    data = yaml.safe_load(f)
+                                    files.append({
+                                        "name": name,
+                                        "path": str(file_path),
+                                        "metadata": data.get("metadata", {})
+                                    })
+                            except Exception as e:
+                                logger.error(f"Error reading file {file_path}: {e}")
+                                files.append({
+                                    "name": name,
+                                    "path": str(file_path),
+                                    "metadata": {}
+                                })
+
+            # Sort files by name for consistent ordering
+            files.sort(key=lambda x: x["name"])
+
+            # Add empty option for dropdowns
+            files.insert(0, {"name": "", "path": "", "metadata": {}})
+
+            return {"files": files}
+
+        except Exception as e:
+            logger.error(f"Error listing files: {e}")
+            return {"files": []}
+
     async def _handle_list_files_request(self, data: Dict[str, Any]) -> None:
         """Handle request to list available files."""
         try:
             file_type = data.get("type")
+            logger.debug(f"Handling list files request for type: {file_type}")
+
             if not file_type:
                 raise ValidationError("No file type specified in request")
 
@@ -121,15 +238,25 @@ class DataManager:
                 # For other types, list files directly
                 base_path = type_mapping[file_type]
                 if base_path.exists():
-                    for file_path in base_path.glob("*.yaml"):
-                        rel_path = file_path.relative_to(base_path)
-                        files.append(str(rel_path.with_suffix("")))
+                    # Skip library and history directories for parameters
+                    if file_type == "parameters":
+                        for file_path in base_path.glob("*.yaml"):
+                            # Only include files in the root parameters directory
+                            if file_path.parent == base_path:
+                                rel_path = file_path.relative_to(base_path)
+                                files.append(str(rel_path.with_suffix("")))
+                    else:
+                        for file_path in base_path.glob("*.yaml"):
+                            rel_path = file_path.relative_to(base_path)
+                            files.append(str(rel_path.with_suffix("")))
 
             # Sort files for consistent ordering
             files.sort()
 
             # Add empty option for dropdowns
             files.insert(0, "")
+
+            logger.debug(f"Found {len(files)} files for type {file_type}: {files}")
 
             await self._message_broker.publish(
                 "data/files/listed",
@@ -138,8 +265,6 @@ class DataManager:
                     "files": files
                 }
             )
-            logger.debug(f"Listed {len(files)} {file_type} files")
-            return {"files": files}
 
         except Exception as e:
             logger.error(f"Error listing files: {e}")
@@ -150,7 +275,6 @@ class DataManager:
                     "error": str(e)
                 }
             )
-            return {"files": []}
 
     async def _handle_nozzle_save(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Save nozzle configuration to file."""
@@ -253,3 +377,331 @@ class DataManager:
     async def _handle_tag_update(self, data: Dict[str, Any]) -> None:
         """Handle tag updates."""
         pass  # Implement if needed for process monitoring
+
+    async def shutdown(self) -> None:
+        """Shutdown data manager."""
+        try:
+            # Unsubscribe from message topics
+            await self._message_broker.unsubscribe("tag/update", self._handle_tag_update)
+            await self._message_broker.unsubscribe("data/list_files", self._handle_list_files_request)
+            await self._message_broker.unsubscribe("data/load", self._handle_load_request)
+            await self._message_broker.unsubscribe("data/save", self._handle_save_request)
+            await self._message_broker.unsubscribe("data/delete", self._handle_delete_request)
+
+            self._is_initialized = False
+            logger.info("Data manager shutdown complete")
+
+        except Exception as e:
+            logger.exception("Error during data manager shutdown")
+            raise CoreError("Data manager shutdown failed", {
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            })
+
+    async def load_file(self, file_type: str, name: str) -> Dict[str, Any]:
+        """Load file of given type."""
+        try:
+            if not file_type or not name:
+                raise ValidationError("Missing file type or name")
+
+            # Map file type to directory
+            type_mapping = {
+                "parameters": self._parameter_path,
+                "nozzles": self._nozzle_path,
+                "patterns": self._pattern_path,
+                "sequences": self._sequence_path,
+                "powders": self._powder_path
+            }
+
+            if file_type not in type_mapping:
+                raise ValidationError(f"Invalid file type: {file_type}")
+
+            # Handle pattern subdirectories
+            if file_type == "patterns":
+                # Check each pattern subdirectory
+                for subdir in ["custom", "serpentine", "spiral"]:
+                    file_path = self._pattern_path / subdir / f"{name}.yaml"
+                    if file_path.exists():
+                        break
+            else:
+                file_path = type_mapping[file_type] / f"{name}.yaml"
+
+            if not file_path.exists():
+                raise FileNotFoundError(f"File not found: {name}")
+
+            with open(file_path, "r") as f:
+                data = yaml.safe_load(f)
+
+            return {"value": data}
+
+        except Exception as e:
+            logger.error(f"Error loading file: {e}")
+            return {"error": str(e)}
+
+    async def save_file(self, file_type: str, name: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Save file of given type."""
+        try:
+            if not file_type or not name or not data:
+                raise ValidationError("Missing file type, name or data")
+
+            # Map file type to directory
+            type_mapping = {
+                "parameters": self._parameter_path,
+                "nozzles": self._nozzle_path,
+                "patterns": self._pattern_path,
+                "sequences": self._sequence_path,
+                "powders": self._powder_path
+            }
+
+            if file_type not in type_mapping:
+                raise ValidationError(f"Invalid file type: {file_type}")
+
+            # Handle pattern subdirectories
+            if file_type == "patterns":
+                # Save to custom directory by default
+                file_path = self._pattern_path / "custom" / f"{name}.yaml"
+            else:
+                file_path = type_mapping[file_type] / f"{name}.yaml"
+
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+
+            with open(file_path, "w") as f:
+                yaml.safe_dump(data, f, default_flow_style=False)
+
+            return {"success": True}
+
+        except Exception as e:
+            logger.error(f"Error saving file: {e}")
+            return {"error": str(e)}
+
+    async def delete_file(self, file_type: str, name: str) -> Dict[str, Any]:
+        """Delete file of given type."""
+        try:
+            if not file_type or not name:
+                raise ValidationError("Missing file type or name")
+
+            # Map file type to directory
+            type_mapping = {
+                "parameters": self._parameter_path,
+                "nozzles": self._nozzle_path,
+                "patterns": self._pattern_path,
+                "sequences": self._sequence_path,
+                "powders": self._powder_path
+            }
+
+            if file_type not in type_mapping:
+                raise ValidationError(f"Invalid file type: {file_type}")
+
+            # Handle pattern subdirectories
+            if file_type == "patterns":
+                # Check each pattern subdirectory
+                for subdir in ["custom", "serpentine", "spiral"]:
+                    file_path = self._pattern_path / subdir / f"{name}.yaml"
+                    if file_path.exists():
+                        file_path.unlink()
+                        return {"success": True}
+                raise FileNotFoundError(f"Pattern not found: {name}")
+            else:
+                file_path = type_mapping[file_type] / f"{name}.yaml"
+                if file_path.exists():
+                    file_path.unlink()
+                    return {"success": True}
+                else:
+                    raise FileNotFoundError(f"File not found: {name}")
+
+        except Exception as e:
+            logger.error(f"Error deleting file: {e}")
+            return {"error": str(e)}
+
+    async def _handle_load_request(self, data: Dict[str, Any]) -> None:
+        """Handle request to load a file."""
+        try:
+            file_type = data.get("type")
+            name = data.get("name")
+            logger.debug(f"Handling load request for {file_type}: {name}")
+
+            if not file_type or not name:
+                raise ValidationError("Missing file type or name")
+
+            # Map file type to directory
+            type_mapping = {
+                "parameters": self._parameter_path,
+                "nozzles": self._nozzle_path,
+                "patterns": {
+                    "custom": self._pattern_path / "custom",
+                    "serpentine": self._pattern_path / "serpentine",
+                    "spiral": self._pattern_path / "spiral"
+                },
+                "sequences": self._sequence_path,
+                "powders": self._powder_path
+            }
+
+            if file_type not in type_mapping:
+                raise ValidationError(f"Invalid file type: {file_type}")
+
+            # Get file path
+            if isinstance(type_mapping[file_type], dict):
+                # For patterns, need to find in subdirectories
+                file_path = None
+                for subdir in type_mapping[file_type].values():
+                    test_path = subdir / f"{name}.yaml"
+                    if test_path.exists():
+                        file_path = test_path
+                        break
+                if not file_path:
+                    raise FileNotFoundError(f"Pattern not found: {name}")
+            else:
+                file_path = type_mapping[file_type] / f"{name}.yaml"
+                if not file_path.exists():
+                    raise FileNotFoundError(f"File not found: {name}")
+
+            # Load file
+            with open(file_path, "r") as f:
+                file_data = yaml.safe_load(f)
+
+            # Send response
+            await self._message_broker.publish(
+                "data/loaded",
+                {
+                    "type": file_type,
+                    "name": name,
+                    "value": file_data
+                }
+            )
+            logger.debug(f"Loaded {file_type} file: {name}")
+
+        except Exception as e:
+            logger.error(f"Error loading file: {e}")
+            await self._message_broker.publish(
+                "data/error",
+                {
+                    "type": file_type,
+                    "name": name,
+                    "error": str(e)
+                }
+            )
+
+    async def _handle_save_request(self, data: Dict[str, Any]) -> None:
+        """Handle request to save a file."""
+        try:
+            file_type = data.get("type")
+            name = data.get("name")
+            value = data.get("value")
+            logger.debug(f"Handling save request for {file_type}: {name}")
+
+            if not file_type or not name or value is None:
+                raise ValidationError("Missing file type, name, or value")
+
+            # Map file type to directory
+            type_mapping = {
+                "parameters": self._parameter_path,
+                "nozzles": self._nozzle_path,
+                "patterns": {
+                    "custom": self._pattern_path / "custom",
+                    "serpentine": self._pattern_path / "serpentine",
+                    "spiral": self._pattern_path / "spiral"
+                },
+                "sequences": self._sequence_path,
+                "powders": self._powder_path
+            }
+
+            if file_type not in type_mapping:
+                raise ValidationError(f"Invalid file type: {file_type}")
+
+            # Get file path
+            if isinstance(type_mapping[file_type], dict):
+                # For patterns, save to custom directory
+                file_path = type_mapping[file_type]["custom"] / f"{name}.yaml"
+            else:
+                file_path = type_mapping[file_type] / f"{name}.yaml"
+
+            # Save file
+            with open(file_path, "w") as f:
+                yaml.safe_dump(value, f, default_flow_style=False)
+
+            # Send response
+            await self._message_broker.publish(
+                "data/saved",
+                {
+                    "type": file_type,
+                    "name": name
+                }
+            )
+            logger.debug(f"Saved {file_type} file: {name}")
+
+        except Exception as e:
+            logger.error(f"Error saving file: {e}")
+            await self._message_broker.publish(
+                "data/error",
+                {
+                    "type": file_type,
+                    "name": name,
+                    "error": str(e)
+                }
+            )
+
+    async def _handle_delete_request(self, data: Dict[str, Any]) -> None:
+        """Handle request to delete a file."""
+        try:
+            file_type = data.get("type")
+            name = data.get("name")
+            logger.debug(f"Handling delete request for {file_type}: {name}")
+
+            if not file_type or not name:
+                raise ValidationError("Missing file type or name")
+
+            # Map file type to directory
+            type_mapping = {
+                "parameters": self._parameter_path,
+                "nozzles": self._nozzle_path,
+                "patterns": {
+                    "custom": self._pattern_path / "custom",
+                    "serpentine": self._pattern_path / "serpentine",
+                    "spiral": self._pattern_path / "spiral"
+                },
+                "sequences": self._sequence_path,
+                "powders": self._powder_path
+            }
+
+            if file_type not in type_mapping:
+                raise ValidationError(f"Invalid file type: {file_type}")
+
+            # Get file path
+            if isinstance(type_mapping[file_type], dict):
+                # For patterns, need to find in subdirectories
+                file_path = None
+                for subdir in type_mapping[file_type].values():
+                    test_path = subdir / f"{name}.yaml"
+                    if test_path.exists():
+                        file_path = test_path
+                        break
+                if not file_path:
+                    raise FileNotFoundError(f"Pattern not found: {name}")
+            else:
+                file_path = type_mapping[file_type] / f"{name}.yaml"
+                if not file_path.exists():
+                    raise FileNotFoundError(f"File not found: {name}")
+
+            # Delete file
+            file_path.unlink()
+
+            # Send response
+            await self._message_broker.publish(
+                "data/deleted",
+                {
+                    "type": file_type,
+                    "name": name
+                }
+            )
+            logger.debug(f"Deleted {file_type} file: {name}")
+
+        except Exception as e:
+            logger.error(f"Error deleting file: {e}")
+            await self._message_broker.publish(
+                "data/error",
+                {
+                    "type": file_type,
+                    "name": name,
+                    "error": str(e)
+                }
+            )

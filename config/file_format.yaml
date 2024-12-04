@@ -25,21 +25,9 @@ file_format:
     nozzle:
       type:
         type: choice
-        label: Type
+        label: Nozzle
         default: ""
         choices: []  # Populated from nozzles folder
-      diameter:
-        type: number
-        label: Diameter (mm)
-        default: 1.78
-        min: 0.5
-        max: 3.0
-        step: 0.01
-      manufacturer:
-        type: string
-        label: Manufacturer
-        default: ""
-        readonly: true
     gas_flows:
       gas_type:
         type: choice
@@ -69,11 +57,6 @@ file_format:
         max: 1200
         step: 200
       deagglomerator:
-        enabled:
-          type: choice
-          label: Deagglomerator Enabled
-          default: "true"
-          choices: ["true", "false"]
         speed:
           type: choice
           label: Deagglomerator Speed
