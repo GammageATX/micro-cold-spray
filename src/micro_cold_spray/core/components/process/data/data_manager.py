@@ -89,6 +89,18 @@ class DataManager:
                 self._handle_tag_update
             )
 
+            # Subscribe to data compression requests
+            await self._message_broker.subscribe(
+                "data/compress",
+                self._handle_compression_request
+            )
+
+            # Subscribe to backup requests
+            await self._message_broker.subscribe(
+                "data/backup",
+                self._handle_backup_request
+            )
+
             self._is_initialized = True
             logger.info("Data manager initialization complete")
 
@@ -750,5 +762,72 @@ class DataManager:
             raise CoreError("Failed to set current sequence", {
                 "error": str(e),
                 "sequence": sequence_name,
+                "timestamp": datetime.now().isoformat()
+            })
+
+    async def _handle_compression_request(self, data: Dict[str, Any]) -> None:
+        """Handle data compression requests."""
+        try:
+            # Get original data size
+            original_data = json.dumps(data).encode('utf-8')
+            original_size = len(original_data)
+
+            # Compress data (simple example - in practice use proper compression)
+            compressed_data = json.dumps(data, separators=(',', ':'))
+            compressed_size = len(compressed_data.encode('utf-8'))
+
+            # Publish compression results
+            await self._message_broker.publish(
+                "data/compressed",
+                {
+                    "original_size": original_size,
+                    "compressed_size": compressed_size,
+                    "compression_ratio": original_size / compressed_size,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"Error compressing data: {e}")
+            raise CoreError("Failed to compress data", {
+                "error": str(e),
+                "data": data,
+                "timestamp": datetime.now().isoformat()
+            })
+
+    async def _handle_backup_request(self, data: Dict[str, Any]) -> None:
+        """Handle data backup requests."""
+        try:
+            backup_path = Path(data.get("path"))
+            if not backup_path.exists():
+                backup_path.mkdir(parents=True)
+
+            # Copy data directories
+            for src_path in [
+                self._run_path,
+                self._parameter_path,
+                self._pattern_path,
+                self._sequence_path
+            ]:
+                if src_path.exists():
+                    dst_path = backup_path / src_path.name
+                    if dst_path.exists():
+                        shutil.rmtree(dst_path)
+                    shutil.copytree(src_path, dst_path)
+
+            # Publish backup completion
+            await self._message_broker.publish(
+                "data/backup/complete",
+                {
+                    "backup_path": str(backup_path),
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"Error backing up data: {e}")
+            raise CoreError("Failed to backup data", {
+                "error": str(e),
+                "path": str(backup_path),
                 "timestamp": datetime.now().isoformat()
             })

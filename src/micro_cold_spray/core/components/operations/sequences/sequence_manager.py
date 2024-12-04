@@ -237,21 +237,18 @@ class SequenceManager:
                     await asyncio.sleep(0.1)
 
                 # Validate step format
-                if "name" not in step:
-                    raise OperationError("Invalid step format - missing name", "sequence", {
-                        "step": step["name"]
+                if "action_group" not in step:
+                    raise OperationError("Invalid step format - missing action_group", "sequence", {
+                        "step": step.get("name", "unknown")
                     })
 
                 # Validate step action exists
                 action_config = await self._config_manager.get_config("process")
-                if (
-                    step["name"] not in action_config.get("atomic_actions", {})
-                    and step["name"] not in action_config.get("action_groups", {})
-                ):
+                if step["action_group"] not in action_config.get("action_groups", {}):
                     raise OperationError(
-                        f"Invalid action: {
-                            step['name']}", "sequence", {
-                            "action": step["name"]})
+                        f"Invalid action group: {
+                            step['action_group']}", "sequence", {
+                            "action_group": step["action_group"]})
 
                 await self._execute_step(step)
 
@@ -358,7 +355,7 @@ class SequenceManager:
             await self._message_broker.publish(
                 "sequence/step",
                 {
-                    "step": step["name"],
+                    "step": step,
                     "state": "STARTED",
                     "timestamp": datetime.now().isoformat()
                 }
@@ -368,10 +365,8 @@ class SequenceManager:
             await self._message_broker.publish(
                 "action/execute",
                 {
-                    "type": step["name"],
-                    "hardware_set": step["hardware_set"],
-                    "pattern": step.get("pattern"),
-                    "parameters": step["parameters"],
+                    "type": step["action_group"],
+                    "parameters": step.get("parameters", {}),
                     "timestamp": datetime.now().isoformat()
                 }
             )
@@ -384,16 +379,16 @@ class SequenceManager:
             await self._message_broker.publish(
                 "sequence/step",
                 {
-                    "step": step["name"],
+                    "step": step,
                     "state": "COMPLETED",
                     "timestamp": datetime.now().isoformat()
                 }
             )
 
         except Exception as e:
-            logger.error(f"Error executing step {step['name']}: {e}")
+            logger.error(f"Error executing step {step.get('name', 'unknown')}: {e}")
             raise OperationError("Step execution failed", "sequence", {
-                "step": step["name"],
+                "step": step.get("name", "unknown"),
                 "error": str(e)
             })
 

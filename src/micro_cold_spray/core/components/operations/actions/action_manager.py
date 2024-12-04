@@ -65,13 +65,24 @@ class ActionManager:
         try:
             logger.debug(f"Executing atomic action: {action_name}")
             await self._execute_atomic_action(action_name, parameters)
+        except ValidationError as e:
+            logger.error(f"Error executing action {action_name}: {e}")
+            await self._handle_error(e, {
+                "action": action_name,
+                "parameters": parameters
+            })
+            raise OperationError(str(e), "execute", {
+                "action": action_name,
+                "error": str(e),
+                "parameters": parameters
+            })
         except Exception as e:
             logger.error(f"Error executing action {action_name}: {e}")
             await self._handle_error(e, {
                 "action": action_name,
                 "parameters": parameters
             })
-            raise OperationError("Action execution failed", "execute", {
+            raise OperationError(str(e), "execute", {
                 "action": action_name,
                 "error": str(e),
                 "parameters": parameters
@@ -129,20 +140,31 @@ class ActionManager:
             await self._validate_action(action_type, parameters)
 
             # Send messages defined in action
-            for message in action_def["messages"]:
-                message_data = self._substitute_parameters(
-                    parameters, message["data"])
-
-                # Convert to proper message format
-                msg_payload = {
-                    "topic": message["topic"],
-                    "data": {
-                        "tag": str(message_data["tag"]),
-                        "value": message_data.get("value", True)
+            for message in action_def.get("messages", []):
+                if isinstance(message.get("data"), list):
+                    # Handle list of messages
+                    for msg_data in message["data"]:
+                        msg_data = self._substitute_parameters(parameters, msg_data)
+                        msg_payload = {
+                            "topic": message["topic"],
+                            "data": {
+                                "tag": str(msg_data.get("tag", "")),
+                                "value": msg_data.get("value", True)
+                            }
+                        }
+                        await self._message_broker.publish(message["topic"], msg_payload)
+                else:
+                    # Handle single message
+                    message_data = self._substitute_parameters(
+                        parameters, message.get("data", {}))
+                    msg_payload = {
+                        "topic": message["topic"],
+                        "data": {
+                            "tag": str(message_data.get("tag", "")),
+                            "value": message_data.get("value", True)
+                        }
                     }
-                }
-
-                await self._message_broker.publish(message["topic"], msg_payload)
+                    await self._message_broker.publish(message["topic"], msg_payload)
 
                 # Wait for validation response if needed
                 if "validation" in message:
@@ -153,9 +175,12 @@ class ActionManager:
                 for validation in action_def["validation"]:
                     await self._handle_validation(validation)
 
+        except ValidationError as e:
+            logger.error(f"Error in atomic action {action_type}: {e}")
+            raise
         except Exception as e:
             logger.error(f"Error in atomic action {action_type}: {e}")
-            raise OperationError("Action execution failed", "action", {
+            raise OperationError(str(e), "action", {
                 "action": action_type,
                 "parameters": parameters,
                 "error": str(e),
@@ -200,25 +225,73 @@ class ActionManager:
                     str(e)}") from e
 
     async def _get_action_definition(self, action_type: str) -> Dict[str, Any]:
-        """Get action definition from process config."""
+        """Get action definition from process.yaml."""
         try:
-            # Parse action path (e.g. 'gas.set_main_flow')
-            action_path = action_type.split('.')
             process_config = await self._config_manager.get_config("process")
-            current = process_config.get("atomic_actions", {})
+            actions = process_config.get("actions", {})
 
-            # Navigate to action definition
-            for part in action_path:
-                current = current[part]
-            return current
+            # Handle motion actions
+            if action_type.startswith("motion."):
+                motion_action = action_type.split(".")[1]
+                if motion_action == "move_xy":
+                    return {
+                        "messages": [
+                            {
+                                "topic": "tag/set",
+                                "data": {
+                                    "tag": "motion.motion_control.coordinated_move.xy_move.parameters.velocity",
+                                    "value": 50.0  # Default velocity
+                                }
+                            },
+                            {
+                                "topic": "tag/set",
+                                "data": {
+                                    "tag": "motion.motion_control.coordinated_move.xy_move.parameters.acceleration",
+                                    "value": 100.0  # Default acceleration
+                                }
+                            },
+                            {
+                                "topic": "tag/set",
+                                "data": {
+                                    "tag": "motion.motion_control.coordinated_move.xy_move.x_position",
+                                    "value": "{x}"
+                                }
+                            },
+                            {
+                                "topic": "tag/set",
+                                "data": {
+                                    "tag": "motion.motion_control.coordinated_move.xy_move.y_position",
+                                    "value": "{y}"
+                                }
+                            },
+                            {
+                                "topic": "tag/set",
+                                "data": {
+                                    "tag": "motion.motion_control.coordinated_move.xy_move.execute",
+                                    "value": True
+                                }
+                            }
+                        ],
+                        "validation": [
+                            {
+                                "type": "motion",
+                                "parameters": {
+                                    "x": "{x}",
+                                    "y": "{y}"
+                                }
+                            }
+                        ]
+                    }
 
-        except KeyError as e:
-            raise ValidationError(
-                f"Action {action_type} not found in config") from e
+            # Get action from config
+            if action_type not in actions:
+                raise ValidationError(f"Unknown action type: {action_type}")
+            return actions[action_type]
+
         except Exception as e:
+            logger.error(f"Error getting action definition: {e}")
             raise ValidationError(
-                f"Error getting action definition: {
-                    str(e)}") from e
+                f"Failed to get action definition: {str(e)}") from e
 
     def _substitute_parameters(
         self,
@@ -240,6 +313,8 @@ class ActionManager:
                     else:
                         result[key] = value
                 return result
+            elif isinstance(template, list):
+                return [self._substitute_parameters(parameters, item) for item in template]
             return template
 
         except KeyError as e:
@@ -356,7 +431,7 @@ class ActionManager:
         """Validate motion action parameters."""
         try:
             hardware_config = await self._config_manager.get_config("hardware")
-            stage_dims = hardware_config["physical"]["stage"]["dimensions"]
+            stage_dims = hardware_config.get("stage", {}).get("dimensions", {})
 
             # Extract position parameters
             position = {}
@@ -366,14 +441,21 @@ class ActionManager:
 
             # Validate against stage dimensions
             for axis, value in position.items():
-                if value < 0 or value > stage_dims[axis]:
+                axis_dims = stage_dims.get(axis, {})
+                min_pos = axis_dims.get("min", 0)
+                max_pos = axis_dims.get("max", 200)  # Default to 200mm if not specified
+
+                if value < min_pos or value > max_pos:
                     msg = (
                         f"{axis.upper()} position {value} exceeds "
-                        f"stage dimensions [0, {stage_dims[axis]}]"
+                        f"stage dimensions [{min_pos}, {max_pos}]"
                     )
                     raise ValidationError(msg)
+
+        except ValidationError as e:
+            logger.error(f"Motion action validation failed: {e}")
+            raise
         except Exception as e:
             logger.error(f"Motion action validation failed: {e}")
             raise ValidationError(
-                f"Motion action validation failed: {
-                    str(e)}") from e
+                f"Motion action validation failed: {str(e)}") from e

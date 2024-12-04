@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from loguru import logger
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QSizePolicy, QWidget
+from PySide6.QtWidgets import QFrame, QSizePolicy, QWidget, QLabel
 
 from ....exceptions import CoreError, UIError, ValidationError
 from ....infrastructure.config.config_manager import ConfigManager
@@ -94,6 +94,10 @@ class UIUpdateManager:
                 raise ValidationError(
                     f"Invalid widget location: {location}. Must be one of: {self.VALID_LOCATIONS}"
                 )
+
+            # Validate widget style if provided
+            if widget:
+                self._verify_widget_style(widget)
 
             # Update registrations
             if widget_id in self._registered_widgets:
@@ -191,7 +195,14 @@ class UIUpdateManager:
 
     def _verify_widget_style(self, widget: QWidget) -> None:
         """Verify widget uses proper Qt6 style constants."""
-        # Only verify QFrame style constants
+        # Check QLabel alignment
+        if isinstance(widget, QLabel):
+            alignment = widget.alignment()
+            if not isinstance(alignment, Qt.AlignmentFlag):
+                raise ValidationError(
+                    "Must use Qt.AlignmentFlag.* for alignments")
+
+        # Check QFrame style constants
         if isinstance(widget, QFrame):
             if not isinstance(widget.frameShape(), QFrame.Shape):
                 raise ValidationError(
@@ -222,7 +233,7 @@ class UIUpdateManager:
             if not widget_data:
                 return
 
-            widget = widget_data.get('widget')
+            widget = widget_data.get('widget_ref')
             if not widget:
                 return
 
@@ -232,7 +243,8 @@ class UIUpdateManager:
                     await child.cleanup()
 
             # Clean up main widget
-            await widget.cleanup()
+            if hasattr(widget, 'cleanup'):
+                await widget.cleanup()
 
         except Exception as e:
             logger.error(f"Error in widget cleanup chain: {e}")
@@ -246,33 +258,47 @@ class UIUpdateManager:
         """Handle tag updates."""
         try:
             tag = data.get("tag")
-            value = data.get("value")
+            if not tag:
+                return
 
-            if tag and value is not None:
-                # Forward as UI update
-                await self.send_update(
-                    tag,
-                    {
-                        "value": value,
-                        "timestamp": datetime.now().isoformat()
-                    }
-                )
+            # Get subscribed widgets
+            widget_ids = self._tag_subscriptions.get(tag, set())
+            if not widget_ids:
+                return
 
-                # Special handling for connection status
-                if tag in ["hardware.plc.connected", "hardware.ssh.connected"]:
-                    await self.send_update(
-                        "system.connection",
-                        {
-                            "connected": value,
-                            "source": tag,
-                            "timestamp": datetime.now().isoformat()
-                        }
-                    )
+            # Update each subscribed widget
+            for widget_id in widget_ids:
+                widget_data = self._registered_widgets.get(widget_id)
+                if not widget_data:
+                    continue
 
-                logger.debug(f"Processed tag update: {tag}={value}")
+                widget = widget_data.get('widget_ref')
+                if not widget or not hasattr(widget, 'update'):
+                    continue
+
+                await widget.update(data)
+
+            # Publish UI update
+            await self._message_broker.publish(f"ui/update/{tag}", {
+                "value": data.get("value"),
+                "timestamp": datetime.now().isoformat()
+            })
+
+            # Publish raw tag update
+            await self._message_broker.publish(tag, {
+                "value": data.get("value"),
+                "timestamp": datetime.now().isoformat()
+            })
+
+            logger.debug(f"Processed tag update: {tag}={data.get('value')}")
 
         except Exception as e:
             logger.error(f"Error handling tag update: {e}")
+            raise CoreError("Tag update failed", {
+                "tag": tag,
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            })
 
     async def _handle_config_update(self, data: Dict[str, Any]) -> None:
         """Handle config updates."""

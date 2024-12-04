@@ -67,7 +67,7 @@ def load_config(config_name: str) -> Dict[str, Any]:
 @pytest.fixture
 async def message_broker() -> AsyncGenerator[MessageBroker, None]:
     """Create message broker instance."""
-    broker = MessageBroker()
+    broker = MessageBroker(test_mode=True)
     await broker.start()
     yield broker
     await broker.shutdown()

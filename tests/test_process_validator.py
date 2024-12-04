@@ -57,8 +57,8 @@ class TestProcessValidator:
 
         # Verify validation
         assert len(messages) > 0
-        assert messages[0]["is_valid"]
-        assert messages[0]["type"] == "parameters"
+        assert messages[0]["result"]["valid"]
+        assert messages[0]["request_type"] == "parameters"
 
     @pytest.mark.asyncio
     async def test_hardware_validation(self, process_validator):
@@ -95,8 +95,8 @@ class TestProcessValidator:
 
         # Verify validation
         assert len(messages) > 0
-        assert messages[0]["is_valid"]
-        assert messages[0]["type"] == "hardware"
+        assert messages[0]["result"]["valid"]
+        assert messages[0]["request_type"] == "hardware"
 
     @pytest.mark.asyncio
     async def test_validation_message_patterns(self, process_validator):
@@ -124,7 +124,8 @@ class TestProcessValidator:
 
         # Verify message pattern
         assert len(messages) > 0
-        assert "type" in messages[0]
-        assert "is_valid" in messages[0]
+        assert "request_type" in messages[0]
+        assert "result" in messages[0]
         assert "timestamp" in messages[0]
-        assert messages[0]["result"]["valid"]
+        assert not messages[0]["result"]["valid"]  # Unknown type should be invalid
+        assert "Unknown validation type: test" in messages[0]["result"]["errors"]
