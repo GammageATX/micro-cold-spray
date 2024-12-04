@@ -71,8 +71,8 @@ class ProcessValidator:
 
             if validation_type == "pattern":
                 result = await self._validate_pattern(validation_data)
-            elif validation_type == "hardware_sets":
-                result = await self._validate_hardware_set(validation_data)
+            elif validation_type == "hardware":
+                result = await self._validate_hardware_state(validation_data)
             elif validation_type == "parameters":
                 result = await self.validate_parameters(validation_data)
             else:
@@ -117,171 +117,263 @@ class ProcessValidator:
             self, parameters: Dict[str, Any]) -> ValidationResult:
         """Validate process parameters against configuration limits."""
         try:
-            # Get validation rules from process config
+            # Get configs
             process_config = await self._config_manager.get_config("process")
-            validation_rules = process_config.get(
-                "validation", {}).get(
-                "parameters", {})
+            validation_rules = process_config.get("validation", {}).get("parameters", {})
 
-            # Get safety limits from hardware config
-            hw_config = await self._config_manager.get_config("hardware")
-            safety_limits = hw_config.get("safety", {})
+            validation_result = self._create_validation_result()
 
-            validation_result: ValidationResult = {
-                "valid": True,
-                "errors": [],
-                "warnings": [],
-                "timestamp": datetime.now().isoformat()
-            }
-
-            # Validate material parameters
+            # Validate each parameter group
             if "material" in parameters:
-                material_rules = validation_rules.get("material", {})
-                required = material_rules.get("required_fields", {})
-                optional = material_rules.get("optional_fields", {})
+                material_result = await self._validate_material_parameters(
+                    parameters["material"], validation_rules.get("material", {}))
+                self._merge_validation_results(validation_result, material_result)
 
-                # Check required fields
-                for field in required.get("fields", []):
-                    if field not in parameters["material"]:
-                        validation_result["errors"].append(required["message"])
-                        validation_result["valid"] = False
-                        break
-
-                # Check for unknown fields
-                for field in parameters["material"].keys():
-                    has_field = (
-                        field in required.get("fields", [])
-                        or field in optional.get("fields", [])
-                    )
-                    if not has_field:
-                        validation_result["errors"].append(optional["message"])
-                        validation_result["valid"] = False
-                        break
-
-            # Validate process parameters
             if "process" in parameters:
-                process_rules = validation_rules.get("process", {})
-                required = process_rules.get("required_fields", {})
-                optional = process_rules.get("optional_fields", {})
+                process_result = await self._validate_process_parameters(
+                    parameters["process"], validation_rules.get("process", {}))
+                self._merge_validation_results(validation_result, process_result)
 
-                # Check required fields
-                for field in required.get("fields", []):
-                    if field not in parameters["process"]:
-                        validation_result["errors"].append(required["message"])
-                        validation_result["valid"] = False
-                        break
-
-                # Check for unknown fields
-                for field in parameters["process"].keys():
-                    has_field = (
-                        field in required.get("fields", [])
-                        or field in optional.get("fields", [])
-                    )
-                    if not has_field:
-                        validation_result["errors"].append(optional["message"])
-                        validation_result["valid"] = False
-                        break
-
-            # Validate against safety limits
             if "gas" in parameters:
-                gas_params = parameters["gas"]
-                gas_limits = safety_limits.get("gas", {})
-
-                # Validate main flow
-                if "main_flow" in gas_params:
-                    flow = gas_params["main_flow"]
-                    flow_limits = gas_limits.get("main_flow", {})
-                    if flow < flow_limits.get("min", 0):
-                        validation_result["errors"].append(
-                            f"Main flow too low: {flow} (min {flow_limits['min']})"
-                        )
-                        validation_result["valid"] = False
-                    elif flow > flow_limits.get("max", 100):
-                        validation_result["errors"].append(
-                            f"Main flow too high: {flow} (max {flow_limits['max']})"
-                        )
-                        validation_result["valid"] = False
-                    elif flow < flow_limits.get("warning", 0):
-                        validation_result["warnings"].append(
-                            f"Main flow low: {flow} (warning at {flow_limits['warning']})"
-                        )
-
-                # Validate feeder flow
-                if "feeder_flow" in gas_params:
-                    flow = gas_params["feeder_flow"]
-                    flow_limits = gas_limits.get("feeder_flow", {})
-                    if flow < flow_limits.get("min", 0):
-                        validation_result["errors"].append(
-                            f"Feeder flow too low: {flow} (min {flow_limits['min']})"
-                        )
-                        validation_result["valid"] = False
-                    elif flow > flow_limits.get("max", 10):
-                        validation_result["errors"].append(
-                            f"Feeder flow too high: {flow} (max {flow_limits['max']})"
-                        )
-                        validation_result["valid"] = False
-
-            # Validate powder parameters
-            if "powder" in parameters:
-                powder_params = parameters["powder"]
-                powder_limits = safety_limits.get("powder", {})
-
-                if "feeder" in powder_params:
-                    feeder = powder_params["feeder"]
-                    feeder_limits = powder_limits.get("feeder", {})
-
-                    # Validate feeder frequency
-                    if "frequency" in feeder:
-                        freq = feeder["frequency"]
-                        freq_limits = feeder_limits.get("frequency", {})
-                        if freq < freq_limits.get("min", 0):
-                            validation_result["errors"].append(
-                                f"Feeder frequency too low: {freq} (min {freq_limits['min']})"
-                            )
-                            validation_result["valid"] = False
-                        elif freq > freq_limits.get("max", 1000):
-                            validation_result["errors"].append(
-                                f"Feeder frequency too high: {freq} (max {freq_limits['max']})"
-                            )
-                            validation_result["valid"] = False
-
-                    # Validate deagglomerator
-                    if "deagglomerator" in feeder:
-                        deagg = feeder["deagglomerator"]
-                        deagg_limits = feeder_limits.get("deagglomerator", {})
-
-                        if "duty_cycle" in deagg:
-                            duty = deagg["duty_cycle"]
-                            duty_limits = deagg_limits.get("duty_cycle", {})
-                            if duty < duty_limits.get("min", 0):
-                                validation_result["errors"].append(
-                                    f"Duty cycle too low: {duty} (min {duty_limits['min']})"
-                                )
-                                validation_result["valid"] = False
-                            elif duty > duty_limits.get("max", 100):
-                                validation_result["errors"].append(
-                                    f"Duty cycle too high: {duty} (max {duty_limits['max']})"
-                                )
-                                validation_result["valid"] = False
-
-            # Publish validation response
-            await self._message_broker.publish(
-                "validation/response",
-                {
-                    "type": "parameters",
-                    "result": validation_result,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
+                gas_result = await self._validate_gas_parameters(parameters["gas"])
+                self._merge_validation_results(validation_result, gas_result)
 
             return validation_result
 
         except Exception as e:
-            logger.error(f"Parameter validation error: {e}")
-            raise ValidationError("Parameter validation failed", {
-                "parameters": parameters,
-                "error": str(e)
-            })
+            logger.error(f"Parameter validation failed: {e}")
+            return {
+                "valid": False,
+                "errors": [str(e)],
+                "warnings": [],
+                "timestamp": datetime.now().isoformat()
+            }
+
+    def _create_validation_result(self) -> ValidationResult:
+        """Create a new validation result object."""
+        return {
+            "valid": True,
+            "errors": [],
+            "warnings": [],
+            "timestamp": datetime.now().isoformat()
+        }
+
+    def _merge_validation_results(
+            self,
+            target: ValidationResult,
+            source: ValidationResult) -> None:
+        """Merge source validation result into target."""
+        target["valid"] &= source["valid"]
+        target["errors"].extend(source["errors"])
+        target["warnings"].extend(source["warnings"])
+
+    async def _validate_material_parameters(
+            self,
+            material_params: Dict[str, Any],
+            material_rules: Dict[str, Any]) -> ValidationResult:
+        """Validate material parameters."""
+        result = self._create_validation_result()
+        required = material_rules.get("required_fields", {})
+        optional = material_rules.get("optional_fields", {})
+
+        # Check required fields
+        for field in required.get("fields", []):
+            if field not in material_params:
+                result["errors"].append(required["message"])
+                result["valid"] = False
+                break
+
+        # Check for unknown fields
+        for field in material_params.keys():
+            has_field = (
+                field in required.get("fields", [])
+                or field in optional.get("fields", [])
+            )
+            if not has_field:
+                result["errors"].append(optional["message"])
+                result["valid"] = False
+                break
+
+        return result
+
+    async def _validate_process_parameters(
+            self,
+            process_params: Dict[str, Any],
+            process_rules: Dict[str, Any]) -> ValidationResult:
+        """Validate process parameters."""
+        result = self._create_validation_result()
+        required = process_rules.get("required_fields", {})
+        optional = process_rules.get("optional_fields", {})
+
+        # Check required fields
+        for field in required.get("fields", []):
+            if field not in process_params:
+                result["errors"].append(required["message"])
+                result["valid"] = False
+                break
+
+        # Check for unknown fields
+        for field in process_params.keys():
+            has_field = (
+                field in required.get("fields", [])
+                or field in optional.get("fields", [])
+            )
+            if not has_field:
+                result["errors"].append(optional["message"])
+                result["valid"] = False
+                break
+
+        return result
+
+    async def _validate_gas_parameters(
+            self,
+            gas_params: Dict[str, Any]) -> ValidationResult:
+        """Validate gas parameters against safety limits."""
+        try:
+            hw_config = await self._config_manager.get_config("hardware")
+            gas_limits = hw_config.get("safety", {}).get("gas", {})
+            result = self._create_validation_result()
+
+            # Validate gas type
+            if "type" in gas_params:
+                gas_type = gas_params["type"]
+                valid_types = gas_limits.get("valid_types", ["helium", "nitrogen"])
+                if gas_type not in valid_types:
+                    result["valid"] = False
+                    result["errors"].append(
+                        f"Invalid gas type: {gas_type}. Must be one of: {valid_types}"
+                    )
+
+            # Validate main flow
+            if "main_flow" in gas_params:
+                main_flow_result = self._validate_flow_parameter(
+                    gas_params["main_flow"],
+                    gas_limits.get("main_flow", {}),
+                    "Main flow"
+                )
+                self._merge_validation_results(result, main_flow_result)
+
+            # Validate carrier flow
+            if "carrier_flow" in gas_params:
+                carrier_flow_result = self._validate_flow_parameter(
+                    gas_params["carrier_flow"],
+                    gas_limits.get("carrier_flow", {}),
+                    "Carrier flow"
+                )
+                self._merge_validation_results(result, carrier_flow_result)
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Gas parameter validation failed: {e}")
+            return {
+                "valid": False,
+                "errors": [str(e)],
+                "warnings": [],
+                "timestamp": datetime.now().isoformat()
+            }
+
+    def _validate_flow_parameter(
+            self,
+            value: float,
+            limits: Dict[str, float],
+            name: str) -> ValidationResult:
+        """Validate a flow parameter against limits."""
+        result = self._create_validation_result()
+        min_value = limits.get("min", 0.0)
+        max_value = limits.get("max", float("inf"))
+
+        if value < min_value:
+            result["valid"] = False
+            result["errors"].append(
+                f"{name} ({value}) is below minimum limit ({min_value})"
+            )
+        elif value > max_value:
+            result["valid"] = False
+            result["errors"].append(
+                f"{name} ({value}) is above maximum limit ({max_value})"
+            )
+
+        return result
+
+    async def _validate_safety_limits(
+            self,
+            parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate parameters against safety limits."""
+        try:
+            validation_result = self._create_validation_result()
+
+            # Validate gas parameters
+            if "gas" in parameters:
+                gas_result = await self._validate_gas_parameters(parameters["gas"])
+                self._merge_validation_results(validation_result, gas_result)
+
+            # Validate powder parameters
+            if "powder" in parameters:
+                powder_result = await self._validate_powder_parameters(parameters["powder"])
+                self._merge_validation_results(validation_result, powder_result)
+
+            return validation_result
+
+        except Exception as e:
+            logger.error(f"Safety limit validation failed: {e}")
+            return {
+                "valid": False,
+                "errors": [str(e)],
+                "warnings": [],
+                "timestamp": datetime.now().isoformat()
+            }
+
+    async def _validate_powder_parameters(
+            self,
+            powder_params: Dict[str, Any]) -> ValidationResult:
+        """Validate powder parameters against safety limits."""
+        try:
+            hw_config = await self._config_manager.get_config("hardware")
+            powder_limits = hw_config.get("safety", {}).get("powder", {})
+            result = self._create_validation_result()
+
+            if "feeder" in powder_params:
+                feeder_result = self._validate_feeder_parameter(
+                    powder_params["feeder"],
+                    powder_limits.get("feeder", {})
+                )
+                self._merge_validation_results(result, feeder_result)
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Powder parameter validation failed: {e}")
+            return {
+                "valid": False,
+                "errors": [str(e)],
+                "warnings": [],
+                "timestamp": datetime.now().isoformat()
+            }
+
+    def _validate_feeder_parameter(
+            self,
+            feeder: float,
+            limits: Dict[str, float]) -> ValidationResult:
+        """Validate feeder parameter against its limits."""
+        result = self._create_validation_result()
+
+        if feeder < limits.get("min", 0):
+            result["errors"].append(
+                f"Feeder rate too low: {feeder} (min {limits['min']})"
+            )
+            result["valid"] = False
+        elif feeder > limits.get("max", float('inf')):
+            result["errors"].append(
+                f"Feeder rate too high: {feeder} (max {limits['max']})"
+            )
+            result["valid"] = False
+        elif feeder < limits.get("warning", float('inf')):
+            result["warnings"].append(
+                f"Feeder rate near minimum: {feeder} (warning {limits['warning']})"
+            )
+
+        return result
 
     async def validate_pattern(
         self,
@@ -730,178 +822,69 @@ class ProcessValidator:
                 "timestamp": datetime.now().isoformat()
             })
 
-    async def _validate_hardware_set(
-            self, validation_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate hardware set configuration."""
+    async def _validate_hardware_state(
+            self, hardware_state: Dict[str, Any]) -> ValidationResult:
+        """Validate hardware state."""
         try:
-            errors = []
-            hardware_config = await self._config_manager.get_config("hardware")
+            result = self._create_validation_result()
 
-            # Get hardware sets from hardware.yaml
-            hardware_sets = hardware_config.get(
-                "physical", {}).get(
-                "hardware_sets", {})
+            # Check connection
+            if not hardware_state.get("connection", False):
+                result["valid"] = False
+                result["errors"].append("Hardware not connected")
+                return result
 
-            active_set = validation_data.get("active_set")
-            if active_set not in hardware_sets:
-                errors.append(f"Unknown hardware set: {active_set}")
-                return {
-                    "valid": False,
-                    "errors": errors,
-                    "warnings": [],
-                    "timestamp": datetime.now().isoformat()
-                }
+            # Check for errors
+            if hardware_state.get("error"):
+                result["valid"] = False
+                result["errors"].append(
+                    f"Hardware error: {hardware_state['error']}")
+                return result
 
-            # Validate components match set definition
-            set_def = hardware_sets[active_set]
-            components = validation_data.get("components", {})
+            # Validate position
+            position = hardware_state.get("position", {})
+            if not position:
+                result["valid"] = False
+                result["errors"].append("Missing position data")
+                return result
 
-            for component, value in components.items():
-                if component not in set_def:
-                    errors.append(
-                        f"Unknown component {component} in set {active_set}")
-                elif value != set_def[component]:
-                    msg = (
-                        f"Component {component} does not match "
-                        f"set definition {set_def[component]}"
+            # Get stage limits
+            hw_config = await self._config_manager.get_config("hardware")
+            stage_limits = hw_config.get("stage", {}).get("limits", {})
+
+            # Check each axis
+            for axis in ["x", "y", "z"]:
+                if axis not in position:
+                    result["valid"] = False
+                    result["errors"].append(f"Missing {axis} position")
+                    continue
+
+                axis_pos = position[axis]
+                axis_limits = stage_limits.get(axis, {})
+                min_pos = axis_limits.get("min", float("-inf"))
+                max_pos = axis_limits.get("max", float("inf"))
+
+                if axis_pos < min_pos:
+                    result["valid"] = False
+                    result["errors"].append(
+                        f"{axis.upper()} position ({axis_pos}) below minimum ({min_pos})"
                     )
-                    errors.append(msg)
+                elif axis_pos > max_pos:
+                    result["valid"] = False
+                    result["errors"].append(
+                        f"{axis.upper()} position ({axis_pos}) above maximum ({max_pos})"
+                    )
 
+            return result
+
+        except Exception as e:
+            logger.error(f"Hardware state validation failed: {e}")
             return {
-                "valid": len(errors) == 0,
-                "errors": errors,
+                "valid": False,
+                "errors": [str(e)],
                 "warnings": [],
                 "timestamp": datetime.now().isoformat()
             }
-
-        except Exception as e:
-            logger.error(f"Hardware set validation failed: {e}")
-            raise ValidationError("Hardware set validation failed", {
-                "hardware_set": validation_data,
-                "error": str(e),
-                "timestamp": datetime.now().isoformat()
-            })
-
-    async def _validate_safety_limits(
-            self, parameters: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate parameters against safety limits."""
-        try:
-            hardware_config = await self._config_manager.get_config("hardware")
-            safety_limits = hardware_config.get("safety", {})
-
-            validation_result = {
-                "valid": True,
-                "errors": [],
-                "warnings": [],
-                "timestamp": datetime.now().isoformat()
-            }
-
-            # Validate gas parameters
-            if "gas" in parameters:
-                gas_params = parameters["gas"]
-                gas_limits = safety_limits.get("gas", {})
-
-                # Check main flow
-                if "main_flow" in gas_params:
-                    flow = gas_params["main_flow"]
-                    flow_limits = gas_limits.get("main_flow", {})
-
-                    if flow < flow_limits.get("min", 0):
-                        validation_result["errors"].append(
-                            f"Main flow too low: {flow} (min {flow_limits['min']})"
-                        )
-                        validation_result["valid"] = False
-                    elif flow > flow_limits.get("max", float('inf')):
-                        validation_result["errors"].append(
-                            f"Main flow too high: {flow} (max {flow_limits['max']})"
-                        )
-                        validation_result["valid"] = False
-                    elif flow < flow_limits.get("warning", float('inf')):
-                        validation_result["warnings"].append(
-                            f"Main flow near minimum: {flow} (warning {flow_limits['warning']})"
-                        )
-
-                # Check feeder flow
-                if "feeder_flow" in gas_params:
-                    flow = gas_params["feeder_flow"]
-                    flow_limits = gas_limits.get("feeder_flow", {})
-
-                    if flow < flow_limits.get("min", 0):
-                        validation_result["errors"].append(
-                            f"Feeder flow too low: {flow} (min {flow_limits['min']})"
-                        )
-                        validation_result["valid"] = False
-                    elif flow > flow_limits.get("max", float('inf')):
-                        validation_result["errors"].append(
-                            f"Feeder flow too high: {flow} (max {flow_limits['max']})"
-                        )
-                        validation_result["valid"] = False
-                    elif flow < flow_limits.get("warning", float('inf')):
-                        validation_result["warnings"].append(
-                            f"Feeder flow near minimum: {flow} (warning {flow_limits['warning']})"
-                        )
-
-            # Validate powder parameters
-            if "powder" in parameters:
-                powder_params = parameters["powder"]
-                powder_limits = safety_limits.get("powder", {})
-
-                if "feeder" in powder_params:
-                    feeder = powder_params["feeder"]
-                    feeder_limits = powder_limits.get("feeder", {})
-
-                    # Check feeder frequency
-                    if "frequency" in feeder:
-                        freq = feeder["frequency"]
-                        freq_limits = feeder_limits.get("frequency", {})
-
-                        if freq < freq_limits.get("min", 0):
-                            validation_result["errors"].append(
-                                f"Feeder frequency too low: {freq} (min {freq_limits['min']})"
-                            )
-                            validation_result["valid"] = False
-                        elif freq > freq_limits.get("max", float('inf')):
-                            validation_result["errors"].append(
-                                f"Feeder frequency too high: {freq} (max {freq_limits['max']})"
-                            )
-                            validation_result["valid"] = False
-
-                    # Check deagglomerator
-                    if "deagglomerator" in feeder:
-                        deagg = feeder["deagglomerator"]
-                        deagg_limits = feeder_limits.get("deagglomerator", {})
-
-                        # Check duty cycle
-                        if "duty_cycle" in deagg:
-                            duty = deagg["duty_cycle"]
-                            duty_limits = deagg_limits.get("duty_cycle", {})
-                            min_duty = duty_limits.get("min", 0)
-                            max_duty = duty_limits.get("max", float('inf'))
-
-                            if duty < min_duty:
-                                msg = (
-                                    f"Deagglomerator duty cycle too low: "
-                                    f"{duty} (min {min_duty})"
-                                )
-                                validation_result["errors"].append(msg)
-                                validation_result["valid"] = False
-                            elif duty > max_duty:
-                                msg = (
-                                    f"Deagglomerator duty cycle too high: "
-                                    f"{duty} (max {max_duty})"
-                                )
-                                validation_result["errors"].append(msg)
-                                validation_result["valid"] = False
-
-            return validation_result
-
-        except Exception as e:
-            logger.error(f"Safety limit validation failed: {e}")
-            raise ValidationError("Safety limit validation failed", {
-                "parameters": parameters,
-                "error": str(e),
-                "timestamp": datetime.now().isoformat()
-            })
 
     async def _validate_motion_limits(
             self, position: Dict[str, float]) -> None:

@@ -9,9 +9,9 @@ Special Note:
 """
 import asyncio
 from collections import defaultdict
-from datetime import datetime
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 from loguru import logger
+from datetime import datetime
 from ...exceptions import MessageError
 
 MessageHandler = Callable[[Dict[str, Any]], Awaitable[None]]
@@ -23,7 +23,7 @@ class MessageBroker:
     Provides a central communication hub for all components.
     """
 
-    def __init__(self):
+    def __init__(self, test_mode: bool = False):
         """Initialize the message broker."""
         self._subscribers: Dict[str, set[MessageHandler]] = defaultdict(set)
         self._wildcard_subscribers: Dict[str,
@@ -32,6 +32,7 @@ class MessageBroker:
         self._message_queue: asyncio.Queue[tuple[str,
                                                  Dict[str, Any]]] = asyncio.Queue()
         self._processing_task: Optional[asyncio.Task] = None
+        self._test_mode = test_mode
         logger.info("MessageBroker initialized")
 
     async def start(self) -> None:
@@ -42,8 +43,9 @@ class MessageBroker:
                 return
 
             self._running = True
-            self._processing_task = asyncio.create_task(
-                self._process_messages())
+            if not self._test_mode:
+                self._processing_task = asyncio.create_task(
+                    self._process_messages())
             logger.info("MessageBroker started")
 
         except Exception as e:
@@ -132,7 +134,11 @@ class MessageBroker:
             message: The message data to publish
         """
         try:
-            await self._message_queue.put((topic, message))
+            if self._test_mode:
+                # Process message immediately in test mode
+                await self._handle_message(topic, message)
+            else:
+                await self._message_queue.put((topic, message))
             logger.debug(f"Published message to topic: {topic}")
         except Exception as e:
             error_context = {
@@ -142,24 +148,26 @@ class MessageBroker:
             logger.error(f"Failed to publish: {error_context}")
             raise MessageError("Publish failed", error_context) from e
 
+    async def _handle_message(self, topic: str, message: Dict[str, Any]) -> None:
+        """Handle a single message."""
+        # Handle direct subscribers
+        if topic in self._subscribers:
+            for handler in self._subscribers[topic]:
+                await self._safe_handle_message(handler, message)
+
+        # Handle wildcard subscribers
+        for base_topic, handlers in self._wildcard_subscribers.items():
+            if topic.startswith(base_topic):
+                for handler in handlers:
+                    await self._safe_handle_message(handler, message)
+
     async def _process_messages(self) -> None:
         """Process messages from the queue and distribute to subscribers."""
         try:
             while self._running:
                 try:
                     topic, message = await self._message_queue.get()
-
-                    # Handle direct subscribers
-                    if topic in self._subscribers:
-                        for handler in self._subscribers[topic]:
-                            await self._safe_handle_message(handler, message)
-
-                    # Handle wildcard subscribers
-                    for base_topic, handlers in self._wildcard_subscribers.items():
-                        if topic.startswith(base_topic):
-                            for handler in handlers:
-                                await self._safe_handle_message(handler, message)
-
+                    await self._handle_message(topic, message)
                     self._message_queue.task_done()
 
                 except asyncio.CancelledError:
@@ -174,6 +182,21 @@ class MessageBroker:
         except Exception as e:
             logger.exception("Fatal error in message processing loop")
             raise MessageError("Message processing loop failed") from e
+
+    async def _safe_handle_message(
+            self,
+            handler: MessageHandler,
+            data: Dict[str, Any]) -> None:
+        """Safely handle message with error reporting."""
+        try:
+            await handler(data)
+        except Exception as e:
+            logger.error(f"Error in message handler: {e}")
+            await self.publish("error", {
+                "error": str(e),
+                "data": data,
+                "timestamp": datetime.now().isoformat()
+            })
 
     def _get_matching_topics(self, topic: str) -> List[str]:
         """Get all subscription topics that match a published topic.
@@ -248,26 +271,7 @@ class MessageBroker:
         """
         return all(
             t == p or p == '*'
-            for t, p in zip(topic_parts, pattern_parts)
-        )
-
-    async def _safe_handle_message(
-            self, handler: MessageHandler, message: Dict[str, Any]) -> None:
-        """Safely execute a message handler with error handling."""
-        try:
-            await handler(message)
-        except Exception as e:
-            error_message = {
-                "error": str(e),
-                "topic": message.get("topic", "unknown"),
-                "message": message,
-                "timestamp": datetime.now().isoformat()
-            }
-            try:
-                await self.publish("error", error_message)
-            except Exception as publish_error:
-                logger.error(
-                    f"Failed to publish error message: {publish_error}")
+            for t, p in zip(topic_parts, pattern_parts))
 
     async def request(self,
                       topic: str,

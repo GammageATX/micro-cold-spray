@@ -2,11 +2,10 @@
 
 """Action Manager test suite.
 
-Tests action execution according to process.yaml:
-- Atomic action execution
-- Action group execution
-- Parameter substitution
+Tests action management according to .cursorrules:
 - Action validation
+- Action execution
+- Action groups
 - Error handling
 
 Run with:
@@ -14,14 +13,14 @@ Run with:
 """
 
 import pytest
-from typing import Dict, Any, List
+from typing import Dict, Any
 import asyncio
 from datetime import datetime
 from tests.conftest import TestOrder, order
 from micro_cold_spray.core.exceptions import OperationError
 
 
-@order(TestOrder.PROCESS)
+@order(TestOrder.OPERATIONS)
 class TestActionManager:
     """Action management tests."""
 
@@ -31,8 +30,8 @@ class TestActionManager:
         # Track messages
         messages = []
 
-        async def collect_messages(data: List[Any]) -> None:
-            messages.extend(data)
+        async def collect_messages(data: Dict[str, Any]) -> None:
+            messages.append(data)
 
         await action_manager._message_broker.subscribe("tag/set", collect_messages)
 
@@ -56,12 +55,13 @@ class TestActionManager:
         })
         await asyncio.sleep(0.1)
 
-        # Verify results - messages are [tag, value] pairs
+        # Verify results
         assert len(messages) > 0
-        assert messages[0][0] == "motion.x.position"
-        assert messages[0][1] == 100.0
-        assert messages[1][0] == "motion.y.position"
-        assert messages[1][1] == 100.0
+        assert messages[0]["data"]["tag"] == "motion.motion_control.coordinated_move.xy_move.parameters.velocity"
+        assert messages[2]["data"]["tag"] == "motion.motion_control.coordinated_move.xy_move.x_position"
+        assert messages[2]["data"]["value"] == 100.0
+        assert messages[3]["data"]["tag"] == "motion.motion_control.coordinated_move.xy_move.y_position"
+        assert messages[3]["data"]["value"] == 100.0
 
     @pytest.mark.asyncio
     async def test_motion_limits_validation(self, action_manager):
@@ -72,5 +72,5 @@ class TestActionManager:
                 "y": 100.0
             })
         assert "exceeds stage dimensions" in str(exc_info.value)
-        assert "x" in exc_info.value.context
-        assert exc_info.value.context["timestamp"]
+        assert "parameters" in exc_info.value.context
+        assert exc_info.value.context["parameters"]["x"] == 250.0

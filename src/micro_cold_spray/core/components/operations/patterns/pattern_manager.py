@@ -9,6 +9,7 @@ from ....components.process.validation.process_validator import ProcessValidator
 from ....exceptions import OperationError, ValidationError
 from ....infrastructure.config.config_manager import ConfigManager
 from ....infrastructure.messaging.message_broker import MessageBroker
+from ....exceptions import CoreError
 
 
 class PatternManager:
@@ -37,10 +38,6 @@ class PatternManager:
             if self._is_initialized:
                 return
 
-            # Create directories if they don't exist
-            self._pattern_path.mkdir(parents=True, exist_ok=True)
-            self._custom_path.mkdir(parents=True, exist_ok=True)
-
             # Subscribe to pattern messages
             await self._message_broker.subscribe(
                 "patterns/load",
@@ -50,13 +47,17 @@ class PatternManager:
                 "patterns/save",
                 self._handle_save_request
             )
+            await self._message_broker.subscribe(
+                "pattern/validate",
+                self._handle_validation_request
+            )
 
             self._is_initialized = True
             logger.info("Pattern manager initialized")
 
         except Exception as e:
-            logger.exception("Failed to initialize pattern manager")
-            raise OperationError("Pattern manager initialization failed", "pattern", {
+            logger.error(f"Failed to initialize pattern manager: {e}")
+            raise CoreError("Pattern manager initialization failed", {
                 "error": str(e),
                 "timestamp": datetime.now().isoformat()
             })
@@ -73,95 +74,166 @@ class PatternManager:
                 "Pattern manager shutdown failed", "pattern", {
                     "error": str(e)})
 
-    async def _validate_pattern_params(
-            self, pattern_data: Dict[str, Any]) -> None:
-        """Validate pattern parameters against rules."""
+    async def _handle_validation_request(self, pattern: Dict[str, Any]) -> None:
+        """Handle pattern validation request."""
         try:
-            # Get validation rules from process config
-            process_config = await self._config_manager.get_config("process")
-            validation_rules = process_config.get(
-                "validation", {}).get("patterns", {})
+            # Validate pattern type
+            if "type" not in pattern:
+                raise ValidationError("Pattern type not specified")
 
-            pattern_type = pattern_data["pattern"]["type"]
-            params = pattern_data["pattern"]["params"]
+            pattern_type = pattern["type"]
+            if pattern_type not in ["line", "rectangle", "circle"]:
+                raise ValidationError(f"Invalid pattern type: {pattern_type}")
 
-            if pattern_type not in validation_rules:
-                raise OperationError(
-                    f"Unknown pattern type: {pattern_type}", "pattern", {
-                        "type": pattern_type, "timestamp": datetime.now().isoformat()})
+            # Validate pattern parameters
+            if "parameters" not in pattern:
+                raise ValidationError("Pattern parameters not specified")
 
-            type_rules = validation_rules[pattern_type]
+            params = pattern["parameters"]
+            if pattern_type == "line":
+                self._validate_line_pattern(params)
+            elif pattern_type == "rectangle":
+                self._validate_rectangle_pattern(params)
+            elif pattern_type == "circle":
+                self._validate_circle_pattern(params)
 
-            # Check required fields
-            required = type_rules.get("required_fields", {}).get("fields", [])
-            for field in required:
-                if field not in params:
-                    raise ValidationError(type_rules["required_fields"]["message"], {
-                        "pattern_type": pattern_type,
-                        "missing_field": field,
-                        "timestamp": datetime.now().isoformat()
-                    })
+            # Validate against stage dimensions
+            await self._validate_pattern_bounds(pattern)
 
-            # Check for unknown fields
-            optional = type_rules.get("optional_fields", {}).get("fields", [])
-            for field in params.keys():
-                if field not in required and field not in optional:
-                    raise ValidationError(type_rules["optional_fields"]["message"], {
-                        "pattern_type": pattern_type,
-                        "unknown_field": field,
-                        "timestamp": datetime.now().isoformat()
-                    })
+            # Publish validation success
+            await self._message_broker.publish(
+                "pattern/validation",
+                {
+                    "valid": True,
+                    "pattern": pattern,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
 
+        except ValidationError as e:
+            logger.error(f"Pattern validation failed: {e}")
+            await self._message_broker.publish(
+                "pattern/validation",
+                {
+                    "valid": False,
+                    "error": str(e),
+                    "pattern": pattern,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
         except Exception as e:
-            logger.error(f"Error validating pattern parameters: {e}")
-            raise OperationError("Failed to validate pattern parameters", "pattern", {
-                "error": str(e),
-                "timestamp": datetime.now().isoformat()
-            })
+            logger.error(f"Error validating pattern: {e}")
+            await self._message_broker.publish(
+                "pattern/validation",
+                {
+                    "valid": False,
+                    "error": str(e),
+                    "pattern": pattern,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
 
-    async def _validate_sprayable_area(
-            self, pattern_data: Dict[str, Any]) -> None:
-        """Validate pattern stays within sprayable area."""
+    def _validate_line_pattern(self, params: Dict[str, Any]) -> None:
+        """Validate line pattern parameters."""
+        if "start" not in params or "end" not in params:
+            raise ValidationError("Line pattern must have start and end points")
+
+        for point in [params["start"], params["end"]]:
+            if "x" not in point or "y" not in point:
+                raise ValidationError("Points must have x and y coordinates")
+
+    def _validate_rectangle_pattern(self, params: Dict[str, Any]) -> None:
+        """Validate rectangle pattern parameters."""
+        if "origin" not in params:
+            raise ValidationError("Rectangle pattern must have origin point")
+        if "width" not in params or "height" not in params:
+            raise ValidationError(
+                "Rectangle pattern must have width and height")
+
+        origin = params["origin"]
+        if "x" not in origin or "y" not in origin:
+            raise ValidationError("Origin must have x and y coordinates")
+
+        if params["width"] <= 0 or params["height"] <= 0:
+            raise ValidationError(
+                "Rectangle width and height must be positive")
+
+    def _validate_circle_pattern(self, params: Dict[str, Any]) -> None:
+        """Validate circle pattern parameters."""
+        if "center" not in params:
+            raise ValidationError("Circle pattern must have center point")
+        if "radius" not in params:
+            raise ValidationError("Circle pattern must have radius")
+
+        center = params["center"]
+        if "x" not in center or "y" not in center:
+            raise ValidationError("Center must have x and y coordinates")
+
+        if params["radius"] <= 0:
+            raise ValidationError("Circle radius must be positive")
+
+    async def _validate_pattern_bounds(self, pattern: Dict[str, Any]) -> None:
+        """Validate pattern bounds against stage dimensions."""
         try:
             # Get stage dimensions from hardware config
-            hardware_config = await self._config_manager.get_config("hardware")
-            stage_dims = hardware_config["physical"]["stage"]["dimensions"]
+            hw_config = await self._config_manager.get_config("hardware")
+            stage_dims = hw_config.get("stage", {}).get("dimensions", {})
 
-            # Get pattern bounds based on type
-            pattern_type = pattern_data["pattern"]["type"]
-            params = pattern_data["pattern"]["params"]
+            # Get pattern bounds
+            bounds = self._get_pattern_bounds(pattern)
 
-            if pattern_type == "serpentine":
-                origin = params["origin"]
-                length = params["length"]
+            # Check bounds against stage dimensions
+            for axis in ["x", "y"]:
+                axis_dims = stage_dims.get(axis, {})
+                min_pos = axis_dims.get("min", 0)
+                max_pos = axis_dims.get("max", 200)  # Default to 200mm
 
-                # Calculate pattern bounds
-                x_min = origin[0]
-                x_max = origin[0] + length
-                y_min = origin[1]
-                y_max = origin[1] + params["spacing"]
-
-                # Validate bounds against stage dimensions
-                if (x_min < 0 or x_max > stage_dims["x"]
-                        or y_min < 0 or y_max > stage_dims["y"]):
-
+                if bounds[f"min_{axis}"] < min_pos:
                     raise ValidationError(
-                        f"Pattern exceeds stage dimensions: "
-                        f"[0, {stage_dims['x']}] x [0, {stage_dims['y']}]",
-                        {
-                            "pattern_bounds": {
-                                "x": [x_min, x_max],
-                                "y": [y_min, y_max]
-                            },
-                            "stage_dims": stage_dims
-                        }
-                    )
+                        f"Pattern extends below minimum {axis} position")
+                if bounds[f"max_{axis}"] > max_pos:
+                    raise ValidationError(
+                        f"Pattern extends above maximum {axis} position")
 
         except Exception as e:
-            logger.error(f"Error validating sprayable area: {e}")
-            raise OperationError(
-                "Failed to validate sprayable area", "pattern", {
-                    "error": str(e)})
+            logger.error(f"Error validating pattern bounds: {e}")
+            raise ValidationError(f"Pattern bounds validation failed: {str(e)}")
+
+    def _get_pattern_bounds(self, pattern: Dict[str, Any]) -> Dict[str, float]:
+        """Get pattern bounds."""
+        pattern_type = pattern["type"]
+        params = pattern["parameters"]
+
+        if pattern_type == "line":
+            start = params["start"]
+            end = params["end"]
+            return {
+                "min_x": min(start["x"], end["x"]),
+                "max_x": max(start["x"], end["x"]),
+                "min_y": min(start["y"], end["y"]),
+                "max_y": max(start["y"], end["y"])
+            }
+        elif pattern_type == "rectangle":
+            origin = params["origin"]
+            width = params["width"]
+            height = params["height"]
+            return {
+                "min_x": origin["x"],
+                "max_x": origin["x"] + width,
+                "min_y": origin["y"],
+                "max_y": origin["y"] + height
+            }
+        elif pattern_type == "circle":
+            center = params["center"]
+            radius = params["radius"]
+            return {
+                "min_x": center["x"] - radius,
+                "max_x": center["x"] + radius,
+                "min_y": center["y"] - radius,
+                "max_y": center["y"] + radius
+            }
+        else:
+            raise ValidationError(f"Unknown pattern type: {pattern_type}")
 
     async def _handle_load_request(self, data: Dict[str, Any]) -> None:
         """Handle pattern load request."""

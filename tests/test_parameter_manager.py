@@ -38,7 +38,7 @@ async def parameter_manager(
     await manager.shutdown()
 
 
-@order(TestOrder.PROCESS)
+@order(TestOrder.OPERATIONS)
 class TestParameterManager:
     """Parameter management tests."""
 
@@ -71,7 +71,8 @@ class TestParameterManager:
 
         # Verify validation
         assert len(responses) > 0
-        assert responses[0]["is_valid"]
+        assert responses[0]["validation"]["valid"]
+        assert responses[0]["parameters"] == test_params
 
     @pytest.mark.asyncio
     async def test_parameter_loading(self, parameter_manager):
@@ -89,10 +90,7 @@ class TestParameterManager:
 
         # Send test parameters
         test_params = {
-            "gas": {
-                "type": "helium",
-                "main_flow": 50.0
-            }
+            "file": "test_params.yaml"
         }
         await parameter_manager._message_broker.publish(
             "parameters/load",
@@ -102,7 +100,8 @@ class TestParameterManager:
 
         # Verify loading
         assert len(responses) > 0
-        assert responses[0]["is_valid"]
+        assert responses[0]["result"]["valid"]
+        assert responses[0]["request_type"] == "parameters"
 
     @pytest.mark.asyncio
     async def test_parameter_saving(self, parameter_manager):
@@ -136,7 +135,8 @@ class TestParameterManager:
 
         # Verify saving
         assert len(messages) > 0
-        assert messages[0]["name"] == "test_params"
+        assert messages[0]["file"].endswith("test_params.yaml")
+        assert messages[0]["parameters"] == test_params
 
     @pytest.mark.asyncio
     async def test_parameter_error_handling(self, parameter_manager):
@@ -167,4 +167,5 @@ class TestParameterManager:
 
         # Verify error handling
         assert len(errors) > 0
-        assert "invalid_gas" in errors[0]["message"]
+        assert "error" in errors[0]
+        assert "parameters" in errors[0]
