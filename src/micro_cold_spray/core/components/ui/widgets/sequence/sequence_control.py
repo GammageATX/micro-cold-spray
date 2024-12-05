@@ -60,13 +60,13 @@ class SequenceControl(BaseWidget):
             widget_id="control_dashboard_sequence",
             ui_manager=ui_manager,
             update_tags=[
+                "data.list",
                 "sequence.state",
                 "sequence.progress",
                 "sequence.error",
                 "system.state",
                 "system.connection",
-                "system.message",
-                "data.sequences"
+                "system.message"
             ],
             parent=parent
         )
@@ -74,10 +74,25 @@ class SequenceControl(BaseWidget):
         self._sequences = {}
         self._system_state = "STARTUP"
         self._connection_state = {"connected": False}
+        self._load_task = None
 
         self._init_ui()
-        asyncio.create_task(self._load_sequence_library())
-        logger.debug("Sequence control initialized")
+        logger.info("Sequence control initialized")
+
+    async def initialize(self) -> None:
+        """Async initialization."""
+        try:
+            # First wait for base initialization to complete
+            await super().initialize()
+            logger.info("Base initialization complete, loading sequence library")
+
+            # Now load the sequence library
+            self._load_task = asyncio.create_task(self._load_sequence_library())
+            self._load_task.add_done_callback(self._on_load_complete)
+
+        except Exception as e:
+            logger.error(f"Error during sequence control initialization: {e}")
+            logger.exception("Initialization error details:")
 
     def _init_ui(self) -> None:
         """Initialize the sequence control UI."""
@@ -162,10 +177,12 @@ class SequenceControl(BaseWidget):
     async def _load_sequence_library(self):
         """Load available sequences from DataManager."""
         try:
-            logger.debug("Requesting sequence list from DataManager")
+            logger.info("Requesting sequence list from DataManager")
             await self._ui_manager.send_update("data/list", {"type": "sequences"})
+            logger.info("Sent sequence list request")
         except Exception as e:
             logger.error(f"Error requesting sequence list: {str(e)}")
+            logger.exception("Load sequence library error details:")
 
     async def handle_update(self, tag: str, value: Any) -> None:
         """Handle updates from UIUpdateManager."""
@@ -234,15 +251,6 @@ class SequenceControl(BaseWidget):
                 self.status_label.setStyleSheet("")
                 self.progress_bar.setValue(0)
                 self.progress_bar.setFormat("Ready")
-
-                # Get user from parent window's connection status
-                parent_window = self.window()
-                user = "Default User"
-
-                if isinstance(parent_window, MainWindowProtocol):
-                    user = parent_window.connection_status.user_combo.currentText()
-                else:
-                    logger.warning("Could not find main window, using default user")
 
         except Exception as e:
             logger.error(f"Error loading sequence: {e}")
@@ -324,19 +332,35 @@ class SequenceControl(BaseWidget):
     async def handle_ui_update(self, data: Dict[str, Any]) -> None:
         """Handle updates from UIUpdateManager."""
         try:
+            logger.info(f"Sequence control received update: {data}")
+            if "data.list" in data:
+                list_data = data["data.list"]
+                logger.info(f"Found data.list update with data: {list_data}")
+                if list_data.get("type") == "sequences":
+                    logger.info(f"Received sequence list: {list_data.get('files', [])}")
+                    self.sequence_combo.clear()
+                    self.sequence_combo.addItem("")  # Blank default option
+                    files = list_data.get("files", [])
+                    for sequence in files:
+                        if isinstance(sequence, str):
+                            self.sequence_combo.addItem(sequence)
+                            self._sequences[sequence] = {"name": sequence}
+                    logger.info(f"Updated sequence list with {len(self._sequences)} sequences")
+                    logger.info(
+                        "Combo box items: "
+                        f"{[self.sequence_combo.itemText(i) for i in range(self.sequence_combo.count())]}"
+                    )
+
             if "system.state" in data:
                 old_state = self._system_state
                 self._system_state = data["system.state"]
-                logger.debug(
-                    f"System state changed: {old_state} -> {self._system_state}")
+                logger.debug(f"System state changed: {old_state} -> {self._system_state}")
                 await self._update_button_states()
 
             elif "system.connection" in data:
                 old_connected = self._connection_state.get("connected", False)
                 self._connection_state = data["system.connection"]
-                logger.debug(
-                    f"Connection state changed: {old_connected} -> {
-                        self._connection_state.get('connected')}")
+                logger.debug(f"Connection state changed: {old_connected} -> {self._connection_state.get('connected')}")
                 await self._update_button_states()
 
             elif "sequence.state" in data:
@@ -357,7 +381,7 @@ class SequenceControl(BaseWidget):
 
         except Exception as e:
             logger.error(f"Error handling UI update: {e}")
-            await self.send_update("system.error", f"Sequence control error: {str(e)}")
+            logger.exception("Update handling error details:")
 
     def _handle_sequence_state(self, state: Dict[str, Any]) -> None:
         """Handle sequence state updates."""
@@ -442,3 +466,12 @@ class SequenceControl(BaseWidget):
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")
             # Don't re-raise to allow other cleanup to continue
+
+    def _on_load_complete(self, task):
+        """Handle completion of load task."""
+        try:
+            task.result()  # This will raise any exceptions that occurred
+            logger.info("Sequence library load task completed successfully")
+        except Exception as e:
+            logger.error(f"Sequence library load task failed: {e}")
+            logger.exception("Load task error details:")

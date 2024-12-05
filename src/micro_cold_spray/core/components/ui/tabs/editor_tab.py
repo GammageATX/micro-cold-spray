@@ -55,6 +55,7 @@ class EditorTab(BaseWidget):
         self._pattern_editor = None
         self._sequence_builder = None
         self._sequence_visualizer = None
+        self._load_files_task = None
 
         self._init_ui()
         logger.info("Editor tab initialized")
@@ -105,11 +106,20 @@ class EditorTab(BaseWidget):
             self.setLayout(layout)
 
             # Load files after widgets are created
-            logger.debug("Loading editor files...")
-            asyncio.create_task(self._load_editor_files())
+            logger.info("Starting to load editor files...")
+            self._load_files_task = asyncio.create_task(self._load_editor_files())
+            self._load_files_task.add_done_callback(self._on_files_loaded)
 
         except Exception as e:
             logger.error(f"Error initializing editor UI: {e}")
+
+    def _on_files_loaded(self, task):
+        """Handle completion of file loading task."""
+        try:
+            task.result()  # This will raise any exceptions that occurred
+            logger.info("File loading task completed successfully")
+        except Exception as e:
+            logger.error(f"File loading task failed: {e}")
 
     def _update_status_label(self) -> None:
         """Update the status label based on connection state."""
@@ -131,8 +141,8 @@ class EditorTab(BaseWidget):
                 self._parameter_editor._set_combo.addItems(files)
         elif data_type == "patterns":
             if self._pattern_editor is not None:
-                self._pattern_editor._set_combo.clear()
-                self._pattern_editor._set_combo.addItems(files)
+                self._pattern_editor._pattern_combo.clear()
+                self._pattern_editor._pattern_combo.addItems(files)
         elif data_type == "sequences":
             if self._sequence_builder is not None:
                 self._sequence_builder._set_combo.clear()
@@ -201,19 +211,23 @@ class EditorTab(BaseWidget):
     async def _load_editor_files(self) -> None:
         """Load all editor files."""
         try:
+            logger.info("Starting to load editor files...")
             # Request file lists through DataManager
+            logger.info("Requesting parameter files...")
             await self._ui_manager.send_update(
                 "data/list",
                 {
                     "type": "parameters"
                 }
             )
+            logger.info("Requesting pattern files...")
             await self._ui_manager.send_update(
                 "data/list",
                 {
                     "type": "patterns"
                 }
             )
+            logger.info("Requesting sequence files...")
             await self._ui_manager.send_update(
                 "data/list",
                 {

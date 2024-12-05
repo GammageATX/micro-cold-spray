@@ -263,7 +263,7 @@ class ParameterEditor(BaseWidget):
                 return
 
             set_name = name_widget.text().lower().replace(" ", "_")
-            
+
             # Get current values
             data = self._get_current_values()
 
@@ -277,7 +277,7 @@ class ParameterEditor(BaseWidget):
             self._load_parameter_files()
             if set_name != current_selection:
                 self._set_combo.setCurrentText(set_name)
-            
+
             logger.debug(f"Saved parameter set: {set_name}")
 
         except Exception as e:
@@ -331,14 +331,14 @@ class ParameterEditor(BaseWidget):
         try:
             name = nozzle_data["name"].lower().replace(" ", "_")
             file_path = Path("data/parameters/nozzles") / f"{name}.yaml"
-            
+
             # Create nozzles directory if it doesn't exist
             file_path.parent.mkdir(parents=True, exist_ok=True)
-            
+
             # Save nozzle file
             with open(file_path, 'w') as f:
                 yaml.safe_dump({"nozzle": nozzle_data}, f, sort_keys=False)
-            
+
             logger.debug(f"Saved new nozzle: {name}")
 
         except Exception as e:
@@ -351,7 +351,7 @@ class ParameterEditor(BaseWidget):
         if self._form_widget is not None:
             self._form_widget.deleteLater()
             self._form_widget = None
-        
+
         # Clear widget tracking
         self._parameter_widgets.clear()
 
@@ -440,14 +440,14 @@ class ParameterEditor(BaseWidget):
         try:
             self._nozzle_names = []
             nozzle_dir = Path("data/parameters/nozzles")
-            
+
             if nozzle_dir.exists():
                 for file_path in nozzle_dir.glob("*.yaml"):
                     with open(file_path, 'r') as f:
                         data = yaml.safe_load(f)
                         if data and "nozzle" in data and "name" in data["nozzle"]:
                             self._nozzle_names.append(data["nozzle"]["name"])
-            
+
             self._nozzle_names.sort()
             logger.debug(f"Loaded {len(self._nozzle_names)} nozzle files")
 

@@ -40,7 +40,7 @@ class PatternEditor(BaseWidget):
             widget_id="widget_editor_pattern",
             ui_manager=ui_manager,
             update_tags=[
-                "patterns.list",
+                "data.list",
                 "patterns.types",
                 "patterns.current",
                 "patterns.validation",
@@ -58,10 +58,20 @@ class PatternEditor(BaseWidget):
     async def handle_ui_update(self, data: Dict[str, Any]) -> None:
         """Handle UI updates."""
         try:
-            if "patterns.list" in data:
-                patterns = data["patterns.list"]
-                self._pattern_combo.clear()
-                self._pattern_combo.addItems(patterns)
+            if "data.list" in data:
+                list_data = data["data.list"]
+                logger.info(f"Pattern editor received data.list update: {list_data}")
+                if list_data.get("type") == "patterns":
+                    files = list_data.get("files", [])
+                    logger.info(f"Updating pattern combo box with files: {files}")
+                    self._pattern_combo.clear()
+                    self._pattern_combo.addItem("")
+                    self._pattern_combo.addItems(files)
+                    self._pattern_combo.setCurrentText("")
+                    logger.info(
+                        "Pattern combo box items after update: "
+                        f"{[self._pattern_combo.itemText(i) for i in range(self._pattern_combo.count())]}"
+                    )
 
             if "patterns.types" in data:
                 types = data["patterns.types"]

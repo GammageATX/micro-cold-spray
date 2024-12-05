@@ -102,10 +102,22 @@ class UIUpdateManager:
             if not update_type:
                 raise ValueError("No update type specified")
 
-            # Find widgets that need this update
-            for widget_id, widget in self._widgets.items():
-                if hasattr(widget, "handle_ui_update"):
-                    await widget.handle_ui_update(update_data)
+            logger.info(f"UI manager handling update type: {update_type} with data: {update_data}")
+
+            # Special handling for data list updates
+            if update_type == "data.list":
+                # Find widgets that need this update
+                for widget_id, widget_data in self._widgets.items():
+                    widget = widget_data.get('widget_ref')
+                    if widget and hasattr(widget, "handle_ui_update"):
+                        logger.info(f"Forwarding data.list update to widget {widget_id}")
+                        await widget.handle_ui_update({update_type: update_data})
+            else:
+                # Find widgets that need this update
+                for widget_id, widget_data in self._widgets.items():
+                    widget = widget_data.get('widget_ref')
+                    if widget and hasattr(widget, "handle_ui_update"):
+                        await widget.handle_ui_update(update_data)
 
             logger.debug(f"Processed UI update: {update_type}")
 
@@ -126,8 +138,9 @@ class UIUpdateManager:
             logger.error(f"UI error in {context}: {error}")
 
             # Notify widgets of error
-            for widget in self._widgets.values():
-                if hasattr(widget, "handle_error"):
+            for widget_id, widget_data in self._widgets.items():
+                widget = widget_data['widget_ref']
+                if widget and hasattr(widget, "handle_error"):
                     await widget.handle_error(data)
 
         except Exception as e:
@@ -439,13 +452,15 @@ class UIUpdateManager:
     async def send_update(self, operation: str, data: Dict[str, Any]) -> None:
         """Send an update to the message broker."""
         try:
-            logger.debug(f"Sending update: {operation} with data: {data}")
+            logger.info(f"UI Manager sending update: {operation} with data: {data}")
 
             if operation == "data/list":
                 # Request file list from DataManager
+                logger.info("Forwarding file list request to DataManager")
                 await self._message_broker.publish("data/list_files", {
                     "type": data.get("type")
                 })
+                logger.info(f"Sent file list request for type: {data.get('type')}")
                 return
 
             if operation.startswith("config/get"):
@@ -548,6 +563,14 @@ class UIUpdateManager:
             if operation == "data/delete":
                 # Delete file through DataManager
                 await self._message_broker.publish("data/delete", {
+                    "type": data.get("type"),
+                    "name": data.get("name")
+                })
+                return
+
+            if operation == "data/request":
+                # Request data from DataManager
+                await self._message_broker.publish("data/request", {
                     "type": data.get("type"),
                     "name": data.get("name")
                 })
@@ -753,8 +776,9 @@ class UIUpdateManager:
                 }
             }
 
-            for widget_id, widget in self._widgets.items():
-                if hasattr(widget, "handle_ui_update"):
+            for widget_id, widget_data in self._widgets.items():
+                widget = widget_data.get('widget_ref')
+                if widget and hasattr(widget, "handle_ui_update"):
                     await widget.handle_ui_update(update_data)
 
             logger.debug(f"Updated widgets with {len(files)} {file_type} files")
@@ -781,8 +805,9 @@ class UIUpdateManager:
                 f"config.{config_type}": value
             }
 
-            for widget in self._widgets.values():
-                if hasattr(widget, "handle_ui_update"):
+            for widget_id, widget_data in self._widgets.items():
+                widget = widget_data.get('widget_ref')
+                if widget and hasattr(widget, "handle_ui_update"):
                     await widget.handle_ui_update(update_data)
 
             logger.debug(f"Processed config response for {config_type}")
@@ -799,28 +824,18 @@ class UIUpdateManager:
     async def _handle_data_files_listed(self, data: Dict[str, Any]) -> None:
         """Handle data files listed response."""
         try:
-            file_type = data.get("type")
-            files = data.get("files", [])
-            logger.debug(f"Received file list for {file_type}: {files}")
-
-            # Send data.{type} update to all widgets
-            update_data = {
-                f"data.{file_type}": {
-                    "files": files
-                }
-            }
-
-            for widget_id, widget in self._widgets.items():
-                if hasattr(widget, "handle_update"):
-                    await widget.handle_update(f"data.{file_type}", update_data[f"data.{file_type}"])
-
-            logger.debug(f"Processed file list for {file_type}")
+            # Forward to all widgets
+            for widget_id, widget_data in self._widgets.items():
+                widget = widget_data.get('widget_ref')
+                if widget and hasattr(widget, "handle_ui_update"):
+                    await widget.handle_ui_update({"data.list": data})
+                else:
+                    logger.warning(f"Widget {widget_id} does not have handle_ui_update method")
 
         except Exception as e:
             logger.error(f"Error handling data files listed: {e}")
             await self._message_broker.publish("ui/error", {
                 "error": str(e),
-                "context": "data_files_listed_handler",
-                "data": data,
+                "context": "data_files_listed",
                 "timestamp": datetime.now().isoformat()
             })

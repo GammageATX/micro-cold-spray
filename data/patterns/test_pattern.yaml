@@ -2,7 +2,7 @@ pattern:
   metadata:
     name: Serpentine_2.0mm_20.0mms
     version: '1.0'
-    created: '2024-11-29T12:07:09.033475'
+    created: '2024-11-29T11:25:08.429038'
     description: Generated serpentine pattern with 2.0mm spacing
   type: serpentine
   params:
