@@ -129,22 +129,18 @@ class UIUpdateManager:
                 "timestamp": datetime.now().isoformat()
             })
 
-    async def _handle_ui_error(self, data: Dict[str, Any]) -> None:
-        """Handle UI error messages."""
+    async def _handle_ui_error(self, error_msg: Dict[str, Any]) -> None:
+        """Handle UI-related errors from the message broker."""
         try:
-            error = data.get("error")
-            context = data.get("context", "unknown")
+            operation = error_msg.get("operation", "unknown")
+            error = error_msg.get("error", "Unknown error")
 
-            logger.error(f"UI error in {context}: {error}")
-
-            # Notify widgets of error
-            for widget_id, widget_data in self._widgets.items():
-                widget = widget_data['widget_ref']
-                if widget and hasattr(widget, "handle_error"):
-                    await widget.handle_error(data)
+            # Just log the error - don't try to publish it again
+            logger.error(f"UI error in {operation}: {error}")
 
         except Exception as e:
-            logger.error(f"Error handling UI error: {e}")
+            # Just log any errors in the error handler
+            logger.critical(f"Error in UI error handler: {str(e)}")
 
     def _validate_widget_location(self, location: str) -> bool:
         """Validate widget location against allowed values."""
@@ -463,9 +459,40 @@ class UIUpdateManager:
                 logger.info(f"Sent file list request for type: {data.get('type')}")
                 return
 
+            if operation == "system/users":
+                # Handle user list operations
+                action = data.get("action")
+                if action == "list":
+                    # Request current user list
+                    await self._message_broker.publish("config/get", {
+                        "config_type": "application",
+                        "key": "environment.user_history"
+                    })
+                elif action == "add":
+                    # Get current config
+                    app_config = await self._config_manager.get_config("application")
+                    env_config = app_config.get("application", {}).get("environment", {})
+                    current_users = list(env_config.get("user_history", []))
+
+                    # Add new user if not already in list
+                    new_user = data.get("user")
+                    if new_user and new_user not in current_users:
+                        current_users.append(new_user)
+
+                        # Update just the environment section
+                        await self._config_manager.update_config("application", {
+                            "application": {
+                                "environment": {
+                                    "user": new_user,
+                                    "user_history": current_users
+                                }
+                            }
+                        })
+                return
+
             if operation.startswith("config/get"):
                 # Handle config get operations
-                config_type = data.get("type")
+                config_type = data.get("config_type")
                 if not config_type:
                     raise ValueError("No config type specified for config get operation")
 
@@ -493,14 +520,46 @@ class UIUpdateManager:
             })
 
         except Exception as e:
-            logger.error(f"Error sending update: {e}")
-            await self._message_broker.publish("ui/error", {
-                "error": str(e),
-                "context": "send_update",
-                "operation": operation,
-                "data": data,
-                "timestamp": datetime.now().isoformat()
+            logger.error(f"Error sending update: {str(e)}")
+            # Raise UIError instead of trying to handle it here
+            raise UIError(str(e), {
+                "operation": "send_update",
+                "error": str(e)
             })
+
+    async def send_widget_update(self, widget_id: str, update_type: str, data: dict) -> None:
+        """Send an update to a specific widget."""
+        try:
+            # Add logging to help debug the issue
+            logger.debug(f"Sending update to widget {widget_id}, type: {update_type}, data: {data}")
+
+            # Validate inputs
+            if not widget_id or not update_type:
+                raise ValueError("Widget ID and update type must be specified")
+
+            # Get widget config
+            widget_config = await self._config_manager.get_config("application")
+            widgets = widget_config.get("window", {}).get("widgets", {})
+            if not widgets:
+                logger.warning("No widget configuration found")
+                return
+
+            # Validate widget exists in registry
+            if widget_id not in self._widgets:
+                logger.warning(f"Widget {widget_id} not found in registry")
+                return
+
+            # Send the update
+            widget_data = self._widgets[widget_id]
+            widget = widget_data.get('widget_ref')
+            if widget and hasattr(widget, 'handle_update'):
+                await widget.handle_update(update_type, data)
+            else:
+                logger.warning(f"Widget {widget_id} cannot handle updates")
+
+        except Exception as e:
+            logger.error(f"Error sending widget update: {str(e)}")
+            await self._handle_ui_error("send_widget_update", str(e))
 
     async def _handle_config_operation(self, operation: str, data: Dict[str, Any]) -> None:
         """Handle config operations."""

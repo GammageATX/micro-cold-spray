@@ -74,14 +74,21 @@ class EditorTab(BaseWidget):
             left_layout = QVBoxLayout()
             left_frame.setLayout(left_layout)
 
+            # Create vertical splitter for parameter and pattern editors
+            left_splitter = QSplitter(Qt.Orientation.Vertical)
+
             # Parameter editor
             self._parameter_editor = ParameterEditor(self._ui_manager)
-            left_layout.addWidget(self._parameter_editor)
+            left_splitter.addWidget(self._parameter_editor)
 
             # Pattern editor
             self._pattern_editor = PatternEditor(self._ui_manager)
-            left_layout.addWidget(self._pattern_editor)
+            left_splitter.addWidget(self._pattern_editor)
 
+            # Set initial sizes for left splitter (50/50 split)
+            left_splitter.setSizes([300, 300])
+
+            left_layout.addWidget(left_splitter)
             splitter.addWidget(left_frame)
 
             # Right side - Sequence builder and visualizer
