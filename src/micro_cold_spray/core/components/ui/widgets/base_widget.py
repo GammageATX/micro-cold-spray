@@ -28,13 +28,26 @@ class BaseWidget(QWidget):
         self._widget_id = widget_id
         self._ui_manager = ui_manager
         self._update_tags = update_tags or []
+        self._init_task = None
 
         # Schedule async initialization
-        asyncio.create_task(self.initialize())
+        self._init_task = asyncio.create_task(self.initialize())
+        self._init_task.add_done_callback(self._on_init_complete)
+        logger.info(f"Created initialization task for widget {widget_id}")
+
+    def _on_init_complete(self, task):
+        """Handle completion of initialization task."""
+        try:
+            task.result()  # This will raise any exceptions that occurred
+            logger.info(f"Widget {self._widget_id} initialization completed successfully")
+        except Exception as e:
+            logger.error(f"Widget {self._widget_id} initialization failed: {e}")
+            logger.exception("Initialization error details:")
 
     async def initialize(self) -> None:
         """Async initialization."""
         try:
+            logger.info(f"Starting initialization for widget {self._widget_id}")
             # Register with UI manager
             error_context = {
                 'widget_id': self._widget_id,
@@ -48,6 +61,7 @@ class BaseWidget(QWidget):
                     self._update_tags,
                     self
                 )
+                logger.info(f"Widget {self._widget_id} registered with UI manager")
             except Exception as e:
                 raise UIError("Failed to register widget", error_context) from e
 
@@ -58,17 +72,23 @@ class BaseWidget(QWidget):
             logger.error(f"Error registering widget: {error_context}")
             raise UIError("Widget initialization failed", error_context) from e
 
+    async def handle_ui_update(self, data: Dict[str, Any]) -> None:
+        """Handle updates from UIUpdateManager.
+
+        This is the base implementation that should be overridden by widgets
+        that need to handle specific updates.
+
+        Args:
+            data: Dictionary containing update data
+        """
+        logger.debug(f"Base widget {self._widget_id} received update: {data}")
+        # Base implementation does nothing
+        pass
+
     @property
     def widget_id(self) -> str:
         """Get widget ID."""
         return self._widget_id
-
-    async def handle_ui_update(self, data: Dict[str, Any]) -> None:
-        """Handle UI update from UIUpdateManager."""
-        logger.warning(
-            f"Base handle_ui_update called for {self._widget_id}. "
-            "Override in derived class."
-        )
 
     async def _cleanup_resources(self) -> None:
         """Clean up widget-specific resources. Override in derived classes."""

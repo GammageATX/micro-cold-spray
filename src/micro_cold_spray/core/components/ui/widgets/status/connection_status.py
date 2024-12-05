@@ -1,9 +1,10 @@
 """Connection status and user selection widget."""
 import logging
+import asyncio
 from typing import Any, Dict, List
 
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel
+from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QInputDialog
 
 from ...managers.ui_update_manager import UIUpdateManager
 from ..base_widget import BaseWidget
@@ -39,11 +40,25 @@ class ConnectionStatus(BaseWidget):
         super().__init__(
             widget_id="widget_system_connection",
             ui_manager=ui_manager,
-            update_tags=["hardware_status", "system.connection"],
+            update_tags=["hardware_status", "system.connection", "system.users", "config.application"],
             parent=parent
         )
         self._init_ui()
         logger.info("Connection status widget initialized")
+
+        # Request initial user list
+        asyncio.create_task(self._request_user_list())
+
+    async def _request_user_list(self) -> None:
+        """Request the current user list."""
+        try:
+            # Request application config to get user list
+            await self._ui_manager.send_update("config/get", {
+                "config_type": "application",
+                "key": "application.environment"
+            })
+        except Exception as e:
+            logger.error(f"Error requesting user list: {e}")
 
     async def handle_ui_update(self, data: Dict[str, Any]) -> None:
         """Handle UI updates."""
@@ -57,6 +72,13 @@ class ConnectionStatus(BaseWidget):
                 connected = data.get("connected", False)
                 self.update_plc_status(connected)
                 self.update_ssh_status(connected)
+
+            elif "config.application" in data:
+                # Update user list from application config
+                env_config = data.get("config.application", {}).get("application", {}).get("environment", {})
+                users = env_config.get("user_history", [])
+                if users:
+                    self.set_users(users)
 
         except Exception as e:
             logger.error(f"Error handling UI update: {e}")
@@ -103,15 +125,71 @@ class ConnectionStatus(BaseWidget):
         layout.addWidget(indicators_frame)
 
         # User Selection
+        user_label = QLabel("User:")
+        user_label.setFixedWidth(35)
+
         self.user_combo = QComboBox()
-        self.user_combo.setMinimumWidth(200)
-        self.user_combo.setMaximumWidth(200)
+        self.user_combo.setMinimumWidth(150)
+        self.user_combo.setMaximumWidth(150)
         self.user_combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToContents)
-        self.user_combo.addItems(["Default User"])
+        self.user_combo.addItems(["Default User", "Add User..."])
+        self.user_combo.currentTextChanged.connect(
+            lambda text: asyncio.create_task(self._on_user_selected(text)))
+
+        layout.addWidget(user_label)
         layout.addWidget(self.user_combo)
 
         self.setLayout(layout)
+
+    async def _on_user_selected(self, text: str) -> None:
+        """Handle user selection changed."""
+        try:
+            if text == "Add User...":
+                # Show dialog to add new user
+                new_user, ok = QInputDialog.getText(
+                    self,
+                    "Add New User",
+                    "Enter new user name:"
+                )
+
+                if ok and new_user:
+                    # Add to combo box immediately for responsiveness
+                    current_items = [
+                        self.user_combo.itemText(i)
+                        for i in range(self.user_combo.count() - 1)  # Exclude "Add User..."
+                    ]
+                    if new_user not in current_items:
+                        # Insert new user before "Add User..." entry
+                        self.user_combo.insertItem(self.user_combo.count() - 1, new_user)
+                        self.user_combo.setCurrentText(new_user)
+
+                        # Update application config with new user
+                        await self._ui_manager.send_update("config/update/request", {
+                            "config_type": "application",
+                            "data": {
+                                "application": {
+                                    "environment": {
+                                        "user": new_user,
+                                        "user_history": current_items + [new_user]
+                                    }
+                                }
+                            }
+                        })
+
+                        logger.info(f"Added new user: {new_user}")
+                    else:
+                        logger.warning(f"User {new_user} already exists")
+                        # Restore previous selection
+                        self.user_combo.setCurrentText(current_items[0])
+                else:
+                    # If cancelled or empty, restore previous selection
+                    self.user_combo.setCurrentText("Default User")
+
+        except Exception as e:
+            logger.error(f"Error handling user selection: {e}")
+            # Restore to default user on error
+            self.user_combo.setCurrentText("Default User")
 
     def update_plc_status(self, connected: bool) -> None:
         """Update PLC connection status."""
@@ -126,10 +204,22 @@ class ConnectionStatus(BaseWidget):
     def set_users(self, users: List[str]) -> None:
         """Update the list of available users."""
         current = self.user_combo.currentText()
+        if current == "Add User...":
+            current = "Default User"
+
         self.user_combo.clear()
-        self.user_combo.addItems(users)
+
+        # Ensure we always have Default User as first option
+        if "Default User" not in users:
+            users = ["Default User"] + users
+
+        # Add all users plus the "Add User..." option at the end
+        self.user_combo.addItems(users + ["Add User..."])
 
         # Try to restore the previous selection
         index = self.user_combo.findText(current)
         if index >= 0:
             self.user_combo.setCurrentIndex(index)
+        else:
+            # Default to first user if previous selection not found
+            self.user_combo.setCurrentIndex(0)

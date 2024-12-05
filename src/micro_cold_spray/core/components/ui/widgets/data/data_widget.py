@@ -25,7 +25,8 @@ class DataWidget(BaseWidget):
                 "sequence.state",
                 "sequence.started",
                 "sequence.completed",
-                "data.collection.state"
+                "data.collection.state",
+                "data.list"
             ],
             parent=parent
         )
@@ -74,20 +75,36 @@ class DataWidget(BaseWidget):
         try:
             logger.debug(f"DataWidget received update: {data}")
 
-            if "sequence.loaded" in data:
-                # The sequence info is the value itself, not nested under sequence.loaded
-                sequence_info = data["sequence.loaded"]
+            if "data.list" in data:
+                list_data = data["data.list"]
+                if list_data.get("type") == "sequences":
+                    # Update display when sequence list changes
+                    self._update_display()
+            elif "sequence.loaded" in data:
+                # Get sequence info from the loaded data
+                sequence_info = data.get("sequence.loaded", {})
                 logger.debug(f"Processing sequence.loaded update: {sequence_info}")
+
+                # Get user from parent window if available, with better fallback handling
+                user = "DefaultUser"  # Default fallback
+                try:
+                    parent_window = self.window()
+                    if hasattr(parent_window, 'connection_status'):
+                        current_user = parent_window.connection_status.user_combo.currentText()
+                        if current_user and current_user.strip():
+                            user = current_user
+                except Exception as e:
+                    logger.warning(f"Could not get user from connection status: {e}")
 
                 # Store sequence info for filename generation
                 self._current_sequence = {
-                    "name": sequence_info.get("name", ""),
-                    "user": sequence_info.get("user", "Default User"),
+                    "name": sequence_info.get("name", "DefaultSequence"),
+                    "user": user,
                     "metadata": sequence_info.get("metadata", {})
                 }
                 logger.debug(f"Updated current sequence: {self._current_sequence}")
 
-                # Update display immediately
+                # Force display update
                 self._update_display()
                 self.status_label.setText("Status: Ready for data collection")
 
