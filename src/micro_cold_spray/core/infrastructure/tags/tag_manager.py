@@ -49,6 +49,7 @@ class TagManager:
         try:
             # Get hardware config
             hw_config = await self._config_manager.get_config("hardware")
+            logger.debug(f"Hardware config received: {hw_config}")
             if not hw_config:
                 raise HardwareError("No hardware configuration found", "tags")
 

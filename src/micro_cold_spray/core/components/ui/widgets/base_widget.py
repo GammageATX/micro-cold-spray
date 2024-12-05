@@ -150,3 +150,8 @@ class BaseWidget(QWidget):
             }
             logger.error(f"Error sending update: {error_context}")
             raise UIError("Failed to send update", error_context) from e
+
+    @property
+    def config_manager(self):
+        """Get the config manager instance."""
+        return self._ui_manager._config_manager

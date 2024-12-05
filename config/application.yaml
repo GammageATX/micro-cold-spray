@@ -1,143 +1,152 @@
-version: "1.0.0"
+version: 1.0.0
 application:
-  # Core Application Info
   info:
-    name: "Micro Cold Spray Control System"
-    version: "1.0.0"
-    description: "Control system for micro cold spray deposition"
-
+    name: Micro Cold Spray Control System
+    version: 1.0.0
+    description: Control system for micro cold spray deposition
   paths:
     config:
-      root: "config/"
-      application: "config/application.yaml"
-      file_format: "config/file_format.yaml"
-      hardware: "config/hardware.yaml"
-      process: "config/process.yaml"
-      state: "config/state.yaml"
-      tags: "config/tags.yaml"
-      ui: "config/ui.yaml"
-
+      root: config/
+      application: config/application.yaml
+      file_format: config/file_format.yaml
+      hardware: config/hardware.yaml
+      process: config/process.yaml
+      state: config/state.yaml
+      tags: config/tags.yaml
+      ui: config/ui.yaml
     data:
-      root: "data/"
-      parameters: "data/parameters/"
+      root: data/
+      parameters: data/parameters/
       patterns:
-        root: "data/patterns/"
-        custom: "data/patterns/custom/"
-        serpentine: "data/patterns/serpentine/"
-        spiral: "data/patterns/spiral/"
-      sequences: "data/sequences/"
-      powders: "data/powders/"
-      runs: "data/runs/"
-    
-    logs: "logs/"
-    resources: "resources/"    
-    tags: "resources/tags/"
-
-  # Runtime Environment
+        root: data/patterns/
+        custom: data/patterns/custom/
+        serpentine: data/patterns/serpentine/
+        spiral: data/patterns/spiral/
+      sequences: data/sequences/
+      powders: data/powders/
+      runs: data/runs/
+    logs: logs/
+    resources: resources/
+    tags: resources/tags/
   environment:
-    mode: "development"  # development/production
+    mode: development
     debug: true
     async_mode: true
-    log_level: "INFO"
-    user: ""  # Current user name
-    user_history: []  # List of recent users
-
-  # Core Services
+    log_level: INFO
+    user: Michael Gammage
+    user_history:
+    - Default User
+    - Michael Gammage
   services:
     message_broker:
       topics:
-        tag_operations: ["tag/set", "tag/get", "tag/update", "tag/get/response"]
-        state_operations: ["state/request", "state/change", "state/error"]
-        config_operations: ["config/update/*", "config/update/response"]
-        data_operations: ["data/list_files", "data/load", "data/save", "data/delete", "data/error"]
-        pattern_operations: ["patterns/created", "patterns/updated", "patterns/deleted", "patterns/error"]
-        action_operations: ["action/execute", "action/status", "action/complete", "action/error"]
-        validation_operations: ["validation/request", "validation/response"]
-        ui_operations: ["ui/widget/registered", "ui/widget/unregistered", "ui/update", "ui/error"]
-        error_topic: "error"
-
+        tag_operations:
+        - tag/set
+        - tag/get
+        - tag/update
+        - tag/get/response
+        state_operations:
+        - state/request
+        - state/change
+        - state/error
+        config_operations:
+        - config/update/*
+        - config/update/response
+        data_operations:
+        - data/list_files
+        - data/load
+        - data/save
+        - data/delete
+        - data/error
+        pattern_operations:
+        - patterns/created
+        - patterns/updated
+        - patterns/deleted
+        - patterns/error
+        action_operations:
+        - action/execute
+        - action/status
+        - action/complete
+        - action/error
+        validation_operations:
+        - validation/request
+        - validation/response
+        ui_operations:
+        - ui/widget/registered
+        - ui/widget/unregistered
+        - ui/update
+        - ui/error
+        error_topic: error
     data_manager:
       validation_enabled: true
       formats:
-        - parameters
-        - patterns
-        - sequences
-        - nozzles
-        - powders
-        - runs
-        - spray_data
+      - parameters
+      - patterns
+      - sequences
+      - nozzles
+      - powders
+      - runs
+      - spray_data
       cache_enabled: true
       cache_timeout: 1000
-
     config_manager:
       validation_enabled: true
       backup_enabled: true
       backup_interval: 3600
-      
     tag_manager:
       poll_rate: 100
       cache_enabled: true
       cache_timeout: 1000
-      
     state_manager:
       history_enabled: true
       history_length: 1000
       transition_timeout: 5000
-      
     ui_manager:
       update_rate: 100
       error_display_timeout: 5000
-
-  # Development Tools
   development:
     mock_hardware: true
     profiling: false
     testing:
       enabled: false
       coverage: false
-
-# Window Configuration
 window:
-  title: "Micro Cold Spray Control System"
+  title: Micro Cold Spray Control System
   geometry:
     x: 100
     y: 100
-    width: 1920  # Standard desktop width
-    height: 1080  # Standard desktop height
-    
+    width: 1280
+    height: 720
   layout:
     main:
-      - dashboard  # System overview
-      - motion     # Motion control
-      - process    # Process control
-      - editor     # File editors
-      - config     # System configuration
-      - diagnostics # System diagnostics
-      
+    - dashboard
+    - motion
+    - process
+    - editor
+    - config
+    - diagnostics
   style:
-    theme: "system"  # Use system theme
+    theme: system
     font:
-      family: "Segoe UI"
+      family: Segoe UI
       size: 10
-    
   widgets:
     dashboard:
-      - status_panel
-      - control_panel
+    - status_panel
+    - control_panel
     motion:
-      - chamber_view
-      - motion_control
+    - chamber_view
+    - motion_control
     process:
-      - parameter_editor
-      - process_display
+    - parameter_editor
+    - process_display
     editor:
-      - pattern_editor
-      - sequence_builder
-      - sequence_visualizer
+    - pattern_editor
+    - sequence_builder
+    - sequence_visualizer
     config:
-      - config_editor
-      - hardware_setup
+    - config_editor
+    - hardware_setup
     diagnostics:
-      - tag_monitor
-      - validation_panel
-
+    - tag_monitor
+    - validation_panel

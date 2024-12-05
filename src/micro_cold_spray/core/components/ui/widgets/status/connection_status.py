@@ -40,25 +40,57 @@ class ConnectionStatus(BaseWidget):
         super().__init__(
             widget_id="widget_system_connection",
             ui_manager=ui_manager,
-            update_tags=["hardware_status", "system.connection", "system.users", "config.application"],
+            update_tags=["hardware_status", "system.connection"],
             parent=parent
         )
         self._init_ui()
         logger.info("Connection status widget initialized")
 
-        # Request initial user list
-        asyncio.create_task(self._request_user_list())
+        # Load initial state
+        asyncio.create_task(self._load_initial_state())
 
-    async def _request_user_list(self) -> None:
-        """Request the current user list."""
+    async def _load_initial_state(self) -> None:
+        """Load initial state from config."""
         try:
-            # Request application config to get user list
-            await self._ui_manager.send_update("config/get", {
-                "config_type": "application",
-                "key": "application.environment"
-            })
+            # Get initial config directly
+            config = await self.config_manager.get_config("application")
+            env_config = config.get("application", {}).get("environment", {})
+
+            # Set initial user list
+            users = env_config.get("user_history", [])
+            if users:
+                self.set_users(users)
+
+            # Set current user if one is saved
+            current_user = env_config.get("user", "")
+            if current_user:
+                self.user_combo.setCurrentText(current_user)
+
+            # Subscribe to config updates for real-time changes
+            await self._ui_manager._message_broker.subscribe(
+                "config/update/application",
+                self._handle_config_update
+            )
+
         except Exception as e:
-            logger.error(f"Error requesting user list: {e}")
+            logger.error(f"Error loading initial state: {e}")
+
+    async def _handle_config_update(self, data: Dict[str, Any]) -> None:
+        """Handle real-time config updates."""
+        try:
+            if "application" in data.get("data", {}):
+                env_config = data["data"]["application"].get("environment", {})
+                users = env_config.get("user_history", [])
+                if users:
+                    self.set_users(users)
+
+                # Update current user if changed
+                current_user = env_config.get("user", "")
+                if current_user:
+                    self.user_combo.setCurrentText(current_user)
+
+        except Exception as e:
+            logger.error(f"Error handling config update: {e}")
 
     async def handle_ui_update(self, data: Dict[str, Any]) -> None:
         """Handle UI updates."""
@@ -72,13 +104,6 @@ class ConnectionStatus(BaseWidget):
                 connected = data.get("connected", False)
                 self.update_plc_status(connected)
                 self.update_ssh_status(connected)
-
-            elif "config.application" in data:
-                # Update user list from application config
-                env_config = data.get("config.application", {}).get("application", {}).get("environment", {})
-                users = env_config.get("user_history", [])
-                if users:
-                    self.set_users(users)
 
         except Exception as e:
             logger.error(f"Error handling UI update: {e}")
@@ -164,15 +189,12 @@ class ConnectionStatus(BaseWidget):
                         self.user_combo.insertItem(self.user_combo.count() - 1, new_user)
                         self.user_combo.setCurrentText(new_user)
 
-                        # Update application config with new user
-                        await self._ui_manager.send_update("config/update/request", {
-                            "config_type": "application",
-                            "data": {
-                                "application": {
-                                    "environment": {
-                                        "user": new_user,
-                                        "user_history": current_items + [new_user]
-                                    }
+                        # Update application config directly
+                        await self.config_manager.update_config("application", {
+                            "application": {
+                                "environment": {
+                                    "user": new_user,
+                                    "user_history": current_items + [new_user]
                                 }
                             }
                         })
