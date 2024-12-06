@@ -83,7 +83,9 @@ class ChamberView(BaseWidget):
             if "motion.position" in data:
                 position_data = data.get("motion.position", {})
                 if isinstance(position_data, dict):
-                    if "position" in position_data:
+                    if "data" in position_data and "position" in position_data["data"]:
+                        pos = position_data["data"]["position"]
+                    elif "position" in position_data:
                         pos = position_data["position"]
                     else:
                         pos = position_data

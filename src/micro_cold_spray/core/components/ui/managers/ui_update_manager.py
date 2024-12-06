@@ -337,10 +337,10 @@ class UIUpdateManager:
                     continue
 
                 widget = widget_data.get('widget_ref')
-                if not widget or not hasattr(widget, 'update'):
+                if not widget or not hasattr(widget, 'handle_ui_update'):
                     continue
 
-                await widget.update(data)
+                await widget.handle_ui_update({tag: data.get("value")})
 
             # Publish UI update
             await self._message_broker.publish(f"ui/update/{tag}", {
@@ -597,6 +597,14 @@ class UIUpdateManager:
             if operation == "data/list":
                 # Request file list from DataManager
                 logger.debug(f"Requesting file list for type: {data.get('type')}")
+                await self._message_broker.publish("data/list_files", {
+                    "type": data.get("type")
+                })
+                return
+
+            if operation == "data/list_files":
+                # Forward file list request to DataManager
+                logger.debug(f"Forwarding file list request for type: {data.get('type')}")
                 await self._message_broker.publish("data/list_files", {
                     "type": data.get("type")
                 })

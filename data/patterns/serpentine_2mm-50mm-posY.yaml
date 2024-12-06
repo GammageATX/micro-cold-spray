@@ -1,7 +1,6 @@
-pattern:
-  type: "serpentine"
-  params:
-    length: 50.0              # Primary direction length in mm
-    width: 30.0              # Secondary direction width in mm
-    spacing: 2.0             # Line spacing in mm
-    direction: "posY"        # Primary direction (posY = positive Y with X steps)
+params:
+  direction: posY
+  length: 50.0
+  width: 30.0
+  spacing: 2.0
+type: serpentine

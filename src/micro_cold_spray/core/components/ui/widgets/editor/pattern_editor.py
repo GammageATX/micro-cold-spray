@@ -1,45 +1,38 @@
 """Pattern editor widget for editing spray patterns."""
-from typing import Any, Dict, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime
+import asyncio
 
 from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QGridLayout,
     QPushButton, QLabel, QComboBox, QDoubleSpinBox,
-    QLineEdit, QTextEdit, QMessageBox, QFrame, QScrollArea,
-    QWidget
+    QMessageBox, QFrame, QScrollArea,
+    QTableWidget, QTableWidgetItem, QHeaderView
 )
-from PySide6.QtCore import Qt
 from loguru import logger
 
-from ..base_widget import BaseWidget
-from ...managers.ui_update_manager import UIUpdateManager
+from micro_cold_spray.core.components.ui.widgets.base_widget import BaseWidget
+from micro_cold_spray.core.components.ui.managers.ui_update_manager import UIUpdateManager
 
 
 class PatternEditor(BaseWidget):
     """Pattern editor widget."""
 
     def __init__(self, ui_manager: UIUpdateManager, parent=None) -> None:
-        """Initialize the pattern editor."""
+        """Initialize the pattern editor widget."""
         super().__init__(
             widget_id="widget_editor_pattern",
             ui_manager=ui_manager,
             update_tags=[
-                "data.list",
-                "patterns.types",
-                "patterns.current",
-                "patterns.validation",
-                "patterns.parameters",
-                "patterns.template"
+                "data/files/listed",
+                "data/loaded",
+                "data/saved",
+                "data/error"
             ],
             parent=parent
         )
-        self._parameter_widgets = {}
-        self._current_file = None
-        self._is_new_pattern = True
-        self._setup_ui()
 
-    def _setup_ui(self) -> None:
-        """Set up the UI layout."""
+        # Create layout
         layout = QVBoxLayout()
         layout.setContentsMargins(10, 10, 10, 10)
 
@@ -64,8 +57,7 @@ class PatternEditor(BaseWidget):
         # Create scrollable parameter area
         self._scroll_area = QScrollArea()
         self._scroll_area.setWidgetResizable(True)
-        self._scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll_area.setFrameShape(QFrame.NoFrame)
 
         # Create frame for parameters
         self._params_frame = QFrame()
@@ -80,83 +72,22 @@ class PatternEditor(BaseWidget):
 
         # Connect signals
         self._new_btn.clicked.connect(self._on_new_clicked)
-        self._save_btn.clicked.connect(self._on_save_clicked)
+        self._save_btn.clicked.connect(lambda: asyncio.create_task(self._on_save_clicked()))
         self._pattern_combo.currentTextChanged.connect(self._on_pattern_changed)
 
         self.setLayout(layout)
 
-    def _get_parameter_definitions(self, pattern_type: str) -> list:
-        """Get parameter definitions for the given pattern type."""
-        if pattern_type == "serpentine":
-            return [
-                {"name": "length", "type": "float", "description": "Pattern length in mm"},
-                {"name": "width", "type": "float", "description": "Pattern width in mm"},
-                {"name": "spacing", "type": "float", "description": "Line spacing in mm"},
-                {"name": "direction", "type": "string", 
-                 "options": ["posX", "negX", "posY", "negY"],
-                 "description": "Primary direction of motion"}
-            ]
-        elif pattern_type == "spiral":
-            return [
-                {"name": "diameter", "type": "float", "description": "Total diameter in mm"},
-                {"name": "pitch", "type": "float", "description": "Distance between revolutions in mm"},
-                {"name": "direction", "type": "string", 
-                 "options": ["CW", "CCW"],
-                 "description": "Spiral direction"}
-            ]
-        elif pattern_type == "linear":
-            return [
-                {"name": "length", "type": "float", "description": "Pattern length in mm"},
-                {"name": "direction", "type": "string", 
-                 "options": ["posX", "negX", "posY", "negY"],
-                 "description": "Direction of motion"}
-            ]
-        elif pattern_type == "custom":
-            return [
-                {"name": "name", "type": "string", "description": "Custom pattern name"},
-                {"name": "points", "type": "points", 
-                 "description": "List of points [x, y, z] relative to start"}
-            ]
-        return []
+        # Initialize state
+        self._parameter_widgets = {}
+        self._current_file = None
+        self._is_new_pattern = False
 
-    def _create_parameter_widget(self, param: Dict[str, Any], values: Dict[str, Any]) -> QWidget:
-        """Create a widget for the given parameter."""
-        name = param["name"]
-        param_type = param["type"]
+        # Request initial file list
+        asyncio.create_task(self._reload_file_list())
 
-        if param_type == "float":
-            widget = QDoubleSpinBox()
-            widget.setMinimum(0)  # All dimensions are positive
-            widget.setMaximum(1000)
-            widget.setDecimals(3)
-            if values and name in values:
-                widget.setValue(float(values[name]))
-        elif param_type == "points":
-            widget = QTextEdit()
-            widget.setPlaceholderText("[[x1, y1, z1], [x2, y2, z2], ...]\nAll coordinates relative to (0,0,0)")
-            if values and name in values:
-                points = values[name]
-                text = "\n".join(
-                    f"[{p['position'][0]}, {p['position'][1]}, {p['position'][2]}]"
-                    for p in points
-                )
-                widget.setText(text)
-        elif param_type == "string" and "options" in param:
-            widget = QComboBox()
-            widget.addItems(param["options"])
-            if values and name in values:
-                widget.setCurrentText(values[name])
-        else:
-            widget = QLineEdit()
-            if values and name in values:
-                widget.setText(str(values[name]))
-
-        widget.setToolTip(param.get("description", ""))
-        return widget
-
-    def _show_type_parameters(self, pattern_type: str, values: Dict[str, Any] = None) -> None:
-        """Show parameters for the selected pattern type."""
-        # Clear existing widgets
+    def _reset_form(self) -> None:
+        """Reset the form to initial state."""
+        # Clear existing parameter widgets
         for widget in self._parameter_widgets.values():
             widget.deleteLater()
         self._parameter_widgets.clear()
@@ -167,87 +98,10 @@ class PatternEditor(BaseWidget):
             if item.widget():
                 item.widget().deleteLater()
 
-        row = 0
-
-        # Add type selector for new patterns
-        if self._is_new_pattern:
-            type_label = QLabel("Type:")
-            type_combo = QComboBox()
-            type_combo.addItem("Select Type", "")  # Blank default
-            type_combo.addItems(["serpentine", "spiral", "linear", "custom"])
-            if pattern_type:
-                type_combo.setCurrentText(pattern_type)
-            type_combo.currentTextChanged.connect(self._on_type_changed)
-            self._params_layout.addWidget(type_label, row, 0)
-            self._params_layout.addWidget(type_combo, row, 1)
-            self._parameter_widgets["type"] = type_combo
-            row += 1
-
-        # Get and add parameter widgets
-        params = self._get_parameter_definitions(pattern_type)
-        for param in params:
-            name = param["name"]
-            
-            # Create label
-            label = QLabel(name.replace('_', ' ').title())
-            label.setToolTip(param.get("description", ""))
-            self._params_layout.addWidget(label, row, 0)
-
-            # Create and add widget
-            widget = self._create_parameter_widget(param, values)
-            self._params_layout.addWidget(widget, row, 1)
-            self._parameter_widgets[name] = widget
-
-            # Connect widget's value changed signal to enable save button
-            if isinstance(widget, QComboBox):
-                widget.currentTextChanged.connect(lambda: self._save_btn.setEnabled(True))
-            elif isinstance(widget, QDoubleSpinBox):
-                widget.valueChanged.connect(lambda: self._save_btn.setEnabled(True))
-            elif isinstance(widget, (QLineEdit, QTextEdit)):
-                widget.textChanged.connect(lambda: self._save_btn.setEnabled(True))
-
-            row += 1
-
-    def _on_new_clicked(self) -> None:
-        """Handle new pattern button click."""
-        self._is_new_pattern = True
-        self._save_btn.setEnabled(False)  # Disable until type is selected
-        self._pattern_combo.setCurrentText("")
+        # Reset state
         self._current_file = None
-        self._show_type_parameters("")  # Show blank type selector
-
-    def _on_type_changed(self, pattern_type: str) -> None:
-        """Handle pattern type change."""
-        if self._is_new_pattern:
-            if pattern_type:  # Only show parameters if a type is selected
-                self._show_type_parameters(pattern_type)
-                self._save_btn.setEnabled(True)
-            else:
-                self._save_btn.setEnabled(False)
-
-    def _on_pattern_changed(self, pattern_name: str) -> None:
-        """Handle pattern selection change."""
-        if pattern_name:
-            self._is_new_pattern = False
-            self._load_pattern(pattern_name)
-        else:
-            self._current_file = None
-            self._save_btn.setEnabled(False)
-            self._show_type_parameters("")
-
-    async def _load_pattern(self, pattern_name: str) -> None:
-        """Load the selected pattern."""
-        try:
-            await self._ui_manager.send_update(
-                "patterns/load",
-                {
-                    "filename": pattern_name,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-            self._current_file = pattern_name
-        except Exception as e:
-            logger.error(f"Error loading pattern: {e}")
+        self._is_new_pattern = False
+        self._save_btn.setEnabled(False)
 
     async def _on_save_clicked(self) -> None:
         """Handle save button click."""
@@ -255,7 +109,7 @@ class PatternEditor(BaseWidget):
             if self._is_new_pattern:
                 # Get type and parameters
                 pattern_type = self._parameter_widgets["type"].currentText()
-                if not pattern_type:
+                if not pattern_type or pattern_type == "Select Type":
                     QMessageBox.warning(self, "Error", "Please select a pattern type")
                     return
 
@@ -269,22 +123,19 @@ class PatternEditor(BaseWidget):
                 if not filename:
                     return  # Error already shown
 
+                logger.info(f"Saving new pattern: {filename}")
+                logger.info(f"Pattern data: {pattern}")
+
                 # Send save request
                 await self._ui_manager.send_update(
-                    "patterns/save",
+                    "data/save",
                     {
-                        "filename": filename,
-                        "pattern": pattern,
+                        "type": "patterns",
+                        "name": filename,
+                        "value": pattern,
                         "timestamp": datetime.now().isoformat()
                     }
                 )
-
-                # Reset UI
-                self._pattern_combo.setCurrentText("")
-                self._show_type_parameters("")
-                self._save_btn.setEnabled(False)
-                self._current_file = None
-                self._is_new_pattern = True
 
             elif self._current_file:
                 # Save changes to existing pattern
@@ -293,61 +144,330 @@ class PatternEditor(BaseWidget):
                 if not pattern:
                     return  # Error already shown
 
+                logger.info(f"Saving existing pattern: {self._current_file}")
+                logger.info(f"Pattern data: {pattern}")
+
                 await self._ui_manager.send_update(
-                    "patterns/save",
+                    "data/save",
                     {
-                        "filename": self._current_file,
-                        "pattern": pattern,
+                        "type": "patterns",
+                        "name": self._current_file,
+                        "value": pattern,
                         "timestamp": datetime.now().isoformat()
                     }
                 )
-                self._save_btn.setEnabled(False)
 
         except Exception as e:
             logger.error(f"Error saving pattern: {e}")
             QMessageBox.warning(self, "Error", f"Failed to save pattern: {e}")
 
-    def _build_pattern_data(self, pattern_type: str) -> Optional[Dict]:
-        """Build pattern data from widgets."""
+    async def handle_ui_update(self, data: Dict[str, Any]) -> None:
+        """Handle UI updates."""
         try:
-            pattern = {
-                "type": pattern_type,
-                "params": {}
-            }
+            if "data/files/listed" in data:
+                list_data = data
+                if list_data.get("type") == "patterns":
+                    files = list_data.get("files", [])
+                    current_text = self._pattern_combo.currentText()
+                    self._pattern_combo.clear()
+                    self._pattern_combo.addItem("")  # Add empty option
+                    self._pattern_combo.addItems(files)
+                    if current_text in files:
+                        self._pattern_combo.setCurrentText(current_text)
+                    logger.debug(f"Updated pattern list with {len(files)} patterns")
+
+            elif "data/loaded" in data:
+                loaded_data = data
+                if loaded_data.get("type") == "patterns":
+                    pattern_data = loaded_data.get("value", {})
+                    pattern_type = pattern_data.get("type")
+                    params = pattern_data.get("params", {})
+                    self._show_type_parameters(pattern_type, params)
+                    logger.debug(f"Loaded pattern of type: {pattern_type}")
+
+            elif "data/saved" in data:
+                saved_data = data
+                if saved_data.get("type") == "patterns":
+                    saved_name = saved_data.get("name")
+                    logger.debug(f"Pattern saved: {saved_name}")
+                    # Reset form first
+                    self._reset_form()
+                    # Then request file list update
+                    await self._reload_file_list()
+
+            elif "data/error" in data:
+                error_data = data
+                if error_data.get("type") == "patterns":
+                    error_msg = error_data.get("error", "Unknown error")
+                    QMessageBox.warning(self, "Error", f"Pattern operation failed: {error_msg}")
+                    logger.error(f"Pattern operation error: {error_msg}")
+
+        except Exception as e:
+            logger.error(f"Error handling UI update: {e}")
+
+    async def _reload_file_list(self) -> None:
+        """Reload the pattern file list."""
+        try:
+            logger.debug("Requesting pattern file list refresh")
+            await self._ui_manager.send_update(
+                "data/list_files",
+                {
+                    "type": "patterns",
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+        except Exception as e:
+            logger.error(f"Error reloading file list: {e}")
+            QMessageBox.warning(self, "Error", f"Failed to reload file list: {e}")
+
+    def _on_pattern_changed(self, pattern_name: str) -> None:
+        """Handle pattern selection change."""
+        if not pattern_name:
+            self._reset_form()
+            return
+
+        self._is_new_pattern = False
+        self._current_file = pattern_name
+        self._save_btn.setEnabled(False)
+
+        # Request pattern data
+        asyncio.create_task(
+            self._ui_manager.send_update(
+                "data/load",
+                {
+                    "type": "patterns",
+                    "name": pattern_name,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+        )
+
+    def _get_parameter_definitions(self, pattern_type: str) -> list:
+        """Get parameter definitions for pattern type."""
+        if pattern_type == "linear":
+            return [
+                {"name": "length", "type": "float", "default": 2.0, "min": 0.1, "max": 1000.0},
+                {"name": "direction", "type": "choice", "choices": ["posX", "negX", "posY", "negY"]}
+            ]
+        elif pattern_type == "serpentine":
+            return [
+                {"name": "length", "type": "float", "default": 50.0, "min": 0.1, "max": 1000.0},
+                {"name": "width", "type": "float", "default": 30.0, "min": 0.1, "max": 1000.0},
+                {"name": "spacing", "type": "float", "default": 2.0, "min": 0.1, "max": 100.0},
+                {"name": "direction", "type": "choice", "choices": ["posX", "negX", "posY", "negY"]}
+            ]
+        elif pattern_type == "spiral":
+            return [
+                {"name": "diameter", "type": "float", "default": 40.0, "min": 0.1, "max": 1000.0},
+                {"name": "pitch", "type": "float", "default": 2.0, "min": 0.1, "max": 100.0},
+                {"name": "direction", "type": "choice", "choices": ["CW", "CCW"]}
+            ]
+        elif pattern_type == "custom":
+            return [
+                {"name": "points", "type": "table", "columns": ["X", "Y", "Z"]}
+            ]
+        return []
+
+    def _show_type_parameters(self, pattern_type: str, params: Dict = None) -> None:
+        """Show parameters for selected pattern type."""
+        try:
+            self._clear_form()
+            row = self._setup_type_selector(pattern_type) if self._is_new_pattern else 0
+
+            if pattern_type:
+                self._setup_pattern_parameters(pattern_type, params, row)
+
+        except Exception as e:
+            logger.error(f"Error showing parameters: {e}")
+            QMessageBox.warning(self, "Error", f"Failed to show parameters: {e}")
+
+    def _clear_form(self) -> None:
+        """Clear all widgets from the form."""
+        # Clear existing parameter widgets
+        for widget in self._parameter_widgets.values():
+            widget.deleteLater()
+        self._parameter_widgets.clear()
+
+        # Clear layout
+        while self._params_layout.count():
+            item = self._params_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+    def _setup_type_selector(self, pattern_type: str) -> int:
+        """Setup the type selector for new patterns."""
+        type_label = QLabel("Type:")
+        type_combo = QComboBox()
+        type_combo.addItem("Select Type", "")  # Blank default
+        type_combo.addItems(["linear", "serpentine", "spiral", "custom"])
+        if pattern_type:
+            type_combo.setCurrentText(pattern_type)
+        type_combo.currentTextChanged.connect(self._on_type_changed)
+        self._params_layout.addWidget(type_label, 0, 0)
+        self._params_layout.addWidget(type_combo, 0, 1)
+        self._parameter_widgets["type"] = type_combo
+        return 1  # Return next row index
+
+    def _setup_pattern_parameters(self, pattern_type: str, params: Dict, start_row: int) -> None:
+        """Setup the parameters for the selected pattern type."""
+        if not pattern_type or pattern_type == "Select Type":
+            return
+
+        param_defs = self._get_parameter_definitions(pattern_type)
+        row = start_row
+
+        for param in param_defs:
+            if param.get("type") == "table":
+                row = self._setup_table_parameter(param, params, row)
+            else:
+                row = self._setup_basic_parameter(param, params, row)
+
+        # Add stretch to bottom
+        self._params_layout.setRowStretch(row, 1)
+
+    def _setup_table_parameter(self, param: Dict, params: Dict, row: int) -> int:
+        """Setup a table parameter widget."""
+        table = QTableWidget()
+        table.setColumnCount(3)
+        table.setHorizontalHeaderLabels(param["columns"])
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+
+        # Add buttons for table manipulation
+        btn_layout = QHBoxLayout()
+        add_row_btn = QPushButton("Add Row")
+        del_row_btn = QPushButton("Delete Row")
+        btn_layout.addWidget(add_row_btn)
+        btn_layout.addWidget(del_row_btn)
+
+        # Add button handlers
+        add_row_btn.clicked.connect(lambda: self._add_table_row(table))
+        del_row_btn.clicked.connect(lambda: self._delete_table_row(table))
+
+        # Load existing points if any
+        if params and "points" in params:
+            points = params["points"]
+            table.setRowCount(len(points))
+            for i, point in enumerate(points):
+                for j, val in enumerate(point):
+                    item = QTableWidgetItem(str(val))
+                    table.setItem(i, j, item)
+        else:
+            # Start with one empty row
+            self._add_table_row(table)
+
+        # Add to layout
+        self._params_layout.addLayout(btn_layout, row, 0, 1, 2)
+        row += 1
+        self._params_layout.addWidget(table, row, 0, 1, 2)
+        self._parameter_widgets[param["name"]] = table
+
+        # Connect table changes to enable save button
+        table.itemChanged.connect(lambda: self._save_btn.setEnabled(True))
+
+        return row + 1
+
+    def _setup_basic_parameter(self, param: Dict, params: Dict, row: int) -> int:
+        """Setup a basic parameter widget (float or choice)."""
+        name = param["name"]
+        param_type = param.get("type", "float")
+
+        label = QLabel(name.replace('_', ' ').title())
+        label.setToolTip(param.get("description", ""))
+        self._params_layout.addWidget(label, row, 0)
+
+        if param_type == "choice":
+            widget = QComboBox()
+            widget.addItems(param["choices"])
+            if params and name in params:
+                widget.setCurrentText(str(params[name]))
+            widget.currentTextChanged.connect(lambda: self._save_btn.setEnabled(True))
+        else:  # float
+            widget = QDoubleSpinBox()
+            widget.setMinimum(param.get("min", 0.0))
+            widget.setMaximum(param.get("max", 1000.0))
+            widget.setSingleStep(0.1)
+            if params and name in params:
+                widget.setValue(float(params[name]))
+            else:
+                widget.setValue(param.get("default", 0.0))
+            widget.valueChanged.connect(lambda: self._save_btn.setEnabled(True))
+
+        self._params_layout.addWidget(widget, row, 1)
+        self._parameter_widgets[name] = widget
+
+        return row + 1
+
+    def _add_table_row(self, table: QTableWidget) -> None:
+        """Add a new row to the points table."""
+        current_rows = table.rowCount()
+        table.setRowCount(current_rows + 1)
+        for col in range(3):
+            item = QTableWidgetItem("0.0")
+            table.setItem(current_rows, col, item)
+
+    def _delete_table_row(self, table: QTableWidget) -> None:
+        """Delete selected row from points table."""
+        current_row = table.currentRow()
+        if current_row >= 0:
+            table.removeRow(current_row)
+        if table.rowCount() == 0:
+            self._add_table_row(table)
+
+    def _on_new_clicked(self) -> None:
+        """Handle new pattern button click."""
+        self._is_new_pattern = True
+        self._current_file = None
+        self._show_type_parameters("")  # Show empty form with type selector
+        self._save_btn.setEnabled(False)
+
+    def _on_type_changed(self, pattern_type: str) -> None:
+        """Handle pattern type change."""
+        self._show_type_parameters(pattern_type)
+        self._save_btn.setEnabled(pattern_type and pattern_type != "Select Type")
+
+    def _build_pattern_data(self, pattern_type: str) -> Dict:
+        """Build pattern data from form values."""
+        try:
+            pattern = {"type": pattern_type, "params": {}}
 
             for name, widget in self._parameter_widgets.items():
-                if name == "type":
-                    continue
-                if isinstance(widget, QDoubleSpinBox):
-                    pattern["params"][name] = widget.value()
+                if isinstance(widget, QTableWidget):
+                    pattern["params"][name] = self._get_table_points(widget)
                 elif isinstance(widget, QComboBox):
                     pattern["params"][name] = widget.currentText()
-                elif isinstance(widget, QTextEdit) and name == "points":
-                    points_text = widget.toPlainText().strip()
-                    points = []
-                    if points_text:
-                        point_lines = [line.strip() for line in points_text.split('\n') if line.strip()]
-                        for line in point_lines:
-                            coords = [float(x.strip()) for x in line.strip('[]').split(',')]
-                            if len(coords) != 3:
-                                raise ValueError(f"Invalid point format: {line}")
-                            points.append({"position": coords})
-                    pattern["params"][name] = points
-                elif isinstance(widget, QLineEdit):
-                    pattern["params"][name] = widget.text()
+                elif isinstance(widget, QDoubleSpinBox):
+                    pattern["params"][name] = widget.value()
 
             return pattern
+
         except Exception as e:
             logger.error(f"Error building pattern data: {e}")
-            QMessageBox.warning(self, "Error", str(e))
+            QMessageBox.warning(self, "Error", f"Failed to build pattern data: {e}")
             return None
+
+    def _get_table_points(self, table: QTableWidget) -> List[List[float]]:
+        """Get points from table widget."""
+        points = []
+        for row in range(table.rowCount()):
+            point = []
+            for col in range(table.columnCount()):
+                item = table.item(row, col)
+                if item is None or not item.text().strip():
+                    continue
+                try:
+                    point.append(float(item.text()))
+                except ValueError:
+                    raise ValueError(f"Invalid number in row {row+1}, column {col+1}")
+            if len(point) == 3:  # Only add complete points
+                points.append(point)
+        return points
 
     def _generate_filename(self, pattern: Dict) -> Optional[str]:
         """Generate filename from pattern data."""
         try:
             pattern_type = pattern["type"]
             params = pattern["params"]
-            
+
             if pattern_type == "linear":
                 return f"linear_{params['length']}mm-{params['direction']}"
             elif pattern_type == "serpentine":
@@ -362,27 +482,3 @@ class PatternEditor(BaseWidget):
             logger.error(f"Error generating filename: {e}")
             QMessageBox.warning(self, "Error", f"Failed to generate filename: {e}")
             return None
-
-    async def handle_ui_update(self, data: Dict[str, Any]) -> None:
-        """Handle UI updates."""
-        try:
-            if "data.list" in data:
-                list_data = data["data.list"]
-                if list_data.get("type") == "patterns":
-                    files = list_data.get("files", [])
-                    self._pattern_combo.clear()
-                    self._pattern_combo.addItem("")  # Add empty option
-                    self._pattern_combo.addItems(files)
-                    logger.debug(f"Updated pattern list with {len(files)} patterns")
-
-            if "patterns.loaded" in data:
-                pattern_data = data["patterns.loaded"]["pattern"]
-                pattern_type = pattern_data["type"]
-                params = pattern_data.get("params", {})
-                if pattern_type == "custom":
-                    params = {"points": pattern_data["points"]}
-                self._show_type_parameters(pattern_type, params)
-                logger.debug(f"Loaded pattern of type: {pattern_type}")
-
-        except Exception as e:
-            logger.error(f"Error handling UI update: {e}")
