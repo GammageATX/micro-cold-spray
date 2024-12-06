@@ -81,20 +81,27 @@ class ChamberView(BaseWidget):
         """Handle updates from UIUpdateManager."""
         try:
             if "motion.position" in data:
-                position_data = data.get("motion.position", {})
+                # Handle UIUpdateManager wrapping
+                if "type" in data and "data" in data:
+                    position_data = data["data"]
+                else:
+                    position_data = data.get("motion.position", {})
+
                 if isinstance(position_data, dict):
-                    if "data" in position_data and "position" in position_data["data"]:
-                        pos = position_data["data"]["position"]
-                    elif "position" in position_data:
+                    # Extract position from data structure
+                    if "position" in position_data:
                         pos = position_data["position"]
                     else:
                         pos = position_data
 
-                    self.update_position(
-                        pos.get('x', 0.0),
-                        pos.get('y', 0.0),
-                        pos.get('z', 0.0)
-                    )
+                    # Update position if valid
+                    if isinstance(pos, dict) and all(k in pos for k in ['x', 'y', 'z']):
+                        self.update_position(
+                            pos.get('x', 0.0),
+                            pos.get('y', 0.0),
+                            pos.get('z', 0.0)
+                        )
+                        logger.debug(f"Updated chamber view position to: {pos}")
 
             elif "hardware.stage" in data:
                 # Update stage dimensions if they change

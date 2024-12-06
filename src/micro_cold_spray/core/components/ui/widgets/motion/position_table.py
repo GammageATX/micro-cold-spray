@@ -1,5 +1,5 @@
 """Position table widget for storing and managing positions."""
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Protocol, runtime_checkable
 import asyncio
 
 from loguru import logger
@@ -16,12 +16,22 @@ from ...managers.ui_update_manager import UIUpdateManager
 from ..base_widget import BaseWidget
 
 
+@runtime_checkable
+class MotionTabProtocol(Protocol):
+    """Protocol for motion tab interface."""
+
+    async def handle_move_command(self, position: Dict[str, float]) -> None:
+        """Handle move command."""
+        ...
+
+
 class PositionTable(BaseWidget):
     """Widget for storing and managing positions."""
 
     def __init__(
         self,
         ui_manager: UIUpdateManager,
+        motion_tab: Optional[MotionTabProtocol] = None,
         parent=None
     ):
         super().__init__(
@@ -37,6 +47,7 @@ class PositionTable(BaseWidget):
 
         self._current_position = {'x': 0.0, 'y': 0.0, 'z': 0.0}
         self._is_connected = False
+        self._motion_tab = motion_tab
         self._init_ui()
         logger.info("Position table initialized")
 
@@ -171,35 +182,11 @@ class PositionTable(BaseWidget):
                 'z': float(self._table.item(row, 3).text())
             }
 
-            if self._is_connected:
-                # In connected state, send move command
-                await self._ui_manager.send_update(
-                    "ui/update",
-                    {
-                        "type": "motion.position",
-                        "data": {
-                            "position": position,
-                            "speed": 10.0,  # Default speed
-                            "simulated": False,
-                            "timestamp": None
-                        }
-                    }
-                )
-                logger.debug(f"Sent move command to position: {position}")
+            # Use motion tab's move command
+            if self._motion_tab:
+                await self._motion_tab.handle_move_command(position)
             else:
-                # In disconnected state, send visualization update
-                await self._ui_manager.send_update(
-                    "ui/update",
-                    {
-                        "type": "motion.position",
-                        "data": {
-                            "position": position,
-                            "simulated": True,
-                            "timestamp": None
-                        }
-                    }
-                )
-                logger.debug(f"Sent visualization update to position: {position}")
+                logger.warning("No motion tab reference available")
 
         except Exception as e:
             logger.error(f"Error moving to position: {e}")
