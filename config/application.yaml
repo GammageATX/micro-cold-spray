@@ -49,6 +49,14 @@ application:
         - state/request
         - state/change
         - state/error
+        sequence_operations:
+        - sequence/loaded
+        - sequence/state
+        - sequence/start
+        - sequence/stop
+        - sequence/complete
+        - sequence/error
+        - sequence/progress
         config_operations:
         - config/update/*
         - config/update/response
@@ -58,6 +66,7 @@ application:
         - data/save
         - data/delete
         - data/error
+        - data/collection/state
         pattern_operations:
         - patterns/created
         - patterns/updated

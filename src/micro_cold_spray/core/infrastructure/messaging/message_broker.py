@@ -134,6 +134,10 @@ class MessageBroker:
             message: The message data to publish
         """
         try:
+            # Add debug print for all outgoing messages
+            print(f"\n[MessageBroker] Publishing to '{topic}': {message}")  # Added print
+            logger.debug(f"Publishing message - Topic: {topic}, Message: {message}")
+
             if self._test_mode:
                 # Process message immediately in test mode
                 await self._handle_message(topic, message)
