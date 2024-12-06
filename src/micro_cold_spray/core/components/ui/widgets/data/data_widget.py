@@ -23,11 +23,9 @@ class DataWidget(BaseWidget):
             ui_manager=ui_manager,
             update_tags=[
                 "sequence/loaded",
-                "sequence.state",
-                "sequence.started",
-                "sequence.completed",
-                "data.collection.state",
-                "data.list"
+                "sequence/state",
+                "data/collection/state",
+                "data/list"
             ],
             parent=parent
         )
@@ -114,37 +112,26 @@ class DataWidget(BaseWidget):
         """Handle updates from UIUpdateManager."""
         try:
             logger.debug(f"DataWidget received update: {data}")
-            logger.debug(f"Current sequence: {self._current_sequence}")
-            logger.debug(f"Current user: {self._current_user}")
+            logger.debug(f"Update keys: {list(data.keys())}")
+            logger.debug(f"Current subscriptions: {self._update_tags}")
 
-            if "data.list" in data:
-                list_data = data["data.list"]
-                logger.debug(f"Received data.list update: {list_data}")
-                if list_data.get("type") == "sequences":
-                    # Update display when sequence list changes
-                    self._update_display()
-            elif "sequence/loaded" in data:
-                # Get sequence info from the loaded data
-                sequence_data = data.get("sequence/loaded", {})
+            if "sequence/loaded" in data:
+                sequence_data = data["sequence/loaded"]
                 logger.debug(f"Processing sequence/loaded update: {sequence_data}")
 
-                sequence_info = sequence_data.get("sequence", {})
-                if sequence_info:
-                    # Store sequence info for filename generation
+                if sequence_info := sequence_data.get("sequence", {}):
                     self._current_sequence = {
                         "name": sequence_info.get("name", "DefaultSequence"),
-                        "user": self._current_user,  # Use tracked user
+                        "user": self._current_user,
                         "metadata": sequence_info.get("metadata", {})
                     }
                     logger.debug(f"Updated current sequence: {self._current_sequence}")
-
-                    # Force display update
                     self._update_display()
                     self.status_label.setText("Status: Ready for data collection")
 
-            elif "sequence.state" in data:
-                state = data.get("sequence.state", {}).get("state", "")
-                logger.debug(f"Processing sequence.state update: {state}")
+            elif "sequence/state" in data:
+                state = data.get("sequence/state", {}).get("state", "")
+                logger.debug(f"Processing sequence/state update: {state}")
                 if state == "RUNNING":
                     self._collection_active = True
                     self.status_label.setText("Status: Collecting Data")
@@ -153,16 +140,22 @@ class DataWidget(BaseWidget):
                     self.status_label.setText("Status: Collection Complete")
                 self._update_display()
 
-            elif "data.collection.state" in data:
-                collection_state = data["data.collection.state"]
+            elif "data/collection/state" in data:
+                collection_state = data["data/collection/state"]
+                logger.debug(f"Processing data/collection/state update: {collection_state}")
                 await self._handle_collection_state(collection_state)
 
+            elif "data/list" in data:
+                list_data = data["data/list"]
+                logger.debug(f"Processing data/list update: {list_data}")
+                if list_data.get("type") == "sequences":
+                    self._update_display()
             else:
-                logger.debug(f"Unhandled update type. Keys in data: {list(data.keys())}")
+                logger.debug(f"Received unhandled update with keys: {list(data.keys())}")
 
         except Exception as e:
             logger.error(f"Error handling UI update: {e}")
-            await self.send_update("system.error", f"Data widget error: {str(e)}")
+            await self.send_update("system/error", f"Data widget error: {str(e)}")
 
     def _update_display(self) -> None:
         """Update the display with current information."""

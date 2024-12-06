@@ -1,5 +1,0 @@
-x,y,z,velocity,dwell,spray_on
-10.0,10.0,30.0,20.0,0.0,true    # Bottom left corner
-40.0,10.0,30.0,20.0,0.0,true    # Bottom right corner
-40.0,40.0,30.0,20.0,1.0,true    # Top right corner with dwell
-10.0,40.0,30.0,20.0,0.0,false   # Top left corner, spray off for return 

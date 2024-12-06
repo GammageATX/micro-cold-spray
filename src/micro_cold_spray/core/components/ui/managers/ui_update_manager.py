@@ -627,11 +627,14 @@ class UIUpdateManager:
                 })
                 return
 
-            if operation == "data/request":
-                # Request data from DataManager
-                await self._message_broker.publish("data/request", {
-                    "type": data.get("type"),
-                    "name": data.get("name")
+            if operation == "data/request" and data.get("type") == "sequences":
+                # After requesting sequence data, we should publish a sequence/loaded message
+                await self._message_broker.publish("sequence/loaded", {
+                    "sequence": {
+                        "name": data.get("name"),
+                        "type": "sequence",
+                        "timestamp": datetime.now().isoformat()
+                    }
                 })
                 return
 
@@ -775,32 +778,27 @@ class UIUpdateManager:
             logger.debug(f"Handling sequence loaded event: {data}")
 
             # Forward sequence loaded update to all subscribed widgets
-            for widget_id in self._tag_subscriptions.get("sequence.loaded", set()):
+            for widget_id in self._tag_subscriptions.get("sequence/loaded", set()):
                 widget_data = self._widgets.get(widget_id)
                 if not widget_data:
-                    logger.warning(f"Widget {widget_id} not found in registered widgets")
                     continue
 
                 widget = widget_data.get('widget_ref')
                 if not widget:
-                    logger.warning(f"Widget reference not found for {widget_id}")
                     continue
 
-                logger.debug(f"Sending sequence.loaded update to widget {widget_id}")
                 if hasattr(widget, 'handle_ui_update'):
                     try:
-                        await widget.handle_ui_update({"sequence.loaded": data})
+                        await widget.handle_ui_update({"sequence/loaded": data})
                         logger.debug(f"Successfully sent update to widget {widget_id}")
                     except Exception as e:
                         logger.error(f"Error sending update to widget {widget_id}: {e}")
 
             # Also send through general update mechanism
             await self.send_update(
-                "sequence.loaded",
+                "sequence/loaded",
                 data
             )
-
-            logger.debug(f"Sequence loaded event handled: {data.get('name', 'unnamed')}")
 
         except Exception as e:
             logger.error(f"Error handling sequence loaded: {e}")

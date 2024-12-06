@@ -1,0 +1,5 @@
+pattern:
+  type: "linear"
+  params:
+    length: 50.0           # Pattern length in mm
+    direction: "posX"      # Direction of motion (posX/negX/posY/negY)

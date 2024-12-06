@@ -1,0 +1,6 @@
+pattern:
+  type: "spiral"
+  params:
+    diameter: 40.0           # Total diameter in mm
+    pitch: 2.0              # Distance between revolutions in mm
+    direction: "CCW"        # Counter-clockwise direction
