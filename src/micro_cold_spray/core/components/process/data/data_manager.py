@@ -171,35 +171,15 @@ class DataManager:
                 "powders": self._powder_path
             }
 
-            logger.info(f"Directory mapping for {file_type}: {type_mapping[file_type]}")
-
             if file_type not in type_mapping:
                 raise ValidationError(f"Invalid file type: {file_type}")
 
+            base_path = type_mapping[file_type]
             files = []
-            if isinstance(type_mapping[file_type], dict):
-                # For patterns, list files from all subdirectories
-                logger.info(f"Searching pattern directories: {type_mapping[file_type]}")
-                for subdir in type_mapping[file_type].values():
-                    if subdir.exists():
-                        logger.info(f"Checking directory: {subdir}")
-                        for file_path in subdir.glob("*.yaml"):
-                            # Just use the filename without directory
-                            files.append(file_path.stem)
-                            logger.info(f"Found pattern file: {file_path}")
-            else:
-                # For other types, list files directly
-                base_path = type_mapping[file_type]
-                if base_path.exists():
-                    # Skip library and history directories for parameters
-                    if file_type == "parameters":
-                        for file_path in base_path.glob("*.yaml"):
-                            # Only include files in the root parameters directory
-                            if file_path.parent == base_path:
-                                files.append(file_path.stem)
-                    else:
-                        for file_path in base_path.glob("*.yaml"):
-                            files.append(file_path.stem)
+
+            if base_path.exists():
+                for file_path in base_path.glob("*.yaml"):
+                    files.append(file_path.stem)
 
             # Sort files for consistent ordering
             files.sort()
@@ -473,11 +453,7 @@ class DataManager:
             type_mapping = {
                 "parameters": self._parameter_path,
                 "nozzles": self._nozzle_path,
-                "patterns": {
-                    "custom": self._pattern_path / "custom",
-                    "serpentine": self._pattern_path / "serpentine",
-                    "spiral": self._pattern_path / "spiral"
-                },
+                "patterns": self._pattern_path,
                 "sequences": self._sequence_path,
                 "powders": self._powder_path
             }
@@ -486,20 +462,9 @@ class DataManager:
                 raise ValidationError(f"Invalid file type: {file_type}")
 
             # Get file path
-            if isinstance(type_mapping[file_type], dict):
-                # For patterns, need to find in subdirectories
-                file_path = None
-                for subdir in type_mapping[file_type].values():
-                    test_path = subdir / f"{name}.yaml"
-                    if test_path.exists():
-                        file_path = test_path
-                        break
-                if not file_path:
-                    raise FileNotFoundError(f"Pattern not found: {name}")
-            else:
-                file_path = type_mapping[file_type] / f"{name}.yaml"
-                if not file_path.exists():
-                    raise FileNotFoundError(f"File not found: {name}")
+            file_path = type_mapping[file_type] / f"{name}.yaml"
+            if not file_path.exists():
+                raise FileNotFoundError(f"File not found: {name}")
 
             # Load file
             with open(file_path, "r") as f:
@@ -542,11 +507,7 @@ class DataManager:
             type_mapping = {
                 "parameters": self._parameter_path,
                 "nozzles": self._nozzle_path,
-                "patterns": {
-                    "custom": self._pattern_path / "custom",
-                    "serpentine": self._pattern_path / "serpentine",
-                    "spiral": self._pattern_path / "spiral"
-                },
+                "patterns": self._pattern_path,
                 "sequences": self._sequence_path,
                 "powders": self._powder_path
             }
@@ -555,11 +516,8 @@ class DataManager:
                 raise ValidationError(f"Invalid file type: {file_type}")
 
             # Get file path
-            if isinstance(type_mapping[file_type], dict):
-                # For patterns, save to custom directory
-                file_path = type_mapping[file_type]["custom"] / f"{name}.yaml"
-            else:
-                file_path = type_mapping[file_type] / f"{name}.yaml"
+            file_path = type_mapping[file_type] / f"{name}.yaml"
+            file_path.parent.mkdir(parents=True, exist_ok=True)
 
             # Save file
             with open(file_path, "w") as f:

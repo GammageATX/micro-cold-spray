@@ -262,26 +262,18 @@ class JogControl(BaseWidget):
             if "motion.position" in data:
                 position_data = data.get("motion.position", {})
                 if isinstance(position_data, dict):
-                    position = position_data.get("position", position_data)
-                    if isinstance(position, dict):
-                        self._current_position = position
-                        self._update_position_display(position)
+                    if "data" in position_data and "position" in position_data["data"]:
+                        pos = position_data["data"]["position"]
+                    elif "position" in position_data:
+                        pos = position_data["position"]
+                    else:
+                        pos = position_data
+                    self._update_position_display(pos)
 
             elif "hardware.stage" in data:
-                stage_data = data.get("hardware.stage", {})
-                if isinstance(stage_data, dict):
-                    dimensions = stage_data.get("dimensions", {})
-                    if dimensions:
-                        # Use full range from 0 to max dimension
-                        self._stage_limits = {
-                            'x': {'min': 0.0, 'max': dimensions.get('x', 200.0)},
-                            'y': {'min': 0.0, 'max': dimensions.get('y', 200.0)},
-                            'z': {'min': 0.0, 'max': dimensions.get('z', 40.0)}
-                        }
-
-            elif "system.connection" in data:
-                connected = data.get("connected", False)
-                self._update_control_state(connected)
+                # Update stage limits if they change
+                if 'limits' in data["hardware.stage"]:
+                    self._stage_limits = data["hardware.stage"]["limits"]
 
         except Exception as e:
             logger.error(f"Error handling UI update: {e}")

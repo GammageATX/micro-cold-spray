@@ -1,5 +1,4 @@
-pattern:
-  type: "linear"
-  params:
-    length: 50.0           # Pattern length in mm
-    direction: "posY"      # Direction of motion (positive Y) 
+params:
+  direction: posY
+  length: 50.0
+type: linear

@@ -1,5 +1,6 @@
 """Position table widget for storing and managing positions."""
 from typing import Any, Dict
+import asyncio
 
 from loguru import logger
 from PySide6.QtWidgets import (
@@ -28,12 +29,14 @@ class PositionTable(BaseWidget):
             ui_manager=ui_manager,
             update_tags=[
                 "motion.position",
-                "motion.state"
+                "motion.state",
+                "hardware.plc.connected"
             ],
             parent=parent
         )
 
         self._current_position = {'x': 0.0, 'y': 0.0, 'z': 0.0}
+        self._is_connected = False
         self._init_ui()
         logger.info("Position table initialized")
 
@@ -73,10 +76,10 @@ class PositionTable(BaseWidget):
 
         layout.addLayout(button_layout)
 
-        # Connect signals
+        # Connect signals with proper async handling
         self._add_btn.clicked.connect(self._add_current_position)
         self._remove_btn.clicked.connect(self._remove_selected)
-        self._move_btn.clicked.connect(self._move_to_selected)
+        self._move_btn.clicked.connect(lambda: asyncio.create_task(self._move_to_selected()))
 
         self.setLayout(layout)
 
@@ -89,6 +92,21 @@ class PositionTable(BaseWidget):
         try:
             self._current_position = position.copy()
             logger.debug(f"Position table updated position: {position}")
+
+            # Only update visualization in disconnected state
+            # In connected state, let position feedback control visualization
+            if not self._is_connected:
+                await self._ui_manager.send_update(
+                    "ui/update",
+                    {
+                        "type": "motion.position",
+                        "data": {
+                            "position": position,
+                            "simulated": True,
+                            "timestamp": None
+                        }
+                    }
+                )
         except Exception as e:
             logger.error(f"Error updating position table: {e}")
 
@@ -153,16 +171,36 @@ class PositionTable(BaseWidget):
                 'z': float(self._table.item(row, 3).text())
             }
 
-            # Send move command
-            await self._ui_manager.send_update(
-                "motion/command/move",
-                {
-                    "position": position,
-                    "speed": 10.0  # Default speed
-                }
-            )
+            if self._is_connected:
+                # In connected state, send move command
+                await self._ui_manager.send_update(
+                    "ui/update",
+                    {
+                        "type": "motion.position",
+                        "data": {
+                            "position": position,
+                            "speed": 10.0,  # Default speed
+                            "simulated": False,
+                            "timestamp": None
+                        }
+                    }
+                )
+                logger.debug(f"Sent move command to position: {position}")
+            else:
+                # In disconnected state, send visualization update
+                await self._ui_manager.send_update(
+                    "ui/update",
+                    {
+                        "type": "motion.position",
+                        "data": {
+                            "position": position,
+                            "simulated": True,
+                            "timestamp": None
+                        }
+                    }
+                )
+                logger.debug(f"Sent visualization update to position: {position}")
 
-            logger.debug(f"Sent move command to position: {position}")
         except Exception as e:
             logger.error(f"Error moving to position: {e}")
 
@@ -172,10 +210,18 @@ class PositionTable(BaseWidget):
             if "motion.position" in data:
                 position_data = data.get("motion.position", {})
                 if isinstance(position_data, dict):
-                    if "position" in position_data:
+                    if "data" in position_data and "position" in position_data["data"]:
+                        await self.update_position(position_data["data"]["position"])
+                    elif "position" in position_data:
                         await self.update_position(position_data["position"])
                     else:
                         await self.update_position(position_data)
+
+            elif "hardware.plc.connected" in data:
+                self._is_connected = data.get("hardware.plc.connected", False)
+                logger.debug(f"PLC connection state changed: {self._is_connected}")
+                # Call Qt's update() without parameters
+                self.update()
 
         except Exception as e:
             logger.error(f"Error handling UI update: {e}")
