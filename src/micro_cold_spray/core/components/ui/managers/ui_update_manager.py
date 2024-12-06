@@ -445,87 +445,21 @@ class UIUpdateManager:
                 "error": str(e)
             })
 
-    async def send_update(self, operation: str, data: Dict[str, Any]) -> None:
-        """Send an update to the message broker."""
+    async def send_update(self, tag: str, value: Any) -> None:
+        """Send a UI update through the message broker."""
         try:
-            logger.info(f"UI Manager sending update: {operation} with data: {data}")
-
-            if operation == "data/list":
-                # Request file list from DataManager
-                logger.info("Forwarding file list request to DataManager")
-                await self._message_broker.publish("data/list_files", {
-                    "type": data.get("type")
-                })
-                logger.info(f"Sent file list request for type: {data.get('type')}")
-                return
-
-            if operation == "system/users":
-                # Handle user list operations
-                action = data.get("action")
-                if action == "list":
-                    # Request current user list
-                    await self._message_broker.publish("config/get", {
-                        "config_type": "application",
-                        "key": "environment.user_history"
-                    })
-                elif action == "add":
-                    # Get current config
-                    app_config = await self._config_manager.get_config("application")
-                    env_config = app_config.get("application", {}).get("environment", {})
-                    current_users = list(env_config.get("user_history", []))
-
-                    # Add new user if not already in list
-                    new_user = data.get("user")
-                    if new_user and new_user not in current_users:
-                        current_users.append(new_user)
-
-                        # Update just the environment section
-                        await self._config_manager.update_config("application", {
-                            "application": {
-                                "environment": {
-                                    "user": new_user,
-                                    "user_history": current_users
-                                }
-                            }
-                        })
-                return
-
-            if operation.startswith("config/get"):
-                # Handle config get operations
-                config_type = data.get("config_type")
-                if not config_type:
-                    raise ValueError("No config type specified for config get operation")
-
-                await self._message_broker.publish("config/get", {
-                    "config_type": config_type,
-                    "key": data.get("key")
-                })
-                return
-
-            if operation.startswith("data/"):
-                # Handle other data operations
-                await self._handle_data_operation(operation, data)
-                return
-
-            if operation.startswith("config/"):
-                # Handle other config operations
-                await self._handle_config_operation(operation, data)
-                return
-
-            # Default to UI update
-            await self._message_broker.publish("ui/update", {
-                "type": operation,
-                "data": data,
+            # Wrap the update with metadata
+            update = {
+                "type": tag,
+                "data": value,
                 "timestamp": datetime.now().isoformat()
-            })
+            }
+
+            # Publish to ui/update topic
+            await self._message_broker.publish("ui/update", update)
 
         except Exception as e:
-            logger.error(f"Error sending update: {str(e)}")
-            # Raise UIError instead of trying to handle it here
-            raise UIError(str(e), {
-                "operation": "send_update",
-                "error": str(e)
-            })
+            logger.error(f"Error sending UI update: {e}")
 
     async def send_widget_update(self, widget_id: str, update_type: str, data: dict) -> None:
         """Send an update to a specific widget."""

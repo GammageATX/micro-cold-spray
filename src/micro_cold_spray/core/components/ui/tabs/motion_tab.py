@@ -116,7 +116,11 @@ class MotionTab(BaseWidget):
         controls_layout.addWidget(self._jog_control)
 
         # Add position table
-        self._position_table = PositionTable(self._ui_manager)
+        self._position_table = PositionTable(
+            ui_manager=self._ui_manager,
+            motion_tab=self,  # Pass self reference
+            parent=self
+        )
         controls_layout.addWidget(self._position_table)
 
         controls_frame.setLayout(controls_layout)
@@ -336,3 +340,37 @@ class MotionTab(BaseWidget):
 
         except Exception as e:
             logger.error(f"Error during motion tab cleanup: {e}")
+
+    async def handle_move_command(self, position: Dict[str, float]) -> None:
+        """Handle move command to absolute position."""
+        try:
+            # Validate position against stage limits
+            if not self._validate_position(position):
+                logger.warning(f"Move to position {position} rejected - outside limits")
+                return
+
+            if not self._connected:
+                # In disconnected mode, update simulated position
+                if self._validate_position(position):
+                    # Move is valid, update position
+                    self._simulated_position = position.copy()
+                    # Update all displays with the valid position
+                    await self._update_all_displays(position)
+                    logger.debug(f"Updated position to: {position}")
+            else:
+                # Send real motion command with validation
+                await self._ui_manager.send_update(
+                    "motion/command/move",
+                    {
+                        "position": position,
+                        "speed": 10.0,  # Default speed
+                        "simulated": False
+                    }
+                )
+
+        except Exception as e:
+            logger.error(f"Error handling move command: {e}")
+            await self._ui_manager.send_update(
+                "system.error",
+                {"error": f"Motion error: {str(e)}"}
+            )
