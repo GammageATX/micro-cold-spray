@@ -5,6 +5,7 @@ from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 from ...managers.ui_update_manager import UIUpdateManager
 from ..base_widget import BaseWidget
+from .....infrastructure.messaging.message_broker import MessageBroker
 
 logger = logging.getLogger(__name__)
 
@@ -15,10 +16,11 @@ class SequenceVisualizer(BaseWidget):
     def __init__(
         self,
         ui_manager: UIUpdateManager,
+        message_broker: MessageBroker,
         parent=None
     ):
         super().__init__(
-            widget_id="widget_editor_visualizer",
+            widget_id="widget_editor_sequence_visualizer",
             ui_manager=ui_manager,
             update_tags=[
                 "hardware.stage",
@@ -28,6 +30,8 @@ class SequenceVisualizer(BaseWidget):
             ],
             parent=parent
         )
+
+        self._message_broker = message_broker
 
         # Initialize with default values
         self._stage = {'x': 200.0, 'y': 200.0}  # Default stage size

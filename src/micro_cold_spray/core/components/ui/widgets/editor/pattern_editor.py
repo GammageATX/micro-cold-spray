@@ -13,24 +13,27 @@ from loguru import logger
 
 from micro_cold_spray.core.components.ui.widgets.base_widget import BaseWidget
 from micro_cold_spray.core.components.ui.managers.ui_update_manager import UIUpdateManager
+from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
 
 
 class PatternEditor(BaseWidget):
     """Pattern editor widget."""
 
-    def __init__(self, ui_manager: UIUpdateManager, parent=None) -> None:
+    def __init__(self, ui_manager: UIUpdateManager, message_broker: MessageBroker, parent=None) -> None:
         """Initialize the pattern editor widget."""
         super().__init__(
             widget_id="widget_editor_pattern",
             ui_manager=ui_manager,
             update_tags=[
-                "data/files/listed",
-                "data/loaded",
-                "data/saved",
-                "data/error"
+                "data/list_files",
+                "patterns/created",
+                "patterns/updated",
+                "patterns/deleted"
             ],
             parent=parent
         )
+
+        self._message_broker = message_broker
 
         # Create layout
         layout = QVBoxLayout()
@@ -83,7 +86,7 @@ class PatternEditor(BaseWidget):
         self._is_new_pattern = False
 
         # Request initial file list
-        asyncio.create_task(self._reload_file_list())
+        asyncio.create_task(self._load_patterns())
 
     def _reset_form(self) -> None:
         """Reset the form to initial state."""
@@ -164,61 +167,31 @@ class PatternEditor(BaseWidget):
     async def handle_ui_update(self, data: Dict[str, Any]) -> None:
         """Handle UI updates."""
         try:
-            if "data/files/listed" in data:
-                list_data = data
-                if list_data.get("type") == "patterns":
-                    files = list_data.get("files", [])
-                    current_text = self._pattern_combo.currentText()
-                    self._pattern_combo.clear()
-                    self._pattern_combo.addItem("")  # Add empty option
-                    self._pattern_combo.addItems(files)
-                    if current_text in files:
-                        self._pattern_combo.setCurrentText(current_text)
-                    logger.debug(f"Updated pattern list with {len(files)} patterns")
-
-            elif "data/loaded" in data:
-                loaded_data = data
-                if loaded_data.get("type") == "patterns":
-                    pattern_data = loaded_data.get("value", {})
-                    pattern_type = pattern_data.get("type")
-                    params = pattern_data.get("params", {})
-                    self._show_type_parameters(pattern_type, params)
-                    logger.debug(f"Loaded pattern of type: {pattern_type}")
-
-            elif "data/saved" in data:
-                saved_data = data
-                if saved_data.get("type") == "patterns":
-                    saved_name = saved_data.get("name")
-                    logger.debug(f"Pattern saved: {saved_name}")
-                    # Reset form first
-                    self._reset_form()
-                    # Then request file list update
-                    await self._reload_file_list()
-
-            elif "data/error" in data:
-                error_data = data
-                if error_data.get("type") == "patterns":
-                    error_msg = error_data.get("error", "Unknown error")
-                    QMessageBox.warning(self, "Error", f"Pattern operation failed: {error_msg}")
-                    logger.error(f"Pattern operation error: {error_msg}")
+            if "type" in data:
+                if data["type"] == "data/list_files":
+                    # Handle wrapped message format
+                    list_data = data.get("data", {})
+                    if list_data.get("type") == "patterns":
+                        files = list_data.get("files", [])
+                        self._pattern_combo.clear()
+                        self._pattern_combo.addItems(files)
+                        logger.debug(f"Updated pattern list: {files}")
 
         except Exception as e:
             logger.error(f"Error handling UI update: {e}")
 
-    async def _reload_file_list(self) -> None:
-        """Reload the pattern file list."""
+    async def _load_patterns(self) -> None:
+        """Request pattern list from data manager."""
         try:
-            logger.debug("Requesting pattern file list refresh")
             await self._ui_manager.send_update(
                 "data/list_files",
                 {
-                    "type": "patterns",
-                    "timestamp": datetime.now().isoformat()
+                    "type": "patterns"
                 }
             )
+            logger.debug("Requested pattern list")
         except Exception as e:
-            logger.error(f"Error reloading file list: {e}")
-            QMessageBox.warning(self, "Error", f"Failed to reload file list: {e}")
+            logger.error(f"Error requesting pattern list: {e}")
 
     def _on_pattern_changed(self, pattern_name: str) -> None:
         """Handle pattern selection change."""

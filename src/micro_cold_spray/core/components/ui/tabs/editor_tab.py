@@ -12,6 +12,7 @@ from ..widgets.editor.parameter_editor import ParameterEditor
 from ..widgets.editor.pattern_editor import PatternEditor
 from ..widgets.editor.sequence_builder import SequenceBuilder
 from ..widgets.editor.sequence_visualizer import SequenceVisualizer
+from ....infrastructure.messaging.message_broker import MessageBroker
 
 
 @runtime_checkable
@@ -28,9 +29,14 @@ class ParameterEditorProtocol(Protocol):
 
 
 class EditorTab(BaseWidget):
-    """Tab for editing process sequences."""
+    """Editor tab for patterns, parameters and sequences."""
 
-    def __init__(self, ui_manager: UIUpdateManager, parent=None):
+    def __init__(
+        self,
+        ui_manager: UIUpdateManager,
+        message_broker: MessageBroker,
+        parent=None
+    ):
         super().__init__(
             widget_id="tab_editor",
             ui_manager=ui_manager,
@@ -57,17 +63,21 @@ class EditorTab(BaseWidget):
         self._sequence_visualizer = None
         self._load_files_task = None
 
+        self._message_broker = message_broker  # Store message broker
         self._init_ui()
         logger.info("Editor tab initialized")
 
     def _init_ui(self) -> None:
-        """Initialize the editor tab UI."""
+        """Initialize UI components."""
         try:
             layout = QVBoxLayout()
             layout.setContentsMargins(10, 5, 10, 10)
 
+            # Add status label
+            layout.addWidget(self._status_label)
+
             # Create main splitter
-            splitter = QSplitter(Qt.Orientation.Horizontal)
+            splitter = QSplitter(Qt.Horizontal)
 
             # Left side - Editors
             left_frame = QFrame()
@@ -75,14 +85,22 @@ class EditorTab(BaseWidget):
             left_frame.setLayout(left_layout)
 
             # Create vertical splitter for parameter and pattern editors
-            left_splitter = QSplitter(Qt.Orientation.Vertical)
+            left_splitter = QSplitter(Qt.Vertical)
 
             # Parameter editor
-            self._parameter_editor = ParameterEditor(self._ui_manager)
+            self._parameter_editor = ParameterEditor(
+                ui_manager=self._ui_manager,
+                message_broker=self._message_broker,
+                parent=self
+            )
             left_splitter.addWidget(self._parameter_editor)
 
             # Pattern editor
-            self._pattern_editor = PatternEditor(self._ui_manager)
+            self._pattern_editor = PatternEditor(
+                ui_manager=self._ui_manager,
+                message_broker=self._message_broker,
+                parent=self
+            )
             left_splitter.addWidget(self._pattern_editor)
 
             # Set initial sizes for left splitter (50/50 split)
@@ -97,11 +115,19 @@ class EditorTab(BaseWidget):
             right_frame.setLayout(right_layout)
 
             # Sequence builder
-            self._sequence_builder = SequenceBuilder(self._ui_manager)
+            self._sequence_builder = SequenceBuilder(
+                ui_manager=self._ui_manager,
+                message_broker=self._message_broker,
+                parent=self
+            )
             right_layout.addWidget(self._sequence_builder)
 
             # Sequence visualizer
-            self._sequence_visualizer = SequenceVisualizer(self._ui_manager)
+            self._sequence_visualizer = SequenceVisualizer(
+                ui_manager=self._ui_manager,
+                message_broker=self._message_broker,
+                parent=self
+            )
             right_layout.addWidget(self._sequence_visualizer)
 
             splitter.addWidget(right_frame)
