@@ -13,22 +13,24 @@ from PySide6.QtWidgets import (
 )
 from ...managers.ui_update_manager import UIUpdateManager
 from ..base_widget import BaseWidget
+from .....infrastructure.messaging.message_broker import MessageBroker
 
 logger = logging.getLogger(__name__)
 
 
 class SequenceBuilder(BaseWidget):
-    """Widget for building operation sequences."""
+    """Widget for building process sequences."""
 
     sequence_updated = Signal(dict)  # Emitted when sequence is modified
 
     def __init__(
         self,
         ui_manager: UIUpdateManager,
+        message_broker: MessageBroker,
         parent=None
     ):
         super().__init__(
-            widget_id="widget_editor_sequence",
+            widget_id="widget_editor_sequence_builder",
             ui_manager=ui_manager,
             update_tags=[
                 "sequences.list",
@@ -40,6 +42,7 @@ class SequenceBuilder(BaseWidget):
             parent=parent
         )
 
+        self._message_broker = message_broker
         self._current_sequence: Optional[Dict[str, Any]] = None
         self._init_ui()
         self._connect_signals()

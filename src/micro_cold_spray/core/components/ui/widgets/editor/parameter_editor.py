@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from ...managers.ui_update_manager import UIUpdateManager
 from ..base_widget import BaseWidget
+from .....infrastructure.messaging.message_broker import MessageBroker
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +98,7 @@ class ParameterEditor(BaseWidget):
     def __init__(
         self,
         ui_manager: UIUpdateManager,
+        message_broker: MessageBroker,
         parent=None
     ):
         super().__init__(
@@ -105,6 +107,7 @@ class ParameterEditor(BaseWidget):
             parent=parent
         )
 
+        self._message_broker = message_broker
         self._current_data: Dict[str, Any] = {}
         self._parameter_widgets: Dict[str, QWidget] = {}  # Track widgets for saving
         self._form_widget = None  # Main form widget

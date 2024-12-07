@@ -294,7 +294,11 @@ class MainWindow(QMainWindow):
             self.tab_widget.addTab(self.motion_tab, "Motion")
 
             # Editor Tab
-            self.editor_tab = EditorTab(self._ui_manager)
+            self.editor_tab = EditorTab(
+                ui_manager=self._ui_manager,
+                message_broker=self._message_broker,
+                parent=self
+            )
             self.tab_widget.addTab(self.editor_tab, "Editor")
 
             # Config Tab
@@ -313,25 +317,24 @@ class MainWindow(QMainWindow):
             self.status_bar.setStyleSheet("""
                 QStatusBar {
                     border-top: 1px solid #cccccc;
-                    background-color: #f5f5f5;
-                    padding: 4px 8px;
+                    background-color: #f8f9fa;
+                    padding: 2px 4px;
                     font-size: 12px;
-                    min-height: 40px;
-                    margin: 0;
+                    min-height: 32px;
                 }
                 QStatusBar::item {
                     border: none;
                     padding: 0;
                 }
                 QLabel {
-                    padding: 4px 0;
+                    padding: 2px 4px;
                     margin: 0;
                 }
             """)
 
-            # Add error display to status bar
+            # Add error display to status bar with stretch
             self.error_label = SystemErrorDisplay(self._ui_manager)
-            self.status_bar.addPermanentWidget(self.error_label, 1)
+            self.status_bar.addPermanentWidget(self.error_label, stretch=1)
             self.setStatusBar(self.status_bar)
 
         except Exception as e:
