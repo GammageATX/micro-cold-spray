@@ -13,6 +13,7 @@ state:
       - config.loaded
       next_states:
       - READY
+      - ERROR
     IDLE:
       description: System is idle and ready for initialization
       conditions:
@@ -20,6 +21,7 @@ state:
       - config.loaded
       next_states:
       - READY
+      - ERROR
     READY:
       description: System is initialized and operational
       conditions:
@@ -29,6 +31,7 @@ state:
       - RUNNING
       - SHUTDOWN
       - IDLE
+      - ERROR
     RUNNING:
       description: System is executing operations
       conditions:
@@ -44,4 +47,5 @@ state:
       - hardware.safe
       next_states:
       - INITIALIZING
+      - ERROR
 version: 1.0.0

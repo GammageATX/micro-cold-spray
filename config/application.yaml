@@ -41,51 +41,59 @@ application:
     message_broker:
       topics:
         tag_operations:
-        - tag/set
-        - tag/get
+        - tag/request
+        - tag/response
         - tag/update
-        - tag/get/response
         state_operations:
         - state/request
+        - state/response
         - state/change
-        - state/error
         sequence_operations:
-        - sequence/loaded
+        - sequence/request
+        - sequence/response
         - sequence/state
-        - sequence/start
-        - sequence/stop
-        - sequence/complete
-        - sequence/error
         - sequence/progress
         config_operations:
-        - config/update/*
-        - config/update/response
+        - config/request
+        - config/response
+        - config/update
         data_operations:
-        - data/list_files
-        - data/load
-        - data/save
-        - data/delete
-        - data/error
-        - data/collection/state
+        - data/request
+        - data/response
+        - data/state
         pattern_operations:
-        - patterns/created
-        - patterns/updated
-        - patterns/deleted
-        - patterns/error
+        - pattern/request
+        - pattern/response
+        - pattern/state
         action_operations:
-        - action/execute
-        - action/status
-        - action/complete
-        - action/error
+        - action/request
+        - action/response
+        - action/state
         validation_operations:
         - validation/request
         - validation/response
         ui_operations:
-        - ui/widget/registered
-        - ui/widget/unregistered
-        - ui/update
-        - ui/error
-        error_topic: error
+        - ui/request
+        - ui/response
+        - ui/state
+        hardware_operations:
+        - hardware/request
+        - hardware/response
+        - hardware/state
+        equipment_operations:
+        - equipment/request
+        - equipment/response
+        - equipment/state
+        motion_operations:
+        - motion/request
+        - motion/response
+        - motion/state
+        error_topic:
+        - error
+        parameter_operations:
+        - parameter/request
+        - parameter/response
+        - parameter/state
     data_manager:
       validation_enabled: true
       formats:
