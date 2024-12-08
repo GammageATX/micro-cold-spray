@@ -1,13 +1,13 @@
+"""Motion control component."""
 import asyncio
 import logging
-import time
 from datetime import datetime
 from typing import Any, Dict
 
-from ...components.process.validation.process_validator import ProcessValidator
 from ...exceptions import HardwareError
 from ...infrastructure.config.config_manager import ConfigManager
 from ...infrastructure.messaging.message_broker import MessageBroker
+from ..validation.hardware_validator import HardwareValidator
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +27,10 @@ class MotionController:
         """
         self._message_broker = message_broker
         self._config = config_manager
-        self._hw_config = {}  # Initialize empty config
+        self._hw_config = {}
 
-        # Create process validator with both dependencies
-        self._validator = ProcessValidator(
+        # Create hardware validator
+        self._validator = HardwareValidator(
             message_broker=message_broker,
             config_manager=config_manager
         )
@@ -41,6 +41,7 @@ class MotionController:
     async def _initialize(self) -> None:
         """Initialize async components."""
         await self._load_config()
+        await self._validator.initialize()
         await self._subscribe_to_commands()
 
     async def _load_config(self) -> None:
@@ -63,7 +64,7 @@ class MotionController:
             "motion/command/set_home",
             self._handle_set_home)
         await self._message_broker.subscribe(
-            "config/update/hardware",
+            "config/update/*",
             self._handle_config_update)
 
     async def _handle_move_command(self, data: Dict[str, Any]) -> None:
@@ -78,36 +79,30 @@ class MotionController:
                 deceleration: optional deceleration
         """
         try:
-            # Validate parameters first
-            validation_result = await self._validate_motion_parameters({
-                'axis': data.get('axis'),
-                'distance': data.get('distance'),
-                'velocity': data.get('velocity')
-            })
-
-            if not validation_result['valid']:
-                error_msg = '; '.join(validation_result['errors'])
-                logger.error(f"Motion validation failed: {error_msg}")
-                await self._message_broker.publish(
-                    "motion/error",
-                    {"error": f"Validation failed: {error_msg}"}
-                )
-                return
-
-            # Validate required parameters
-            if not isinstance(data, dict):
-                raise ValueError(f"Expected dict, got {type(data)}")
-
             # Convert to string and lowercase
             axis = str(data.get('axis', '')).lower()
             distance = float(data.get('distance', 0))  # Convert to float
             velocity = float(data.get('velocity', 0))  # Convert to float
 
-            if not axis or distance == 0 or velocity == 0:
-                raise ValueError(
-                    f"Missing required parameters. Got: axis={axis}, "
-                    f"distance={distance}, velocity={velocity}"
+            # Validate motion parameters
+            valid, errors = await self._validator.validate_motion_limits(
+                axis=axis,
+                position=distance,
+                velocity=velocity
+            )
+
+            if not valid:
+                error_msg = '; '.join(errors)
+                logger.error(f"Motion validation failed: {error_msg}")
+                await self._message_broker.publish(
+                    "hardware/motion/error",
+                    {
+                        "error": error_msg,
+                        "context": "validation",
+                        "timestamp": datetime.now().isoformat()
+                    }
                 )
+                return
 
             # Map axis to PLC names
             plc_axis = {
@@ -163,8 +158,24 @@ class MotionController:
 
         except Exception as e:
             logger.error(f"Move operation failed: {e}")
-            await self._message_broker.publish("motion/error", {"error": str(e)})
-            raise
+            await self._message_broker.publish(
+                "hardware/motion/error",
+                {
+                    "error": str(e),
+                    "context": "move_command",
+                    "axis": axis,
+                    "distance": distance,
+                    "velocity": velocity,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+            raise HardwareError("Move operation failed", "motion", {
+                "axis": axis,
+                "distance": distance,
+                "velocity": velocity,
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            }) from e
 
     async def _handle_xy_move_command(self, message: Dict[str, Any]) -> None:
         """Handle coordinated XY move command."""
@@ -177,15 +188,36 @@ class MotionController:
                 ramps = float(message.get('ramps', 0.1))
             except (TypeError, ValueError) as e:
                 raise ValueError(
-                    f"Invalid parameter types: {
-                        str(e)}. Required: numbers for " "x_distance, y_distance, velocity")
+                    f"Invalid parameter types: {str(e)}. Required: numbers for x_distance, y_distance, velocity")
 
-            # Validate values
-            if x_distance == 0 and y_distance == 0:
-                raise ValueError(
-                    "At least one of x_distance or y_distance must be non-zero")
-            if velocity <= 0:
-                raise ValueError(f"Velocity must be positive, got {velocity}")
+            # Validate X motion
+            valid_x, errors_x = await self._validator.validate_motion_limits(
+                axis='x',
+                position=x_distance,
+                velocity=velocity
+            )
+
+            # Validate Y motion
+            valid_y, errors_y = await self._validator.validate_motion_limits(
+                axis='y',
+                position=y_distance,
+                velocity=velocity
+            )
+
+            # Combine validation results
+            if not (valid_x and valid_y):
+                errors = errors_x + errors_y
+                error_msg = '; '.join(errors)
+                logger.error(f"XY motion validation failed: {error_msg}")
+                await self._message_broker.publish(
+                    "hardware/motion/error",
+                    {
+                        "error": error_msg,
+                        "context": "validation",
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+                return
 
             # Set move parameters
             await self._message_broker.publish(
@@ -227,32 +259,50 @@ class MotionController:
             )
 
             # Calculate total distance for timeout
-            # Now safe since we validated x_distance and y_distance are numbers
             distance = (x_distance**2 + y_distance**2)**0.5
-
-            # Velocity is now guaranteed to be a positive float
-            await self._wait_for_move_complete('xy', distance, velocity)
+            await self._wait_for_move_complete('XY', distance, velocity)
 
         except Exception as e:
             logger.error(f"XY move operation failed: {e}")
-            await self._message_broker.publish("motion/error", {"error": str(e)})
-            raise
+            await self._message_broker.publish(
+                "hardware/motion/error",
+                {
+                    "error": str(e),
+                    "context": "xy_move_command",
+                    "x_distance": x_distance,
+                    "y_distance": y_distance,
+                    "velocity": velocity,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+            raise HardwareError("XY move operation failed", "motion", {
+                "x_distance": x_distance,
+                "y_distance": y_distance,
+                "velocity": velocity,
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            }) from e
 
     async def _handle_set_home(self, message: Dict[str, Any]) -> None:
-        """Handle set home command (sets current position as 0,0,0)."""
+        """Handle set home command."""
         try:
             await self._message_broker.publish(
                 "tag/set",
                 {
-                    "tag": "motion_control.set_home",
+                    "tag": "SetHome",
                     "value": True
                 }
             )
-            logger.info("Home position set to current position")
-
         except Exception as e:
             logger.error(f"Set home operation failed: {e}")
-            await self._message_broker.publish("motion/error", {"error": str(e)})
+            raise
+
+    async def _handle_config_update(self, message: Dict[str, Any]) -> None:
+        """Handle configuration update."""
+        try:
+            await self._load_config()
+        except Exception as e:
+            logger.error(f"Config update failed: {e}")
             raise
 
     async def _wait_for_move_complete(
@@ -260,118 +310,40 @@ class MotionController:
             axis: str,
             distance: float,
             velocity: float) -> None:
-        """Wait for move completion with timeout based on move parameters."""
-        expected_time = abs(distance) / velocity if velocity > 0 else 0
-        timeout = expected_time * 1.5 + 1.0  # Add buffer and 1 second base timeout
+        """Wait for move completion with timeout.
 
-        start_time = time.time()
+        Args:
+            axis: Axis name ('X', 'Y', 'Z', or 'XY')
+            distance: Move distance
+            velocity: Move velocity
 
-        # Wait for move to start (with timeout)
+        Raises:
+            TimeoutError: If move does not complete within timeout
+        """
+        # Calculate timeout based on distance and velocity
+        # Add 50% margin for acceleration/deceleration
+        timeout = (distance / velocity) * 1.5 if velocity > 0 else 5.0
+        start_time = datetime.now()
+
         while True:
-            if (time.time() - start_time) > timeout:
-                raise TimeoutError(
-                    f"{axis} move start timeout after {
-                        timeout:.1f}s")
+            # Check move status
+            if axis == 'XY':
+                response = await self._message_broker.request(
+                    "tag/get",
+                    {"tag": "motion_control.coordinated_move.xy_move.in_progress"}
+                )
+                if not response.get('value', True):
+                    break
+            else:
+                response = await self._message_broker.request(
+                    "tag/get",
+                    {"tag": f"motion_control.relative_move.{axis.lower()}_move.in_progress"}
+                )
+                if not response.get('value', True):
+                    break
 
-            # Use correct tag names from tags.yaml
-            tag_name = (
-                f"motion_control.relative_move.{axis.lower()}_move.parameters.in_progress"
-                if axis != 'xy' else
-                "motion_control.coordinated_move.xy_move.parameters.in_progress"
-            )
+            # Check timeout
+            if (datetime.now() - start_time).total_seconds() > timeout:
+                raise TimeoutError(f"{axis} move timeout after {timeout} seconds")
 
-            response = await self._message_broker.request(
-                "tag/get",
-                {"tag": tag_name}
-            )
-            if response and response.get('value'):
-                break
-            await asyncio.sleep(0.01)
-
-        # Wait for move to complete (with timeout)
-        while True:
-            if (time.time() - start_time) > timeout:
-                raise TimeoutError(
-                    f"{axis} move completion timeout after {
-                        timeout:.1f}s")
-
-            # Use correct tag names from tags.yaml
-            tag_name = (
-                f"motion_control.relative_move.{axis.lower()}_move.parameters.in_progress"
-                if axis != 'xy' else
-                "motion_control.coordinated_move.xy_move.parameters.in_progress"
-            )
-
-            response = await self._message_broker.request(
-                "tag/get",
-                {"tag": tag_name}
-            )
-            if response and not response.get('value'):
-                break
-            await asyncio.sleep(0.01)
-
-    async def _handle_config_update(self, message: Dict[str, Any]) -> None:
-        """Handle configuration updates."""
-        try:
-            if 'hardware' in message.get('new_config', {}):
-                self._motion_config = message['new_config']['hardware']['motion']
-        except Exception as e:
-            logger.error(f"Config update failed: {e}")
-
-    async def _validate_motion_parameters(
-            self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate motion parameters using ProcessValidator."""
-        try:
-            # Format parameters for validation
-            validation_params = {
-                "motion": {
-                    "axis": params.get('axis'),
-                    "distance": params.get('distance'),
-                    "velocity": params.get('velocity'),
-                    "acceleration": params.get('acceleration'),
-                    "deceleration": params.get('deceleration')
-                }
-            }
-
-            # Request validation
-            response = await self._message_broker.request(
-                "parameters/validate",
-                {"parameters": validation_params}
-            )
-
-            if response is None:
-                return {
-                    "valid": False,
-                    "errors": ["Validation request timeout"]
-                }
-
-            return response
-
-        except Exception as e:
-            logger.error(f"Error validating motion parameters: {e}")
-            return {
-                "valid": False,
-                "errors": [str(e)]
-            }
-
-    async def _validate_position(self, position: Dict[str, float]) -> None:
-        """Validate position against limits."""
-        try:
-            limits = self._hw_config["physical"]["stage"]["dimensions"]
-
-            for axis, value in position.items():
-                if value < 0 or value > limits[axis]:
-                    raise HardwareError(f"Position exceeds {axis} axis limits", "motion", {
-                        "axis": axis,
-                        "position": value,
-                        "limit": limits[axis],
-                        "timestamp": datetime.now().isoformat()
-                    })
-
-        except Exception as e:
-            logger.error(f"Position validation failed: {e}")
-            raise HardwareError("Position validation failed", "motion", {
-                "position": position,
-                "error": str(e),
-                "timestamp": datetime.now().isoformat()
-            })
+            await asyncio.sleep(0.1)  # Reduced polling interval

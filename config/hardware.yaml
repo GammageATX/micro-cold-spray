@@ -3,7 +3,7 @@ hardware:
     connection:
       timeout: 30.0
     plc:
-      address: "192.168.0.130"
+      ip: "192.168.0.130"
       tag_file: "resources/tags/MicroColdSpray_basic.csv"
       polling_interval: 1.0
       retry:
@@ -12,14 +12,14 @@ hardware:
       timeout: 5.0
     ssh:
       command_timeout: 2.0
-      host: 192.168.0.200
-      password: deltatau
+      host: "192.168.0.200"
+      password: "deltatau"
       port: 22
       retry:
         delay: 5.0
         max_attempts: 3
       timeout: 5.0
-      username: root
+      username: "root"
   physical:
     hardware_sets:
       set1:
@@ -107,4 +107,3 @@ hardware:
           frequency:
             max: 1200
             min: 200
-version: 1.0.0

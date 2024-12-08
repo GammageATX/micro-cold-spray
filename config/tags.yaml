@@ -684,4 +684,3 @@ tag_groups:
       mapped: true
       plc_tag: VentSwitch
       type: bool
-version: 1.0.0
