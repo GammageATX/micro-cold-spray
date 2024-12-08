@@ -1,313 +1,322 @@
-action_groups:
-  apply_parameters:
-    description: Apply parameter set to system
-    requires:
-    - parameter_file: string
-    steps:
-    - action: hardware_sets.nozzle_select
-      from: '{parameter_file}.nozzle}'
-    - action: valves.main_gas_valve
-      value: true
-    - action: valves.feeder_gas_valve
-      value: true
-    - action: gas.set_main_flow
-      from: '{parameter_file}.main_flow'
-    - validation: gas_flow_stable
-    - action: gas.set_feeder_flow
-      from: '{parameter_file}.feeder_flow'
-    - validation: gas_flow_stable
-    - action: hardware_sets.deagglomerator_control
-      from: '{parameter_file}.deagglomerator'
-    - action: hardware_sets.feeder_control
-      from: '{parameter_file}.feeder'
-    - time_delay: powder_stabilize
-  change_parameters:
-    description: Change process parameters
-    requires:
-    - parameter_file: string
-    steps:
-    - action: gas.set_main_flow
-      from: '{parameter_file}.main_flow'
-    - validation: gas_flow_stable
-    - action: gas.set_feeder_flow
-      from: '{parameter_file}.feeder_flow'
-    - validation: gas_flow_stable
-    - action: hardware_sets.deagglomerator_control
-      from: '{parameter_file}.deagglomerator'
-    - action: hardware_sets.feeder_control
-      from: '{parameter_file}.feeder'
-    - time_delay: powder_stabilize
-  execute_pattern:
-    description: Execute pattern with proper positioning and shutter control
-    parameters:
-      passes:
-        default: 1
-        description: Number of pattern passes
-        min: 1
-        type: integer
-    requires:
-    - parameter_file: string
-    - pattern_file: string
-    steps:
-    - action_group: move_to_trough
-    - action: shutter.control_shutter
-      parameters:
-        value: true
-    - action: motion.move_xy
-      from: '{pattern_file}.origin'
-    - action: shutter.control_shutter
-      parameters:
-        value: false
-    - repeat:
-        count: '{parameters.passes}'
-        steps:
-        - action: motion.move_xy
-          from: '{pattern_file}.moves'
-    - action: shutter.control_shutter
-      parameters:
-        value: true
-    - action_group: move_to_trough
-  move_to_trough:
-    description: Move to trough position
-    steps:
-    - action: motion.move_z
-      parameters:
-        z: '{safety.safe_z}'
-    - validation: motion_complete
-    - action: motion.move_xy
-      parameters:
-        x: '{hardware.trough.x}'
-        y: '{hardware.trough.y}'
-    - validation: motion_complete
-    - action: motion.move_z
-      parameters:
-        z: '{hardware.trough.z}'
-    - validation: motion_complete
-  ready_system:
-    description: Prepare system for operation
-    steps:
-    - action: valves.vent_valve
-      value: false
-    - action: motion.move_xy
-      parameters:
-        x: 0
-        y: 0
-    - action: motion.move_z
-      parameters:
-        z: 0
-    - validation: motion_complete
-    - action: valves.gate_valve
-      parameters:
-        open: false
-        partial: true
-    - parameters:
-        pressure: 200
-        timeout: 60.0
-      validation: chamber_vacuum
-    - action: valves.gate_valve
-      parameters:
-        open: true
-        partial: false
-    - parameters:
-        pressure: 1.0
-        timeout: 120.0
-      validation: chamber_vacuum
-  shutdown_process:
-    description: Shutdown system safely
-    steps:
-    - action: hardware_sets.feeder_control
-      parameters:
-        frequency: 0
-    - action: hardware_sets.deagglomerator_control
-      parameters:
-        duty_cycle: 35
-    - action: gas.set_feeder_flow
-      parameters:
-        flow: 0.0
-    - action: gas.set_main_flow
-      parameters:
-        flow: 0.0
-    - validation: gas_flow_stable
-    - action: valves.feeder_gas_valve
-      value: false
-    - action: valves.main_gas_valve
-      value: false
-    - action: motion.move_xy
-      parameters:
-        x: 0
-        y: 0
-    - action: motion.move_z
-      parameters:
-        z: 0
-    - validation: motion_complete
-    - action: valves.gate_valve
-      parameters:
-        open: false
-        partial: false
-    - action: valves.vent_valve
-      value: true
-  stop_feeder:
-    description: Stop powder feed system
-    steps:
-    - action: hardware_sets.feeder_control
-      parameters:
-        frequency: 0
-    - action: hardware_sets.deagglomerator_control
-      parameters:
-        duty_cycle: 35
-    - action: gas.set_feeder_flow
-      parameters:
-        flow: 0.0
-    - validation: gas_flow_stable
-atomic_actions:
-  gas:
-    set_feeder_flow:
-      description: Set feeder gas flow
-      messages:
-      - data:
-        - tag: gas_control.feeder_flow.setpoint
-        topic: tag/set
-      validation:
-      - tag: gas_control.feeder_flow.measured
-    set_main_flow:
-      description: Set main gas flow
-      messages:
-      - data:
-        - tag: gas_control.main_flow.setpoint
-        topic: tag/set
-      validation:
-      - tag: gas_control.main_flow.measured
-  hardware_sets:
-    deagglomerator_control:
-      description: Control deagglomerator
-      messages:
-      - data:
-        - tag: hardware_sets.set{1|2}.deagglomerator.duty_cycle
-          value: int
-        - tag: hardware_sets.set{1|2}.deagglomerator.frequency
-          value: int
-        topic: tag/set
-      validation:
-      - tag: hardware_sets.set{1|2}.deagglomerator.duty_cycle
-      - tag: hardware_sets.set{1|2}.deagglomerator.frequency
-    feeder_control:
-      description: Control powder feeder
-      messages:
-      - data:
-        - tag: hardware_sets.set{1|2}.feeder.frequency
-          value: int
-        topic: tag/set
-      validation:
-      - tag: hardware_sets.set{1|2}.feeder.frequency
-    nozzle_select:
-      description: Select active nozzle
-      messages:
-      - data:
-        - tag: hardware_sets.nozzle_select
-          value: bool
-        topic: tag/set
-      validation:
-      - tag: hardware_sets.nozzle_select
-  motion:
-    move_xy:
-      description: Coordinated XY move
-      messages:
-      - data:
-        - tag: motion.motion_control.coordinated_move.xy_move.parameters.velocity
-        - tag: motion.motion_control.coordinated_move.xy_move.parameters.ramps
-        - tag: motion.motion_control.coordinated_move.xy_move.x_position
-        - tag: motion.motion_control.coordinated_move.xy_move.y_position
-        - tag: motion.motion_control.coordinated_move.xy_move.trigger
-        topic: tag/set
-      validation:
-      - tag: motion.motion_control.coordinated_move.xy_move.status
-      - tag: motion.motion_control.coordinated_move.xy_move.in_progress
-    move_z:
-      description: Z axis move
-      messages:
-      - data:
-        - tag: motion.motion_control.relative_move.z_move.parameters.velocity
-        - tag: motion.motion_control.relative_move.z_move.parameters.acceleration
-        - tag: motion.motion_control.relative_move.z_move.parameters.deceleration
-        - tag: motion.motion_control.relative_move.z_move.trigger
-        topic: tag/set
-      validation:
-      - tag: motion.motion_control.relative_move.z_move.status
-      - tag: motion.motion_control.relative_move.z_move.in_progress
-  shutter:
-    control_shutter:
-      description: Control nozzle shutter
-      messages:
-      - data:
-        - tag: relay_control.shutter
-          value: bool
-        topic: tag/set
-      validation:
-      - tag: interlocks.shutter_engaged
-  vacuum:
-    booster_pump:
-      description: Control booster pump
-      messages:
-      - data:
-        - tag: vacuum_control.booster_pump.start
-          value: bool
-        - tag: vacuum_control.booster_pump.stop
-          value: bool
-        topic: tag/set
-      validation:
-      - tag: pressure.chamber_pressure
-    mechanical_pump:
-      description: Control mechanical pump
-      messages:
-      - data:
-        - tag: vacuum_control.mechanical_pump.start
-          value: bool
-        - tag: vacuum_control.mechanical_pump.stop
-          value: bool
-        topic: tag/set
-      validation:
-      - tag: pressure.chamber_pressure
-  valves:
-    feeder_gas_valve:
-      description: Control feeder gas line valve
-      messages:
-      - data:
-        - tag: valve_control.feeder_gas
-          value: bool
-        topic: tag/set
-      validation:
-      - tag: valve_control.feeder_gas
-    gate_valve:
-      description: Control gate valve position
-      messages:
-      - data:
-        - tag: valve_control.gate_valve.partial
-          value: bool
-        - tag: valve_control.gate_valve.open
-          value: bool
-        topic: tag/set
-      validation:
-      - tag: valve_control.gate_valve.partial
-      - tag: valve_control.gate_valve.open
-    main_gas_valve:
-      description: Control main gas line valve
-      messages:
-      - data:
-        - tag: valve_control.main_gas
-          value: bool
-        topic: tag/set
-      validation:
-      - tag: valve_control.main_gas
-    vent_valve:
-      description: Control chamber vent valve
-      messages:
-      - data:
-        - tag: valve_control.vent
-          value: bool
-        topic: tag/set
-      validation:
-      - tag: valve_control.vent
 process:
+  action_groups:
+    apply_parameters:
+      description: Apply parameter set to system
+      requires:
+      - parameter_file: string
+      steps:
+      - action: hardware_sets.nozzle_select
+        from: '{parameter_file}.nozzle}'
+      - action: valves.main_gas_valve
+        value: true
+      - action: valves.feeder_gas_valve
+        value: true
+      - action: gas.set_main_flow
+        from: '{parameter_file}.main_flow'
+      - validation: gas_flow_stable
+      - action: gas.set_feeder_flow
+        from: '{parameter_file}.feeder_flow'
+      - validation: gas_flow_stable
+      - action: hardware_sets.deagglomerator_control
+        from: '{parameter_file}.deagglomerator'
+      - action: hardware_sets.feeder_control
+        from: '{parameter_file}.feeder'
+      - time_delay: powder_stabilize
+    change_parameters:
+      description: Change process parameters
+      requires:
+      - parameter_file: string
+      steps:
+      - action: gas.set_main_flow
+        from: '{parameter_file}.main_flow'
+      - validation: gas_flow_stable
+      - action: gas.set_feeder_flow
+        from: '{parameter_file}.feeder_flow'
+      - validation: gas_flow_stable
+      - action: hardware_sets.deagglomerator_control
+        from: '{parameter_file}.deagglomerator'
+      - action: hardware_sets.feeder_control
+        from: '{parameter_file}.feeder'
+      - time_delay: powder_stabilize
+    execute_pattern:
+      description: Execute pattern with proper positioning and shutter control
+      parameters:
+        passes:
+          default: 1
+          description: Number of pattern passes
+          min: 1
+          type: integer
+      requires:
+      - parameter_file: string
+      - pattern_file: string
+      steps:
+      - action_group: move_to_trough
+      - action: shutter.control_shutter
+        parameters:
+          value: true
+      - action: motion.move_xy
+        from: '{pattern_file}.origin'
+      - action: shutter.control_shutter
+        parameters:
+          value: false
+      - repeat:
+          count: '{parameters.passes}'
+          steps:
+          - action: motion.move_xy
+            from: '{pattern_file}.moves'
+      - action: shutter.control_shutter
+        parameters:
+          value: true
+      - action_group: move_to_trough
+    move_to_trough:
+      description: Move to trough position
+      steps:
+      - action: motion.move_z
+        parameters:
+          z: '{safety.safe_z}'
+      - validation: motion_complete
+      - action: motion.move_xy
+        parameters:
+          x: '{hardware.trough.x}'
+          y: '{hardware.trough.y}'
+      - validation: motion_complete
+      - action: motion.move_z
+        parameters:
+          z: '{hardware.trough.z}'
+      - validation: motion_complete
+    ready_system:
+      description: Prepare system for operation
+      steps:
+      - action: valves.vent_valve
+        value: false
+      - action: motion.move_xy
+        parameters:
+          x: 0
+          y: 0
+      - action: motion.move_z
+        parameters:
+          z: 0
+      - validation: motion_complete
+      - action: valves.gate_valve
+        parameters:
+          open: false
+          partial: true
+      - parameters:
+          pressure: 200
+          timeout: 60.0
+        validation: chamber_vacuum
+      - action: valves.gate_valve
+        parameters:
+          open: true
+          partial: false
+      - parameters:
+          pressure: 1.0
+          timeout: 120.0
+        validation: chamber_vacuum
+    shutdown_process:
+      description: Shutdown system safely
+      steps:
+      - action: hardware_sets.feeder_control
+        parameters:
+          frequency: 0
+      - action: hardware_sets.deagglomerator_control
+        parameters:
+          duty_cycle: 35
+      - action: gas.set_feeder_flow
+        parameters:
+          flow: 0.0
+      - action: gas.set_main_flow
+        parameters:
+          flow: 0.0
+      - validation: gas_flow_stable
+      - action: valves.feeder_gas_valve
+        value: false
+      - action: valves.main_gas_valve
+        value: false
+      - action: motion.move_xy
+        parameters:
+          x: 0
+          y: 0
+      - action: motion.move_z
+        parameters:
+          z: 0
+      - validation: motion_complete
+      - action: valves.gate_valve
+        parameters:
+          open: false
+          partial: false
+      - action: valves.vent_valve
+        value: true
+    stop_feeder:
+      description: Stop powder feed system
+      steps:
+      - action: hardware_sets.feeder_control
+        parameters:
+          frequency: 0
+      - action: hardware_sets.deagglomerator_control
+        parameters:
+          duty_cycle: 35
+      - action: gas.set_feeder_flow
+        parameters:
+          flow: 0.0
+      - validation: gas_flow_stable
+  atomic_actions:
+    gas:
+      set_feeder_flow:
+        description: Set feeder gas flow
+        messages:
+        - data:
+          - tag: gas_control.feeder_flow.setpoint
+          topic: tag/set
+        validation:
+        - tag: gas_control.feeder_flow.measured
+      set_main_flow:
+        description: Set main gas flow
+        messages:
+        - data:
+          - tag: gas_control.main_flow.setpoint
+          topic: tag/set
+        validation:
+        - tag: gas_control.main_flow.measured
+    hardware_sets:
+      deagglomerator_control:
+        description: Control deagglomerator
+        messages:
+        - data:
+          - tag: hardware_sets.set{1|2}.deagglomerator.duty_cycle
+            value: int
+          - tag: hardware_sets.set{1|2}.deagglomerator.frequency
+            value: int
+          topic: tag/set
+        validation:
+        - tag: hardware_sets.set{1|2}.deagglomerator.duty_cycle
+        - tag: hardware_sets.set{1|2}.deagglomerator.frequency
+      feeder_control:
+        description: Control powder feeder
+        messages:
+        - data:
+          - tag: hardware_sets.set{1|2}.feeder.frequency
+            value: int
+          topic: tag/set
+        validation:
+        - tag: hardware_sets.set{1|2}.feeder.frequency
+      nozzle_select:
+        description: Select active nozzle
+        messages:
+        - data:
+          - tag: hardware_sets.nozzle_select
+            value: bool
+          topic: tag/set
+        validation:
+        - tag: hardware_sets.nozzle_select
+    motion:
+      home_axes:
+        description: Reset position tracking to 0,0,0 after manual homing
+        messages:
+        - data:
+          - tag: SetHome
+            value: true
+          topic: tag/request
+        validation:
+        - tag: AMC.ModuleStatus
+      move_xy:
+        description: Coordinated XY move
+        messages:
+        - data:
+          - tag: motion.motion_control.coordinated_move.xy_move.parameters.velocity
+          - tag: motion.motion_control.coordinated_move.xy_move.parameters.ramps
+          - tag: motion.motion_control.coordinated_move.xy_move.x_position
+          - tag: motion.motion_control.coordinated_move.xy_move.y_position
+          - tag: motion.motion_control.coordinated_move.xy_move.trigger
+          topic: tag/request
+        validation:
+        - tag: motion.motion_control.coordinated_move.xy_move.status
+        - tag: motion.motion_control.coordinated_move.xy_move.in_progress
+      move_z:
+        description: Z axis move
+        messages:
+        - data:
+          - tag: motion.motion_control.relative_move.z_move.parameters.velocity
+          - tag: motion.motion_control.relative_move.z_move.parameters.acceleration
+          - tag: motion.motion_control.relative_move.z_move.parameters.deceleration
+          - tag: motion.motion_control.relative_move.z_move.trigger
+          topic: tag/set
+        validation:
+        - tag: motion.motion_control.relative_move.z_move.status
+        - tag: motion.motion_control.relative_move.z_move.in_progress
+    shutter:
+      control_shutter:
+        description: Control nozzle shutter
+        messages:
+        - data:
+          - tag: relay_control.shutter
+            value: bool
+          topic: tag/set
+        validation:
+        - tag: interlocks.shutter_engaged
+    vacuum:
+      booster_pump:
+        description: Control booster pump
+        messages:
+        - data:
+          - tag: vacuum_control.booster_pump.start
+            value: bool
+          - tag: vacuum_control.booster_pump.stop
+            value: bool
+          topic: tag/set
+        validation:
+        - tag: pressure.chamber_pressure
+      mechanical_pump:
+        description: Control mechanical pump
+        messages:
+        - data:
+          - tag: vacuum_control.mechanical_pump.start
+            value: bool
+          - tag: vacuum_control.mechanical_pump.stop
+            value: bool
+          topic: tag/set
+        validation:
+        - tag: pressure.chamber_pressure
+    valves:
+      feeder_gas_valve:
+        description: Control feeder gas line valve
+        messages:
+        - data:
+          - tag: valve_control.feeder_gas
+            value: bool
+          topic: tag/set
+        validation:
+        - tag: valve_control.feeder_gas
+      gate_valve:
+        description: Control gate valve position
+        messages:
+        - data:
+          - tag: valve_control.gate_valve.partial
+            value: bool
+          - tag: valve_control.gate_valve.open
+            value: bool
+          topic: tag/set
+        validation:
+        - tag: valve_control.gate_valve.partial
+        - tag: valve_control.gate_valve.open
+      main_gas_valve:
+        description: Control main gas line valve
+        messages:
+        - data:
+          - tag: valve_control.main_gas
+            value: bool
+          topic: tag/set
+        validation:
+        - tag: valve_control.main_gas
+      vent_valve:
+        description: Control chamber vent valve
+        messages:
+        - data:
+          - tag: valve_control.vent
+            value: bool
+          topic: tag/set
+        validation:
+        - tag: valve_control.vent
   parameters:
     control:
       sequences:
@@ -480,21 +489,52 @@ process:
             type: float
             unit: mm
   validation:
-    hardware_sets:
+    hardware:
       active_set:
         message: Selected feeder must match active nozzle
         rule: feeder_matches_nozzle
       set_change:
         message: Must be at trough position to change hardware sets
         rule: at_trough_position
-    pattern_limits:
-      position:
-        message: Pattern exceeds sprayable area
-        rule: within_sprayable_area
-      speed:
-        message: Pattern speed exceeds limits
-        rule: within_velocity_limits
-    process_parameters:
+      required_fields:
+        message: Missing required hardware set fields
+        fields:
+        - nozzle
+        - feeder
+        - deagglomerator
+      optional_fields:
+        message: Unknown hardware set field
+        fields:
+        - offset_x
+        - notes
+    
+    parameters:
+      material:
+        required_fields:
+          message: Missing required material fields
+          fields:
+          - type
+          - size
+          - manufacturer
+          - lot
+        optional_fields:
+          message: Unknown material field
+          fields:
+          - notes
+          - certifications
+      process:
+        required_fields:
+          message: Missing required process fields
+          fields:
+          - nozzle
+          - chamber
+          - gas_flows
+          - powder_feed
+        optional_fields:
+          message: Unknown process field
+          fields:
+          - notes
+          - modifications
       chamber_pressure:
         message: Chamber pressure too high for spraying
         rule: value <= spray_threshold
@@ -511,7 +551,76 @@ process:
       gas_pressure:
         message: Main gas pressure too low
         rule: main_pressure >= regulator_pressure + min_margin
-    process_states:
+    
+    patterns:
+      limits:
+        position:
+          message: Pattern exceeds sprayable area
+          rule: within_sprayable_area
+        speed:
+          message: Pattern speed exceeds limits
+          rule: within_velocity_limits
+      serpentine:
+        required_fields:
+          message: Missing required serpentine pattern fields
+          fields:
+          - origin
+          - length
+          - spacing
+          - speed
+        optional_fields:
+          message: Unknown serpentine pattern field
+          fields:
+          - direction
+          - acceleration
+      spiral:
+        required_fields:
+          message: Missing required spiral pattern fields
+          fields:
+          - origin
+          - diameter
+          - pitch
+          - speed
+        optional_fields:
+          message: Unknown spiral pattern field
+          fields:
+          - acceleration
+    
+    sequences:
+      required_fields:
+        message: Missing required sequence fields
+        fields:
+        - metadata
+        - steps
+      step_fields:
+        required_fields:
+          message: Missing required step fields
+          fields:
+          - action
+          - parameters
+        optional_fields:
+          message: Unknown step field
+          fields:
+          - description
+          - timeout
+      safe_position:
+        message: Must be at safe height before motion
+        rule: z_position >= safe_z_height
+      spray_conditions:
+      - message: Chamber pressure too high for spraying
+        rule: chamber_pressure <= spray_threshold
+      - message: Gas flows must be stable before spraying
+        rule: main_flow_stable and feeder_flow_stable
+      max_steps: 100
+      types:
+        test:
+          check_order: true
+          required_steps:
+          - move
+          step_order:
+          - move
+    
+    states:
       chamber_vacuum:
         checks:
         - condition: less_than
@@ -557,24 +666,7 @@ process:
           warning: Z position near minimum safe height
         description: Verify safe position
         type: sequence
-    sequence_rules:
-      safe_position:
-        message: Must be at safe height before motion
-        rule: z_position >= safe_z_height
-      spray_conditions:
-      - message: Chamber pressure too high for spraying
-        rule: chamber_pressure <= spray_threshold
-      - message: Gas flows must be stable before spraying
-        rule: main_flow_stable and feeder_flow_stable
-      validation:
-        max_steps: 100
-        types:
-          test:
-            check_order: true
-            required_steps:
-            - move
-            step_order:
-            - move
+    
     time_delays:
       powder_stabilize:
         delay: 5.0
@@ -582,86 +674,3 @@ process:
       shutter_motion:
         delay: 0.5
         description: Wait for shutter to complete motion
-    parameters:
-      material:
-        required_fields:
-          message: "Missing required material fields"
-          fields:
-            - "type"
-            - "size"
-            - "manufacturer"
-            - "lot"
-        optional_fields:
-          message: "Unknown material field"
-          fields:
-            - "notes"
-            - "certifications"
-      process:
-        required_fields:
-          message: "Missing required process fields"
-          fields:
-            - "nozzle"
-            - "chamber"
-            - "gas_flows"
-            - "powder_feed"
-        optional_fields:
-          message: "Unknown process field"
-          fields:
-            - "notes"
-            - "modifications"
-  patterns:
-    serpentine:
-      required_fields:
-        message: "Missing required serpentine pattern fields"
-        fields:
-          - "origin"
-          - "length"
-          - "spacing"
-          - "speed"
-      optional_fields:
-        message: "Unknown serpentine pattern field"
-        fields:
-          - "direction"
-          - "acceleration"
-    spiral:
-      required_fields:
-        message: "Missing required spiral pattern fields"
-        fields:
-          - "origin"
-          - "diameter"
-          - "pitch"
-          - "speed"
-      optional_fields:
-        message: "Unknown spiral pattern field"
-        fields:
-          - "acceleration"
-  sequences:
-    required_fields:
-      message: "Missing required sequence fields"
-      fields:
-        - "metadata"
-        - "steps"
-    step_fields:
-      required_fields:
-        message: "Missing required step fields"
-        fields:
-          - "action"
-          - "parameters"
-      optional_fields:
-        message: "Unknown step field"
-        fields:
-          - "description"
-          - "timeout"
-  hardware_sets:
-    required_fields:
-      message: "Missing required hardware set fields"
-      fields:
-        - "nozzle"
-        - "feeder"
-        - "deagglomerator"
-    optional_fields:
-      message: "Unknown hardware set field"
-      fields:
-        - "offset_x"
-        - "notes"
-

@@ -3,24 +3,27 @@
 """Common test fixtures and configuration."""
 import pytest
 from typing import AsyncGenerator, Dict, Any
-from unittest.mock import AsyncMock, MagicMock
 import yaml
 from pathlib import Path
+import logging
+from pytest_mock import MockerFixture
 
 # Core infrastructure
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
 from micro_cold_spray.core.infrastructure.config.config_manager import ConfigManager
+from micro_cold_spray.core.infrastructure.state.state_manager import StateManager
+from micro_cold_spray.core.infrastructure.tags.tag_manager import TagManager
 
 # Process components
-from micro_cold_spray.core.components.process.validation.process_validator import ProcessValidator
-from micro_cold_spray.core.components.process.data.data_manager import DataManager
-
-# Operation components
-from micro_cold_spray.core.components.operations.actions.action_manager import ActionManager
-from micro_cold_spray.core.components.operations.patterns.pattern_manager import PatternManager
+from micro_cold_spray.core.process.validation.process_validator import ProcessValidator
+from micro_cold_spray.core.process.data.data_manager import DataManager
+from micro_cold_spray.core.process.operations.actions.action_manager import ActionManager
+from micro_cold_spray.core.process.operations.patterns.pattern_manager import PatternManager
+from micro_cold_spray.core.process.operations.parameters.parameter_manager import ParameterManager
+from micro_cold_spray.core.process.operations.sequences.sequence_manager import SequenceManager
 
 # UI components
-from micro_cold_spray.core.components.ui.managers.ui_update_manager import UIUpdateManager
+from micro_cold_spray.core.ui.managers.ui_update_manager import UIUpdateManager
 
 # Core exceptions
 from micro_cold_spray.core.exceptions import CoreError
@@ -65,10 +68,11 @@ def load_config(config_name: str) -> Dict[str, Any]:
         raise CoreError("Failed to load config", context) from e
 
 
+# Infrastructure Fixtures
 @pytest.fixture
 async def message_broker() -> AsyncGenerator[MessageBroker, None]:
     """Create message broker instance."""
-    broker = MessageBroker(test_mode=True)
+    broker = MessageBroker()
     await broker.start()
     yield broker
     await broker.shutdown()
@@ -76,107 +80,109 @@ async def message_broker() -> AsyncGenerator[MessageBroker, None]:
 
 @pytest.fixture
 async def config_manager(message_broker) -> AsyncGenerator[ConfigManager, None]:
-    """Create config manager instance with real configs."""
-    mock_config = MagicMock(spec=ConfigManager)
+    """Create config manager instance with real config files."""
+    config_path = Path("config").resolve()
+    if not config_path.exists():
+        raise RuntimeError(f"Config directory not found: {config_path}")
 
-    # Load all real configs
-    try:
-        mock_config._configs = {
-            'application': load_config('application'),
-            'hardware': load_config('hardware'),
-            'operation': load_config('operation'),
-            'process': load_config('process'),
-            'state': load_config('state'),
-            'tags': load_config('tags')
-        }
-    except CoreError as e:
-        pytest.skip(f"Config loading failed: {e.context}")
-
-    # Configure mock to return configs directly
-    async def get_config(name: str) -> Dict[str, Any]:
-        if name not in mock_config._configs:
-            context = {
-                "requested": name,
-                "available": list(mock_config._configs.keys())
-            }
-            raise CoreError("Config not found", context)
-        return mock_config._configs[name]
-
-    mock_config.get_config = AsyncMock(side_effect=get_config)
-    mock_config.update_config = AsyncMock()
-    mock_config.save_backup = AsyncMock()
-    mock_config._message_broker = message_broker
-
-    # Initialize and cleanup are now async
-    mock_config.initialize = AsyncMock()
-    mock_config.shutdown = AsyncMock()
-
-    await mock_config.initialize()
-    yield mock_config
-    await mock_config.shutdown()
+    config_manager = ConfigManager(config_path, message_broker)
+    await config_manager.initialize()
+    yield config_manager
+    await config_manager.shutdown()
 
 
 @pytest.fixture
-async def process_validator(
-    message_broker,
-    config_manager
-) -> AsyncGenerator[ProcessValidator, None]:
+async def state_manager(config_manager) -> AsyncGenerator[StateManager, None]:
+    """Create state manager instance."""
+    state_manager = StateManager(config_manager)
+    await state_manager.initialize()
+    yield state_manager
+    await state_manager.shutdown()
+
+
+@pytest.fixture
+async def tag_manager(config_manager, mocker: MockerFixture) -> AsyncGenerator[TagManager, None]:
+    """Create tag manager instance."""
+    # Create mock PLC client
+    plc_client = mocker.AsyncMock()
+    plc_client.read_tag.return_value = 0
+    plc_client.write_tag.return_value = None
+
+    # Create mock SSH client
+    ssh_client = mocker.AsyncMock()
+    ssh_client.read_command.return_value = 0
+    ssh_client.write_command.return_value = None
+
+    # Create tag manager with mocked clients
+    tag_manager = TagManager(config_manager)
+    tag_manager._plc_client = plc_client
+    tag_manager._ssh_client = ssh_client
+    await tag_manager.initialize()
+    yield tag_manager
+    await tag_manager.shutdown()
+
+
+# Process Fixtures
+@pytest.fixture
+async def process_validator(message_broker, config_manager) -> AsyncGenerator[ProcessValidator, None]:
     """Create process validator instance."""
-    validator = ProcessValidator(
-        message_broker=message_broker,
-        config_manager=config_manager
-    )
+    validator = ProcessValidator(message_broker, config_manager)
     await validator.initialize()
     yield validator
     await validator.shutdown()
 
 
 @pytest.fixture
-async def action_manager(
-    message_broker,
-    config_manager,
-    process_validator
-) -> AsyncGenerator[ActionManager, None]:
+async def data_manager(message_broker, config_manager) -> AsyncGenerator[DataManager, None]:
+    """Create data manager instance."""
+    manager = DataManager(message_broker, config_manager)
+    await manager.initialize()
+    yield manager
+    await manager.shutdown()
+
+
+# Operation Fixtures
+@pytest.fixture
+async def action_manager(message_broker, config_manager, process_validator) -> AsyncGenerator[ActionManager, None]:
     """Create action manager instance."""
-    manager = ActionManager(
-        message_broker=message_broker,
-        config_manager=config_manager,
-        process_validator=process_validator
-    )
+    manager = ActionManager(message_broker, config_manager, process_validator)
     await manager.initialize()
     yield manager
     await manager.shutdown()
 
 
 @pytest.fixture
-async def pattern_manager(
-    message_broker,
-    config_manager,
-    process_validator
-) -> AsyncGenerator[PatternManager, None]:
+async def pattern_manager(message_broker, config_manager) -> AsyncGenerator[PatternManager, None]:
     """Create pattern manager instance."""
-    manager = PatternManager(
-        message_broker=message_broker,
-        config_manager=config_manager,
-        process_validator=process_validator
-    )
+    manager = PatternManager(message_broker, config_manager)
     await manager.initialize()
     yield manager
     await manager.shutdown()
 
 
 @pytest.fixture
-async def ui_manager(
-    message_broker,
-    config_manager,
-    data_manager
-) -> AsyncGenerator[UIUpdateManager, None]:
+async def parameter_manager(message_broker, config_manager, process_validator) -> AsyncGenerator[ParameterManager, None]:
+    """Create parameter manager instance."""
+    manager = ParameterManager(message_broker, config_manager, process_validator)
+    await manager.initialize()
+    yield manager
+    await manager.shutdown()
+
+
+@pytest.fixture
+async def sequence_manager(message_broker, config_manager, action_manager) -> AsyncGenerator[SequenceManager, None]:
+    """Create sequence manager instance."""
+    manager = SequenceManager(message_broker, config_manager, action_manager)
+    await manager.initialize()
+    yield manager
+    await manager.shutdown()
+
+
+# UI Fixtures
+@pytest.fixture
+async def ui_manager(message_broker, config_manager, data_manager) -> AsyncGenerator[UIUpdateManager, None]:
     """Create UI update manager instance."""
-    manager = UIUpdateManager(
-        message_broker=message_broker,
-        config_manager=config_manager,
-        data_manager=data_manager
-    )
+    manager = UIUpdateManager(message_broker, config_manager, data_manager)
     await manager.initialize()
     yield manager
 
@@ -186,16 +192,23 @@ async def ui_manager(
     await manager.shutdown()
 
 
+# Qt Application Fixture (for UI tests)
 @pytest.fixture
-async def data_manager(
-    message_broker,
-    config_manager
-) -> AsyncGenerator[DataManager, None]:
-    """Create data manager instance."""
-    manager = DataManager(
-        message_broker=message_broker,
-        config_manager=config_manager
+def qapp():
+    """Create Qt application instance."""
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication([])
+    yield app
+    app.quit()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def configure_logging():
+    """Configure logging for tests."""
+    logging.basicConfig(
+        level=logging.WARNING,
+        format='%(asctime)s | %(levelname)-8s | %(name)s:%(funcName)s:%(lineno)d - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
     )
-    await manager.initialize()
-    yield manager
-    await manager.shutdown()

@@ -1,101 +1,39 @@
-version: 1.0.0
 application:
-  info:
-    name: Micro Cold Spray Control System
-    version: 1.0.0
-    description: Control system for micro cold spray deposition
-  paths:
-    config:
-      root: config/
-      application: config/application.yaml
-      file_format: config/file_format.yaml
-      hardware: config/hardware.yaml
-      process: config/process.yaml
-      state: config/state.yaml
-      tags: config/tags.yaml
-      ui: config/ui.yaml
-    data:
-      root: data/
-      parameters: data/parameters/
-      patterns:
-        root: data/patterns/
-        custom: data/patterns/custom/
-        serpentine: data/patterns/serpentine/
-        spiral: data/patterns/spiral/
-      sequences: data/sequences/
-      powders: data/powders/
-      runs: data/runs/
-    logs: logs/
-    resources: resources/
-    tags: resources/tags/
+  development:
+    mock_hardware: true
+    profiling: false
+    testing:
+      coverage: false
+      enabled: false
   environment:
-    mode: development
-    debug: true
     async_mode: true
+    debug: true
     log_level: INFO
+    mode: development
+    test_value: updated
     user: Michael Gammage
     user_history:
     - Default User
     - Michael Gammage
+  info:
+    description: Test description
+    name: Test App
+    version: 1.0.0
+  invalid: true
+  paths:
+    config: config/
+    data: data/
+    logs: logs/
+    resources: resources/
+    tags: resources/tags/
   services:
-    message_broker:
-      topics:
-        tag_operations:
-        - tag/request
-        - tag/response
-        - tag/update
-        state_operations:
-        - state/request
-        - state/response
-        - state/change
-        sequence_operations:
-        - sequence/request
-        - sequence/response
-        - sequence/state
-        - sequence/progress
-        config_operations:
-        - config/request
-        - config/response
-        - config/update
-        data_operations:
-        - data/request
-        - data/response
-        - data/state
-        pattern_operations:
-        - pattern/request
-        - pattern/response
-        - pattern/state
-        action_operations:
-        - action/request
-        - action/response
-        - action/state
-        validation_operations:
-        - validation/request
-        - validation/response
-        ui_operations:
-        - ui/request
-        - ui/response
-        - ui/state
-        hardware_operations:
-        - hardware/request
-        - hardware/response
-        - hardware/state
-        equipment_operations:
-        - equipment/request
-        - equipment/response
-        - equipment/state
-        motion_operations:
-        - motion/request
-        - motion/response
-        - motion/state
-        error_topic:
-        - error
-        parameter_operations:
-        - parameter/request
-        - parameter/response
-        - parameter/state
-    data_manager:
+    config_manager:
+      backup_enabled: true
+      backup_interval: 3600
       validation_enabled: true
+    data_manager:
+      cache_enabled: true
+      cache_timeout: 1000
       formats:
       - parameters
       - patterns
@@ -104,36 +42,80 @@ application:
       - powders
       - runs
       - spray_data
-      cache_enabled: true
-      cache_timeout: 1000
-    config_manager:
       validation_enabled: true
-      backup_enabled: true
-      backup_interval: 3600
-    tag_manager:
-      poll_rate: 100
-      cache_enabled: true
-      cache_timeout: 1000
+    message_broker:
+      topics:
+        action_operations:
+        - action/request
+        - action/response
+        - action/state
+        - action/group/request
+        - action/group/response
+        - action/group/state
+        config_operations:
+        - config/request
+        - config/response
+        - config/update
+        data_operations:
+        - data/request
+        - data/response
+        - data/state
+        error_topic:
+        - error
+        hardware_operations:
+        - hardware/state
+        motion_operations:
+        - motion/request
+        - motion/response
+        - motion/state
+        parameter_operations:
+        - parameter/request
+        - parameter/response
+        - parameter/state
+        pattern_operations:
+        - pattern/request
+        - pattern/response
+        - pattern/state
+        sequence_operations:
+        - sequence/request
+        - sequence/response
+        - sequence/state
+        - sequence/step
+        state_operations:
+        - state/request
+        - state/response
+        - state/change
+        tag_operations:
+        - tag/request
+        - tag/response
+        - tag/update
+        ui_operations:
+        - ui/request
+        - ui/response
+        - ui/state
+        validation_operations:
+        - validation/request
+        - validation/response
     state_manager:
       history_enabled: true
       history_length: 1000
       transition_timeout: 5000
+    tag_manager:
+      cache_enabled: true
+      cache_timeout: 1000
+      poll_rate: 100
     ui_manager:
-      update_rate: 100
       error_display_timeout: 5000
-  development:
-    mock_hardware: true
-    profiling: false
-    testing:
-      enabled: false
-      coverage: false
+      update_rate: 100
+invalid_section:
+  test: true
+version: 1.0.0
 window:
-  title: Micro Cold Spray Control System
   geometry:
+    height: 720
+    width: 1280
     x: 100
     y: 100
-    width: 1280
-    height: 720
   layout:
     main:
     - dashboard
@@ -143,27 +125,28 @@ window:
     - config
     - diagnostics
   style:
-    theme: system
     font:
       family: Segoe UI
       size: 10
+    theme: system
+  title: Micro Cold Spray Control System
   widgets:
+    config:
+    - config_editor
+    - hardware_setup
     dashboard:
     - status_panel
     - control_panel
+    diagnostics:
+    - tag_monitor
+    - validation_panel
+    editor:
+    - pattern_editor
+    - sequence_builder
+    - sequence_visualizer
     motion:
     - chamber_view
     - motion_control
     process:
     - parameter_editor
     - process_display
-    editor:
-    - pattern_editor
-    - sequence_builder
-    - sequence_visualizer
-    config:
-    - config_editor
-    - hardware_setup
-    diagnostics:
-    - tag_monitor
-    - validation_panel

@@ -38,18 +38,34 @@ htmlcov/
 # Documentation
 docs/_build/
 
-# Exclude runtime data
-data/runs/**
-data/patterns/history/**
-data/parameters/history/**
-data/sequences/history/**
+# Data directories - exclude all by default
+data/parameters/*
+data/patterns/*
+data/sequences/*
+data/runs/*
+data/powders/*
 
-# Include library files
-!data/patterns/library/**
-!data/parameters/library/**
-!data/sequences/library/**
-!data/powders/**
-!data/nozzles/**
+# Keep test files
+!data/parameters/test/**
+!data/patterns/test/**
+!data/sequences/test/**
+!data/runs/test/**
+!data/powders/test/**
 
 # Exclude desktop.ini files
 *.ini
+
+# TODO Notes
+# 1. Validation Split:
+#    - Design-time: File structure and content validation
+#      * Pattern: Type exists, params match type, basic bounds
+#      * Parameters: Values within hardware physical limits
+#      * Sequence: Actions exist, patterns fit in sprayable area
+#    - Runtime: Process requirements and conditions
+#      * Vacuum levels, gas stability, motion completion
+#      * Hardware state validation
+#
+# 2. Message Topics & Error Protocol Refactoring:
+#    - Clean up message topic structure
+#    - Standardize error raising across components
+#    - Review exception handling patterns

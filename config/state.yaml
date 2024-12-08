@@ -48,4 +48,3 @@ state:
       next_states:
       - INITIALIZING
       - ERROR
-version: 1.0.0

@@ -1,5 +1,5 @@
 [flake8]
-max-line-length = 120
+max-line-length = 150
 exclude = 
     .git,
     __pycache__,
@@ -9,10 +9,10 @@ exclude =
     *.egg-info
 
 # Compatibility with black and other ignores
-extend-ignore = E203, W503
+extend-ignore = E203, W503, W293
 
 # Complexity settings
-max-complexity = 15
+max-complexity = 20
 
 # Documentation settings
 docstring-convention = google 

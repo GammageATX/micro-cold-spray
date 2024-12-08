@@ -8,16 +8,16 @@ from loguru import logger
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QProgressDialog
 
-from micro_cold_spray.core.components.ui.managers.ui_update_manager import (
+from micro_cold_spray.core.ui.managers.ui_update_manager import (
     UIUpdateManager,
 )
-from micro_cold_spray.core.components.ui.windows.main_window import MainWindow
+from micro_cold_spray.core.ui.windows.main_window import MainWindow
 from micro_cold_spray.core.exceptions import ConfigurationError, CoreError
 from micro_cold_spray.core.infrastructure.config.config_manager import ConfigManager
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
 from micro_cold_spray.core.infrastructure.state.state_manager import StateManager
 from micro_cold_spray.core.infrastructure.tags.tag_manager import TagManager
-from micro_cold_spray.core.components.process.data.data_manager import DataManager
+from micro_cold_spray.core.process.data.data_manager import DataManager
 
 src_path = Path(__file__).parent.parent
 if str(src_path) not in sys.path:
@@ -130,9 +130,10 @@ async def initialize_system() -> tuple[
         message_broker = MessageBroker()
         await message_broker.start()
 
-        # Create config manager with message broker
+        # Create config manager with proper path and message broker
         logger.debug("Initializing ConfigManager")
-        config_manager = ConfigManager(message_broker)
+        config_path = get_project_root() / "config"
+        config_manager = ConfigManager(config_path, message_broker)
         await config_manager.initialize()
 
         # Create tag manager with proper dependencies
