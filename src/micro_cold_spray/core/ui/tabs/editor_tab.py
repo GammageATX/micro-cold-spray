@@ -13,6 +13,7 @@ from ..widgets.editor.pattern_editor import PatternEditor
 from ..widgets.editor.sequence_builder import SequenceBuilder
 from ..widgets.editor.sequence_visualizer import SequenceVisualizer
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
+from micro_cold_spray.core.infrastructure.config.config_manager import ConfigManager
 
 
 @runtime_checkable
@@ -35,6 +36,7 @@ class EditorTab(BaseWidget):
         self,
         ui_manager: UIUpdateManager,
         message_broker: MessageBroker,
+        config_manager: ConfigManager,
         parent=None
     ):
         super().__init__(
@@ -46,7 +48,7 @@ class EditorTab(BaseWidget):
                 "editor/pattern",
                 "editor/parameters",
                 "system/connection",
-                "data/list",
+                "data/response",
                 "system/error"
             ],
             parent=parent
@@ -65,6 +67,7 @@ class EditorTab(BaseWidget):
         self._load_files_task = None
 
         self._message_broker = message_broker  # Store message broker
+        self._config_manager = config_manager  # Store config manager
         self._init_ui()
         logger.info("Editor tab initialized")
 
@@ -92,6 +95,7 @@ class EditorTab(BaseWidget):
             self._parameter_editor = ParameterEditor(
                 ui_manager=self._ui_manager,
                 message_broker=self._message_broker,
+                config_manager=self._config_manager,
                 parent=self
             )
             left_splitter.addWidget(self._parameter_editor)
@@ -197,8 +201,10 @@ class EditorTab(BaseWidget):
             if "system/connection" in data:
                 await self._handle_connection_change(data)
 
-            if "data/list" in data:
-                await self._handle_data_list(data)
+            if "data/response" in data:
+                response_data = data["data/response"]
+                if response_data.get("success") and "files" in response_data.get("data", {}):
+                    await self._handle_data_list(response_data.get("data", {}))
 
             if "editor/sequence" in data:
                 sequence_data = data["editor/sequence"]
@@ -251,34 +257,73 @@ class EditorTab(BaseWidget):
             logger.error(f"Error during editor tab cleanup: {e}")
 
     async def _load_editor_files(self) -> None:
-        """Load all editor files."""
+        """Request file lists for parameters, patterns and sequences."""
         try:
-            logger.info("Starting to load editor files...")
-            # Request file lists through DataManager
-            logger.info("Requesting parameter files...")
+            # Request parameter files
             await self._ui_manager.send_update(
                 "data/request",
-                "list",
                 {
-                    "type": "parameters"
+                    "request_type": "list",
+                    "type": "parameters",
+                    "request_id": f"{self._widget_id}_parameters"
                 }
             )
-            logger.info("Requesting pattern files...")
+
+            # Request pattern files
             await self._ui_manager.send_update(
                 "data/request",
-                "list",
                 {
-                    "type": "patterns"
+                    "request_type": "list",
+                    "type": "patterns",
+                    "request_id": f"{self._widget_id}_patterns"
                 }
             )
-            logger.info("Requesting sequence files...")
+
+            # Request sequence files
             await self._ui_manager.send_update(
                 "data/request",
-                "list",
                 {
-                    "type": "sequences"
+                    "request_type": "list",
+                    "type": "sequences",
+                    "request_id": f"{self._widget_id}_sequences"
                 }
             )
-            logger.info("Editor files loaded successfully")
+            logger.info("File list requests sent")
+
         except Exception as e:
-            logger.error(f"Error loading editor files: {e}")
+            logger.error(f"Error requesting file lists: {e}")
+            await self._ui_manager.send_update(
+                "system/error",
+                {
+                    "source": "editor_tab",
+                    "message": f"Failed to load files: {str(e)}",
+                    "level": "error"
+                }
+            )
+
+    async def _handle_pattern_selected(self, pattern_data: Dict[str, Any]) -> None:
+        """Handle pattern selection."""
+        try:
+            # Update visualizer
+            if self._sequence_visualizer:
+                self._sequence_visualizer.update_sequence([{
+                    'type': 'pattern',
+                    'pattern': pattern_data
+                }])
+                
+            # Update sequence builder if in pattern step
+            if self._sequence_builder:
+                await self._sequence_builder.update_current_pattern(pattern_data)
+                
+        except Exception as e:
+            logger.error(f"Error handling pattern selection: {e}")
+
+    async def _handle_parameter_selected(self, param_data: Dict[str, Any]) -> None:
+        """Handle parameter selection."""
+        try:
+            # Update sequence builder if in parameter step
+            if self._sequence_builder:
+                await self._sequence_builder.update_current_parameters(param_data)
+                
+        except Exception as e:
+            logger.error(f"Error handling parameter selection: {e}")

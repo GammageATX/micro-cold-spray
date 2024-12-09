@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Awaitable, Callable, Dict, Optional, Set
 from loguru import logger
 
-from micro_cold_spray.core.exceptions import MessageError, ConfigurationError
+from micro_cold_spray.core.exceptions import MessageError
 
 
 MessageHandler = Callable[[Dict[str, Any]], Awaitable[None]]
@@ -27,7 +27,116 @@ class MessageBroker:
         self._processing_task: Optional[asyncio.Task] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
 
+        # Set default valid topics
+        self._default_topics = {
+            "tag/request", "tag/response", "tag/update",
+            "config/request", "config/response", "config/update",
+            "state/request", "state/response", "state/change",
+            "sequence/request", "sequence/response", "sequence/state",
+            "sequence/progress", "sequence/step", "sequence/loaded",
+            "sequence/complete", "sequence/error", "sequence/status",
+            "pattern/request", "pattern/response", "pattern/state",
+            "action/request", "action/response", "action/state",
+            "parameter/request", "parameter/response", "parameter/state",
+            "validation/request", "validation/response",
+            "data/request", "data/response", "data/state",
+            "ui/request", "ui/response", "ui/state",
+            "hardware/state",
+            "motion/request", "motion/response", "motion/state",
+            "system/status", "system/state",
+            "error",
+            "action/group/request",
+            "action/group/response",
+            "action/group/state"
+        }
+
         logger.debug(f"MessageBroker initialized in {'test' if test_mode else 'normal'} mode")
+
+    def _validate_topic(self, topic: str) -> None:
+        """Validate topic against allowed patterns.
+
+        Args:
+            topic: Topic string to validate
+
+        Raises:
+            MessageError: If topic is invalid
+        """
+        # Error topic is always valid
+        if topic == "error":
+            return
+
+        # In test mode, allow test/* topics
+        if self._test_mode and topic.startswith("test/"):
+            return
+
+        # Must be initialized with valid topics
+        if not self._initialized:
+            raise MessageError("MessageBroker not initialized")
+
+        # Check if topic is valid
+        if topic not in self._valid_topics:
+            raise MessageError(f"Invalid topic: {topic}")
+
+    async def initialize(self) -> None:
+        """Initialize message broker with default topics."""
+        try:
+            # Start with default topics
+            await self.set_valid_topics(self._default_topics)
+            
+            # Add test topics in test mode
+            if self._test_mode:
+                test_topics = {
+                    "test/request",
+                    "test/response",
+                    "test/state"
+                }
+                self._valid_topics.update(test_topics)
+
+            self._initialized = True
+            logger.debug(f"Initialized with topics: {self._valid_topics}")
+
+            # Start message processing
+            await self.start()
+
+        except Exception as e:
+            error_msg = f"Failed to initialize message broker: {str(e)}"
+            logger.error(error_msg)
+            raise MessageError(error_msg) from e
+
+    async def start(self) -> None:
+        """Start message broker."""
+        try:
+            if not self._running:
+                self._running = True
+                self._shutdown_event.clear()
+                self._loop = self._ensure_event_loop()
+                if not self._processing_task or self._processing_task.done():
+                    self._processing_task = self._loop.create_task(self._process_messages())
+
+            logger.debug("MessageBroker started")
+
+        except Exception as e:
+            error_msg = f"Failed to start MessageBroker: {str(e)}"
+            logger.error(error_msg)
+            raise MessageError(error_msg) from e
+
+    async def update_from_config(self, config_topics: Set[str]) -> None:
+        """Update topics from configuration.
+        
+        Args:
+            config_topics: Set of topics from configuration
+            
+        This allows updating topics after ConfigManager is initialized.
+        """
+        try:
+            # Merge with default topics to ensure critical ones remain
+            all_topics = self._default_topics.union(config_topics)
+            await self.set_valid_topics(all_topics)
+            logger.info("Updated topics from configuration")
+        except Exception as e:
+            error_msg = f"Failed to update topics from config: {str(e)}"
+            logger.error(error_msg)
+            raise MessageError(error_msg) from e
 
     def _ensure_event_loop(self) -> asyncio.AbstractEventLoop:
         """Ensure there is a running event loop."""
@@ -64,75 +173,6 @@ class MessageBroker:
             logger.error(error_msg)
             raise MessageError(error_msg) from e
 
-    def _validate_topic(self, topic: str) -> None:
-        """Validate topic against allowed patterns.
-
-        Args:
-            topic: Topic string to validate
-
-        Raises:
-            MessageError: If topic is invalid
-        """
-        # Error topic is always valid
-        if topic == "error":
-            return
-
-        # In test mode, allow test/* topics
-        if self._test_mode and topic.startswith("test/"):
-            return
-
-        # Must be initialized with valid topics
-        if not self._initialized:
-            raise MessageError("MessageBroker not initialized")
-
-        # Check if topic is valid
-        if topic not in self._valid_topics:
-            raise MessageError(f"Invalid topic: {topic}")
-
-    async def start(self) -> None:
-        """Start message broker."""
-        try:
-            if not self._test_mode:
-                # Set default valid topics in normal mode
-                default_topics = {
-                    "tag/request", "tag/response", "tag/update",
-                    "config/request", "config/response", "config/update",
-                    "state/request", "state/response", "state/change",
-                    "sequence/request", "sequence/response", "sequence/state",
-                    "sequence/progress", "sequence/step", "sequence/loaded",
-                    "sequence/complete", "sequence/error", "sequence/status",
-                    "pattern/request", "pattern/response", "pattern/state",
-                    "action/request", "action/response", "action/state",
-                    "parameter/request", "parameter/response", "parameter/state",
-                    "validation/request", "validation/response",
-                    "data/request", "data/response", "data/state",
-                    "ui/request", "ui/response", "ui/state",
-                    "hardware/state",
-                    "motion/request", "motion/response", "motion/state",
-                    "system/status", "system/state",
-                    "error",
-                    "action/group/request",
-                    "action/group/response",
-                    "action/group/state"
-                }
-                await self.set_valid_topics(default_topics)
-                self._initialized = True
-
-            # Start message processing
-            if not self._running:
-                self._running = True
-                self._shutdown_event.clear()
-                self._loop = self._ensure_event_loop()
-                if not self._processing_task or self._processing_task.done():
-                    self._processing_task = self._loop.create_task(self._process_messages())
-
-            logger.debug("MessageBroker started")
-
-        except Exception as e:
-            error_msg = f"Failed to start MessageBroker: {str(e)}"
-            logger.error(error_msg)
-            raise MessageError(error_msg) from e
-
     async def _process_messages(self) -> None:
         """Process messages from the queue."""
         try:
@@ -155,40 +195,6 @@ class MessageBroker:
         finally:
             self._running = False
 
-    async def initialize(self) -> None:
-        """Initialize message broker with valid topics from config."""
-        try:
-            # Get valid topics from application config
-            app_config = await self._config_manager.get_config("application")
-            if not app_config or "application" not in app_config:
-                raise ConfigurationError("Invalid application config")
-
-            topics_config = app_config["application"]["services"]["message_broker"]["topics"]
-            if not topics_config:
-                raise ConfigurationError("No topics defined in config")
-
-            # Flatten topic lists into set
-            valid_topics = set()
-            for topic_group in topics_config.values():
-                if isinstance(topic_group, list):
-                    valid_topics.update(topic_group)
-
-            # Add test topics in test mode
-            if self._test_mode:
-                valid_topics.update({
-                    "test/request",
-                    "test/response",
-                    "test/state"
-                })
-
-            await self.set_valid_topics(valid_topics)
-            self._initialized = True
-            logger.debug(f"Initialized valid topics: {valid_topics}")
-
-        except Exception as e:
-            logger.error(f"Failed to initialize message broker: {e}")
-            raise MessageError("Failed to initialize message broker") from e
-
     async def subscribe(self, topic: str, handler: MessageHandler) -> None:
         """Subscribe to a topic.
 
@@ -200,7 +206,6 @@ class MessageBroker:
             MessageError: If topic is invalid or subscription fails
         """
         try:
-            self._validate_topic(topic)
             if topic not in self._subscribers:
                 self._subscribers[topic] = set()
             self._subscribers[topic].add(handler)
@@ -222,7 +227,6 @@ class MessageBroker:
             MessageError: If topic is invalid or unsubscribe fails
         """
         try:
-            self._validate_topic(topic)
             if topic in self._subscribers and handler in self._subscribers[topic]:
                 self._subscribers[topic].remove(handler)
                 logger.debug(f"Unsubscribed from topic: {topic}")

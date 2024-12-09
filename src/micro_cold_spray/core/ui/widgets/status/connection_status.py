@@ -228,15 +228,18 @@ class ConnectionStatus(BaseWidget):
                         self.user_combo.insertItem(self.user_combo.count() - 1, new_user)
                         self.user_combo.setCurrentText(new_user)
 
-                        # Update application config directly
-                        await self._config_manager.update_config("application", {
-                            "application": {
-                                "environment": {
-                                    "user": new_user,
-                                    "user_history": current_items + [new_user]
-                                }
-                            }
-                        })
+                        # Get current config to preserve structure
+                        current_config = await self._config_manager.get_config("application")
+                        
+                        # Update only the user-related fields
+                        current_config["application"]["environment"]["user"] = new_user
+                        if "user_history" not in current_config["application"]["environment"]:
+                            current_config["application"]["environment"]["user_history"] = []
+                        if new_user not in current_config["application"]["environment"]["user_history"]:
+                            current_config["application"]["environment"]["user_history"].append(new_user)
+
+                        # Update config with preserved structure
+                        await self._config_manager.update_config("application", current_config)
 
                         logger.info(f"Added new user: {new_user}")
                     else:

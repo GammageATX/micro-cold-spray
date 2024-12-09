@@ -59,10 +59,32 @@ class ActionManager:
     async def _handle_action_request(self, data: Dict[str, Any]) -> None:
         """Handle action request."""
         request_id = data.get("request_id")
-        action = data.get("action")
-        parameters = data.get("parameters", {})
+        request_type = data.get("request_type")
 
         try:
+            # Handle list request
+            if request_type == "list":
+                # Get list of available actions
+                actions = list(self._atomic_actions.keys()) + list(self._action_groups.keys())
+                actions.sort()
+
+                # Send response
+                await self._message_broker.publish(
+                    "action/response",
+                    {
+                        "request_id": request_id,
+                        "request_type": "list",
+                        "success": True,
+                        "actions": actions,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+                return
+
+            # Handle execute request
+            action = data.get("action")
+            parameters = data.get("parameters", {})
+
             if not action:
                 raise ValidationError("Missing action field")
 
@@ -104,21 +126,22 @@ class ActionManager:
             )
 
         except Exception as e:
-            error_msg = f"Failed to execute action {action}: {str(e)}"
+            error_msg = f"Failed to execute action request: {str(e)}"
             logger.error(error_msg)
 
-            # Update state to error
-            await self._message_broker.publish(
-                "action/state",
-                {
-                    "request_id": request_id,
-                    "action": action,
-                    "state": "ERROR",
-                    "error": str(e),
-                    "parameters": parameters,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
+            # Update state to error if this was an execute request
+            if request_type != "list":
+                await self._message_broker.publish(
+                    "action/state",
+                    {
+                        "request_id": request_id,
+                        "action": data.get("action"),
+                        "state": "ERROR",
+                        "error": str(e),
+                        "parameters": data.get("parameters", {}),
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
 
             # Send error response
             await self._message_broker.publish(

@@ -1,7 +1,7 @@
 """Tag Manager module for handling hardware communication and tag state."""
 import asyncio
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, TYPE_CHECKING
 
 from loguru import logger
 
@@ -14,6 +14,9 @@ from ...hardware.clients import (
 )
 from ..config.config_manager import ConfigManager
 from ..messaging.message_broker import MessageBroker
+
+if TYPE_CHECKING:
+    from micro_cold_spray.core.ui.managers.ui_update_manager import UIUpdateManager
 
 
 class TagManager:
@@ -77,10 +80,21 @@ class TagManager:
                 logger.info("Creating mock hardware clients")
                 self._plc_client = create_plc_client({}, use_mock=True)
                 self._ssh_client = create_ssh_client({}, use_mock=True)
-                await self._plc_client.connect()
-                await self._ssh_client.connect()
-                await self._publish_hardware_state("plc", "connected")
-                await self._publish_hardware_state("motion", "connected")
+                
+                # Try to connect and publish appropriate states
+                try:
+                    await self._plc_client.connect()
+                    await self._publish_hardware_state("plc", "connected")
+                except Exception as e:
+                    logger.error(f"Failed to connect mock PLC client: {e}")
+                    await self._publish_hardware_state("plc", "disconnected", str(e))
+                
+                try:
+                    await self._ssh_client.connect()
+                    await self._publish_hardware_state("motion", "connected")
+                except Exception as e:
+                    logger.error(f"Failed to connect mock SSH client: {e}")
+                    await self._publish_hardware_state("motion", "disconnected", str(e))
             else:
                 # Get hardware config and create real clients
                 logger.info("Creating real hardware clients")
@@ -95,10 +109,21 @@ class TagManager:
 
                 self._plc_client = create_plc_client({'hardware': hardware_config})
                 self._ssh_client = create_ssh_client({'hardware': hardware_config})
-                await self._plc_client.connect()
-                await self._ssh_client.connect()
-                await self._publish_hardware_state("plc", "connected")
-                await self._publish_hardware_state("motion", "connected")
+                
+                # Try to connect and publish appropriate states
+                try:
+                    await self._plc_client.connect()
+                    await self._publish_hardware_state("plc", "connected")
+                except Exception as e:
+                    logger.error(f"Failed to connect PLC client: {e}")
+                    await self._publish_hardware_state("plc", "disconnected", str(e))
+                
+                try:
+                    await self._ssh_client.connect()
+                    await self._publish_hardware_state("motion", "connected")
+                except Exception as e:
+                    logger.error(f"Failed to connect SSH client: {e}")
+                    await self._publish_hardware_state("motion", "disconnected", str(e))
 
             # Subscribe to tag messages
             await self._message_broker.subscribe("tag/request", self._handle_tag_request)
@@ -421,3 +446,53 @@ class TagManager:
             logger.warning(f"Motion connection test failed: {str(e)}")
             
         return status
+
+    async def subscribe_ui_manager(self, ui_manager: 'UIUpdateManager') -> None:
+        """Subscribe UI manager to receive tag updates.
+        
+        Args:
+            ui_manager: UI update manager instance to receive tag updates
+        """
+        try:
+            self._ui_manager = ui_manager
+            logger.debug("UI manager subscribed to tag updates")
+        except Exception as e:
+            logger.error(f"Failed to subscribe UI manager: {e}")
+            raise
+
+    async def _handle_tag_update(self, tag: str, value: Any) -> None:
+        """Handle a tag update from hardware.
+        
+        Args:
+            tag: Tag that was updated
+            value: New tag value
+        """
+        try:
+            # Store updated value
+            self._tag_values[tag] = value
+            
+            # Notify UI manager if available
+            if hasattr(self, '_ui_manager') and self._ui_manager is not None:
+                await self._ui_manager.handle_tag_update(tag, value)
+            
+            # Publish update via message broker
+            await self._message_broker.publish(
+                "tag/update",
+                {
+                    "tag": tag,
+                    "value": value,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+        except Exception as e:
+            logger.error(f"Error handling tag update for {tag}: {e}")
+            await self._message_broker.publish(
+                "error",
+                {
+                    "source": "tag_manager",
+                    "error": str(e),
+                    "context": "tag_update",
+                    "tag": tag,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )

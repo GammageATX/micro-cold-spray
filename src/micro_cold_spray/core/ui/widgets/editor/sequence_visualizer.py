@@ -7,6 +7,8 @@ from ...managers.ui_update_manager import UIUpdateManager
 from ..base_widget import BaseWidget
 from ....infrastructure.messaging.message_broker import MessageBroker
 import asyncio
+import math
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -23,18 +25,12 @@ class SequenceVisualizer(BaseWidget):
         super().__init__(
             widget_id="widget_editor_sequence_visualizer",
             ui_manager=ui_manager,
-            update_tags=[
-                "motion/stage/dimensions",
-                "motion/substrate/dimensions",
-                "sequence/path",
-                "sequence/active_step",
-                "system/connection",
-                "system/error"
-            ],
+            update_tags=["error"],
             parent=parent
         )
 
         self._message_broker = message_broker
+        self._pending_requests = {}  # Track pending requests by ID
 
         # Initialize with default values
         self._stage = {'x': 200.0, 'y': 200.0}  # Default stage size
@@ -53,44 +49,110 @@ class SequenceVisualizer(BaseWidget):
         self.setPalette(palette)
 
         self.setMinimumSize(400, 400)
+
+        # Subscribe to response topics
+        asyncio.create_task(self._subscribe_to_topics())
         logger.info("Sequence visualizer initialized")
 
-    async def handle_ui_update(self, data: Dict[str, Any]) -> None:
-        """Handle UI updates."""
+    async def _subscribe_to_topics(self) -> None:
+        """Subscribe to required message topics."""
         try:
-            if "motion/stage/dimensions" in data:
-                self._stage = data["motion/stage/dimensions"]
-                self.update()
+            await self._message_broker.subscribe("motion/response", self._handle_motion_response)
+            await self._message_broker.subscribe("motion/state", self._handle_motion_state)
+            await self._message_broker.subscribe("sequence/response", self._handle_sequence_response)
+            await self._message_broker.subscribe("sequence/state", self._handle_sequence_state)
 
-            elif "motion/substrate/dimensions" in data:
-                self._substrate = data["motion/substrate/dimensions"]
-                self.update()
-
-            elif "sequence/path" in data:
-                self._path_segments = self._process_sequence(data["sequence/path"])
-                self.update()
-
-            elif "sequence/active_step" in data:
-                self._active_step = data["sequence/active_step"]
-                self.update()
-
-            elif "system/connection" in data:
-                connected = data.get("connected", False)
-                if not connected:
-                    self._path_segments = []
-                    self._active_step = None
-                    self.update()
+            # Request initial dimensions
+            await self._request_dimensions()
 
         except Exception as e:
-            logger.error(f"Error handling UI update: {e}")
-            await self._ui_manager.send_update(
-                "system/error",
+            logger.error(f"Error subscribing to topics: {e}")
+
+    async def _handle_motion_response(self, data: Dict[str, Any]) -> None:
+        """Handle motion response messages."""
+        try:
+            request_id = data.get("request_id")
+            if not request_id or request_id not in self._pending_requests:
+                return
+
+            expected_type, _ = self._pending_requests.pop(request_id)
+            if data.get("request_type") != expected_type:
+                logger.warning(f"Mismatched request type for {request_id}")
+                return
+
+            if not data.get("success"):
+                logger.error(f"Motion operation failed: {data.get('error')}")
+                return
+
+            if expected_type == "dimensions":
+                if "stage" in data:
+                    self._stage = data["stage"]
+                if "substrate" in data:
+                    self._substrate = data["substrate"]
+                self.update()  # Trigger repaint
+
+        except Exception as e:
+            logger.error(f"Error handling motion response: {e}")
+
+    async def _handle_sequence_response(self, data: Dict[str, Any]) -> None:
+        """Handle sequence response messages."""
+        try:
+            request_id = data.get("request_id")
+            if not request_id or request_id not in self._pending_requests:
+                return
+
+            expected_type, _ = self._pending_requests.pop(request_id)
+            if data.get("request_type") != expected_type:
+                logger.warning(f"Mismatched request type for {request_id}")
+                return
+
+            if not data.get("success"):
+                logger.error(f"Sequence operation failed: {data.get('error')}")
+                return
+
+            if expected_type == "path":
+                path_data = data.get("data", {})
+                if path_data:
+                    self._path_segments = self._process_sequence(path_data)
+                    self.update()  # Trigger repaint
+
+        except Exception as e:
+            logger.error(f"Error handling sequence response: {e}")
+
+    async def _request_dimensions(self) -> None:
+        """Request stage and substrate dimensions."""
+        try:
+            request_id = f"dimensions_{datetime.now().timestamp()}"
+            await self._message_broker.publish(
+                "motion/request",
                 {
-                    "source": "sequence_visualizer",
-                    "message": str(e),
-                    "level": "error"
+                    "request_id": request_id,
+                    "request_type": "dimensions"
                 }
             )
+            self._pending_requests[request_id] = ("dimensions", None)
+            logger.debug(f"Requested motion dimensions: {request_id}")
+
+        except Exception as e:
+            logger.error(f"Error requesting dimensions: {e}")
+
+    async def update_sequence(self, sequence_data: List[Dict[str, Any]]) -> None:
+        """Update the visualization with new sequence data."""
+        try:
+            request_id = f"path_{datetime.now().timestamp()}"
+            await self._message_broker.publish(
+                "sequence/request",
+                {
+                    "request_id": request_id,
+                    "request_type": "path",
+                    "sequence": sequence_data
+                }
+            )
+            self._pending_requests[request_id] = ("path", None)
+            logger.debug(f"Requested sequence path: {request_id}")
+
+        except Exception as e:
+            logger.error(f"Error updating sequence visualization: {e}")
 
     def _process_sequence(self, sequence_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Process sequence data into drawable path segments."""
@@ -292,78 +354,94 @@ class SequenceVisualizer(BaseWidget):
 
     def _process_pattern(
             self, pattern: Dict[str, Any], start_pos: QPointF) -> List[Dict[str, Any]]:
-        """Process pattern data into drawable segments.
-
-        Args:
-            pattern: Pattern data dictionary
-            start_pos: Starting position for pattern
-
-        Returns:
-            List of path segments
-        """
+        """Process pattern data into drawable segments."""
         segments = []
         try:
             pattern_type = pattern.get('type')
-            params = pattern.get('parameters', {})
+            params = pattern.get('params', {})  # Changed from parameters to params to match file format
 
-            if pattern_type == 'raster':
-                # Process raster pattern
-                width = params.get('width', 0.0)
-                height = params.get('height', 0.0)
-                line_spacing = params.get('line_spacing', 1.0)
+            if pattern_type == 'serpentine':
+                # Process serpentine pattern
+                length = params.get('length', 0.0)
+                width = params.get('width', 0.0)  # Added width parameter
+                spacing = params.get('spacing', 1.0)
+                direction = params.get('direction', 'posY')  # Added direction parameter
 
                 current_pos = QPointF(start_pos)
+                
+                # Determine direction multiplier
+                y_multiplier = -1 if direction == 'negY' else 1
 
                 # Add horizontal lines
                 y = 0.0
-                while y <= height:
+                while y <= width:
                     # Forward line
-                    end_pos = QPointF(
-                        current_pos.x() + width, current_pos.y() + y)
+                    end_pos = QPointF(current_pos.x() + length, current_pos.y() + (y * y_multiplier))
                     segments.append({
-                        'start': QPointF(current_pos),
+                        'start': QPointF(current_pos.x(), current_pos.y() + (y * y_multiplier)),
                         'end': end_pos,
                         'type': 'spray'
                     })
 
-                    y += line_spacing
+                    y += spacing
 
-                    if y <= height:
+                    if y <= width:
                         # Return line
                         start_pos_return = QPointF(end_pos)
                         end_pos_return = QPointF(
-                            current_pos.x(), current_pos.y() + y)
+                            current_pos.x(), current_pos.y() + ((y) * y_multiplier))
                         segments.append({
                             'start': start_pos_return,
                             'end': end_pos_return,
                             'type': 'spray'
                         })
 
-                    y += line_spacing
+                    y += spacing
 
             elif pattern_type == 'spiral':
                 # Process spiral pattern
-                # TODO: Implement spiral pattern
-                pass  # Remove unused variables
+                # Get spiral parameters
+                diameter = params.get('diameter', 0.0)
+                pitch = params.get('pitch', 1.0)
+                
+                # Calculate number of revolutions based on diameter and pitch
+                revolutions = diameter / (2 * pitch)
+                
+                # Initialize first point at center
+                current_point = QPointF(current_pos.x(), current_pos.y())
+                
+                # Generate points along spiral
+                theta = 0.0
+                step = 0.1  # Adjust step size for smoothness
+                
+                while theta <= revolutions * 2 * math.pi:
+                    # Calculate current radius
+                    r = (theta / (2 * math.pi)) * pitch
+                    
+                    # Calculate next point coordinates
+                    next_x = current_pos.x() + r * math.cos(theta)
+                    next_y = current_pos.y() + r * math.sin(theta)
+                    next_point = QPointF(next_x, next_y)
+                    
+                    # Create segment (except for first point)
+                    if theta > 0:
+                        segments.append({
+                            'start': current_point,
+                            'end': next_point,
+                            'type': 'spray'
+                        })
+                    
+                    # Update current point for next segment
+                    current_point = next_point
+                    theta += step
 
             # Add other pattern types as needed
 
         except Exception as e:
             logger.error(f"Error processing pattern: {e}")
+            logger.exception("Pattern processing error details:")
 
         return segments
-
-    def update_sequence(self, sequence_data: List[Dict[str, Any]]) -> None:
-        """Update the visualization with new sequence data.
-
-        Args:
-            sequence_data: List of sequence steps
-        """
-        try:
-            self._path_segments = self._process_sequence(sequence_data)
-            self.update()  # Trigger repaint
-        except Exception as e:
-            logger.error(f"Error updating sequence visualization: {e}")
 
     async def cleanup(self) -> None:
         """Clean up resources."""
@@ -379,3 +457,37 @@ class SequenceVisualizer(BaseWidget):
                     "level": "error"
                 }
             )
+
+    async def _handle_motion_state(self, data: Dict[str, Any]) -> None:
+        """Handle motion state messages."""
+        try:
+            state = data.get("state")
+            if state == "dimensions_changed":
+                # Request updated dimensions
+                request_id = f"dimensions_{datetime.now().timestamp()}"
+                await self._message_broker.publish(
+                    "motion/request",
+                    {
+                        "request_id": request_id,
+                        "request_type": "dimensions"
+                    }
+                )
+                self._pending_requests[request_id] = ("dimensions", None)
+                logger.debug(f"Requested updated dimensions: {request_id}")
+
+        except Exception as e:
+            logger.error(f"Error handling motion state: {e}")
+
+    async def _handle_sequence_state(self, data: Dict[str, Any]) -> None:
+        """Handle sequence state messages."""
+        try:
+            state = data.get("state")
+            if state == "active_step":
+                self._active_step = data.get("step")
+                self.update()  # Trigger repaint
+            elif state == "stopped":
+                self._active_step = None
+                self.update()  # Trigger repaint
+
+        except Exception as e:
+            logger.error(f"Error handling sequence state: {e}")

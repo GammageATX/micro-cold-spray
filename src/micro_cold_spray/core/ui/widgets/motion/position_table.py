@@ -102,20 +102,23 @@ class PositionTable(BaseWidget):
             position: Dictionary containing x, y, z coordinates
         """
         try:
-            self._current_position = position.copy()
-            logger.debug(f"Position table updated position: {position}")
+            # Only update if position actually changed
+            if position != self._current_position:
+                self._current_position = position.copy()
+                logger.debug(f"Position table updated position: {position}")
 
-            # Only update visualization in disconnected state
-            # In connected state, let position feedback control visualization
-            if not self._is_connected:
-                await self._ui_manager.send_update(
-                    "motion/position",
-                    {
-                        "position": position,
-                        "simulated": True,
-                        "timestamp": None
-                    }
-                )
+                # Only update visualization in disconnected state
+                # In connected state, let position feedback control visualization
+                if not self._is_connected:
+                    await self._ui_manager.send_update(
+                        "motion/position",
+                        {
+                            "position": position,
+                            "simulated": True,
+                            "source": "position_table",  # Add source to prevent loops
+                            "timestamp": None
+                        }
+                    )
         except Exception as e:
             logger.error(f"Error updating position table: {e}")
             await self._ui_manager.send_update(

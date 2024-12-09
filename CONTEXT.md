@@ -219,3 +219,71 @@ micro-cold-spray/
 - feature/*: New features
 - bugfix/*: Bug fixes
 - release/*: Release prep
+
+## Micro Cold Spray Control System
+
+### Core Components
+
+#### UI Update Manager
+
+- **Purpose**: Distributes tag updates from TagManager to interested widgets
+- **Responsibility**: Widget registration and tag update distribution only
+- **Not Responsible For**: Message routing, error handling, state management
+- **Usage**: Widgets register for specific tags they want to monitor
+
+#### Tag Manager
+
+- **Purpose**: Manages all hardware communication and tag state
+- **Responsibility**: Polling hardware, maintaining tag values, distributing updates
+- **Usage**: Provides real-time hardware state to UI components via UIUpdateManager
+
+#### Message Broker
+
+- **Purpose**: Handles all pub/sub messaging between components
+- **Responsibility**: Message routing, request/response handling
+- **Usage**: Direct communication between components
+
+#### Config Manager
+
+- **Purpose**: Manages all system configuration
+- **Responsibility**: Configuration validation, persistence, updates
+- **Usage**: Components request config directly
+
+#### State Manager
+
+- **Purpose**: Manages system state transitions
+- **Responsibility**: State validation, transition management
+- **Usage**: Components request state changes directly
+
+#### Data Manager
+
+- **Purpose**: Manages all process data and history
+- **Responsibility**: Data persistence, validation, retrieval
+- **Usage**: Components request data operations directly
+
+### UI Component Guidelines
+
+1. Widget Implementation:
+   - Inherit from BaseWidget
+   - Register for specific tags via UIUpdateManager
+   - Implement handle_tag_update for tag monitoring
+   - Handle own error states
+   - Communicate directly with MessageBroker for pub/sub
+   - Manage own widget state
+
+2. Error Handling:
+   - Each widget handles its own errors
+   - Log errors with context
+   - Implement recovery procedures
+   - Maintain widget state during errors
+
+3. State Management:
+   - Widgets manage their own state
+   - Use MessageBroker for state updates
+   - Handle state transitions gracefully
+
+4. Communication:
+   - Use MessageBroker for component communication
+   - Use UIUpdateManager only for tag updates
+   - Direct configuration requests to ConfigManager
+   - Direct data operations to DataManager

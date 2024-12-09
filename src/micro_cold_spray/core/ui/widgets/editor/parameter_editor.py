@@ -2,7 +2,7 @@
 import logging
 from pathlib import Path
 import yaml
-from typing import Dict, Any
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 import asyncio
 
@@ -26,6 +26,7 @@ from PySide6.QtCore import Qt
 from ...managers.ui_update_manager import UIUpdateManager
 from ..base_widget import BaseWidget
 from ....infrastructure.messaging.message_broker import MessageBroker
+from ....infrastructure.config.config_manager import ConfigManager
 
 logger = logging.getLogger(__name__)
 
@@ -90,38 +91,37 @@ class ParameterEditor(BaseWidget):
 
     # Deagglomerator speed mapping
     DEAGG_SPEEDS = {
-        "Off": 0,
-        "Low": 15,
+        "Off": 35,
+        "Low": 30,
         "Medium": 25,
-        "High": 35
+        "High": 20
     }
 
     def __init__(
         self,
         ui_manager: UIUpdateManager,
         message_broker: MessageBroker,
-        parent=None
-    ):
+        config_manager: ConfigManager,
+        parent: Optional[QWidget] = None
+    ) -> None:
         super().__init__(
-            widget_id="widget_editor_parameters",
+            widget_id="widget_editor_parameter",
             ui_manager=ui_manager,
-            update_tags=[
-                "parameter/current",
-                "parameter/list",
-                "parameter/update",
-                "system/connection",
-                "system/error"
-            ],
+            update_tags=["error"],
             parent=parent
         )
 
         self._message_broker = message_broker
+        self._config_manager = config_manager
         self._current_data: Dict[str, Any] = {}
-        self._parameter_widgets: Dict[str, QWidget] = {}  # Track widgets for saving
-        self._form_widget = None  # Main form widget
+        self._parameter_widgets: Dict[str, QWidget] = {}
+        self._pending_requests = {}  # Track pending requests by ID
+        self._nozzle_names = []  # Initialize nozzle list
+
         self._init_ui()
-        self._load_parameter_files()
-        self._load_nozzle_files()
+        
+        # Initialize editor
+        asyncio.create_task(self._initialize())
         logger.info("Parameter editor initialized")
 
     def _init_ui(self) -> None:
@@ -160,15 +160,31 @@ class ParameterEditor(BaseWidget):
         self.setLayout(layout)
 
         # Connect signals
-        self.new_button.clicked.connect(self._on_new_clicked)
-        self.save_button.clicked.connect(self._on_save_clicked)
-        self._set_combo.currentTextChanged.connect(self._on_set_selected)
+        self._connect_signals()
+
+    def _connect_signals(self) -> None:
+        """Connect widget signals to slots."""
+        # Create event loop for async operations
+        self._loop = asyncio.get_event_loop()
+
+        # Connect signals using lambda to run coroutines
+        self._set_combo.currentTextChanged.connect(
+            lambda text: self._loop.create_task(self._on_set_selected(text))
+        )
+        self.new_button.clicked.connect(
+            lambda: self._loop.create_task(self._on_new_clicked())
+        )
+        self.save_button.clicked.connect(
+            lambda: self._loop.create_task(self._on_save_clicked())
+        )
 
     def _create_widget_for_value(self, value: Any, key: str = "") -> QWidget:
         """Create appropriate widget based on value type and key."""
         widget = None
         if key == "nozzle":
             widget = QComboBox()
+            if not hasattr(self, '_nozzle_names'):  # Add safety check
+                self._nozzle_names = []
             widget.addItems(self._nozzle_names)
             widget.addItem("Add Nozzle...")
             if isinstance(value, str) and value in self._nozzle_names:
@@ -229,10 +245,18 @@ class ParameterEditor(BaseWidget):
 
     def _get_current_values(self) -> Dict[str, Any]:
         """Get current values from all widgets."""
-        values = {}
-        for path, widget in self._parameter_widgets.items():
-            values[path] = self._get_widget_value(widget)
-        return {"process": values}
+        try:
+            process = {}
+            for field, widget in self._parameter_widgets.items():
+                value = self._get_widget_value(widget)
+                process[field] = value
+            
+            return {
+                "process": process
+            }
+        except Exception as e:
+            logger.error(f"Error getting current values: {e}")
+            return {}
 
     def _get_current_user(self) -> str:
         """Get current user from main window."""
@@ -244,82 +268,140 @@ class ParameterEditor(BaseWidget):
     async def handle_ui_update(self, data: Dict[str, Any]) -> None:
         """Handle UI updates."""
         try:
-            if "parameter/current" in data:
-                parameter_data = data["parameter/current"]
-                if isinstance(parameter_data, dict):
-                    self._current_data = parameter_data
-                    self._update_form()
-                    self.save_button.setEnabled(True)
+            topic, message = next(iter(data.items()))
 
-            elif "parameter/list" in data:
-                file_list = data["parameter/list"]
-                if isinstance(file_list, list):
-                    self._set_combo.clear()
-                    self._set_combo.addItem("")  # Add empty option
-                    for name in file_list:
-                        self._set_combo.addItem(name)
+            if topic == "data/response":
+                if not message.get("success"):
+                    logger.error(f"Data operation failed: {message.get('error')}")
+                    return
 
-            elif "system/connection" in data:
-                connected = data.get("connected", False)
-                self._update_button_states(connected)
+                # Check if this is a response we're waiting for
+                request_id = message.get("request_id")
+                if not request_id or request_id not in self._pending_requests:
+                    return
+
+                # Get the expected file type and request type
+                file_type, request_type = self._pending_requests.pop(request_id)
+                if message.get("type") != file_type or message.get("request_type") != request_type:
+                    logger.warning(f"Mismatched response for {request_id}")
+                    return
+
+                if file_type == "parameters":
+                    if request_type == "list":
+                        if "data" in message and "files" in message["data"]:
+                            await self._update_parameter_list(message["data"]["files"])
+                    elif request_type == "load":
+                        if "data" in message:
+                            await self._update_parameter_form(message["data"])
+
+                elif file_type == "nozzles":
+                    if request_type == "list":
+                        if "data" in message and "files" in message["data"]:
+                            await self._update_nozzle_list(message["data"]["files"])
+
+            elif topic == "data/state":
+                state = message.get("state")
+                operation = message.get("operation")
+                if operation == "save" and state == "COMPLETED":
+                    self.save_button.setEnabled(False)
 
         except Exception as e:
             logger.error(f"Error handling UI update: {e}")
+
+    async def _initialize(self) -> None:
+        """Initialize the editor."""
+        try:
+            # Request parameter sets
+            param_request_id = f"param_list_{datetime.now().timestamp()}"
+            await self._message_broker.publish(
+                "data/request",
+                {
+                    "request_id": param_request_id,
+                    "request_type": "list",
+                    "type": "parameters"
+                }
+            )
+            self._pending_requests[param_request_id] = ("parameters", "list")
+
+            # Request nozzle list
+            nozzle_request_id = f"nozzle_list_{datetime.now().timestamp()}"
+            await self._message_broker.publish(
+                "data/request",
+                {
+                    "request_id": nozzle_request_id,
+                    "request_type": "list",
+                    "type": "nozzles"
+                }
+            )
+            self._pending_requests[nozzle_request_id] = ("nozzles", "list")
+
+        except Exception as e:
+            logger.error(f"Error initializing parameter editor: {e}")
+
+    async def _request_parameter_list(self) -> None:
+        """Request list of parameter files."""
+        try:
             await self._ui_manager.send_update(
-                "system/error",
+                "data/request",
+                {
+                    "request_type": "list",
+                    "type": "parameters"
+                }
+            )
+        except Exception as e:
+            logger.error(f"Error requesting parameter list: {e}")
+            await self._ui_manager.send_update(
+                "error",
                 {
                     "source": "parameter_editor",
-                    "message": str(e),
-                    "level": "error"
+                    "message": f"Failed to request parameter list: {e}"
                 }
             )
 
-    def _update_button_states(self, connected: bool) -> None:
-        """Update button enabled states based on connection status."""
+    async def _update_parameter_list(self, files: List[str]) -> None:
+        """Update parameter file list in combo box."""
         try:
-            self.new_button.setEnabled(True)  # Always allow new parameters
-            self.save_button.setEnabled(bool(self._current_data))  # Enable if we have data
+            self._set_combo.clear()
+            self._set_combo.addItem("")  # Add empty option
+            
+            # Add all yaml files
+            for filename in files:
+                if filename.endswith(".yaml"):
+                    name = filename[:-5]  # Remove .yaml extension
+                    self._set_combo.addItem(name)
+                    
+            logger.debug(f"Updated parameter list with {len(files)} files")
+            
         except Exception as e:
-            logger.error(f"Error updating button states: {e}")
-            asyncio.create_task(self._ui_manager.send_update(
-                "system/error",
+            logger.error(f"Error updating parameter list: {e}")
+
+    async def _on_set_selected(self, set_name: str) -> None:
+        """Handle parameter set selection."""
+        try:
+            if not set_name:
+                self.save_button.setEnabled(False)
+                self._clear_form()
+                return
+
+            # Request parameter data
+            await self._ui_manager.send_update(
+                "data/request",
+                {
+                    "request_type": "load",
+                    "type": "parameters",
+                    "name": set_name
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"Error loading parameter set: {e}")
+            await self._ui_manager.send_update(
+                "error",
                 {
                     "source": "parameter_editor",
-                    "message": str(e),
-                    "level": "error"
+                    "message": f"Failed to load parameter set: {e}"
                 }
-            ))
-
-    async def _on_new_clicked(self) -> None:
-        """Handle New button click."""
-        try:
-            # Create empty parameter set with default values
-            self._current_data = {
-                "process": {
-                    "name": "",
-                    "created": datetime.now().strftime("%Y-%m-%d"),
-                    "author": self._get_current_user(),
-                    "description": "",
-                    "nozzle": "",
-                    "main_gas": 50.0,
-                    "feeder_gas": 5.0,
-                    "feeder_frequency": 600,
-                    "deagglomerator_speed": 25
-                }
-            }
-            self._update_form()
-            self.save_button.setEnabled(True)
-
-        except Exception as e:
-            logger.error(f"Error creating new parameter set: {e}")
-            asyncio.create_task(self._ui_manager.send_update(
-                "system/error",
-                {
-                    "source": "parameter_editor",
-                    "message": str(e),
-                    "level": "error"
-                }
-            ))
+            )
 
     async def _on_save_clicked(self) -> None:
         """Handle Save button click."""
@@ -337,8 +419,10 @@ class ParameterEditor(BaseWidget):
 
             # Send save request
             await self._ui_manager.send_update(
-                "parameter/save",
+                "data/request",
                 {
+                    "request_type": "save",
+                    "type": "parameters",
                     "name": set_name,
                     "data": data
                 }
@@ -349,40 +433,94 @@ class ParameterEditor(BaseWidget):
         except Exception as e:
             logger.error(f"Error saving parameter set: {e}")
             await self._ui_manager.send_update(
-                "system/error",
+                "error",
                 {
                     "source": "parameter_editor",
-                    "message": str(e),
-                    "level": "error"
+                    "message": f"Failed to save parameter set: {e}"
                 }
             )
 
-    async def _on_set_selected(self, set_name: str) -> None:
-        """Handle parameter set selection."""
+    async def _on_new_clicked(self) -> None:
+        """Handle New button click."""
         try:
-            if not set_name:
-                self.save_button.setEnabled(False)
-                self._clear_form()
-                return
-
-            # Request parameter set data
-            await self._ui_manager.send_update(
-                "parameter/request",
-                {
-                    "name": set_name
+            # Create empty parameter set with default values matching file format
+            self._current_data = {
+                "process": {
+                    "name": "",
+                    "created": datetime.now().strftime("%Y-%m-%d"),
+                    "author": self._get_current_user(),
+                    "description": "",
+                    "nozzle": "",
+                    "main_gas": 50.0,
+                    "feeder_gas": 5.0,
+                    "frequency": 600,
+                    "deagglomerator_speed": 25
                 }
-            )
-
-            logger.debug(f"Requested parameter set: {set_name}")
+            }
+            await self._update_form_values(self._current_data)
+            self.save_button.setEnabled(True)
 
         except Exception as e:
-            logger.error(f"Error loading parameter set: {e}")
+            logger.error(f"Error creating new parameter set: {e}")
             await self._ui_manager.send_update(
-                "system/error",
+                "error",
                 {
                     "source": "parameter_editor",
-                    "message": str(e),
-                    "level": "error"
+                    "message": f"Failed to create new parameter set: {e}"
+                }
+            )
+
+    async def _update_form_values(self, data: Dict[str, Any]) -> None:
+        """Update form with received parameter data."""
+        try:
+            self._current_data = data
+            self._clear_form()
+
+            # Create form layout
+            self._form_widget = QWidget()
+            layout = QVBoxLayout()
+            layout.setContentsMargins(2, 2, 2, 2)
+            layout.setSpacing(2)
+            self._form_widget.setLayout(layout)
+
+            # Create process parameters group
+            group = QGroupBox("Process Parameters")
+            form = QFormLayout()
+            form.setContentsMargins(5, 5, 5, 5)
+            form.setSpacing(2)
+
+            # Get process parameters
+            process = data.get("process", {})
+            if not process:
+                logger.warning("No process parameters found in data")
+                return
+
+            # Add fields in order
+            field_order = [
+                "name", "created", "author", "description",
+                "nozzle", "main_gas", "feeder_gas", "frequency",
+                "deagglomerator_speed"
+            ]
+
+            for field in field_order:
+                if field in process:
+                    label = QLabel(field.replace("_", " ").title())
+                    widget = self._create_widget_for_value(process[field], field)
+                    self._parameter_widgets[field] = widget
+                    form.addRow(label, widget)
+
+            group.setLayout(form)
+            layout.addWidget(group)
+            self._scroll.setWidget(self._form_widget)
+            self.save_button.setEnabled(True)
+
+        except Exception as e:
+            logger.error(f"Error updating form values: {e}")
+            await self._ui_manager.send_update(
+                "error",
+                {
+                    "source": "parameter_editor",
+                    "message": f"Failed to update form values: {e}"
                 }
             )
 
@@ -512,7 +650,7 @@ class ParameterEditor(BaseWidget):
         except Exception as e:
             logger.error(f"Error loading parameter files: {e}")
 
-    def _load_nozzle_files(self) -> None:
+    def _load_nozzle_files(self) -> None:  # Removed async since it's synchronous
         """Load nozzle files and populate the list of nozzle names."""
         try:
             self._nozzle_names = []
@@ -546,3 +684,100 @@ class ParameterEditor(BaseWidget):
                     "level": "error"
                 }
             )
+
+    async def _save_parameter_set(self, set_name: str) -> None:
+        """Save the current parameter set."""
+        try:
+            if not set_name:
+                logger.warning("No parameter set name provided")
+                return
+
+            # Get current parameter values from form
+            parameters = self._get_form_values()
+            
+            # Send save request using established protocol
+            await self._ui_manager.send_update(
+                "parameter/request",
+                {
+                    "action": "save",
+                    "name": set_name,
+                    "data": parameters
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"Error saving parameter set: {e}")
+            await self._ui_manager.send_update(
+                "error",
+                {
+                    "source": "parameter_editor",
+                    "message": f"Failed to save parameter set: {e}"
+                }
+            )
+
+    async def _update_validation_rules(self, config: Dict[str, Any]) -> None:
+        """Update validation rules when file format config changes."""
+        try:
+            # Get parameter format specification
+            param_format = config.get("parameters", {})
+            if not param_format:
+                return
+
+            # Update widget validation rules
+            for field, spec in param_format.items():
+                widget = self._parameter_widgets.get(field)
+                if not widget:
+                    continue
+
+                if isinstance(widget, QSpinBox):
+                    widget.setMinimum(spec.get("min", -1000000))
+                    widget.setMaximum(spec.get("max", 1000000))
+                elif isinstance(widget, QDoubleSpinBox):
+                    widget.setMinimum(spec.get("min", -1000000.0))
+                    widget.setMaximum(spec.get("max", 1000000.0))
+                    widget.setDecimals(spec.get("decimals", 3))
+                elif isinstance(widget, QComboBox):
+                    if "choices" in spec:
+                        widget.clear()
+                        widget.addItems(spec["choices"])
+
+        except Exception as e:
+            logger.error(f"Error updating validation rules: {e}")
+
+    async def _update_application_settings(self, config: Dict[str, Any]) -> None:
+        """Update settings when application config changes."""
+        try:
+            # Update paths
+            paths = config.get("paths", {})
+            if "data" in paths:
+                # Update data paths if needed
+                pass
+
+            # Update other relevant settings
+            services = config.get("services", {})
+            if "data_manager" in services:
+                # Update data manager settings if needed
+                pass
+
+        except Exception as e:
+            logger.error(f"Error updating application settings: {e}")
+
+    async def _update_nozzle_list(self, files: List[str]) -> None:
+        """Update nozzle choices in combo box."""
+        try:
+            # Store nozzle names without .yaml extension
+            self._nozzle_names = [f.replace(".yaml", "") for f in files]
+            logger.debug(f"Updated nozzle list: {self._nozzle_names}")
+
+            # Update any existing nozzle combo boxes
+            for widget in self._parameter_widgets.values():
+                if isinstance(widget, QComboBox) and widget.count() > 0:
+                    current = widget.currentText()
+                    widget.clear()
+                    widget.addItems(self._nozzle_names)
+                    widget.addItem("Add Nozzle...")
+                    if current in self._nozzle_names:
+                        widget.setCurrentText(current)
+
+        except Exception as e:
+            logger.error(f"Error updating nozzle list: {e}")

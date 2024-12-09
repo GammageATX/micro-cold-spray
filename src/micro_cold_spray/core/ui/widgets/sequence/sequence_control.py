@@ -1,6 +1,7 @@
 """Sequence control widget for loading and controlling sequences."""
 import asyncio
 from typing import Any, Dict, Protocol, runtime_checkable
+from datetime import datetime
 
 from loguru import logger
 from PySide6.QtCore import Qt
@@ -59,125 +60,201 @@ class SequenceControl(BaseWidget):
         parent=None
     ):
         super().__init__(
-            widget_id="control_dashboard_sequence",
+            widget_id="widget_control_sequence",
             ui_manager=ui_manager,
-            update_tags=[
-                "data/files",
-                "sequence/state",
-                "sequence/progress",
-                "sequence/error",
-                "system/state",
-                "system/connection",
-                "system/message",
-                "system/error"
-            ],
+            update_tags=["error"],
             parent=parent
         )
 
         # Store dependencies
         self._message_broker = message_broker
-
         self._sequences = {}
         self._system_state = "STARTUP"
         self._connection_state = {"connected": False}
-        self._load_task = None
+        self._pending_requests = {}  # Track pending requests by ID
 
         self._init_ui()
         logger.info("Sequence control initialized")
 
-    async def initialize(self) -> None:
-        """Async initialization."""
-        try:
-            # First wait for base initialization to complete
-            await super().initialize()
-            logger.info("Base initialization complete, loading sequence library")
+        # Subscribe to response topics
+        asyncio.create_task(self._subscribe_to_topics())
 
-            # Now load the sequence library
-            self._load_task = asyncio.create_task(self._load_sequence_library())
-            self._load_task.add_done_callback(self._on_load_complete)
+    async def _subscribe_to_topics(self) -> None:
+        """Subscribe to required message topics."""
+        try:
+            await self._message_broker.subscribe("data/response", self._handle_data_response)
+            await self._message_broker.subscribe("data/state", self._handle_data_state)
+            await self._message_broker.subscribe("sequence/response", self._handle_sequence_response)
+            await self._message_broker.subscribe("sequence/state", self._handle_sequence_state)
+            await self._message_broker.subscribe("sequence/step", self._handle_sequence_step)
+            await self._message_broker.subscribe("state/change", self._handle_state_change)
+
+            # Load initial sequence list
+            await self._load_sequence_library()
 
         except Exception as e:
-            logger.error(f"Error during sequence control initialization: {e}")
+            logger.error(f"Error subscribing to topics: {e}")
             await self._ui_manager.send_update(
-                "system/error",
+                "error",
                 {
                     "source": "sequence_control",
-                    "message": str(e),
-                    "level": "error"
+                    "message": f"Failed to subscribe to topics: {e}"
                 }
             )
 
     async def _load_sequence_library(self) -> None:
         """Load available sequences."""
         try:
-            await self._ui_manager.send_update(
-                "sequence/request",
+            request_id = f"seq_list_{datetime.now().timestamp()}"
+            logger.info("Requesting sequence list...")
+            await self._message_broker.publish(
+                "data/request",
                 {
-                    "action": "list"
+                    "request_id": request_id,
+                    "request_type": "list",
+                    "type": "sequences"
                 }
             )
+            self._pending_requests[request_id] = "list"
+            logger.debug(f"Sent sequence list request: {request_id}")
         except Exception as e:
             logger.error(f"Error requesting sequence list: {e}")
             await self._ui_manager.send_update(
-                "system/error",
+                "error",
                 {
                     "source": "sequence_control",
-                    "message": str(e),
-                    "level": "error"
+                    "message": f"Failed to request sequence list: {e}"
                 }
             )
 
-    async def handle_ui_update(self, data: Dict[str, Any]) -> None:
-        """Handle UI updates."""
+    async def _update_sequence_list(self, files: list) -> None:
+        """Update sequence list in combo box."""
         try:
-            if "data/files" in data:
-                file_data = data["data/files"]
-                if file_data.get("type") == "sequences":
-                    self.sequence_combo.clear()
-                    self.sequence_combo.addItem("")  # Blank default option
+            if not isinstance(files, list):
+                logger.error(f"Invalid files data type: {type(files)}")
+                return
 
-                    if "files" in file_data:
-                        for sequence in file_data["files"]:
-                            if isinstance(sequence, str):
-                                self.sequence_combo.addItem(sequence)
-                                self._sequences[sequence] = {"name": sequence}
-                        logger.debug(f"Updated sequence list with {len(self._sequences)} sequences")
+            self.sequence_combo.clear()
+            self.sequence_combo.addItem("")  # Blank default option
+            self._sequences.clear()  # Clear existing sequences
 
-            elif "sequence/state" in data:
-                state = data["sequence/state"]
-                await self._handle_sequence_state(state)
-
-            elif "sequence/progress" in data:
-                progress = data["sequence/progress"]
-                await self._handle_sequence_progress(progress)
-
-            elif "sequence/error" in data:
-                error = data["sequence/error"]
-                await self._handle_sequence_error(error)
-
-            elif "system/state" in data:
-                self._system_state = data["system/state"]
-                await self._update_button_states()
-
-            elif "system/connection" in data:
-                self._connection_state = data
-                await self._update_button_states()
+            for sequence in files:
+                if isinstance(sequence, str):
+                    name = sequence.replace(".yaml", "")
+                    self.sequence_combo.addItem(name)
+                    self._sequences[name] = {"name": name}
+            
+            logger.debug(f"Updated sequence list with {len(self._sequences)} sequences: {list(self._sequences.keys())}")
+            
+            # Update status only if no sequences found
+            if not files:
+                self.status_label.setText("Status: No sequences available")
+                self.status_label.setStyleSheet("color: gray;")
+            else:
+                self.status_label.setText("Status: No sequence selected")
+                self.status_label.setStyleSheet("color: gray;")
 
         except Exception as e:
-            logger.error(f"Error handling UI update: {e}")
+            logger.error(f"Error updating sequence list: {e}")
             await self._ui_manager.send_update(
-                "system/error",
+                "error",
                 {
                     "source": "sequence_control",
-                    "message": str(e),
-                    "level": "error"
+                    "message": f"Failed to update sequence list: {e}"
                 }
             )
 
-    async def _handle_sequence_state(self, state: Dict[str, Any]) -> None:
-        """Handle sequence state updates."""
+    async def _update_button_states(self) -> None:
+        """Update button states based on system state and connection."""
         try:
-            status = state.get("state", "")
+            connected = self._connection_state.get("connected", False)
+            sequence_selected = bool(self.sequence_combo.currentText())
+
+            self.load_button.setEnabled(connected and sequence_selected)
+            self.start_button.setEnabled(
+                connected and
+                sequence_selected and
+                self._system_state not in ["ERROR", "STARTUP"]
+            )
+
+        except Exception as e:
+            logger.error(f"Error updating button states: {e}")
+            await self._ui_manager.send_update(
+                "error",
+                {
+                    "source": "sequence_control",
+                    "message": f"Failed to update button states: {e}"
+                }
+            )
+
+    async def _handle_data_response(self, data: Dict[str, Any]) -> None:
+        """Handle data response messages."""
+        try:
+            # Verify this response is for sequences
+            if data.get("type") != "sequences":
+                logger.debug(f"Ignoring non-sequence response: {data.get('type')}")
+                return
+
+            # Check if this is a response we're waiting for
+            request_id = data.get("request_id")
+            if not request_id or request_id not in self._pending_requests:
+                logger.debug(f"Ignoring unexpected response ID: {request_id}")
+                return
+
+            # Get the request type we were expecting
+            expected_type = self._pending_requests.pop(request_id)
+            if data.get("request_type") != expected_type:
+                logger.warning(f"Mismatched request type for {request_id}")
+                return
+
+            if not data.get("success"):
+                logger.error(f"Data operation failed: {data.get('error')}")
+                self.status_label.setText(f"Error: {data.get('error')}")
+                self.status_label.setStyleSheet("color: #e74c3c;")
+                return
+
+            if expected_type == "list":
+                if "data" in data and "files" in data["data"]:
+                    logger.info(f"Received sequence list: {data['data']['files']}")
+                    await self._update_sequence_list(data["data"]["files"])
+                else:
+                    logger.warning(f"Missing files in response data: {data}")
+            elif expected_type == "load":
+                sequence_data = data.get("data", {})
+                if sequence_data:
+                    self.start_button.setEnabled(True)
+                    self.status_label.setText("Status: Sequence Loaded")
+                    self.status_label.setStyleSheet("color: #2980b9;")
+
+        except Exception as e:
+            logger.error(f"Error handling data response: {e}")
+
+    async def _handle_data_state(self, data: Dict[str, Any]) -> None:
+        """Handle data state messages."""
+        try:
+            state = data.get("state")
+            operation = data.get("operation")
+            if operation == "list" and state == "COMPLETED":
+                logger.debug("Sequence list operation completed")
+            elif operation == "load" and state == "COMPLETED":
+                logger.debug("Sequence load operation completed")
+
+        except Exception as e:
+            logger.error(f"Error handling data state: {e}")
+
+    async def _handle_sequence_response(self, data: Dict[str, Any]) -> None:
+        """Handle sequence response messages."""
+        try:
+            if not data.get("success"):
+                await self._handle_sequence_error(data)
+
+        except Exception as e:
+            logger.error(f"Error handling sequence response: {e}")
+
+    async def _handle_sequence_state(self, data: Dict[str, Any]) -> None:
+        """Handle sequence state messages."""
+        try:
+            status = data.get("state", "")
             if status == "RUNNING":
                 self.start_button.setEnabled(False)
                 self.cancel_button.setEnabled(True)
@@ -201,33 +278,26 @@ class SequenceControl(BaseWidget):
 
         except Exception as e:
             logger.error(f"Error handling sequence state: {e}")
-            await self._ui_manager.send_update(
-                "system/error",
-                {
-                    "source": "sequence_control",
-                    "message": str(e),
-                    "level": "error"
-                }
-            )
 
-    async def _handle_sequence_progress(self, progress: Dict[str, Any]) -> None:
-        """Handle sequence progress updates."""
+    async def _handle_sequence_step(self, data: Dict[str, Any]) -> None:
+        """Handle sequence step messages."""
         try:
-            percent = progress.get("percent", 0)
-            step = progress.get("step", "")
+            percent = data.get("percent", 0)
+            step = data.get("step", "")
             self.progress_bar.setValue(percent)
             self.progress_bar.setFormat(f"{step} ({percent}%)")
 
         except Exception as e:
             logger.error(f"Error handling sequence progress: {e}")
-            await self._ui_manager.send_update(
-                "system/error",
-                {
-                    "source": "sequence_control",
-                    "message": str(e),
-                    "level": "error"
-                }
-            )
+
+    async def _handle_state_change(self, data: Dict[str, Any]) -> None:
+        """Handle system state changes."""
+        try:
+            self._system_state = data.get("state", "STARTUP")
+            await self._update_button_states()
+
+        except Exception as e:
+            logger.error(f"Error handling state change: {e}")
 
     async def _handle_sequence_error(self, error: Dict[str, Any]) -> None:
         """Handle sequence error updates."""
@@ -240,38 +310,6 @@ class SequenceControl(BaseWidget):
 
         except Exception as e:
             logger.error(f"Error handling sequence error: {e}")
-            await self._ui_manager.send_update(
-                "system/error",
-                {
-                    "source": "sequence_control",
-                    "message": str(e),
-                    "level": "error"
-                }
-            )
-
-    async def _update_button_states(self) -> None:
-        """Update button states based on system state and connection."""
-        try:
-            connected = self._connection_state.get("connected", False)
-            sequence_selected = bool(self.sequence_combo.currentText())
-
-            self.load_button.setEnabled(connected and sequence_selected)
-            self.start_button.setEnabled(
-                connected and
-                sequence_selected and
-                self._system_state not in ["ERROR", "STARTUP"]
-            )
-
-        except Exception as e:
-            logger.error(f"Error updating button states: {e}")
-            await self._ui_manager.send_update(
-                "system/error",
-                {
-                    "source": "sequence_control",
-                    "message": str(e),
-                    "level": "error"
-                }
-            )
 
     def _init_ui(self) -> None:
         """Initialize the sequence control UI."""
@@ -358,61 +396,70 @@ class SequenceControl(BaseWidget):
         try:
             sequence_name = self.sequence_combo.currentText()
             if sequence_name:
-                await self._ui_manager.send_update(
-                    "sequence/request",
+                request_id = f"seq_load_{sequence_name}_{datetime.now().timestamp()}"
+                await self._message_broker.publish(
+                    "data/request",
                     {
-                        "action": "load",
+                        "request_id": request_id,
+                        "request_type": "load",
+                        "type": "sequences",
                         "name": sequence_name
                     }
                 )
+                self._pending_requests[request_id] = "load"
+                logger.debug(f"Sent load request for sequence {sequence_name}: {request_id}")
         except Exception as e:
             logger.error(f"Error loading sequence: {e}")
             await self._ui_manager.send_update(
-                "system/error",
+                "error",
                 {
                     "source": "sequence_control",
-                    "message": str(e),
-                    "level": "error"
+                    "message": f"Failed to load sequence: {e}"
                 }
             )
 
     async def _on_start_clicked(self) -> None:
         """Handle start button click."""
         try:
-            await self._ui_manager.send_update(
-                "sequence/control",
+            sequence_name = self.sequence_combo.currentText()
+            if not sequence_name:
+                return
+
+            await self._message_broker.publish(
+                "sequence/request",
                 {
-                    "action": "start"
+                    "request_type": "start",
+                    "name": sequence_name
                 }
             )
+            logger.debug(f"Sent start request for sequence: {sequence_name}")
         except Exception as e:
             logger.error(f"Error starting sequence: {e}")
             await self._ui_manager.send_update(
-                "system/error",
+                "error",
                 {
                     "source": "sequence_control",
-                    "message": str(e),
-                    "level": "error"
+                    "message": f"Failed to start sequence: {e}"
                 }
             )
 
     async def _on_cancel_clicked(self) -> None:
         """Handle cancel button click."""
         try:
-            await self._ui_manager.send_update(
-                "sequence/control",
+            await self._message_broker.publish(
+                "sequence/request",
                 {
-                    "action": "stop"
+                    "request_type": "cancel"
                 }
             )
+            logger.debug("Sent cancel request")
         except Exception as e:
             logger.error(f"Error canceling sequence: {e}")
             await self._ui_manager.send_update(
-                "system/error",
+                "error",
                 {
                     "source": "sequence_control",
-                    "message": str(e),
-                    "level": "error"
+                    "message": f"Failed to cancel sequence: {e}"
                 }
             )
 
@@ -436,20 +483,18 @@ class SequenceControl(BaseWidget):
             self.start_button.setEnabled(False)  # Only enable after loading
             self.cancel_button.setEnabled(False)
 
-            # Update status
-            if has_selection:
-                self.status_label.setText(f"Status: {sequence_name} selected")
-            else:
+            # Update status only after loading
+            if not has_selection:
                 self.status_label.setText("Status: No sequence selected")
+                self.status_label.setStyleSheet("color: gray;")
 
         except Exception as e:
             logger.error(f"Error handling sequence selection: {e}")
             asyncio.create_task(self._ui_manager.send_update(
-                "system/error",
+                "error",
                 {
                     "source": "sequence_control",
-                    "message": str(e),
-                    "level": "error"
+                    "message": f"Failed to handle sequence selection: {e}"
                 }
             ))
 
@@ -461,10 +506,9 @@ class SequenceControl(BaseWidget):
             logger.error(f"Sequence library load task failed: {e}")
             logger.error(f"Load task error details:\n{task.exception()}")
             asyncio.create_task(self._ui_manager.send_update(
-                "system/error",
+                "error",
                 {
                     "source": "sequence_control",
-                    "message": str(e),
-                    "level": "error"
+                    "message": f"Failed to load sequence library: {e}"
                 }
             ))

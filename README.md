@@ -1,115 +1,108 @@
 # Micro Cold Spray Control System
 
-Python control system for micro cold spray deposition processes.
+## Architecture Overview
 
-## Features
-
-- Real-time hardware control and monitoring
-- Automated deposition sequences with pattern support
-- Comprehensive process parameter management
-- Multi-axis motion control
-- Process validation and safety checks
-- Data logging and analysis
-- Mock hardware mode for development
-
-## Quick Start
-
-1. Setup:
-
-    ```bash
-    git clone https://github.com/GammageATX/micro-cold-spray.git
-    cd micro-cold-spray
-    python -m venv .venv
-    source .venv/Scripts/activate  # Windows
-    source .venv/bin/activate     # Linux/Mac
-    pip install -r requirements.txt
-    pip install -e .
-    ```
-
-2. Run:
-
-    ```bash
-    # Normal mode (requires hardware)
-    python -m micro_cold_spray
-
-    # Development mode (mock hardware)
-    python -m micro_cold_spray --mock
-    ```
-
-## Development
-
-### Project Structure
-
-```text
-micro-cold-spray/
-├── config/                 # Configuration files
-│   ├── application.yaml   # Core settings
-│   ├── hardware.yaml      # Hardware config
-│   ├── process.yaml       # Process parameters
-│   ├── state.yaml        # State machine
-│   └── tags.yaml         # PLC tag mapping
-├── data/                  # Process data
-│   ├── parameters/       # Process parameters
-│   ├── patterns/         # Spray patterns
-│   ├── sequences/        # Operation sequences
-│   └── runs/            # Run history
-├── src/                  # Source code
-│   └── micro_cold_spray/
-│       └── core/
-│           ├── infrastructure/  # Core systems
-│           ├── hardware/        # Hardware control
-│           └── components/      # Main components
-├── tests/                # Test suite
-└── logs/                # Application logs
-```
+The Micro Cold Spray Control System uses a distributed architecture with clear component responsibilities:
 
 ### Core Components
 
-- **Infrastructure**: Message broker, config manager, state manager, tag manager
-- **Hardware**: PLC and SSH communication, motion and equipment controllers
-- **Process**: Validation system, data management
-- **Operations**: Sequence management, pattern control, action handling
-- **UI**: Dashboard, motion control, sequence editor, configuration
+#### UI Update Manager
 
-### Tools and Commands
+Simple tag update distributor that:
 
-```bash
-# Testing
-pytest                    # Run all tests
-pytest tests/unit        # Run unit tests
-pytest tests/integration # Run integration tests
+- Registers widgets for tag updates
+- Distributes tag updates from TagManager to interested widgets
+- Handles widget cleanup
 
-# Code Quality
-black .                  # Format code
-pylint src/             # Lint code
-mypy src/               # Type checking
+#### Tag Manager
 
-# Development
-python -m micro_cold_spray --mock  # Run with mock hardware
-python -m micro_cold_spray --debug # Run with debug logging
-```
+Hardware interface that:
 
-### Dependencies
+- Manages all hardware communication
+- Maintains tag state
+- Polls hardware for updates
+- Distributes updates via UIUpdateManager
 
-- PySide6>=6.4.0: Modern Qt-based GUI framework
-- PyYAML>=6.0.1: Configuration file handling
-- paramiko>=3.4.0: SSH communication
-- productivity>=0.11.1: PLC communication
-- pytest>=7.3.1: Testing framework
-- loguru>=0.7.0: Advanced logging
+#### Message Broker
 
-## Contributing
+Messaging system that:
 
-1. Fork repository
-2. Create feature branch
-3. Follow code style guidelines in .cursorrules
-4. Add tests for new features
-5. Submit pull request
+- Handles all pub/sub messaging
+- Routes requests/responses
+- Enables direct component communication
 
-## License
+#### Config Manager
 
-MIT License
+Configuration handler that:
 
-## Author
+- Manages all system configuration
+- Validates configuration changes
+- Persists configuration state
 
-Michael Gammage (@GammageATX)
+#### State Manager
+
+State controller that:
+
+- Manages system state transitions
+- Validates state changes
+- Maintains system state
+
+#### Data Manager
+
+Data handler that:
+
+- Manages process data
+- Handles data persistence
+- Validates data operations
+
+### UI Component Design
+
+UI components follow these principles:
+
+1. **Widget Base**
+   - All widgets inherit from BaseWidget
+   - Register with UIUpdateManager for tag updates
+   - Handle own error states and recovery
+   - Manage own widget state
+
+2. **Communication**
+   - Use MessageBroker for component communication
+   - Use UIUpdateManager only for tag updates
+   - Direct requests to appropriate managers (Config, Data, etc.)
+
+3. **Error Handling**
+   - Each component handles its own errors
+   - Log errors with context
+   - Implement recovery procedures
+   - Maintain safety during errors
+
+4. **State Management**
+   - Components manage their own state
+   - Use MessageBroker for state updates
+   - Handle state transitions gracefully
+
+## Development Guidelines
+
+1. **Component Responsibilities**
+   - Keep components focused on single responsibility
+   - Avoid circular dependencies
+   - Use proper manager for each operation type
+   - Follow established communication patterns
+
+2. **Error Handling**
+   - Log all errors with context
+   - Implement proper cleanup
+   - Handle async operations correctly
+   - Maintain system safety
+
+3. **Testing**
+   - Write unit tests for new features
+   - Test error conditions
+   - Verify async operations
+   - Test state transitions
+
+4. **Documentation**
+   - Document public interfaces
+   - Update architecture docs for changes
+   - Include examples for new features
+   - Document error handling

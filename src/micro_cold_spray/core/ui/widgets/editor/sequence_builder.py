@@ -5,9 +5,10 @@ from typing import Any, Dict
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QPushButton,
-    QListWidget, QComboBox, QLabel, QFrame
+    QListWidget, QComboBox, QLabel, QFrame, QWidget, QFormLayout, QSpinBox
 )
 import asyncio
+from datetime import datetime
 
 from ...managers.ui_update_manager import UIUpdateManager
 from ..base_widget import BaseWidget
@@ -30,13 +31,7 @@ class SequenceBuilder(BaseWidget):
         super().__init__(
             widget_id="widget_editor_sequence",
             ui_manager=ui_manager,
-            update_tags=[
-                "sequence/current",
-                "sequence/list",
-                "action/list",
-                "system/connection",
-                "system/error"
-            ],
+            update_tags=["error"],
             parent=parent
         )
 
@@ -45,13 +40,14 @@ class SequenceBuilder(BaseWidget):
 
         # Initialize state
         self._current_sequence = None
+        self._pending_requests = {}  # Track pending requests by ID
         
         # Initialize UI and connect signals
         self._init_ui()
         self._connect_signals()
         
-        # Request initial data
-        asyncio.create_task(self._load_initial_data())
+        # Subscribe to response topics
+        asyncio.create_task(self._subscribe_to_topics())
         logger.info("Sequence builder initialized")
 
     def _init_ui(self) -> None:
@@ -68,6 +64,14 @@ class SequenceBuilder(BaseWidget):
         title = QLabel("Sequence Builder")
         title.setStyleSheet("font-weight: bold; font-size: 14px;")
         frame_layout.addWidget(title)
+
+        # Sequence selection
+        sequence_layout = QHBoxLayout()
+        sequence_label = QLabel("Sequence:")
+        self._sequence_combo = QComboBox()
+        sequence_layout.addWidget(sequence_label)
+        sequence_layout.addWidget(self._sequence_combo)
+        frame_layout.addLayout(sequence_layout)
 
         # Sequence controls
         control_layout = QHBoxLayout()
@@ -223,22 +227,19 @@ class SequenceBuilder(BaseWidget):
     async def _load_sequence(self) -> None:
         """Request to load a sequence."""
         try:
-            await self._ui_manager.send_update(
+            request_id = f"sequence_load_{datetime.now().timestamp()}"
+            await self._message_broker.publish(
                 "sequence/request",
                 {
-                    "action": "load_dialog"
+                    "request_id": request_id,
+                    "request_type": "load_dialog"
                 }
             )
+            self._pending_requests[request_id] = ("load", None)
+            logger.debug(f"Requested sequence load dialog: {request_id}")
+
         except Exception as e:
             logger.error(f"Error requesting sequence load: {e}")
-            await self._ui_manager.send_update(
-                "system/error",
-                {
-                    "source": "sequence_builder",
-                    "message": str(e),
-                    "level": "error"
-                }
-            )
 
     async def _save_sequence(self) -> None:
         """Request to save current sequence."""
@@ -246,23 +247,20 @@ class SequenceBuilder(BaseWidget):
             if not self._current_sequence:
                 raise ValueError("No sequence to save")
 
-            await self._ui_manager.send_update(
+            request_id = f"sequence_save_{datetime.now().timestamp()}"
+            await self._message_broker.publish(
                 "sequence/request",
                 {
-                    "action": "save_dialog",
+                    "request_id": request_id,
+                    "request_type": "save_dialog",
                     "sequence": self._current_sequence
                 }
             )
+            self._pending_requests[request_id] = ("save", None)
+            logger.debug(f"Requested sequence save dialog: {request_id}")
+
         except Exception as e:
             logger.error(f"Error requesting sequence save: {e}")
-            await self._ui_manager.send_update(
-                "system/error",
-                {
-                    "source": "sequence_builder",
-                    "message": str(e),
-                    "level": "error"
-                }
-            )
 
     def _update_ui(self) -> None:
         """Update UI to reflect current sequence."""
@@ -346,35 +344,35 @@ class SequenceBuilder(BaseWidget):
             )
 
     async def _load_initial_data(self) -> None:
-        """Load initial sequence and action data."""
+        """Load initial sequence list and action list."""
         try:
             # Request sequence list
-            await self._ui_manager.send_update(
-                "sequence/request",
+            request_id = f"sequence_list_{datetime.now().timestamp()}"
+            await self._message_broker.publish(
+                "data/request",
                 {
-                    "action": "list"
+                    "request_id": request_id,
+                    "request_type": "list",
+                    "type": "sequences"
                 }
             )
+            self._pending_requests[request_id] = ("list", None)
+            logger.debug(f"Requested sequence list: {request_id}")
 
             # Request action list
-            await self._ui_manager.send_update(
+            request_id = f"action_list_{datetime.now().timestamp()}"
+            await self._message_broker.publish(
                 "action/request",
                 {
-                    "action": "list"
+                    "request_id": request_id,
+                    "request_type": "list"
                 }
             )
+            self._pending_requests[request_id] = ("action_list", None)
+            logger.debug(f"Requested action list: {request_id}")
 
-            logger.debug("Requested initial sequence and action data")
         except Exception as e:
             logger.error(f"Error loading initial data: {e}")
-            await self._ui_manager.send_update(
-                "system/error",
-                {
-                    "source": "sequence_builder",
-                    "message": str(e),
-                    "level": "error"
-                }
-            )
 
     def _update_sequence_list(self, sequences: Dict[str, Any]) -> None:
         """Update sequence list in UI."""
@@ -401,3 +399,262 @@ class SequenceBuilder(BaseWidget):
                     "level": "error"
                 }
             ))
+
+    async def _add_step(self, step_data: Dict[str, Any]) -> None:
+        """Add a step to the sequence."""
+        try:
+            # Create step widget
+            step_widget = QWidget()
+            step_layout = QHBoxLayout()
+            step_layout.setContentsMargins(2, 2, 2, 2)
+            step_layout.setSpacing(5)
+
+            # Step type selection
+            type_combo = QComboBox()
+            type_combo.addItems(['pattern', 'parameter', 'delay', 'move'])
+            
+            # Parameters section
+            params_widget = QWidget()
+            params_layout = QFormLayout()
+            params_layout.setContentsMargins(0, 0, 0, 0)
+            
+            # Add fields based on step type
+            if step_data.get('type') == 'pattern':
+                type_combo.setCurrentText('pattern')
+                
+                # Pattern file selection
+                pattern_combo = QComboBox()
+                pattern_combo.addItems(await self._get_pattern_files())
+                if 'file' in step_data:
+                    pattern_combo.setCurrentText(step_data['file'])
+                params_layout.addRow('Pattern:', pattern_combo)
+                
+                # Passes input
+                passes_spin = QSpinBox()
+                passes_spin.setRange(1, 100)
+                passes_spin.setValue(step_data.get('passes', 1))
+                params_layout.addRow('Passes:', passes_spin)
+
+            elif step_data.get('type') == 'parameter':
+                type_combo.setCurrentText('parameter')
+                
+                # Parameter file selection
+                param_combo = QComboBox()
+                param_combo.addItems(await self._get_parameter_files())
+                if 'file' in step_data:
+                    param_combo.setCurrentText(step_data['file'])
+                params_layout.addRow('Parameters:', param_combo)
+
+            # Add more step types...
+
+            params_widget.setLayout(params_layout)
+            
+            # Add to step layout
+            step_layout.addWidget(type_combo)
+            step_layout.addWidget(params_widget)
+            
+            # Add delete button
+            delete_btn = QPushButton("Delete")
+            delete_btn.clicked.connect(lambda: self._remove_step(step_widget))
+            step_layout.addWidget(delete_btn)
+            
+            step_widget.setLayout(step_layout)
+            self._steps_layout.addWidget(step_widget)
+
+        except Exception as e:
+            logger.error(f"Error adding sequence step: {e}")
+            await self._ui_manager.send_update(
+                "system/error",
+                {
+                    "source": "sequence_builder",
+                    "message": str(e),
+                    "level": "error"
+                }
+            )
+
+    async def _subscribe_to_topics(self) -> None:
+        """Subscribe to required message topics."""
+        try:
+            await self._message_broker.subscribe("data/response", self._handle_data_response)
+            await self._message_broker.subscribe("data/state", self._handle_data_state)
+            await self._message_broker.subscribe("action/response", self._handle_action_response)
+            await self._message_broker.subscribe("sequence/state", self._handle_sequence_state)
+
+            # Load initial data
+            await self._load_initial_data()
+
+        except Exception as e:
+            logger.error(f"Error subscribing to topics: {e}")
+
+    async def _handle_data_response(self, data: Dict[str, Any]) -> None:
+        """Handle data response messages."""
+        try:
+            # Verify this response is for sequences
+            if data.get("type") != "sequences":
+                return
+
+            # Check if this is a response we're waiting for
+            request_id = data.get("request_id")
+            if not request_id or request_id not in self._pending_requests:
+                return
+
+            # Get the request type we were expecting
+            expected_type, sequence_name = self._pending_requests.pop(request_id)
+            if data.get("request_type") != expected_type:
+                logger.warning(f"Mismatched request type for {request_id}")
+                return
+
+            if not data.get("success"):
+                logger.error(f"Data operation failed: {data.get('error')}")
+                return
+
+            if expected_type == "list":
+                if "data" in data and "files" in data["data"]:
+                    self._update_sequence_list(data["data"]["files"])
+            elif expected_type == "load":
+                sequence_data = data.get("data", {})
+                if sequence_data:
+                    self._current_sequence = sequence_data
+                    self._update_ui()
+
+        except Exception as e:
+            logger.error(f"Error handling data response: {e}")
+
+    async def _handle_sequence_response(self, data: Dict[str, Any]) -> None:
+        """Handle sequence operation responses."""
+        try:
+            request_id = data.get("request_id")
+            if not request_id or request_id not in self._pending_requests:
+                return
+
+            expected_type, _ = self._pending_requests.pop(request_id)
+            if data.get("request_type") != expected_type:
+                logger.warning(f"Mismatched request type for {request_id}")
+                return
+
+            if not data.get("success"):
+                logger.error(f"Sequence operation failed: {data.get('error')}")
+                return
+
+            if expected_type == "save":
+                logger.info("Sequence saved successfully")
+            elif expected_type == "load":
+                sequence_data = data.get("data", {})
+                if sequence_data:
+                    self._current_sequence = sequence_data
+                    self._update_ui()
+
+        except Exception as e:
+            logger.error(f"Error handling sequence response: {e}")
+
+    async def _get_pattern_files(self) -> list:
+        """Get list of available pattern files."""
+        try:
+            request_id = f"pattern_list_{datetime.now().timestamp()}"
+            await self._message_broker.publish(
+                "data/request",
+                {
+                    "request_id": request_id,
+                    "request_type": "list",
+                    "type": "patterns"
+                }
+            )
+            self._pending_requests[request_id] = ("list", None)
+            logger.debug(f"Requested pattern list: {request_id}")
+            return []  # Return empty list initially, will be updated via response
+
+        except Exception as e:
+            logger.error(f"Error getting pattern files: {e}")
+            return []
+
+    async def _get_parameter_files(self) -> list:
+        """Get list of available parameter files."""
+        try:
+            request_id = f"parameter_list_{datetime.now().timestamp()}"
+            await self._message_broker.publish(
+                "data/request",
+                {
+                    "request_id": request_id,
+                    "request_type": "list",
+                    "type": "parameters"
+                }
+            )
+            self._pending_requests[request_id] = ("list", None)
+            logger.debug(f"Requested parameter list: {request_id}")
+            return []  # Return empty list initially, will be updated via response
+
+        except Exception as e:
+            logger.error(f"Error getting parameter files: {e}")
+            return []
+
+    async def _handle_data_state(self, data: Dict[str, Any]) -> None:
+        """Handle data state messages."""
+        try:
+            if data.get("type") not in ["sequences", "actions"]:
+                return
+
+            state = data.get("state")
+            if state == "loaded":
+                # Refresh lists based on type
+                request_id = f"{data['type']}_list_{datetime.now().timestamp()}"
+                await self._message_broker.publish(
+                    "data/request",
+                    {
+                        "request_id": request_id,
+                        "request_type": "list",
+                        "type": data["type"]
+                    }
+                )
+                self._pending_requests[request_id] = ("list", None)
+                logger.debug(f"Requested {data['type']} list refresh: {request_id}")
+
+        except Exception as e:
+            logger.error(f"Error handling data state: {e}")
+
+    async def _handle_sequence_state(self, data: Dict[str, Any]) -> None:
+        """Handle sequence state messages."""
+        try:
+            state = data.get("state")
+            if state == "saved":
+                # Refresh sequence list
+                request_id = f"sequence_list_{datetime.now().timestamp()}"
+                await self._message_broker.publish(
+                    "data/request",
+                    {
+                        "request_id": request_id,
+                        "request_type": "list",
+                        "type": "sequences"
+                    }
+                )
+                self._pending_requests[request_id] = ("list", None)
+                logger.debug(f"Requested sequence list refresh after save: {request_id}")
+
+        except Exception as e:
+            logger.error(f"Error handling sequence state: {e}")
+
+    async def _handle_action_response(self, data: Dict[str, Any]) -> None:
+        """Handle action response messages."""
+        try:
+            request_id = data.get("request_id")
+            if not request_id or request_id not in self._pending_requests:
+                return
+
+            expected_type, _ = self._pending_requests.pop(request_id)
+            if expected_type != "action_list":
+                return
+
+            if not data.get("success"):
+                logger.error(f"Action operation failed: {data.get('error')}")
+                return
+
+            # Update action combo box
+            actions = data.get("actions", [])
+            self._action_combo.clear()
+            self._action_combo.addItem("")  # Empty default option
+            for action in actions:
+                self._action_combo.addItem(action)
+
+            logger.debug(f"Updated action list with {len(actions)} actions")
+
+        except Exception as e:
+            logger.error(f"Error handling action response: {e}")
