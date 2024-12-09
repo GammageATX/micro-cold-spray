@@ -1,6 +1,7 @@
 """Main application window."""
 from datetime import datetime
 from typing import Any, Dict
+import asyncio
 
 from loguru import logger
 from PySide6.QtCore import Qt
@@ -302,6 +303,7 @@ class MainWindow(QMainWindow):
             self.editor_tab = EditorTab(
                 self._ui_manager,
                 self._message_broker,
+                self._config_manager,
                 parent=self.tab_widget
             )
             self.config_tab = ConfigTab(
@@ -333,11 +335,43 @@ class MainWindow(QMainWindow):
             logger.error(f"Error initializing UI: {e}")
             raise UIError("Failed to initialize UI") from e
 
-    async def closeEvent(self, event: QCloseEvent) -> None:
-        """Handle window close event."""
+    async def cleanup(self) -> None:
+        """Clean up resources before closing."""
         try:
+            # Set closing flag
             self.is_closing = True
-            event.accept()
+
+            # Clean up tabs
+            await self.dashboard_tab.cleanup()
+            await self.motion_tab.cleanup()
+            await self.editor_tab.cleanup()
+            await self.config_tab.cleanup()
+            await self.diagnostics_tab.cleanup()
+
+            # Unsubscribe from state changes
+            await self._message_broker.unsubscribe("state/change", self._handle_state_change)
+
+            logger.info("MainWindow cleanup complete")
+
         except Exception as e:
-            logger.error(f"Error during window close: {e}")
-            event.ignore()
+            logger.error(f"Error during MainWindow cleanup: {e}")
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """Handle window close event."""
+        # Set closing flag immediately
+        self.is_closing = True
+        
+        # Accept the event immediately to avoid Qt deleting it
+        event.accept()
+        
+        # Create cleanup task
+        cleanup_task = asyncio.create_task(self.cleanup())
+        
+        # Add callback just to log any cleanup errors
+        def cleanup_done(task):
+            try:
+                task.result()  # Get result to handle any exceptions
+            except Exception as e:
+                logger.error(f"Error during cleanup: {e}")
+        
+        cleanup_task.add_done_callback(cleanup_done)

@@ -37,13 +37,13 @@ class DataManager:
             app_config = await self._config_manager.get_config("application")
             data_paths = app_config.get("paths", {}).get("data", {})
 
-            # Set up data directories from config
-            self._run_path = self._data_root / "runs"
-            self._parameter_path = self._data_root / "parameters"
-            self._nozzle_path = self._parameter_path / "nozzles"
-            self._pattern_path = self._data_root / "patterns"
-            self._sequence_path = self._data_root / "sequences"
-            self._powder_path = self._data_root / "powders"
+            # Set up data directories from config with fallbacks
+            self._run_path = Path(data_paths.get("runs", "data/runs"))
+            self._parameter_path = Path(data_paths.get("parameters", "data/parameters"))
+            self._nozzle_path = Path(data_paths.get("nozzles", "data/parameters/nozzles"))
+            self._pattern_path = Path(data_paths.get("patterns", {}).get("root", "data/patterns"))
+            self._sequence_path = Path(data_paths.get("sequences", "data/sequences"))
+            self._powder_path = Path(data_paths.get("powders", "data/powders"))
 
             # Create directories
             for path in [
@@ -77,6 +77,7 @@ class DataManager:
 
             self._is_initialized = True
             logger.info("Data manager initialization complete")
+            logger.debug(f"Using sequence path: {self._sequence_path}")
 
         except Exception as e:
             logger.exception("Failed to initialize data manager")
@@ -248,16 +249,36 @@ class DataManager:
             if not file_type:
                 raise ValueError("No file type specified")
 
-            file_path = self._get_path_for_type(file_type)
-            if not file_path.exists():
+            # Get the appropriate path based on file type
+            path_map = {
+                "sequences": self._sequence_path,
+                "parameters": self._parameter_path,
+                "nozzles": self._nozzle_path,
+                "patterns": self._pattern_path,
+                "powders": self._powder_path,
+                "runs": self._run_path
+            }
+
+            target_path = path_map.get(file_type)
+            if not target_path:
+                raise ValueError(f"Unknown file type: {file_type}")
+
+            # Ensure path exists
+            if not target_path.exists():
+                logger.warning(f"Path does not exist for {file_type}: {target_path}")
                 return []
 
-            files = [f.name for f in file_path.glob("*.yaml")]
-            return sorted(files)
+            # Get list of YAML files
+            files = [f.name for f in target_path.glob("*.yaml")]
+            logger.debug(f"Found {len(files)} {file_type} files: {files}")
+            return files
 
         except Exception as e:
-            logger.error(f"Error listing files: {str(e)}")
-            raise CoreError(f"Failed to list files: {str(e)}") from e
+            logger.error(f"Error listing {file_type} files: {e}")
+            raise CoreError(f"Failed to list {file_type} files", {
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            })
 
     async def load_file(self, file_type: str, name: str) -> Dict[str, Any]:
         """Load file of given type and name."""
@@ -357,133 +378,92 @@ class DataManager:
         return type_mapping[file_type]
 
     async def _handle_data_request(self, data: Dict[str, Any]) -> None:
-        """Handle data request message."""
-        request_id = data.get("request_id", "")
+        """Handle data requests."""
         try:
             request_type = data.get("request_type")
-            if not request_type:
-                raise ValueError("No request type specified")
+            file_type = data.get("type")
+            request_id = data.get("request_id")
+
+            logger.info(f"Handling data request: type={request_type}, file_type={file_type}, id={request_id}")
+
+            if not request_type or not file_type:
+                raise ValueError("Missing request_type or file_type")
+
+            response = {
+                "success": True,
+                "request_type": request_type,
+                "type": file_type,
+                "request_id": request_id,
+                "timestamp": datetime.now().isoformat()
+            }
 
             if request_type == "list":
-                file_type = data.get("type")
-                if not file_type:
-                    raise ValueError("No file type specified")
-
                 files = await self.list_files(file_type)
-                await self._message_broker.publish(
-                    "data/response",
-                    {
-                        "request_id": request_id,
-                        "success": True,
-                        "data": {"files": files},
-                        "timestamp": datetime.now().isoformat()
-                    }
-                )
-
-                # Publish state update
-                await self._message_broker.publish(
-                    "data/state",
-                    {
-                        "operation": "list",
-                        "type": file_type,
-                        "state": "COMPLETED",
-                        "timestamp": datetime.now().isoformat()
-                    }
-                )
+                logger.info(f"Found {len(files)} {file_type} files: {files}")
+                response["data"] = {"files": files}
+                await self._message_broker.publish("data/response", response)
+                await self._message_broker.publish("data/state", {
+                    "state": "COMPLETED",
+                    "operation": "list",
+                    "type": file_type,
+                    "request_id": request_id
+                })
 
             elif request_type == "load":
-                file_type = data.get("type")
                 name = data.get("name")
+                if not name:
+                    raise ValueError("Missing file name for load request")
+                
+                logger.info(f"Loading {file_type} file: {name}")
+                
+                # Get the appropriate path based on file type
+                path_map = {
+                    "sequences": self._sequence_path,
+                    "parameters": self._parameter_path,
+                    "nozzles": self._nozzle_path,
+                    "patterns": self._pattern_path,
+                    "powders": self._powder_path,
+                    "runs": self._run_path
+                }
 
-                if not all([file_type, name]):
-                    raise ValueError("Missing required fields for load request")
+                target_path = path_map.get(file_type)
+                if not target_path:
+                    raise ValueError(f"Unknown file type: {file_type}")
 
-                result = await self.load_file(file_type, name)
-                await self._message_broker.publish(
-                    "data/response",
-                    {
-                        "request_id": request_id,
-                        "success": result.get("success", False),
-                        "data": result.get("data"),
-                        "error": result.get("error"),
-                        "timestamp": datetime.now().isoformat()
-                    }
-                )
+                file_path = target_path / f"{name}.yaml"
+                if not file_path.exists():
+                    raise FileNotFoundError(f"File not found: {file_path}")
 
-                if result.get("success"):
-                    await self._message_broker.publish(
-                        "data/state",
-                        {
-                            "operation": "load",
-                            "type": file_type,
-                            "name": name,
-                            "state": "COMPLETED",
-                            "timestamp": datetime.now().isoformat()
-                        }
-                    )
-
-            elif request_type == "save":
-                file_type = data.get("type")
-                name = data.get("name")
-                file_data = data.get("data")
-
-                if not all([file_type, name, file_data]):
-                    raise ValueError("Missing required fields for save request")
-
-                result = await self.save_file(file_type, name, file_data)
-                await self._message_broker.publish(
-                    "data/response",
-                    {
-                        "request_id": request_id,
-                        "success": result.get("success", False),
-                        "error": result.get("error"),
-                        "timestamp": datetime.now().isoformat()
-                    }
-                )
-
-                if result.get("success"):
-                    await self._message_broker.publish(
-                        "data/state",
-                        {
-                            "operation": "save",
-                            "type": file_type,
-                            "name": name,
-                            "state": "COMPLETED",
-                            "timestamp": datetime.now().isoformat()
-                        }
-                    )
-            else:
-                raise ValueError(f"Invalid request_type: {request_type}")
+                with open(file_path, 'r') as f:
+                    file_data = yaml.safe_load(f)
+                    response["data"] = file_data
+                    await self._message_broker.publish("data/response", response)
+                    await self._message_broker.publish("data/state", {
+                        "state": "COMPLETED",
+                        "operation": "load",
+                        "type": file_type,
+                        "name": name,
+                        "request_id": request_id
+                    })
 
         except Exception as e:
-            error_msg = str(e)
-            logger.error(f"Error handling data request: {error_msg}")
-
-            # Send error response with success: False
-            await self._message_broker.publish(
-                "data/response",
-                {
-                    "request_id": request_id,
-                    "success": False,
-                    "error": error_msg,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-
-            # Publish error event with context
-            await self._message_broker.publish(
-                "error",
-                {
-                    "source": "data_manager",
-                    "error": error_msg,
-                    "request_id": request_id,
-                    "context": {
-                        "request_type": data.get("request_type", ""),
-                        "type": data.get("type", "")
-                    },
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
+            logger.error(f"Error handling data request: {e}")
+            error_response = {
+                "success": False,
+                "request_type": data.get("request_type"),
+                "type": data.get("type"),
+                "request_id": request_id,
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            }
+            await self._message_broker.publish("data/response", error_response)
+            await self._message_broker.publish("data/state", {
+                "state": "ERROR",
+                "operation": data.get("request_type"),
+                "type": data.get("type"),
+                "error": str(e),
+                "request_id": request_id
+            })
 
     async def shutdown(self) -> None:
         """Shutdown data manager."""

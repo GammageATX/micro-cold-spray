@@ -131,25 +131,25 @@ class DashboardTab(BaseWidget):
     async def handle_ui_update(self, data: dict) -> None:
         """Handle UI updates from UIUpdateManager."""
         try:
-            # Propagate updates to child widgets
-            if self._sequence_control:
-                await self._sequence_control.handle_ui_update(data)
-            if self._progress_display:
-                await self._progress_display.handle_ui_update(data)
-            if self._data_widget:
-                await self._data_widget.handle_ui_update(data)
+            # Extract topic and message
+            topic, message = next(iter(data.items()))
 
-            # Handle dashboard-specific updates
-            if "system/state" in data:
-                state = data["system/state"]
-                logger.debug(
-                    f"Dashboard received system state update: {state}")
-                # Update tab state if needed
-
-            elif "system/message" in data:
-                message = data["system/message"]
-                logger.debug(f"Dashboard received system message: {message}")
-                # Update tab message if needed
+            # Only propagate relevant updates to child widgets
+            if topic in ["sequence/loaded", "sequence/state"]:
+                if self._sequence_control:
+                    await self._sequence_control.handle_ui_update(data)
+                if self._progress_display:
+                    await self._progress_display.handle_ui_update(data)
+            elif topic in ["data/response", "data/state"]:
+                if self._data_widget:
+                    await self._data_widget.handle_ui_update(data)
+            elif topic == "system/state":
+                # Update all widgets for system state changes
+                for widget in [self._sequence_control, self._progress_display, self._data_widget]:
+                    if widget:
+                        await widget.handle_ui_update(data)
+            elif topic == "system/error":
+                logger.error(f"Dashboard received error: {message}")
 
         except Exception as e:
             logger.error(f"Error handling UI update in DashboardTab: {e}")

@@ -22,7 +22,17 @@ application:
   invalid: true
   paths:
     config: config/
-    data: data/
+    data:
+      parameters: data/parameters/
+      nozzles: data/parameters/nozzles/
+      patterns:
+        root: data/patterns/
+        custom: data/patterns/
+        serpentine: data/patterns/
+        spiral: data/patterns/
+      sequences: data/sequences/
+      powders: data/powders/
+      runs: data/runs/
     logs: logs/
     resources: resources/
     tags: resources/tags/

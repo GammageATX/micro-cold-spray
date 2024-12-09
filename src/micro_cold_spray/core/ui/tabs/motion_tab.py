@@ -195,6 +195,10 @@ class MotionTab(BaseWidget):
             elif "motion/position" in data:
                 position_data = data.get("motion/position", {})
                 if isinstance(position_data, dict):
+                    # Skip updates from position table to prevent loops
+                    if position_data.get("source") == "position_table":
+                        return
+
                     if "position" in position_data:
                         position = position_data["position"]
                     else:
@@ -250,15 +254,6 @@ class MotionTab(BaseWidget):
             if self._position_table:
                 await self._position_table.update_position(position)
 
-            # Send position update through UI manager
-            await self._ui_manager.send_update(
-                "motion/position",
-                {
-                    "position": position,
-                    "simulated": True,
-                    "timestamp": None
-                }
-            )
         except Exception as e:
             logger.error(f"Error updating displays: {e}")
             await self._ui_manager.send_update(

@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 from micro_cold_spray.core.ui.managers.ui_update_manager import UIUpdateManager
 from micro_cold_spray.core.ui.widgets.base_widget import BaseWidget
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
+from micro_cold_spray.core.exceptions import UIError, OperationError
 
 logger = logging.getLogger(__name__)
 
@@ -31,11 +32,10 @@ class ProgressDisplay(BaseWidget):
             widget_id="widget_sequence_progress",
             ui_manager=ui_manager,
             update_tags=[
-                "sequence/progress",
-                "sequence/step",
                 "sequence/state",
-                "system/connection",
-                "system/error"
+                "sequence/step",
+                "hardware/state",
+                "error"
             ],
             parent=parent
         )
@@ -78,39 +78,51 @@ class ProgressDisplay(BaseWidget):
     async def handle_ui_update(self, data: Dict[str, Any]) -> None:
         """Handle UI updates."""
         try:
-            if "sequence/progress" in data:
-                progress = data["sequence/progress"]
+            if "sequence/state" in data:
+                progress = data.get("progress", 0.0)
                 if isinstance(progress, (int, float)):
                     self._progress = float(progress)
                     self._update_display()
-
-            elif "sequence/step" in data:
-                step = data["sequence/step"]
-                if isinstance(step, str):
-                    self._current_step = step
-                    self._update_display()
-
-            elif "sequence/state" in data:
-                state = data["sequence/state"]
+                state = data.get("state")
                 if isinstance(state, str):
                     self._state = state
                     self._update_display()
 
-            elif "system/connection" in data:
+            elif "sequence/step" in data:
+                step = data["step"]
+                if isinstance(step, str):
+                    self._current_step = step
+                    self._update_display()
+
+            elif "hardware/state" in data:
                 connected = data.get("connected", False)
                 if not connected:
                     self._reset_display()
 
-        except Exception as e:
-            logger.error(f"Error handling UI update: {e}")
+        except (ValueError, TypeError) as e:
+            error_msg = f"Invalid data format in UI update: {e}"
+            logger.error(error_msg)
             await self._ui_manager.send_update(
-                "system/error",
+                "error",
                 {
                     "source": "progress_display",
-                    "message": str(e),
+                    "message": error_msg,
                     "level": "error"
                 }
             )
+            raise UIError(error_msg, {"data": data})
+        except Exception as e:
+            error_msg = f"Unexpected error handling UI update: {e}"
+            logger.error(error_msg)
+            await self._ui_manager.send_update(
+                "error",
+                {
+                    "source": "progress_display",
+                    "message": error_msg,
+                    "level": "error"
+                }
+            )
+            raise UIError(error_msg, {"data": data})
 
     def _update_display(self) -> None:
         """Update the display with current progress."""
@@ -137,15 +149,17 @@ class ProgressDisplay(BaseWidget):
                 self._step_label.setText("None")
 
         except Exception as e:
-            logger.error(f"Error updating display: {e}")
+            error_msg = f"Error updating display: {e}"
+            logger.error(error_msg)
             asyncio.create_task(self._ui_manager.send_update(
-                "system/error",
+                "error",
                 {
                     "source": "progress_display",
-                    "message": str(e),
+                    "message": error_msg,
                     "level": "error"
                 }
             ))
+            raise UIError(error_msg, {"state": self._state, "progress": self._progress})
 
     def _reset_display(self) -> None:
         """Reset display to initial state."""
@@ -155,27 +169,31 @@ class ProgressDisplay(BaseWidget):
             self._state = "idle"
             self._update_display()
         except Exception as e:
-            logger.error(f"Error resetting display: {e}")
+            error_msg = f"Error resetting display: {e}"
+            logger.error(error_msg)
             asyncio.create_task(self._ui_manager.send_update(
-                "system/error",
+                "error",
                 {
                     "source": "progress_display",
-                    "message": str(e),
+                    "message": error_msg,
                     "level": "error"
                 }
             ))
+            raise OperationError(error_msg, "reset_display")
 
     async def cleanup(self) -> None:
         """Clean up resources."""
         try:
             await super().cleanup()
         except Exception as e:
-            logger.error(f"Error during progress display cleanup: {e}")
+            error_msg = f"Error during progress display cleanup: {e}"
+            logger.error(error_msg)
             await self._ui_manager.send_update(
-                "system/error",
+                "error",
                 {
                     "source": "progress_display",
-                    "message": str(e),
+                    "message": error_msg,
                     "level": "error"
                 }
             )
+            raise UIError(error_msg, {"widget_id": self.widget_id})

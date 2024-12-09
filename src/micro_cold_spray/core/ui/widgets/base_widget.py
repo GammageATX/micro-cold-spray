@@ -28,7 +28,7 @@ class BaseWidget(QWidget):
         Args:
             widget_id: Unique widget identifier
             ui_manager: UI update manager instance
-            update_tags: List of topics to receive updates for
+            update_tags: List of tags to receive updates for
             parent: Parent widget
         """
         super().__init__(parent)
@@ -74,13 +74,14 @@ class BaseWidget(QWidget):
         """Widget-specific initialization. Override in derived classes."""
         pass
 
-    async def handle_ui_update(self, data: Dict[str, Any]) -> None:
-        """Handle UI update from UIUpdateManager.
+    async def handle_tag_update(self, tag: str, value: Any) -> None:
+        """Handle tag update from UIUpdateManager.
         
         Args:
-            data: Update data dictionary
+            tag: Tag that was updated
+            value: New tag value
         """
-        raise NotImplementedError("Subclasses must implement handle_ui_update")
+        raise NotImplementedError("Subclasses must implement handle_tag_update")
 
     async def cleanup(self) -> None:
         """Clean up widget resources and unregister."""

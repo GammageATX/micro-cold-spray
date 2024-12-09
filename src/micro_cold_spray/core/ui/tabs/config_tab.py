@@ -181,10 +181,20 @@ class ConfigTab(BaseWidget):
             # Get config files from config manager
             await self._ui_manager.send_update(
                 "config/request",
-                "list",
-                {"type": "config"}
+                {
+                    "type": "list",
+                    "source": "config_tab"
+                }
             )
 
             logger.debug("Requested config file list")
         except Exception as e:
             logger.error(f"Error loading config files: {e}")
+            await self._ui_manager.send_update(
+                "error",
+                {
+                    "source": "config_tab",
+                    "message": str(e),
+                    "level": "error"
+                }
+            )

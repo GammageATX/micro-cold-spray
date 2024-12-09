@@ -5,7 +5,7 @@
 - TagManager: All hardware communication and tag state
 - ConfigManager: All configuration management and validation
 - MessageBroker: All pub/sub messaging and request handling
-- UIUpdateManager: All UI updates and widget coordination
+- UIUpdateManager: Tag update distribution to widgets
 - StateManager: All system state transitions and validation
 - DataManager: All process data and history
 
@@ -20,7 +20,7 @@
 
 2. UI Components:
    - Must inherit from BaseWidget
-   - Must register with UIUpdateManager
+   - Must register with UIUpdateManager for tag updates only
    - Must implement async cleanup
    - Must use Qt6 enum classes
    - Must handle state changes properly
@@ -28,8 +28,12 @@
    - Must provide clear error feedback
    - Must support keyboard shortcuts
    - Must follow accessibility guidelines
+   - Must handle own error states
+   - Must communicate directly with MessageBroker for pub/sub
+   - Must manage own widget state
 
 3. Error Handling:
+   - Each component handles its own errors
    - Must catch and log all exceptions
    - Must provide context in error messages
    - Must handle async operations properly

@@ -128,13 +128,26 @@ async def initialize_system() -> tuple[
         # Create message broker first
         logger.debug("Initializing MessageBroker")
         message_broker = MessageBroker()
-        await message_broker.start()
+        await message_broker.initialize()
 
         # Create config manager with proper path and message broker
         logger.debug("Initializing ConfigManager")
         config_path = get_project_root() / "config"
         config_manager = ConfigManager(config_path, message_broker)
         await config_manager.initialize()
+
+        # Update message broker with config topics
+        logger.debug("Updating MessageBroker with config topics")
+        app_config = await config_manager.get_config("application")
+        if "services" in app_config.get("application", {}) and \
+           "message_broker" in app_config["application"]["services"] and \
+           "topics" in app_config["application"]["services"]["message_broker"]:
+            topics_config = app_config["application"]["services"]["message_broker"]["topics"]
+            config_topics = set()
+            for topic_group in topics_config.values():
+                if isinstance(topic_group, list):
+                    config_topics.update(topic_group)
+            await message_broker.update_from_config(config_topics)
 
         # Create tag manager with proper dependencies
         logger.debug("Initializing TagManager")
@@ -171,14 +184,12 @@ async def initialize_system() -> tuple[
         )
         await data_manager.initialize()
 
-        # Create and initialize UI manager
+        # Create UI manager (simplified version)
         logger.debug("Initializing UIUpdateManager")
-        ui_manager = UIUpdateManager(
-            message_broker=message_broker,
-            config_manager=config_manager,
-            data_manager=data_manager
-        )
-        await ui_manager.initialize()
+        ui_manager = UIUpdateManager()
+
+        # Subscribe tag manager to handle tag updates
+        await tag_manager.subscribe_ui_manager(ui_manager)
 
         logger.info("System initialization complete")
         return config_manager, message_broker, tag_manager, state_manager, ui_manager, data_manager
@@ -242,10 +253,15 @@ async def main() -> None:
         splash.close()
         window.show()
 
-        while not window.is_closing:
+        # Main event loop
+        while True:
             app.processEvents()
             await asyncio.sleep(0.01)
-            if not window.isVisible():
+            
+            # Check if window is closing or closed
+            if window.is_closing or not window.isVisible():
+                # Wait for any pending cleanup tasks
+                await asyncio.sleep(0.1)  # Give cleanup tasks time to complete
                 break
 
     except Exception as e:
@@ -276,10 +292,6 @@ async def main() -> None:
                 ) = system_components
 
                 logger.info("Shutting down system components")
-                try:
-                    await ui_manager.shutdown()
-                except Exception as e:
-                    logger.error(f"Error shutting down UI manager: {e}")
                 try:
                     await state_manager.shutdown()
                 except Exception as e:
