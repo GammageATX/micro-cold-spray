@@ -6,8 +6,10 @@ from typing import Any, Dict, List
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QInputDialog
 
-from ...managers.ui_update_manager import UIUpdateManager
-from ..base_widget import BaseWidget
+from micro_cold_spray.core.ui.managers.ui_update_manager import UIUpdateManager
+from micro_cold_spray.core.ui.widgets.base_widget import BaseWidget
+from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
+from micro_cold_spray.core.infrastructure.config.config_manager import ConfigManager
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +38,13 @@ class StatusIndicator(QFrame):
 class ConnectionStatus(BaseWidget):
     """Widget showing connection status and user selection."""
 
-    def __init__(self, ui_manager: UIUpdateManager, parent=None):
+    def __init__(
+        self,
+        ui_manager: UIUpdateManager,
+        message_broker: MessageBroker,
+        config_manager: ConfigManager,
+        parent=None
+    ):
         super().__init__(
             widget_id="widget_system_connection",
             ui_manager=ui_manager,
@@ -48,6 +56,8 @@ class ConnectionStatus(BaseWidget):
             ],
             parent=parent
         )
+        self._message_broker = message_broker
+        self._config_manager = config_manager
         self._init_ui()
         logger.info("Connection status widget initialized")
 
@@ -58,7 +68,7 @@ class ConnectionStatus(BaseWidget):
         """Load initial state from config."""
         try:
             # Get initial config directly
-            config = await self.config_manager.get_config("application")
+            config = await self._config_manager.get_config("application")
             env_config = config.get("application", {}).get("environment", {})
 
             # Set initial user list
@@ -72,7 +82,7 @@ class ConnectionStatus(BaseWidget):
                 self.user_combo.setCurrentText(current_user)
 
             # Subscribe to config updates for real-time changes
-            await self._ui_manager._message_broker.subscribe(
+            await self._message_broker.subscribe(
                 "config/update",
                 self._handle_config_update
             )
@@ -219,7 +229,7 @@ class ConnectionStatus(BaseWidget):
                         self.user_combo.setCurrentText(new_user)
 
                         # Update application config directly
-                        await self.config_manager.update_config("application", {
+                        await self._config_manager.update_config("application", {
                             "application": {
                                 "environment": {
                                     "user": new_user,

@@ -257,21 +257,24 @@ class EditorTab(BaseWidget):
             # Request file lists through DataManager
             logger.info("Requesting parameter files...")
             await self._ui_manager.send_update(
-                "data/list",
+                "data/request",
+                "list",
                 {
                     "type": "parameters"
                 }
             )
             logger.info("Requesting pattern files...")
             await self._ui_manager.send_update(
-                "data/list",
+                "data/request",
+                "list",
                 {
                     "type": "patterns"
                 }
             )
             logger.info("Requesting sequence files...")
             await self._ui_manager.send_update(
-                "data/list",
+                "data/request",
+                "list",
                 {
                     "type": "sequences"
                 }

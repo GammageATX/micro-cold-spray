@@ -11,8 +11,9 @@ from PySide6.QtWidgets import (
     QProgressBar
 )
 
-from ...managers.ui_update_manager import UIUpdateManager
-from ..base_widget import BaseWidget
+from micro_cold_spray.core.ui.managers.ui_update_manager import UIUpdateManager
+from micro_cold_spray.core.ui.widgets.base_widget import BaseWidget
+from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ class ProgressDisplay(BaseWidget):
     def __init__(
         self,
         ui_manager: UIUpdateManager,
+        message_broker: MessageBroker,
         parent=None
     ):
         super().__init__(
@@ -37,6 +39,9 @@ class ProgressDisplay(BaseWidget):
             ],
             parent=parent
         )
+
+        # Store dependencies
+        self._message_broker = message_broker
 
         self._current_step: Optional[str] = None
         self._progress: float = 0.0

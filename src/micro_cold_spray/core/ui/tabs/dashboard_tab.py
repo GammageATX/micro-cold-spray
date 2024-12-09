@@ -4,6 +4,8 @@ import logging
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout
 
 from ..managers.ui_update_manager import UIUpdateManager
+from ...infrastructure.messaging.message_broker import MessageBroker
+from ...infrastructure.config.config_manager import ConfigManager
 
 # Import base widget first
 from ..widgets.base_widget import BaseWidget
@@ -22,6 +24,8 @@ class DashboardTab(BaseWidget):
     def __init__(
         self,
         ui_manager: UIUpdateManager,
+        message_broker: MessageBroker,
+        config_manager: ConfigManager,
         parent=None
     ):
         # Initialize with proper widget ID
@@ -37,6 +41,10 @@ class DashboardTab(BaseWidget):
             ],
             parent=parent
         )
+
+        # Store dependencies
+        self._message_broker = message_broker
+        self._config_manager = config_manager
 
         # Store child widget references
         self._sequence_control = None
@@ -66,11 +74,11 @@ class DashboardTab(BaseWidget):
         sequence_layout.setContentsMargins(10, 10, 10, 10)
 
         # Add Sequence Control widget
-        self._sequence_control = SequenceControl(self._ui_manager)
+        self._sequence_control = SequenceControl(self._ui_manager, self._message_broker, parent=self)
         sequence_layout.addWidget(self._sequence_control)
 
         # Add Progress Display widget
-        self._progress_display = ProgressDisplay(self._ui_manager)
+        self._progress_display = ProgressDisplay(self._ui_manager, self._message_broker, parent=self)
         sequence_layout.addWidget(self._progress_display)
 
         sequence_frame.setLayout(sequence_layout)
@@ -81,7 +89,12 @@ class DashboardTab(BaseWidget):
         monitor_layout.setSpacing(10)
 
         # Add Data Widget
-        self._data_widget = DataWidget(self._ui_manager)
+        self._data_widget = DataWidget(
+            self._ui_manager,
+            self._message_broker,
+            self._config_manager,
+            parent=self
+        )
         monitor_layout.addWidget(self._data_widget)
 
         # Add monitor layout to main layout
@@ -89,6 +102,31 @@ class DashboardTab(BaseWidget):
         main_layout.addStretch()
 
         self.setLayout(main_layout)
+
+    async def _initialize(self) -> None:
+        """Initialize child widgets."""
+        try:
+            # Initialize child widgets
+            if self._sequence_control:
+                await self._sequence_control.initialize()
+            if self._progress_display:
+                await self._progress_display.initialize()
+            if self._data_widget:
+                await self._data_widget.initialize()
+
+            logger.info("Dashboard tab child widgets initialized")
+
+        except Exception as e:
+            logger.error(f"Error initializing dashboard tab child widgets: {e}")
+            await self._ui_manager.send_update(
+                "system/error",
+                {
+                    "source": "dashboard_tab",
+                    "message": f"Failed to initialize child widgets: {e}",
+                    "level": "error"
+                }
+            )
+            raise
 
     async def handle_ui_update(self, data: dict) -> None:
         """Handle UI updates from UIUpdateManager."""

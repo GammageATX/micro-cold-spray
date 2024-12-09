@@ -71,33 +71,39 @@ class SequenceManager:
         """Handle sequence request messages."""
         request_id = data.get("request_id", "")
         try:
-            request_type = data.get("request_type")
-            if not request_type:
-                raise ValidationError("Missing request type")
+            action = data.get("action")
+            if not action:
+                raise ValidationError("Missing action")
 
-            if request_type == "load":
-                filename = data.get("filename")
+            if action == "list":
+                # Get list of sequence files
+                sequence_files = []
+                if self._sequence_path.exists():
+                    sequence_files = [f.name for f in self._sequence_path.glob("*.yaml")]
+                
+                # Publish file list
+                await self._message_broker.publish(
+                    "data/files",
+                    {
+                        "type": "sequences",
+                        "files": sequence_files,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+
+            elif action == "load":
+                filename = data.get("name")
                 if not filename:
                     raise ValidationError("Missing filename")
                 await self._load_sequence(filename)
-            elif request_type == "start":
-                if self._is_running:
-                    raise ValidationError("Sequence already running")
-                await self.start_sequence()
-            elif request_type == "stop":
-                if not self._is_running:
-                    raise ValidationError("No sequence running")
-                await self.stop_sequence()
-            elif request_type == "edit":
-                if self._is_running:
-                    raise ValidationError("Cannot edit sequence while running")
-                await self._handle_edit_request(data)
-            elif request_type == "save":
-                if self._is_running:
-                    raise ValidationError("Cannot save sequence while running")
-                await self._handle_save_request(data)
-            else:
-                raise ValidationError(f"Invalid request type: {request_type}")
+
+            elif action == "save":
+                if not self._current_sequence:
+                    raise ValidationError("No sequence to save")
+                filename = data.get("name")
+                if not filename:
+                    raise ValidationError("Missing filename")
+                await self._save_sequence(filename)
 
             # Send success response
             await self._message_broker.publish(

@@ -179,13 +179,12 @@ class ConfigTab(BaseWidget):
         """Load available config files from disk."""
         try:
             # Get config files from config manager
-            files = await self._ui_manager.send_update(
-                "config/request/list_files",
+            await self._ui_manager.send_update(
+                "config/request",
+                "list",
                 {"type": "config"}
             )
 
-            if files and isinstance(files, list):
-                self._config_editor.update_file_list(files)
-                logger.debug(f"Loaded config files: {files}")
+            logger.debug("Requested config file list")
         except Exception as e:
             logger.error(f"Error loading config files: {e}")

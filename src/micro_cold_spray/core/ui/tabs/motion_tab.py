@@ -10,6 +10,7 @@ from ..widgets.base_widget import BaseWidget
 from ..widgets.motion.chamber_view import ChamberView
 from ..widgets.motion.jog_control import JogControl
 from ..widgets.motion.position_table import PositionTable
+from ...infrastructure.messaging.message_broker import MessageBroker
 
 
 @runtime_checkable
@@ -35,6 +36,7 @@ class MotionTab(BaseWidget):
     def __init__(
         self,
         ui_manager: UIUpdateManager,
+        message_broker: MessageBroker,
         parent=None
     ):
         super().__init__(
@@ -52,6 +54,9 @@ class MotionTab(BaseWidget):
             ],
             parent=parent
         )
+
+        # Store dependencies
+        self._message_broker = message_broker
 
         # Track simulation state
         self._simulated_position = {'x': 0.0, 'y': 0.0, 'z': 0.0}
@@ -304,8 +309,12 @@ class MotionTab(BaseWidget):
         except Exception as e:
             logger.error(f"Error handling jog command: {e}")
             await self._ui_manager.send_update(
-                "system.error",
-                {"error": f"Motion error: {str(e)}"}
+                "system/error",
+                {
+                    "source": "motion_tab",
+                    "message": f"Motion error: {str(e)}",
+                    "level": "error"
+                }
             )
 
     async def handle_stop_command(self) -> None:
@@ -318,10 +327,20 @@ class MotionTab(BaseWidget):
                 # Send real stop command
                 await self._ui_manager.send_update(
                     "motion/command/stop",
-                    {"immediate": True}
+                    {
+                        "immediate": True
+                    }
                 )
         except Exception as e:
             logger.error(f"Error handling stop command: {e}")
+            await self._ui_manager.send_update(
+                "system/error",
+                {
+                    "source": "motion_tab",
+                    "message": f"Stop error: {str(e)}",
+                    "level": "error"
+                }
+            )
 
     async def _handle_motion_error(self, error_data: Dict[str, Any]) -> None:
         """Handle motion error messages."""
@@ -329,8 +348,12 @@ class MotionTab(BaseWidget):
             error_msg = error_data.get("error", "Unknown motion error")
             # Show error in UI
             await self._ui_manager.send_update(
-                "system.error",
-                {"error": error_msg}
+                "system/error",
+                {
+                    "source": "motion_tab",
+                    "message": error_msg,
+                    "level": "error"
+                }
             )
             # Could also show in a popup or status bar
             QMessageBox.warning(
@@ -388,6 +411,10 @@ class MotionTab(BaseWidget):
         except Exception as e:
             logger.error(f"Error handling move command: {e}")
             await self._ui_manager.send_update(
-                "system.error",
-                {"error": f"Motion error: {str(e)}"}
+                "system/error",
+                {
+                    "source": "motion_tab",
+                    "message": f"Motion error: {str(e)}",
+                    "level": "error"
+                }
             )
