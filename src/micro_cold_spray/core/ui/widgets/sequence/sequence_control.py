@@ -1,6 +1,5 @@
 """Sequence control widget for loading and controlling sequences."""
 import asyncio
-import time
 from typing import Any, Dict, Protocol, runtime_checkable
 
 from loguru import logger
@@ -14,8 +13,10 @@ from PySide6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
 )
-from ...managers.ui_update_manager import UIUpdateManager
-from ..base_widget import BaseWidget
+
+from micro_cold_spray.core.ui.managers.ui_update_manager import UIUpdateManager
+from micro_cold_spray.core.ui.widgets.base_widget import BaseWidget
+from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
 
 
 @runtime_checkable
@@ -54,6 +55,7 @@ class SequenceControl(BaseWidget):
     def __init__(
         self,
         ui_manager: UIUpdateManager,
+        message_broker: MessageBroker,
         parent=None
     ):
         super().__init__(
@@ -71,6 +73,9 @@ class SequenceControl(BaseWidget):
             ],
             parent=parent
         )
+
+        # Store dependencies
+        self._message_broker = message_broker
 
         self._sequences = {}
         self._system_state = "STARTUP"
@@ -102,20 +107,17 @@ class SequenceControl(BaseWidget):
                 }
             )
 
-    async def _load_sequence_library(self):
-        """Load available sequences from DataManager."""
+    async def _load_sequence_library(self) -> None:
+        """Load available sequences."""
         try:
-            logger.info("Requesting sequence list from DataManager")
             await self._ui_manager.send_update(
-                "data/request",
+                "sequence/request",
                 {
-                    "type": "sequences",
                     "action": "list"
                 }
             )
-            logger.info("Sent sequence list request")
         except Exception as e:
-            logger.error(f"Error requesting sequence list: {str(e)}")
+            logger.error(f"Error requesting sequence list: {e}")
             await self._ui_manager.send_update(
                 "system/error",
                 {
@@ -354,102 +356,65 @@ class SequenceControl(BaseWidget):
     async def _on_load_clicked(self) -> None:
         """Handle load button click."""
         try:
-            selected = self.sequence_combo.currentText()
-            logger.debug(f"Load clicked for sequence: {selected}")
-
-            if not selected:
-                self.start_button.setEnabled(False)
-                self.cancel_button.setEnabled(False)
-                self.progress_bar.setValue(0)
-                self.status_label.setText("Status: No Sequence Selected")
-                self.status_label.setStyleSheet("color: gray;")
-                return
-
-            if selected in self._sequences:
-                sequence_info = self._sequences[selected]
-                logger.debug(f"Loading sequence: {sequence_info}")
-
-                # Request sequence data from DataManager
+            sequence_name = self.sequence_combo.currentText()
+            if sequence_name:
                 await self._ui_manager.send_update(
-                    "data/request",
+                    "sequence/request",
                     {
-                        "type": "sequences",
-                        "name": selected
+                        "action": "load",
+                        "name": sequence_name
                     }
                 )
-
-                self.start_button.setEnabled(True)
-                self.cancel_button.setEnabled(False)
-                self.status_label.setText(f"Loaded: {selected}")
-                self.status_label.setStyleSheet("")
-                self.progress_bar.setValue(0)
-                self.progress_bar.setFormat("Ready")
-
         except Exception as e:
             logger.error(f"Error loading sequence: {e}")
-            await self.send_update("system.error", f"Error loading sequence: {str(e)}")
+            await self._ui_manager.send_update(
+                "system/error",
+                {
+                    "source": "sequence_control",
+                    "message": str(e),
+                    "level": "error"
+                }
+            )
 
     async def _on_start_clicked(self) -> None:
         """Handle start button click."""
         try:
-            # Check system state and connection first
-            if not self._connection_state.get("connected", False):
-                self.status_label.setText("Cannot start: System disconnected")
-                self.status_label.setStyleSheet("color: red;")
-                await self.send_update(
-                    "system.message",
-                    "Cannot start sequence in disconnected state"
-                )
-                return
-
-            if self._system_state not in ["READY", "IDLE"]:
-                self.status_label.setText(f"Cannot start: System {self._system_state}")
-                self.status_label.setStyleSheet("color: red;")
-                return
-
-            selected = self.sequence_combo.currentText()
-            if not selected:
-                return
-
-            # If all checks pass, update UI and send start command
-            self.start_button.setEnabled(False)
-            self.cancel_button.setEnabled(True)
-            self.status_label.setText("Status: Running")
-            self.progress_bar.setValue(0)
-            self.progress_bar.setFormat("Starting...")
-
-            await self.send_update(
-                "sequence.state",
+            await self._ui_manager.send_update(
+                "sequence/control",
                 {
-                    "state": "STARTING",
-                    "timestamp": time.time()
+                    "action": "start"
                 }
             )
-
         except Exception as e:
             logger.error(f"Error starting sequence: {e}")
-            await self.send_update("system.error", f"Error starting sequence: {str(e)}")
+            await self._ui_manager.send_update(
+                "system/error",
+                {
+                    "source": "sequence_control",
+                    "message": str(e),
+                    "level": "error"
+                }
+            )
 
     async def _on_cancel_clicked(self) -> None:
         """Handle cancel button click."""
         try:
-            self.start_button.setEnabled(True)
-            self.cancel_button.setEnabled(False)
-            self.status_label.setText("Status: Cancelled")
-            self.progress_bar.setValue(0)
-            self.progress_bar.setFormat("Cancelled")
-
-            await self.send_update(
-                "sequence.state",
+            await self._ui_manager.send_update(
+                "sequence/control",
                 {
-                    "state": "CANCELLED",
-                    "timestamp": time.time()
+                    "action": "stop"
                 }
             )
-
         except Exception as e:
-            logger.error(f"Error cancelling sequence: {e}")
-            await self.send_update("system.error", f"Error cancelling sequence: {str(e)}")
+            logger.error(f"Error canceling sequence: {e}")
+            await self._ui_manager.send_update(
+                "system/error",
+                {
+                    "source": "sequence_control",
+                    "message": str(e),
+                    "level": "error"
+                }
+            )
 
     def update_progress(self, value: int) -> None:
         """Update progress bar value."""
@@ -465,24 +430,41 @@ class SequenceControl(BaseWidget):
     def _on_sequence_selected(self, sequence_name: str) -> None:
         """Handle sequence selection change."""
         try:
-            if not sequence_name:
-                self.start_button.setEnabled(False)
-                self.cancel_button.setEnabled(False)
-                self.status_label.setText("Status: No Sequence Selected")
-                self.status_label.setStyleSheet("color: gray;")
-                return
+            # Enable/disable buttons based on selection
+            has_selection = bool(sequence_name)
+            self.load_button.setEnabled(has_selection)
+            self.start_button.setEnabled(False)  # Only enable after loading
+            self.cancel_button.setEnabled(False)
 
-            self.status_label.setText(f"Selected: {sequence_name}")
-            self.status_label.setStyleSheet("")
+            # Update status
+            if has_selection:
+                self.status_label.setText(f"Status: {sequence_name} selected")
+            else:
+                self.status_label.setText("Status: No sequence selected")
 
         except Exception as e:
             logger.error(f"Error handling sequence selection: {e}")
+            asyncio.create_task(self._ui_manager.send_update(
+                "system/error",
+                {
+                    "source": "sequence_control",
+                    "message": str(e),
+                    "level": "error"
+                }
+            ))
 
-    def _on_load_complete(self, task):
-        """Handle completion of load task."""
+    def _on_load_complete(self, task) -> None:
+        """Handle sequence library load completion."""
         try:
             task.result()  # This will raise any exceptions that occurred
-            logger.info("Sequence library load task completed successfully")
         except Exception as e:
             logger.error(f"Sequence library load task failed: {e}")
-            logger.exception("Load task error details:")
+            logger.error(f"Load task error details:\n{task.exception()}")
+            asyncio.create_task(self._ui_manager.send_update(
+                "system/error",
+                {
+                    "source": "sequence_control",
+                    "message": str(e),
+                    "level": "error"
+                }
+            ))

@@ -16,6 +16,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from micro_cold_spray.core.exceptions import UIError
+from micro_cold_spray.core.infrastructure.config.config_manager import ConfigManager
+from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
+from micro_cold_spray.core.infrastructure.tags.tag_manager import TagManager
 from micro_cold_spray.core.ui.managers.ui_update_manager import UIUpdateManager
 from micro_cold_spray.core.ui.tabs.config_tab import ConfigTab
 from micro_cold_spray.core.ui.tabs.dashboard_tab import DashboardTab
@@ -24,10 +28,6 @@ from micro_cold_spray.core.ui.tabs.editor_tab import EditorTab
 from micro_cold_spray.core.ui.tabs.motion_tab import MotionTab
 from micro_cold_spray.core.ui.widgets.base_widget import BaseWidget
 from micro_cold_spray.core.ui.widgets.status.connection_status import ConnectionStatus
-from micro_cold_spray.core.exceptions import UIError
-from micro_cold_spray.core.infrastructure.config.config_manager import ConfigManager
-from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
-from micro_cold_spray.core.infrastructure.tags.tag_manager import TagManager
 
 
 class SystemStateDisplay(BaseWidget):
@@ -249,59 +249,85 @@ class MainWindow(QMainWindow):
             # Create central widget and main layout
             central_widget = QWidget()
             main_layout = QVBoxLayout()
-            main_layout.setContentsMargins(5, 5, 5, 5)
             central_widget.setLayout(main_layout)
             self.setCentralWidget(central_widget)
 
-            # Create top strip
-            top_strip = QFrame()
-            top_strip.setFrameShape(QFrame.Shape.StyledPanel)
-            top_strip.setFrameShadow(QFrame.Shadow.Raised)
-            top_strip.setFixedHeight(40)
-            top_layout = QHBoxLayout()
-            top_layout.setContentsMargins(5, 2, 5, 2)
-            top_strip.setLayout(top_layout)
+            # Create status bar
+            status_bar = QStatusBar()
+            self.setStatusBar(status_bar)
 
-            # Add system state display
+            # Add system state widgets to status bar
+            status_frame = QFrame()
+            status_layout = QHBoxLayout()
+            status_frame.setLayout(status_layout)
+
+            # System state display
             self.system_state = SystemStateDisplay(self._ui_manager)
-            top_layout.addWidget(self.system_state)
+            status_layout.addWidget(self.system_state)
 
-            # Add system message display
+            # Connection status
+            self.connection_status = ConnectionStatus(
+                self._ui_manager,
+                self._message_broker,
+                self._config_manager
+            )
+            status_layout.addWidget(self.connection_status)
+
+            # System message display
             self.system_message = SystemMessageDisplay(self._ui_manager)
-            top_layout.addWidget(self.system_message)
+            status_layout.addWidget(self.system_message)
 
-            # Add system error display
+            # System error display
             self.system_error = SystemErrorDisplay(self._ui_manager)
-            top_layout.addWidget(self.system_error)
+            status_layout.addWidget(self.system_error)
 
-            # Add top strip to main layout
-            main_layout.addWidget(top_strip)
+            status_bar.addWidget(status_frame)
 
             # Create tab widget
             self.tab_widget = QTabWidget()
             main_layout.addWidget(self.tab_widget)
 
             # Create tabs
-            self.dashboard_tab = DashboardTab(self._ui_manager)
-            self.motion_tab = MotionTab(self._ui_manager)
-            self.editor_tab = EditorTab(self._ui_manager)
-            self.config_tab = ConfigTab(self._ui_manager)
-            self.diagnostics_tab = DiagnosticsTab(self._ui_manager)
+            self.dashboard_tab = DashboardTab(
+                self._ui_manager,
+                self._message_broker,
+                self._config_manager,
+                parent=self.tab_widget
+            )
+            self.motion_tab = MotionTab(
+                self._ui_manager,
+                self._message_broker,
+                parent=self.tab_widget
+            )
+            self.editor_tab = EditorTab(
+                self._ui_manager,
+                self._message_broker,
+                parent=self.tab_widget
+            )
+            self.config_tab = ConfigTab(
+                self._ui_manager,
+                parent=self.tab_widget
+            )
+            self.diagnostics_tab = DiagnosticsTab(
+                self._ui_manager,
+                parent=self.tab_widget
+            )
 
-            # Add tabs
-            self.tab_widget.addTab(self.dashboard_tab, "Dashboard")
-            self.tab_widget.addTab(self.motion_tab, "Motion")
-            self.tab_widget.addTab(self.editor_tab, "Editor")
-            self.tab_widget.addTab(self.config_tab, "Config")
-            self.tab_widget.addTab(self.diagnostics_tab, "Diagnostics")
+            # Add tabs in order from config
+            layout = self._config.get("layout", {}).get("main", [])
+            for tab_name in layout:
+                if tab_name == "dashboard":
+                    self.tab_widget.addTab(self.dashboard_tab, "Dashboard")
+                elif tab_name == "motion":
+                    self.tab_widget.addTab(self.motion_tab, "Motion")
+                elif tab_name == "editor":
+                    self.tab_widget.addTab(self.editor_tab, "Editor")
+                elif tab_name == "config":
+                    self.tab_widget.addTab(self.config_tab, "Config")
+                elif tab_name == "diagnostics":
+                    self.tab_widget.addTab(self.diagnostics_tab, "Diagnostics")
 
-            # Create status bar
-            self.status_bar = QStatusBar()
-            self.setStatusBar(self.status_bar)
-
-            # Add connection status to status bar
-            self.connection_status = ConnectionStatus(self._ui_manager)
-            self.status_bar.addPermanentWidget(self.connection_status)
+            logger.info("UI initialization complete")
 
         except Exception as e:
             logger.error(f"Error initializing UI: {e}")

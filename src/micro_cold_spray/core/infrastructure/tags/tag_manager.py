@@ -53,7 +53,12 @@ class TagManager:
         try:
             # Get mock mode setting first
             app_config = await self._config_manager.get_config('application')
-            self._mock_mode = app_config.get('development', {}).get('mock_hardware', False) or self._test_mode
+            logger.debug(f"Application config: {app_config}")
+            
+            development_config = app_config.get('application', {}).get('development', {})
+            logger.debug(f"Development config: {development_config}")
+            
+            self._mock_mode = development_config.get('mock_hardware', False) or self._test_mode
             logger.info(f"Using mock hardware: {self._mock_mode}")
 
             # Get tag config
@@ -72,6 +77,10 @@ class TagManager:
                 logger.info("Creating mock hardware clients")
                 self._plc_client = create_plc_client({}, use_mock=True)
                 self._ssh_client = create_ssh_client({}, use_mock=True)
+                await self._plc_client.connect()
+                await self._ssh_client.connect()
+                await self._publish_hardware_state("plc", "connected")
+                await self._publish_hardware_state("motion", "connected")
             else:
                 # Get hardware config and create real clients
                 logger.info("Creating real hardware clients")
@@ -86,20 +95,10 @@ class TagManager:
 
                 self._plc_client = create_plc_client({'hardware': hardware_config})
                 self._ssh_client = create_ssh_client({'hardware': hardware_config})
-
-            # Connect clients
-            try:
                 await self._plc_client.connect()
                 await self._ssh_client.connect()
                 await self._publish_hardware_state("plc", "connected")
                 await self._publish_hardware_state("motion", "connected")
-            except Exception as e:
-                error_msg = f"Failed to connect to hardware: {str(e)}"
-                logger.error(error_msg)
-                if not self._mock_mode:
-                    raise HardwareError(error_msg, "hardware") from e
-                else:
-                    logger.warning("Connection failed in mock mode - continuing anyway")
 
             # Subscribe to tag messages
             await self._message_broker.subscribe("tag/request", self._handle_tag_request)
@@ -394,3 +393,31 @@ class TagManager:
         except Exception as e:
             logger.error(f"Error handling hardware status: {e}")
             await self._publish_hardware_state("error", str(e))
+
+    async def test_connections(self) -> dict[str, bool]:
+        """Test hardware connections and return status."""
+        if self._mock_mode:
+            # In mock mode, return simulated connected status
+            return {
+                "plc": True,
+                "motion": True
+            }
+            
+        status = {
+            "plc": False,
+            "motion": False
+        }
+        
+        try:
+            if self._plc_client and await self._plc_client.test_connection():
+                status["plc"] = True
+        except Exception as e:
+            logger.warning(f"PLC connection test failed: {str(e)}")
+            
+        try:
+            if self._ssh_client and await self._ssh_client.test_connection():
+                status["motion"] = True
+        except Exception as e:
+            logger.warning(f"Motion connection test failed: {str(e)}")
+            
+        return status

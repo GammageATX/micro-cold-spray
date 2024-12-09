@@ -6,8 +6,10 @@ import asyncio
 from loguru import logger
 from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout
 
-from ...managers.ui_update_manager import UIUpdateManager
-from ..base_widget import BaseWidget
+from micro_cold_spray.core.ui.managers.ui_update_manager import UIUpdateManager
+from micro_cold_spray.core.ui.widgets.base_widget import BaseWidget
+from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
+from micro_cold_spray.core.infrastructure.config.config_manager import ConfigManager
 
 
 class DataWidget(BaseWidget):
@@ -16,6 +18,8 @@ class DataWidget(BaseWidget):
     def __init__(
         self,
         ui_manager: UIUpdateManager,
+        message_broker: MessageBroker,
+        config_manager: ConfigManager,
         parent=None
     ):
         super().__init__(
@@ -31,6 +35,10 @@ class DataWidget(BaseWidget):
             ],
             parent=parent
         )
+
+        # Store dependencies
+        self._message_broker = message_broker
+        self._config_manager = config_manager
 
         self._current_sequence = None
         self._collection_active = False
@@ -79,14 +87,14 @@ class DataWidget(BaseWidget):
         """Load initial state from config."""
         try:
             # Get initial config directly
-            config = await self.config_manager.get_config("application")
+            config = await self._config_manager.get_config("application")
             env_config = config.get("application", {}).get("environment", {})
 
             # Get current user
             self._current_user = env_config.get("user", "Default User")
 
             # Subscribe to config updates for real-time changes
-            await self._ui_manager._message_broker.subscribe(
+            await self._message_broker.subscribe(
                 "config/update/application",
                 self._handle_config_update
             )

@@ -230,14 +230,16 @@ class PatternEditor(BaseWidget):
         """Request pattern list."""
         try:
             await self._ui_manager.send_update(
-                "pattern/request/list",
-                {}
+                "pattern/request",
+                "list",
+                {"action": "list"}
             )
             logger.debug("Requested pattern list")
         except Exception as e:
             logger.error(f"Error requesting pattern list: {e}")
             await self._ui_manager.send_update(
                 "system/error",
+                "error",
                 {
                     "source": "pattern_editor",
                     "message": str(e),

@@ -34,7 +34,7 @@ def create_plc_client(config: Dict[str, Any], use_mock: bool = False) -> PLCClie
         return MockPLCClient({})  # Mock client doesn't need config
     else:
         logger.info("Creating real PLC client")
-        if 'hardware' not in config:
+        if not config or 'hardware' not in config:
             raise ValueError("Missing hardware configuration")
         return PLCClient(config)
 
@@ -54,6 +54,6 @@ def create_ssh_client(config: Dict[str, Any], use_mock: bool = False) -> SSHClie
         return MockSSHClient({})  # Mock client doesn't need config
     else:
         logger.info("Creating real SSH client")
-        if 'hardware' not in config:
+        if not config or 'hardware' not in config:
             raise ValueError("Missing hardware configuration")
         return SSHClient(config)
