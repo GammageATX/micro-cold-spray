@@ -15,9 +15,11 @@ from micro_cold_spray.core.ui.windows.main_window import MainWindow
 from micro_cold_spray.core.exceptions import ConfigurationError, CoreError
 from micro_cold_spray.core.infrastructure.config.config_manager import ConfigManager
 from micro_cold_spray.core.infrastructure.messaging.message_broker import MessageBroker
-from micro_cold_spray.core.infrastructure.state.state_manager import StateManager
-from micro_cold_spray.core.infrastructure.tags.tag_manager import TagManager
 from micro_cold_spray.core.process.data.data_manager import DataManager
+from micro_cold_spray.api.state.service import StateService
+from micro_cold_spray.api.communication.services.plc_service import PLCService
+from micro_cold_spray.api.communication.services.feeder_service import FeederService
+from micro_cold_spray.api.communication.services.tag_cache import TagCacheService
 
 src_path = Path(__file__).parent.parent
 if str(src_path) not in sys.path:
@@ -116,8 +118,9 @@ class SplashScreen(QProgressDialog):
 async def initialize_system() -> tuple[
     ConfigManager,
     MessageBroker,
-    TagManager,
-    StateManager,
+    PLCService,
+    FeederService,
+    StateService,
     UIUpdateManager,
     DataManager
 ]:
@@ -149,32 +152,49 @@ async def initialize_system() -> tuple[
                     config_topics.update(topic_group)
             await message_broker.update_from_config(config_topics)
 
-        # Create tag manager with proper dependencies
-        logger.debug("Initializing TagManager")
-        tag_manager = TagManager(
+        # Initialize tag cache service
+        logger.debug("Initializing TagCacheService")
+        tag_cache = TagCacheService()
+
+        # Initialize communication services
+        logger.debug("Initializing Communication Services")
+        plc_service = PLCService(
+            config_manager=config_manager,
             message_broker=message_broker,
-            config_manager=config_manager
+            tag_cache=tag_cache
         )
-        await tag_manager.initialize()
+        await plc_service.start()
+
+        feeder_service = FeederService(
+            config_manager=config_manager,
+            message_broker=message_broker,
+            tag_cache=tag_cache
+        )
+        await feeder_service.start()
 
         # Test hardware connections
-        connection_status = await tag_manager.test_connections()
-        if not any(connection_status.values()):
+        plc_connected = await plc_service.test_connection()
+        feeder_connected = await feeder_service.test_connection()
+        
+        if not any([plc_connected, feeder_connected]):
             logger.warning(
                 "No hardware connections available - starting in disconnected mode")
             await message_broker.publish("system/status", {
                 "status": "disconnected",
-                "details": connection_status,
+                "details": {
+                    "plc": plc_connected,
+                    "feeder": feeder_connected
+                },
                 "timestamp": datetime.now().isoformat()
             })
 
-        # Create and initialize state manager
-        logger.debug("Initializing StateManager")
-        state_manager = StateManager(
-            message_broker=message_broker,
-            config_manager=config_manager
+        # Create and initialize state service
+        logger.debug("Initializing StateService")
+        state_service = StateService(
+            config_manager=config_manager,
+            message_broker=message_broker
         )
-        await state_manager.initialize()
+        await state_service.start()
 
         # Create and initialize data manager
         logger.debug("Initializing DataManager")
@@ -184,15 +204,23 @@ async def initialize_system() -> tuple[
         )
         await data_manager.initialize()
 
-        # Create UI manager (simplified version)
+        # Create UI manager
         logger.debug("Initializing UIUpdateManager")
         ui_manager = UIUpdateManager()
 
-        # Subscribe tag manager to handle tag updates
-        await tag_manager.subscribe_ui_manager(ui_manager)
+        # Subscribe to tag updates for UI
+        await message_broker.subscribe("tag/update", ui_manager.handle_update)
 
         logger.info("System initialization complete")
-        return config_manager, message_broker, tag_manager, state_manager, ui_manager, data_manager
+        return (
+            config_manager, 
+            message_broker, 
+            plc_service,
+            feeder_service,
+            state_service, 
+            ui_manager, 
+            data_manager
+        )
 
     except Exception as e:
         error_msg = {
@@ -228,7 +256,15 @@ async def main() -> None:
         splash.setLabelText("Initializing System Components...")
         app.processEvents()
         system_components = await initialize_system()
-        config_manager, message_broker, tag_manager, state_manager, ui_manager, data_manager = system_components
+        (
+            config_manager, 
+            message_broker, 
+            plc_service,
+            feeder_service,
+            state_service, 
+            ui_manager, 
+            data_manager
+        ) = system_components
 
         # Create and initialize main window
         splash.setLabelText("Initializing Dashboard Interface...")
@@ -244,7 +280,8 @@ async def main() -> None:
             config_manager=config_manager,
             message_broker=message_broker,
             ui_manager=ui_manager,
-            tag_manager=tag_manager,
+            plc_service=plc_service,
+            feeder_service=feeder_service,
             ui_config=app_config["window"]
         )
         await window.initialize()
@@ -285,21 +322,26 @@ async def main() -> None:
                 (
                     config_manager,
                     message_broker,
-                    tag_manager,
-                    state_manager,
+                    plc_service,
+                    feeder_service,
+                    state_service,
                     ui_manager,
                     data_manager
                 ) = system_components
 
                 logger.info("Shutting down system components")
                 try:
-                    await state_manager.shutdown()
+                    await state_service.shutdown()
                 except Exception as e:
-                    logger.error(f"Error shutting down state manager: {e}")
+                    logger.error(f"Error shutting down state service: {e}")
                 try:
-                    await tag_manager.shutdown()
+                    await plc_service.shutdown()
                 except Exception as e:
-                    logger.error(f"Error shutting down tag manager: {e}")
+                    logger.error(f"Error shutting down plc service: {e}")
+                try:
+                    await feeder_service.shutdown()
+                except Exception as e:
+                    logger.error(f"Error shutting down feeder service: {e}")
                 try:
                     await data_manager.shutdown()
                 except Exception as e:
