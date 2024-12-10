@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="panel">
+    <h2>Gas Control</h2>
+    <div class="control-group">
+        <h3>Gas Flow</h3>
+        <form id="gas-flow-form">
+            <select name="type" required>
+                <option value="main">Main Gas</option>
+                <option value="feeder">Feeder Gas</option>
+            </select>
+            <input type="number" name="value" placeholder="Flow Rate (SLPM)" required>
+            <button type="submit">Set Flow</button>
+        </form>
+    </div>
+    <div class="control-group">
+        <h3>Gas Valves</h3>
+        <button onclick="controlValve('main', true)">Main Gas ON</button>
+        <button onclick="controlValve('main', false)">Main Gas OFF</button>
+        <button onclick="controlValve('feeder', true)">Feeder Gas ON</button>
+        <button onclick="controlValve('feeder', false)">Feeder Gas OFF</button>
+    </div>
+</div>
+
+<script>
+document.getElementById('gas-flow-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    try {
+        const response = await fetch(`${API_URLS.communication}/equipment/gas/flow`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                type: form.type.value,
+                value: parseFloat(form.value.value)
+            })
+        });
+        if (!response.ok) throw await response.json();
+        showSuccess('Gas flow updated');
+    } catch (error) {
+        showError(error.detail || 'Failed to set gas flow');
+    }
+};
+
+async function controlValve(valve, state) {
+    try {
+        const response = await fetch(`${API_URLS.communication}/equipment/gas/valve`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({valve, state})
+        });
+        if (!response.ok) throw await response.json();
+        showSuccess('Valve state updated');
+    } catch (error) {
+        showError(error.detail || 'Failed to control valve');
+    }
+}
+</script>
+{% endblock %}

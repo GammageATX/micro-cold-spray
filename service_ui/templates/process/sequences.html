@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="panel">
+    <h2>Sequence Control</h2>
+    <div class="control-group">
+        <h3>Load Sequence</h3>
+        <form id="load-sequence-form">
+            <select id="sequence-select" required>
+                <option value="">Select Sequence...</option>
+            </select>
+            <button type="submit">Load</button>
+        </form>
+    </div>
+    
+    <div class="control-group">
+        <h3>Sequence Control</h3>
+        <button onclick="controlSequence('start')" id="start-btn">Start</button>
+        <button onclick="controlSequence('pause')" id="pause-btn">Pause</button>
+        <button onclick="controlSequence('resume')" id="resume-btn">Resume</button>
+        <button onclick="controlSequence('stop')" id="stop-btn">Stop</button>
+    </div>
+
+    <div class="control-group">
+        <h3>Sequence Status</h3>
+        <div id="sequence-status"></div>
+    </div>
+</div>
+
+<script>
+// Load available sequences
+async function loadSequences() {
+    try {
+        const response = await fetch(`${API_URLS.process}/sequences/list`);
+        if (!response.ok) throw await response.json();
+        const sequences = await response.json();
+        
+        const select = document.getElementById('sequence-select');
+        select.innerHTML = '<option value="">Select Sequence...</option>' +
+            sequences.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+            
+    } catch (error) {
+        showError('Failed to load sequences');
+    }
+}
+
+// Control sequence execution
+async function controlSequence(action) {
+    try {
+        const response = await fetch(`${API_URLS.process}/sequences/control`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({action})
+        });
+        if (!response.ok) throw await response.json();
+        showSuccess(`Sequence ${action} successful`);
+    } catch (error) {
+        showError(error.detail || `Failed to ${action} sequence`);
+    }
+}
+
+// Load sequences on page load
+loadSequences();
+
+// WebSocket for status updates
+const ws = new WebSocket(`${API_URLS.process}/ws/sequence/status`);
+ws.onmessage = (event) => {
+    const status = JSON.parse(event.data);
+    updateStatus(status);
+};
+
+function updateStatus(status) {
+    const container = document.getElementById('sequence-status');
+    container.innerHTML = `
+        <div>State: ${status.state}</div>
+        <div>Current Step: ${status.current_step || 'None'}</div>
+        <div>Progress: ${status.progress || 0}%</div>
+        ${status.error ? `<div class="error">Error: ${status.error}</div>` : ''}
+    `;
+}
+</script>
+{% endblock %}

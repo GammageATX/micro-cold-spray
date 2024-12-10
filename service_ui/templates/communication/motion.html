@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="panel">
+    <h2>Single Axis Motion</h2>
+    <div class="control-group">
+        <form id="single-axis-form">
+            <select name="axis" required>
+                <option value="x">X Axis</option>
+                <option value="y">Y Axis</option>
+                <option value="z">Z Axis</option>
+            </select>
+            <input type="number" name="distance" placeholder="Distance (mm)" required>
+            <input type="number" name="velocity" placeholder="Velocity (mm/s)" required>
+            <button type="submit">Move</button>
+        </form>
+    </div>
+</div>
+
+<div class="panel">
+    <h2>XY Motion</h2>
+    <div class="control-group">
+        <form id="xy-motion-form">
+            <input type="number" name="x_distance" placeholder="X Distance (mm)" required>
+            <input type="number" name="y_distance" placeholder="Y Distance (mm)" required>
+            <input type="number" name="velocity" placeholder="Velocity (mm/s)" required>
+            <button type="submit">Move XY</button>
+        </form>
+    </div>
+</div>
+
+<script>
+document.getElementById('single-axis-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    try {
+        const response = await fetch(`${API_URLS.communication}/motion/move`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                axis: form.axis.value,
+                distance: parseFloat(form.distance.value),
+                velocity: parseFloat(form.velocity.value)
+            })
+        });
+        if (!response.ok) throw await response.json();
+        showSuccess('Motion started');
+    } catch (error) {
+        showError(error.detail || 'Motion failed');
+    }
+};
+
+document.getElementById('xy-motion-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    try {
+        const response = await fetch(`${API_URLS.communication}/motion/move/xy`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                x_distance: parseFloat(form.x_distance.value),
+                y_distance: parseFloat(form.y_distance.value),
+                velocity: parseFloat(form.velocity.value)
+            })
+        });
+        if (!response.ok) throw await response.json();
+        showSuccess('XY motion started');
+    } catch (error) {
+        showError(error.detail || 'XY motion failed');
+    }
+};
+</script>
+{% endblock %}

@@ -5,11 +5,22 @@ import asyncio
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 from pathlib import Path
+import yaml
+import uuid
 
 from ..base import BaseService
 from ..data_collection.service import DataCollectionService, DataCollectionError
 from ...core.infrastructure.config.config_manager import ConfigManager
 from ...core.infrastructure.messaging.message_broker import MessageBroker
+from ...core.infrastructure.pattern.pattern_manager import PatternManager
+from ...core.infrastructure.validation.validation_client import ValidationClient
+from ...core.infrastructure.operations.actions.action_manager import ActionManager
+from ...core.infrastructure.operations.parameters.parameter_manager import ParameterManager
+from ...core.infrastructure.operations.sequences.sequence_manager import SequenceManager
+from .actions import ActionService
+from .parameters import ParameterService
+from .patterns import PatternService
+from .sequences import SequenceService
 
 logger = logging.getLogger(__name__)
 
@@ -26,12 +37,20 @@ class ProcessService(BaseService):
         self,
         config_manager: ConfigManager,
         message_broker: MessageBroker,
-        data_collection_service: DataCollectionService
+        data_collection_service: DataCollectionService,
+        action_service: ActionService,
+        parameter_service: ParameterService,
+        pattern_service: PatternService,
+        sequence_service: SequenceService
     ):
         super().__init__(service_name="process")
         self._config_manager = config_manager
         self._message_broker = message_broker
         self._data_collection = data_collection_service
+        self._action_service = action_service
+        self._parameter_service = parameter_service
+        self._pattern_service = pattern_service
+        self._sequence_service = sequence_service
         
         # Process state
         self._active_sequence: Optional[str] = None
@@ -289,6 +308,68 @@ class ProcessService(BaseService):
         except Exception as e:
             logger.error(f"Error completing sequence: {e}")
 
+    async def _execute_step(self, step: Dict[str, Any]) -> None:
+        """Execute a sequence step."""
+        try:
+            if "pattern" in step:
+                # Execute pattern step
+                await self._pattern_manager.execute_pattern(
+                    step["pattern"],
+                    step.get("parameters", {})
+                )
+                await self._log_process_data({
+                    "type": "pattern",
+                    "pattern": step["pattern"],
+                    "parameters": step.get("parameters", {})
+                })
+
+    async def create_sequence(self, sequence_data: Dict[str, Any]) -> str:
+        """Create a new sequence file."""
+        try:
+            # Validate sequence structure
+            await self._validate_sequence_structure(sequence_data)
+            
+            # Generate unique sequence ID
+            sequence_id = self._generate_sequence_id(sequence_data)
+            
+            # Save sequence file
+            await self._save_sequence_file(sequence_id, sequence_data)
+            
+            return sequence_id
+            
+        except Exception as e:
+            raise ProcessError("Failed to create sequence", {"error": str(e)})
+
+    async def define_action_group(self, group_data: Dict[str, Any]) -> None:
+        """Define a new action group."""
+        try:
+            # Validate action group structure
+            await self._validate_action_group(group_data)
+            
+            # Register with action manager
+            await self._action_manager.register_group(
+                group_data["name"],
+                group_data["actions"],
+                group_data.get("parameters", {})
+            )
+            
+        except Exception as e:
+            raise ProcessError("Failed to define action group", {"error": str(e)})
+
+    async def create_parameter_set(self, parameter_data: Dict[str, Any]) -> str:
+        """Create a new parameter set file."""
+        try:
+            # Generate parameter set ID
+            param_id = self._generate_parameter_id(parameter_data)
+            
+            # Save parameter file
+            await self._save_parameter_file(param_id, parameter_data)
+            
+            return param_id
+            
+        except Exception as e:
+            raise ProcessError("Failed to create parameter set", {"error": str(e)})
+
     @property
     def active_sequence(self) -> Optional[str]:
         """Get the currently active sequence ID."""
@@ -298,4 +379,300 @@ class ProcessService(BaseService):
     def sequence_step(self) -> int:
         """Get the current sequence step."""
         return self._sequence_step
+
+    async def _validate_sequence_execution(self, sequence_id: str) -> None:
+        """Validate sequence before execution."""
+        try:
+            # Load sequence
+            sequence = await self._load_sequence(sequence_id)
+            
+            # Validate all components
+            await self._validate_sequence_patterns(sequence)
+            await self._validate_sequence_parameters(sequence)
+            await self._validate_sequence_actions(sequence)
+            
+            # Validate hardware requirements
+            await self._validate_hardware_requirements(sequence)
+            
+            # Check safety constraints
+            await self._safety_monitor.validate_sequence(sequence)
+            
+        except Exception as e:
+            raise ProcessError("Sequence validation failed", {"error": str(e)})
+
+    async def _validate_with_validation_api(
+        self, 
+        validation_type: str,
+        data: Dict[str, Any]
+    ) -> None:
+        """Send validation request to Validation API."""
+        try:
+            response = await self._validation_client.validate(validation_type, data)
+            if not response["valid"]:
+                raise ProcessError(
+                    "Validation failed",
+                    {"errors": response["errors"]}
+                )
+        except Exception as e:
+            raise ProcessError("Validation request failed", {"error": str(e)})
+
+    async def _validate_sequence_structure(self, sequence_data: Dict[str, Any]) -> None:
+        """Validate sequence file structure and references."""
+        try:
+            # Validate basic structure
+            if "sequence" not in sequence_data:
+                raise ProcessError("Missing sequence root element")
+            
+            sequence = sequence_data["sequence"]
+            if "metadata" not in sequence or "steps" not in sequence:
+                raise ProcessError("Sequence missing required sections")
+
+            # Validate metadata
+            required_metadata = ["name", "version", "created"]
+            for field in required_metadata:
+                if field not in sequence["metadata"]:
+                    raise ProcessError(f"Missing required metadata: {field}")
+
+            # Validate steps
+            for step in sequence["steps"]:
+                # Validate action groups
+                if "action_group" in step:
+                    await self._validate_action_group_exists(step["action_group"])
+                    
+                # Validate pattern references
+                if "actions" in step:
+                    for action in step["actions"]:
+                        if action.get("action_group") == "execute_pattern":
+                            pattern_file = action.get("parameters", {}).get("file")
+                            if pattern_file:
+                                await self._validate_pattern_file_exists(pattern_file)
+                                
+                        elif action.get("action_group") == "apply_parameters":
+                            param_file = action.get("parameters", {}).get("file")
+                            if param_file:
+                                await self._validate_parameter_file_exists(param_file)
+
+        except Exception as e:
+            raise ProcessError("Sequence validation failed", {"error": str(e)})
+
+    async def _validate_parameter_file_exists(self, filename: str) -> None:
+        """Verify parameter file exists."""
+        param_path = Path("data/parameters") / filename
+        if not param_path.exists():
+            raise ProcessError(f"Parameter file not found: {filename}")
+
+    async def _validate_pattern_file_exists(self, filename: str) -> None:
+        """Verify pattern file exists."""
+        pattern_path = Path("data/patterns") / filename
+        if not pattern_path.exists():
+            raise ProcessError(f"Pattern file not found: {filename}")
+
+    async def _validate_action_group_exists(self, group_name: str) -> None:
+        """Verify action group is defined."""
+        if not await self._action_manager.group_exists(group_name):
+            raise ProcessError(f"Action group not found: {group_name}")
+
+    async def list_parameter_files(self) -> List[Dict[str, Any]]:
+        """List available parameter files with metadata."""
+        try:
+            param_path = Path(self._config["paths"]["data"]["parameters"])
+            files = []
+            
+            for file_path in param_path.glob("*.yaml"):
+                try:
+                    with open(file_path) as f:
+                        data = yaml.safe_load(f)
+                        files.append({
+                            "name": file_path.stem,
+                            "path": str(file_path),
+                            "metadata": data.get("metadata", {})
+                        })
+                except Exception as e:
+                    logger.warning(f"Error loading parameter file {file_path}: {e}")
+                    
+            return files
+            
+        except Exception as e:
+            raise ProcessError("Failed to list parameter files", {"error": str(e)})
+
+    async def list_pattern_files(self) -> List[Dict[str, Any]]:
+        """List available pattern files with metadata."""
+        try:
+            pattern_path = Path(self._config["paths"]["data"]["patterns"]["root"])
+            files = []
+            
+            for file_path in pattern_path.glob("*.yaml"):
+                try:
+                    with open(file_path) as f:
+                        data = yaml.safe_load(f)
+                        files.append({
+                            "name": file_path.stem,
+                            "path": str(file_path),
+                            "type": data.get("type"),
+                            "metadata": data.get("metadata", {})
+                        })
+                except Exception as e:
+                    logger.warning(f"Error loading pattern file {file_path}: {e}")
+                    
+            return files
+            
+        except Exception as e:
+            raise ProcessError("Failed to list pattern files", {"error": str(e)})
+
+    async def list_sequence_files(self) -> List[Dict[str, Any]]:
+        """List available sequence files with metadata."""
+        try:
+            sequence_path = Path(self._config["paths"]["data"]["sequences"])
+            files = []
+            
+            for file_path in sequence_path.glob("*.yaml"):
+                try:
+                    with open(file_path) as f:
+                        data = yaml.safe_load(f)
+                        sequence = data.get("sequence", {})
+                        files.append({
+                            "name": file_path.stem,
+                            "path": str(file_path),
+                            "metadata": sequence.get("metadata", {}),
+                            "step_count": len(sequence.get("steps", []))
+                        })
+                except Exception as e:
+                    logger.warning(f"Error loading sequence file {file_path}: {e}")
+                    
+            return files
+            
+        except Exception as e:
+            raise ProcessError("Failed to list sequence files", {"error": str(e)})
+
+    async def _save_sequence_file(self, sequence_id: str, sequence_data: Dict[str, Any]) -> None:
+        """Save sequence file."""
+        try:
+            sequence_path = Path(self._config["paths"]["data"]["sequences"])
+            file_path = sequence_path / f"{sequence_id}.yaml"
+            
+            # Ensure directory exists
+            sequence_path.mkdir(parents=True, exist_ok=True)
+            
+            # Save file
+            with open(file_path, 'w') as f:
+                yaml.safe_dump(sequence_data, f, sort_keys=False)
+                
+        except Exception as e:
+            raise ProcessError(f"Failed to save sequence file: {e}")
+
+    async def _generate_sequence_id(self, sequence_data: Dict[str, Any]) -> str:
+        """Generate unique sequence ID from metadata."""
+        try:
+            metadata = sequence_data["sequence"]["metadata"]
+            name = metadata["name"].lower().replace(" ", "_")
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            return f"{name}_{timestamp}"
+            
+        except Exception as e:
+            raise ProcessError(f"Failed to generate sequence ID: {e}")
+
+    async def execute_action(self, action_name: str, parameters: Dict[str, Any]) -> None:
+        """Execute atomic action via Communication API."""
+        await self._message_broker.publish(
+            "action/request",
+            {
+                "action": action_name,
+                "parameters": parameters
+            }
+        )
+
+    async def validate_pattern(self, pattern_data: Dict[str, Any]) -> None:
+        """Validate pattern via Validation API."""
+        await self._message_broker.publish(
+            "validation/request",
+            {
+                "type": "pattern",
+                "data": pattern_data
+            }
+        )
+
+    async def register_action_group(self, group_name: str, actions: List[Dict[str, Any]]) -> None:
+        """Register new action group."""
+        await self._action_manager.register_group(group_name, actions)
+
+    async def apply_parameters(self, parameter_set: str) -> None:
+        """Apply parameter set to hardware."""
+        await self._parameter_manager.apply_parameters(parameter_set)
+
+    async def get_current_parameters(self) -> Dict[str, Any]:
+        """Get current parameter values."""
+        return await self._parameter_manager.get_current_parameters()
+
+    async def generate_pattern(self, pattern_type: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate new pattern."""
+        return await self._pattern_manager.generate_pattern(pattern_type, parameters)
+
+    async def execute_pattern(self, pattern_id: str, modifications: Dict[str, Any] = None) -> None:
+        """Execute pattern with optional modifications."""
+        await self._pattern_manager.execute_pattern(pattern_id, modifications)
+
+    async def execute_sequence_step(self, step: Dict[str, Any]) -> None:
+        """Execute single sequence step."""
+        try:
+            # Handle different step types
+            if "action_group" in step:
+                await self.execute_action_group(step["action_group"], step.get("parameters", {}))
+            elif "pattern" in step:
+                await self.execute_pattern(step["pattern"], step.get("modifications", {}))
+            elif "parameters" in step:
+                await self.apply_parameters(step["parameters"])
+            
+            # Log step completion
+            await self._log_process_data({
+                "type": "step_complete",
+                "step": step,
+                "timestamp": datetime.now().isoformat()
+            })
+        except Exception as e:
+            raise ProcessError(f"Step execution failed: {e}")
+
+    async def _execute_atomic_action(self, action: str, params: Dict[str, Any]) -> None:
+        """Execute atomic action via Communication API."""
+        try:
+            await self._message_broker.publish(
+                "action/request",
+                {
+                    "action": action,
+                    "parameters": params,
+                    "request_id": str(uuid.uuid4())
+                }
+            )
+            # Wait for completion/validation
+            # Handle response
+        except Exception as e:
+            raise ProcessError(f"Action execution failed: {action}", {"error": str(e)})
+
+    async def _execute_action_group(self, group: str, params: Dict[str, Any]) -> None:
+        """Execute predefined action group."""
+        try:
+            # Get group definition from config
+            group_def = self._config["process"]["action_groups"][group]
+            
+            # Execute each step
+            for step in group_def["steps"]:
+                if "action" in step:
+                    await self._execute_atomic_action(
+                        step["action"],
+                        self._resolve_parameters(step, params)
+                    )
+                elif "validation" in step:
+                    await self._validate_condition(step["validation"])
+                elif "time_delay" in step:
+                    await asyncio.sleep(step["time_delay"])
+                    
+        except Exception as e:
+            raise ProcessError(f"Action group failed: {group}", {"error": str(e)})
+
+class SafetyMonitor:
+    async def check_pattern_safety(self, pattern: Dict[str, Any]) -> None:
+        """Verify pattern safety constraints."""
+        # Check motion limits
+        # Verify speed constraints
+        # Check collision avoidance
+        # Validate work envelope
 ``` 

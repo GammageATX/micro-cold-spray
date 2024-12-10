@@ -1,0 +1,54 @@
+<!-- service_ui/templates/base.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MicroColdSpray Service UI</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
+    <script>
+        // API URLs from backend
+        const API_URLS = {{ api_urls|tojson }};
+        
+        // Show error/success messages
+        function showToast(message, type) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = `toast ${type}`;
+            toast.style.display = 'block';
+            setTimeout(() => toast.style.display = 'none', 3000);
+        }
+        
+        function showError(message) {
+            showToast(message, 'error');
+        }
+        
+        function showSuccess(message) {
+            showToast(message, 'success');
+        }
+    </script>
+</head>
+<body>
+    <nav>
+        <div class="nav-section">
+            <h3>Communication</h3>
+            <a href="/communication/tags">Tags</a>
+            <a href="/communication/equipment">Equipment</a>
+            <a href="/communication/motion">Motion</a>
+        </div>
+        <div class="nav-section">
+            <h3>Process</h3>
+            <a href="/process/sequences">Sequences</a>
+            <a href="/process/patterns">Patterns</a>
+            <a href="/process/parameters">Parameters</a>
+        </div>
+        <div class="nav-section">
+            <h3>System</h3>
+            <a href="/config/editor">Config</a>
+            <a href="/state/monitor">State</a>
+        </div>
+    </nav>
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+    <div id="toast" class="toast"></div>
+</body>
+</html>

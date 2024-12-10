@@ -1,0 +1,79 @@
+/* service_ui/static/css/style.css */
+:root {
+    --primary-color: #1976d2;
+    --error-color: #d32f2f;
+    --success-color: #388e3c;
+    --nav-width: 200px;
+}
+
+body {
+    margin: 0;
+    font-family: system-ui, -apple-system, sans-serif;
+    display: flex;
+}
+
+nav {
+    width: var(--nav-width);
+    height: 100vh;
+    padding: 20px;
+    background: #f5f5f5;
+    border-right: 1px solid #ddd;
+    position: fixed;
+}
+
+.nav-section {
+    margin-bottom: 20px;
+}
+
+.nav-section h3 {
+    margin: 0 0 10px 0;
+    color: var(--primary-color);
+}
+
+nav a {
+    display: block;
+    padding: 8px 16px;
+    color: #333;
+    text-decoration: none;
+    border-radius: 4px;
+}
+
+nav a:hover {
+    background: #e0e0e0;
+}
+
+main {
+    margin-left: var(--nav-width);
+    padding: 20px;
+    flex: 1;
+}
+
+.panel {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin-bottom: 20px;
+}
+
+.control-group {
+    margin-bottom: 20px;
+}
+
+.toast {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    padding: 12px 24px;
+    border-radius: 4px;
+    color: white;
+    display: none;
+}
+
+.toast.error {
+    background: var(--error-color);
+}
+
+.toast.success {
+    background: var(--success-color);
+}
