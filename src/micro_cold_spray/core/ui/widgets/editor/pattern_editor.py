@@ -102,25 +102,33 @@ class PatternEditor(BaseWidget):
     async def handle_ui_update(self, data: Dict[str, Any]) -> None:
         """Handle UI updates."""
         try:
-            if "parameter/current" in data:
-                parameter_data = data.get("parameter/current", {})
-                if isinstance(parameter_data, dict):
-                    self._current_data = parameter_data
-                    self._update_form()
-                    self.save_button.setEnabled(True)
-                    logger.debug(f"Updated form with parameter data: {parameter_data}")
+            topic, message = next(iter(data.items()))
 
-            elif "parameter/list" in data:
-                file_list = data.get("parameter/list", [])
-                if isinstance(file_list, list):
-                    self._set_combo.clear()
-                    self._set_combo.addItem("")  # Add empty option
-                    self._set_combo.addItems(file_list)
-                    logger.debug(f"Updated parameter list with {len(file_list)} items")
+            if topic == "data/response":
+                if not message.get("success"):
+                    logger.error(f"Data operation failed: {message.get('error')}")
+                    return
 
-            elif "system/connection" in data:
-                connected = data.get("connected", False)
-                self._update_button_states(connected)
+                request_id = message.get("request_id")
+                if not request_id or request_id not in self._pending_requests:
+                    return
+
+                request_type, name = self._pending_requests.pop(request_id)
+                
+                if request_type == "load":
+                    pattern_data = message.get("data", {})
+                    pattern_type = pattern_data.get("type", "")
+                    if pattern_type:
+                        # Load existing pattern data instead of showing type selection
+                        await self._show_type_parameters(pattern_type, pattern_data.get("params", {}))
+                        self.save_button.setEnabled(True)
+                elif request_type == "list":
+                    if "files" in message.get("data", {}):
+                        await self._update_pattern_list(message["data"]["files"])
+
+            elif topic == "pattern/template":
+                if message.get("success"):
+                    await self._update_pattern_parameters(message.get("data", {}))
 
         except Exception as e:
             logger.error(f"Error handling UI update: {e}")
@@ -211,6 +219,7 @@ class PatternEditor(BaseWidget):
         """Handle pattern selection change."""
         try:
             if not pattern_name:
+                self._is_new_pattern = True
                 await self._show_type_parameters("", {})
                 return
 
@@ -305,8 +314,8 @@ class PatternEditor(BaseWidget):
                 widget.deleteLater()
             self._parameter_widgets.clear()
 
-            # Create type selector if not exists
-            if "type" not in self._parameter_widgets:
+            # Create type selector if this is a new pattern
+            if self._is_new_pattern:
                 type_combo = QComboBox()
                 type_combo.addItem("Select Type")
                 type_combo.addItems(["Serpentine", "Spiral", "Custom"])
@@ -315,9 +324,18 @@ class PatternEditor(BaseWidget):
                 self._parameter_widgets["type"] = type_combo
                 self._params_layout.addWidget(QLabel("Type:"), 0, 0)
                 self._params_layout.addWidget(type_combo, 0, 1)
+                type_combo.currentTextChanged.connect(
+                    lambda t: asyncio.create_task(self._on_type_changed(t))
+                )
+            elif pattern_type:
+                # For existing patterns, just show the type as a label
+                type_label = QLabel(pattern_type)
+                self._parameter_widgets["type"] = type_label
+                self._params_layout.addWidget(QLabel("Type:"), 0, 0)
+                self._params_layout.addWidget(type_label, 0, 1)
 
             # Show parameters based on type
-            if pattern_type:
+            if pattern_type and pattern_type != "Select Type":
                 await self._ui_manager.send_update(
                     "pattern/request",
                     {
