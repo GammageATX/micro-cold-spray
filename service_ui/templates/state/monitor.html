@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="panel">
+    <h2>System State Monitor</h2>
+    <div class="control-group">
+        <h3>Current State</h3>
+        <div id="current-state" class="state-display">
+            <div class="state-name">Loading...</div>
+            <div class="state-details"></div>
+        </div>
+    </div>
+
+    <div class="control-group">
+        <h3>State History</h3>
+        <div id="state-history"></div>
+    </div>
+
+    <div class="control-group">
+        <h3>Active Errors</h3>
+        <div id="active-errors"></div>
+    </div>
+</div>
+
+<script>
+// WebSocket for state updates
+const ws = new WebSocket(`${API_URLS.state}/ws/monitor`);
+ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    updateState(data);
+};
+
+function updateState(data) {
+    // Update current state
+    const stateDisplay = document.getElementById('current-state');
+    stateDisplay.querySelector('.state-name').textContent = data.state;
+    stateDisplay.querySelector('.state-details').innerHTML = `
+        <div>Since: ${new Date(data.timestamp).toLocaleString()}</div>
+        <div>Reason: ${data.reason || 'Normal transition'}</div>
+    `;
+
+    // Update history
+    const history = document.getElementById('state-history');
+    history.innerHTML = data.history.map(entry => `
+        <div class="history-entry">
+            <div class="state-name">${entry.state}</div>
+            <div class="state-time">${new Date(entry.timestamp).toLocaleString()}</div>
+            ${entry.reason ? `<div class="state-reason">${entry.reason}</div>` : ''}
+        </div>
+    `).join('');
+
+    // Update errors
+    const errors = document.getElementById('active-errors');
+    errors.innerHTML = data.errors.map(error => `
+        <div class="error-entry">
+            <div class="error-source">${error.source}</div>
+            <div class="error-message">${error.message}</div>
+            <div class="error-time">${new Date(error.timestamp).toLocaleString()}</div>
+        </div>
+    `).join('');
+}
+</script>
+{% endblock %}

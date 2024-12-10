@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="panel">
+    <h2>Tag Monitor</h2>
+    <div class="control-group">
+        <h3>Write Tag</h3>
+        <form id="write-tag-form">
+            <input name="tag_path" placeholder="Tag Path" required>
+            <input name="value" placeholder="Value" required>
+            <button type="submit">Write</button>
+        </form>
+    </div>
+    <div class="control-group">
+        <h3>Monitor Tags</h3>
+        <select id="tag-group">
+            <option value="">All Groups</option>
+            <option value="gas_control">Gas Control</option>
+            <option value="motion">Motion</option>
+            <option value="hardware_sets">Hardware Sets</option>
+        </select>
+        <div id="tag-values"></div>
+    </div>
+</div>
+
+<script>
+document.getElementById('write-tag-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    try {
+        const response = await fetch(`${API_URLS.communication}/tags/write`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                tag_path: form.tag_path.value,
+                value: form.value.value
+            })
+        });
+        if (!response.ok) throw await response.json();
+        showSuccess('Tag written successfully');
+    } catch (error) {
+        showError(error.detail || 'Failed to write tag');
+    }
+};
+
+// WebSocket for tag updates
+const ws = new WebSocket(`${API_URLS.communication}/ws/tags`);
+ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    updateTagValues(data);
+};
+
+function updateTagValues(data) {
+    const container = document.getElementById('tag-values');
+    const group = document.getElementById('tag-group').value;
+    
+    // Filter by group if selected
+    const tags = group ? 
+        Object.entries(data).filter(([path]) => path.startsWith(group)) :
+        Object.entries(data);
+        
+    container.innerHTML = tags.map(([path, value]) => `
+        <div class="tag-value">
+            <span class="tag-path">${path}</span>
+            <span class="tag-value">${value}</span>
+        </div>
+    `).join('');
+}
+</script>
+{% endblock %}

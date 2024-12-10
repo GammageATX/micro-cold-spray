@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="panel">
+    <h2>Configuration Editor</h2>
+    <div class="control-group">
+        <h3>Select Config</h3>
+        <select id="config-select" onchange="loadConfig()">
+            <option value="application">Application</option>
+            <option value="hardware">Hardware</option>
+            <option value="process">Process</option>
+            <option value="state">State</option>
+            <option value="tags">Tags</option>
+        </select>
+    </div>
+
+    <div class="control-group">
+        <h3>Edit Config</h3>
+        <div id="editor-container">
+            <textarea id="config-editor" rows="20" cols="80"></textarea>
+        </div>
+        <div class="button-group">
+            <button onclick="saveConfig()">Save</button>
+            <button onclick="validateConfig()">Validate</button>
+            <button onclick="reloadConfig()">Reload</button>
+        </div>
+    </div>
+</div>
+
+<script>
+async function loadConfig() {
+    const configType = document.getElementById('config-select').value;
+    try {
+        const response = await fetch(`${API_URLS.config}/${configType}`);
+        if (!response.ok) throw await response.json();
+        const config = await response.json();
+        
+        // Format YAML nicely
+        document.getElementById('config-editor').value = 
+            JSON.stringify(config, null, 2);
+            
+    } catch (error) {
+        showError('Failed to load config');
+    }
+}
+
+async function saveConfig() {
+    const configType = document.getElementById('config-select').value;
+    const configData = document.getElementById('config-editor').value;
+    
+    try {
+        // First validate
+        const validateResponse = await fetch(`${API_URLS.config}/validate/${configType}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: configData
+        });
+        if (!validateResponse.ok) throw await validateResponse.json();
+        
+        // Then save
+        const saveResponse = await fetch(`${API_URLS.config}/${configType}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: configData
+        });
+        if (!saveResponse.ok) throw await saveResponse.json();
+        
+        showSuccess('Config saved');
+    } catch (error) {
+        showError(error.detail || 'Failed to save config');
+    }
+}
+
+// Load initial config
+loadConfig();
+</script>
+{% endblock %}

@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="panel">
+    <h2>Process Parameters</h2>
+    <div class="control-group">
+        <h3>Gas Parameters</h3>
+        <form id="gas-params-form">
+            <div class="param-group">
+                <label>Main Gas Flow</label>
+                <input type="number" name="main_gas_flow" placeholder="SLPM" required>
+            </div>
+            <div class="param-group">
+                <label>Feeder Gas Flow</label>
+                <input type="number" name="feeder_gas_flow" placeholder="SLPM" required>
+            </div>
+            <button type="submit">Save Gas Parameters</button>
+        </form>
+    </div>
+
+    <div class="control-group">
+        <h3>Powder Parameters</h3>
+        <form id="powder-params-form">
+            <div class="param-group">
+                <label>Feeder Speed</label>
+                <input type="number" name="feeder_speed" placeholder="RPM" required>
+            </div>
+            <div class="param-group">
+                <label>Deagglomerator Speed</label>
+                <select name="deagg_speed" required>
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                </select>
+            </div>
+            <button type="submit">Save Powder Parameters</button>
+        </form>
+    </div>
+</div>
+
+<script>
+// Load current parameters
+async function loadParameters() {
+    try {
+        const response = await fetch(`${API_URLS.process}/parameters`);
+        if (!response.ok) throw await response.json();
+        const params = await response.json();
+        
+        // Fill forms with current values
+        Object.entries(params).forEach(([key, value]) => {
+            const input = document.querySelector(`[name="${key}"]`);
+            if (input) input.value = value;
+        });
+    } catch (error) {
+        showError('Failed to load parameters');
+    }
+}
+
+// Save parameters
+async function saveParameters(formId, endpoint) {
+    const form = document.getElementById(formId);
+    const data = Object.fromEntries(new FormData(form));
+    
+    try {
+        const response = await fetch(`${API_URLS.process}/parameters/${endpoint}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) throw await response.json();
+        showSuccess('Parameters saved');
+    } catch (error) {
+        showError(error.detail || 'Failed to save parameters');
+    }
+}
+
+// Load parameters on page load
+loadParameters();
+
+// Form submit handlers
+document.getElementById('gas-params-form').onsubmit = (e) => {
+    e.preventDefault();
+    saveParameters('gas-params-form', 'gas');
+};
+
+document.getElementById('powder-params-form').onsubmit = (e) => {
+    e.preventDefault();
+    saveParameters('powder-params-form', 'powder');
+};
+</script>
+{% endblock %}
