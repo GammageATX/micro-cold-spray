@@ -1,32 +1,43 @@
+"""Validation service for checking data against rules."""
+
 from typing import Dict, Any, List
 from datetime import datetime
 
 from ..base import BaseService
-from ...core.infrastructure.config.config_manager import ConfigManager
-from ...core.infrastructure.messaging.message_broker import MessageBroker
+from ..config import ConfigService
+from ..messaging import MessagingService
+
 
 class ValidationError(Exception):
+    """Raised when validation fails."""
+    
     def __init__(self, message: str, context: Dict[str, Any] | None = None):
         super().__init__(message)
         self.context = context if context is not None else {}
 
+
 class ValidationService(BaseService):
+    """Service for validating data against rules."""
+    
     def __init__(
         self,
-        config_manager: ConfigManager,
-        message_broker: MessageBroker
+        config_service: ConfigService,
+        message_broker: MessagingService
     ):
-        super().__init__(service_name="validation")
-        self._config_manager = config_manager
+        """Initialize validation service.
+        
+        Args:
+            config_service: Configuration service
+            message_broker: Message broker service
+        """
+        super().__init__(service_name="validation", config_service=config_service)
         self._message_broker = message_broker
         self._validation_rules = {}
         
-    async def start(self) -> None:
+    async def _start(self) -> None:
         """Initialize validation service."""
-        await super().start()
-        
         # Load validation rules
-        config = await self._config_manager.get_config("process")
+        config = await self._config_service.get_config("process")
         self._validation_rules = config["process"]["validation"]
         
         # Subscribe to validation requests
@@ -306,7 +317,7 @@ class ValidationService(BaseService):
         errors = []
         try:
             # Get stage dimensions from hardware config
-            hw_config = await self._config_manager.get_config("hardware")
+            hw_config = await self._config_service.get_config("hardware")
             stage = hw_config["hardware"]["physical"]["stage"]["dimensions"]
             
             # Calculate pattern bounds

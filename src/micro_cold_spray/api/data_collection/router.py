@@ -1,10 +1,11 @@
 """FastAPI router for data collection operations."""
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from fastapi import APIRouter, HTTPException, Depends
+from datetime import datetime
 
-from .service import DataCollectionService, DataCollectionError
+from .service import DataCollectionService, DataCollectionError, SprayEvent
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,64 @@ async def stop_collection() -> Dict[str, str]:
         )
 
 
+@router.post("/events")
+async def record_event(event: SprayEvent) -> Dict[str, str]:
+    """
+    Record a spray event.
+    
+    Args:
+        event: The spray event to record
+        
+    Returns:
+        Dict containing operation status
+    """
+    service = get_service()
+    try:
+        await service.record_spray_event(event)
+        return {
+            "status": "recorded",
+            "spray_index": event.spray_index
+        }
+    except DataCollectionError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": str(e), "context": e.context}
+        )
+    except Exception as e:
+        logger.error(f"Failed to record spray event: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+
+@router.get("/events/{sequence_id}")
+async def get_events(sequence_id: str) -> List[SprayEvent]:
+    """
+    Get all spray events for a sequence.
+    
+    Args:
+        sequence_id: ID of sequence to get events for
+        
+    Returns:
+        List of spray events
+    """
+    service = get_service()
+    try:
+        return await service.get_sequence_events(sequence_id)
+    except DataCollectionError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": str(e), "context": e.context}
+        )
+    except Exception as e:
+        logger.error(f"Failed to get sequence events: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+
 @router.get("/status")
 async def get_collection_status() -> Dict[str, Any]:
     """
@@ -107,23 +166,28 @@ async def get_collection_status() -> Dict[str, Any]:
 @router.get("/health")
 async def health_check(
     service: DataCollectionService = Depends(get_service)
-):
-    """Check API health status."""
+) -> Dict[str, Any]:
+    """
+    Check API health status.
+    
+    Returns:
+        Dict containing health status
+    """
     try:
-        # Check storage connection
-        storage_status = await service.check_storage()
-        if not storage_status:
+        storage_ok = await service.check_storage()
+        if not storage_ok:
             return {
-                "status": "Error",
-                "error": "Storage connection failed"
+                "status": "error",
+                "message": "Storage check failed"
             }
         
         return {
-            "status": "Running",
-            "error": None
+            "status": "ok",
+            "message": "Service healthy"
         }
     except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
         return {
-            "status": "Error",
-            "error": str(e)
+            "status": "error",
+            "message": str(e)
         }
