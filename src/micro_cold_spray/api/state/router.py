@@ -1,139 +1,92 @@
-"""FastAPI router for state management endpoints."""
+"""State management router."""
 
-from fastapi import APIRouter, HTTPException, Query, Depends
-from typing import Dict, List, Optional, Any
-import logging
+from typing import Dict, List
+from fastapi import APIRouter, HTTPException, Depends
 
-from .service import StateService, StateTransitionError
+from ..base import get_service
+from .service import StateService
+from .models import StateRequest, StateResponse, StateTransition
+from .exceptions import StateError, InvalidStateError
 
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/state", tags=["state"])
-_service: Optional[StateService] = None
 
 
-def init_router(service: StateService) -> None:
-    """Initialize router with service instance.
-    
-    Args:
-        service: State service instance
-    """
-    global _service
-    _service = service
-
-
-def get_service() -> StateService:
-    """Get state service instance.
-    
-    Returns:
-        StateService instance
-        
-    Raises:
-        RuntimeError: If service not initialized
-    """
-    if _service is None:
-        raise RuntimeError("State service not initialized")
-    return _service
+def init_router() -> None:
+    """Initialize state router."""
+    pass
 
 
 @router.get("/current")
-async def get_current_state() -> Dict[str, str]:
-    """Get the current system state.
+async def get_current_state(
+    service: StateService = Depends(get_service(StateService))
+) -> Dict[str, str]:
+    """Get current state.
     
     Returns:
-        Dictionary containing:
-            - state: Current state name
+        Dictionary with current state name
     """
-    service = get_service()
-    try:
-        return {"state": service.current_state}
-    except Exception as e:
-        logger.error(f"Failed to get current state: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get current state: {str(e)}"
-        )
+    return {"state": service.current_state}
 
 
-@router.post("/transition/{target_state}")
-async def transition_state(target_state: str) -> Dict[str, str]:
-    """Transition to a new system state.
+@router.post("/transition")
+async def transition_state(
+    request: StateRequest,
+    service: StateService = Depends(get_service(StateService))
+) -> StateResponse:
+    """Request state transition.
     
     Args:
-        target_state: Name of the state to transition to
+        request: State transition request
         
     Returns:
-        Dictionary containing:
-            - state: New state name
+        State transition response
         
     Raises:
-        HTTPException: If transition is invalid or fails
+        HTTPException: If transition fails
     """
-    service = get_service()
     try:
-        await service.transition_to(target_state.upper())
-        return {"state": service.current_state}
-    except StateTransitionError as e:
-        logger.warning(f"Invalid state transition: {str(e)}")
-        raise HTTPException(
-            status_code=400,
-            detail=str(e)
-        )
+        return await service.transition_to(request)
+    except InvalidStateError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except StateError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
-        logger.error(f"Failed to transition state: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to transition state: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/history")
 async def get_state_history(
-    limit: Optional[int] = Query(None, description="Optional limit on number of history entries")
-) -> List[Dict[str, str]]:
+    limit: int | None = None,
+    service: StateService = Depends(get_service(StateService))
+) -> List[StateTransition]:
     """Get state transition history.
     
     Args:
-        limit: Optional limit on number of history entries to return
+        limit: Optional limit on number of entries to return
         
     Returns:
-        List of dictionaries containing:
-            - state: State name
-            - timestamp: Transition timestamp
-            - reason: Transition reason (if any)
+        List of state transition records
     """
-    service = get_service()
-    try:
-        return service.get_state_history(limit)
-    except Exception as e:
-        logger.error(f"Failed to get state history: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get state history: {str(e)}"
-        )
+    return service.get_state_history(limit)
 
 
-@router.get("/valid-transitions")
-async def get_valid_transitions() -> Dict[str, List[str]]:
+@router.get("/transitions")
+async def get_valid_transitions(
+    service: StateService = Depends(get_service(StateService))
+) -> Dict[str, List[str]]:
     """Get map of valid state transitions.
     
     Returns:
         Dictionary mapping current states to lists of valid target states
     """
-    service = get_service()
-    try:
-        return service.get_valid_transitions()
-    except Exception as e:
-        logger.error(f"Failed to get valid transitions: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get valid transitions: {str(e)}"
-        )
+    return service.get_valid_transitions()
 
 
 @router.get("/conditions")
 async def get_state_conditions(
-    state: Optional[str] = Query(None, description="Optional state to check conditions for")
+    state: str | None = None,
+    service: StateService = Depends(get_service(StateService))
 ) -> Dict[str, bool]:
     """Get conditions for a state.
     
@@ -142,43 +95,13 @@ async def get_state_conditions(
         
     Returns:
         Dictionary mapping condition names to their current status
+        
+    Raises:
+        HTTPException: If state not found
     """
-    service = get_service()
     try:
         return await service.get_conditions(state)
-    except Exception as e:
-        logger.error(f"Failed to get state conditions: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get state conditions: {str(e)}"
-        )
-
-
-@router.get("/health")
-async def health_check(
-    service: StateService = Depends(get_service)
-) -> Dict[str, Any]:
-    """Check API health status.
-    
-    Returns:
-        Dictionary containing:
-            - status: Service status
-            - error: Error message if any
-    """
-    try:
-        if not service.is_running:
-            return {
-                "status": "Error",
-                "error": "Service not running"
-            }
-            
-        return {
-            "status": "Running",
-            "error": None
-        }
-    except Exception as e:
-        logger.error(f"Health check failed: {str(e)}")
-        return {
-            "status": "Error",
-            "error": str(e)
-        }
+    except InvalidStateError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except StateError as e:
+        raise HTTPException(status_code=500, detail=str(e))

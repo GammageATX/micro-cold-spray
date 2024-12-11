@@ -7,17 +7,17 @@ import logging
 from ..base import BaseService
 from ..config import ConfigService
 from ..messaging import MessagingService
+from .models import (
+    StateCondition,
+    StateConfig,
+    StateTransition,
+    StateRequest,
+    StateResponse
+)
+from .exceptions import StateTransitionError, InvalidStateError, ConditionError
 
 
 logger = logging.getLogger(__name__)
-
-
-class StateTransitionError(Exception):
-    """Raised when a state transition fails."""
-    
-    def __init__(self, message: str, context: Dict[str, Any] | None = None):
-        super().__init__(message)
-        self.context = context if context is not None else {}
 
 
 class StateService(BaseService):
@@ -37,14 +37,25 @@ class StateService(BaseService):
         super().__init__(service_name="state", config_service=config_service)
         self._message_broker = message_broker
         self._current_state = "INIT"
-        self._state_history: List[Dict[str, Any]] = []
-        self._state_machine = {}
+        self._state_history: List[StateTransition] = []
+        self._state_machine: Dict[str, StateConfig] = {}
         
     async def _start(self) -> None:
         """Initialize state service."""
         # Load state machine config
         config = await self._config_service.get_config("state_machine")
-        self._state_machine = config["states"]
+        self._state_machine = {
+            name: StateConfig(
+                name=name,
+                valid_transitions=state_config["valid_transitions"],
+                conditions={
+                    cond_name: StateCondition(**cond_config)
+                    for cond_name, cond_config in state_config.get("conditions", {}).items()
+                },
+                description=state_config.get("description")
+            )
+            for name, state_config in config["states"].items()
+        }
         
         # Subscribe to state change requests
         await self._message_broker.subscribe(
@@ -56,16 +67,24 @@ class StateService(BaseService):
         self._current_state = "INIT"
         self._add_history_entry("System initialized")
         
-    async def transition_to(self, target_state: str) -> None:
+    async def transition_to(self, request: StateRequest) -> StateResponse:
         """Transition to a new state.
         
         Args:
-            target_state: State to transition to
+            request: State transition request
+            
+        Returns:
+            State transition response
             
         Raises:
             StateTransitionError: If transition is invalid or conditions not met
+            InvalidStateError: If target state doesn't exist
         """
-        target_state = target_state.upper()
+        target_state = request.target_state.upper()
+        
+        # Validate state exists
+        if target_state not in self._state_machine:
+            raise InvalidStateError(f"Unknown state: {target_state}")
         
         # Validate transition
         if not self._is_valid_transition(target_state):
@@ -73,20 +92,34 @@ class StateService(BaseService):
                 f"Invalid transition from {self._current_state} to {target_state}"
             )
             
-        # Check conditions
-        conditions = await self.get_conditions(target_state)
-        failed = [name for name, met in conditions.items() if not met]
-        if failed:
-            raise StateTransitionError(
-                f"Conditions not met for {target_state}",
-                {"failed_conditions": failed}
-            )
+        # Check conditions unless force flag is set
+        if not request.force:
+            conditions = await self.get_conditions(target_state)
+            failed = [name for name, met in conditions.items() if not met]
+            if failed:
+                return StateResponse(
+                    success=False,
+                    old_state=self._current_state,
+                    error=f"Conditions not met for {target_state}",
+                    failed_conditions=failed,
+                    timestamp=datetime.now()
+                )
             
         # Perform transition
         try:
             old_state = self._current_state
             self._current_state = target_state
-            self._add_history_entry(f"Transitioned from {old_state}")
+            timestamp = datetime.now()
+            
+            self._add_history_entry(
+                StateTransition(
+                    old_state=old_state,
+                    new_state=target_state,
+                    timestamp=timestamp,
+                    reason=request.reason or "State change requested",
+                    conditions_met=await self.get_conditions(target_state)
+                )
+            )
             
             # Notify subscribers
             await self._message_broker.publish(
@@ -94,16 +127,27 @@ class StateService(BaseService):
                 {
                     "old_state": old_state,
                     "new_state": target_state,
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": timestamp.isoformat(),
+                    "reason": request.reason
                 }
+            )
+            
+            return StateResponse(
+                success=True,
+                old_state=old_state,
+                new_state=target_state,
+                timestamp=timestamp
             )
             
         except Exception as e:
             # Revert on failure
             self._current_state = old_state
-            raise StateTransitionError(f"Transition failed: {str(e)}")
+            raise StateTransitionError(
+                f"Transition failed: {str(e)}",
+                {"error": str(e)}
+            )
             
-    def get_state_history(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+    def get_state_history(self, limit: Optional[int] = None) -> List[StateTransition]:
         """Get state transition history.
         
         Args:
@@ -124,7 +168,7 @@ class StateService(BaseService):
             Dictionary mapping current states to lists of valid target states
         """
         return {
-            state: config.get("valid_transitions", [])
+            state: config.valid_transitions
             for state, config in self._state_machine.items()
         }
         
@@ -138,14 +182,14 @@ class StateService(BaseService):
             Dictionary mapping condition names to their current status
             
         Raises:
-            StateTransitionError: If state not found
+            InvalidStateError: If state not found
         """
         state = state.upper() if state else self._current_state
         
         if state not in self._state_machine:
-            raise StateTransitionError(f"Unknown state: {state}")
+            raise InvalidStateError(f"Unknown state: {state}")
             
-        conditions = self._state_machine[state].get("conditions", {})
+        conditions = self._state_machine[state].conditions
         return {
             name: await self._check_condition(condition)
             for name, condition in conditions.items()
@@ -163,13 +207,9 @@ class StateService(BaseService):
         if target_state not in self._state_machine:
             return False
             
-        valid_transitions = self._state_machine[self._current_state].get(
-            "valid_transitions",
-            []
-        )
-        return target_state in valid_transitions
+        return target_state in self._state_machine[self._current_state].valid_transitions
         
-    async def _check_condition(self, condition: Dict[str, Any]) -> bool:
+    async def _check_condition(self, condition: StateCondition) -> bool:
         """Check if a condition is met.
         
         Args:
@@ -177,45 +217,43 @@ class StateService(BaseService):
             
         Returns:
             True if condition is met
+            
+        Raises:
+            ConditionError: If condition check fails
         """
         try:
             # Get current value
             response = await self._message_broker.request(
                 "tag/request",
-                {"tag": condition["tag"]}
+                {"tag": condition.tag}
             )
             value = response["value"]
             
             # Check condition type
-            if condition["type"] == "equals":
-                return value == condition["value"]
-            elif condition["type"] == "not_equals":
-                return value != condition["value"]
-            elif condition["type"] == "greater_than":
-                return value > condition["value"]
-            elif condition["type"] == "less_than":
-                return value < condition["value"]
-            elif condition["type"] == "in_range":
-                return condition["min"] <= value <= condition["max"]
+            if condition.type == "equals":
+                return value == condition.value
+            elif condition.type == "not_equals":
+                return value != condition.value
+            elif condition.type == "greater_than":
+                return value > condition.value
+            elif condition.type == "less_than":
+                return value < condition.value
+            elif condition.type == "in_range":
+                return condition.min_value <= value <= condition.max_value
             else:
-                logger.warning(f"Unknown condition type: {condition['type']}")
+                logger.warning(f"Unknown condition type: {condition.type}")
                 return False
                 
         except Exception as e:
-            logger.error(f"Failed to check condition: {str(e)}")
-            return False
+            raise ConditionError(f"Failed to check condition: {str(e)}")
             
-    def _add_history_entry(self, reason: str) -> None:
+    def _add_history_entry(self, entry: StateTransition) -> None:
         """Add entry to state history.
         
         Args:
-            reason: Reason for state change
+            entry: State transition record
         """
-        self._state_history.append({
-            "state": self._current_state,
-            "timestamp": datetime.now().isoformat(),
-            "reason": reason
-        })
+        self._state_history.append(entry)
         
         # Limit history size
         if len(self._state_history) > 1000:
@@ -228,12 +266,17 @@ class StateService(BaseService):
             request: State change request
         """
         try:
-            target_state = request.get("state")
-            if not target_state:
+            state_request = StateRequest(
+                target_state=request.get("state", ""),
+                reason=request.get("reason"),
+                force=request.get("force", False)
+            )
+            
+            if not state_request.target_state:
                 logger.warning("Missing target state in request")
                 return
                 
-            await self.transition_to(target_state)
+            await self.transition_to(state_request)
             
         except Exception as e:
             logger.error(f"Failed to handle state request: {str(e)}")

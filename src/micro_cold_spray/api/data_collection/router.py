@@ -1,12 +1,12 @@
 """FastAPI router for data collection operations."""
 
-import logging
 from typing import Dict, Any, Optional, List
 from fastapi import APIRouter, HTTPException, Depends
+from loguru import logger
 
-from .service import DataCollectionService, DataCollectionError, SprayEvent
-
-logger = logging.getLogger(__name__)
+from .service import DataCollectionService
+from .models import SprayEvent
+from .exceptions import DataCollectionError
 
 router = APIRouter(prefix="/data-collection", tags=["data-collection"])
 _service: Optional[DataCollectionService] = None

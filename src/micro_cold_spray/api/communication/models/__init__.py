@@ -1,6 +1,15 @@
-"""Hardware communication data models."""
+"""Communication data models."""
 
-from .. import HardwareError
+from .equipment import (
+    GasFlowRequest, GasValveRequest, PumpRequest,
+    VacuumValveRequest, FeederRequest, DeagglomeratorRequest,
+    NozzleRequest, ShutterRequest
+)
+from .motion import (
+    SingleAxisMoveRequest,
+    CoordinatedMoveRequest,
+    MotionStatus
+)
 from .tags import (
     TagMetadata,
     TagValue,
@@ -12,12 +21,25 @@ from .tags import (
 )
 
 __all__ = [
+    # Equipment models
+    'GasFlowRequest',
+    'GasValveRequest',
+    'PumpRequest',
+    'VacuumValveRequest',
+    'FeederRequest',
+    'DeagglomeratorRequest',
+    'NozzleRequest',
+    'ShutterRequest',
+    # Motion models
+    'SingleAxisMoveRequest',
+    'CoordinatedMoveRequest',
+    'MotionStatus',
+    # Tag models
     'TagMetadata',
     'TagValue',
     'TagRequest',
     'TagWriteRequest',
     'TagResponse',
     'TagCacheRequest',
-    'TagCacheResponse',
-    'HardwareError'
+    'TagCacheResponse'
 ]
