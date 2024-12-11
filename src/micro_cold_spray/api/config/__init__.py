@@ -1,11 +1,25 @@
 """Configuration API package."""
 
-from .service import ConfigService, ConfigurationError
+from .service import ConfigService
+from .models import (
+    ConfigData,
+    ConfigMetadata,
+    ConfigUpdate,
+    ConfigStatus
+)
+from .exceptions import ConfigurationError
 from .router import router, init_router
 
 __all__ = [
+    # Core components
     "ConfigService",
-    "ConfigurationError",
     "router",
-    "init_router"
+    "init_router",
+    # Models
+    "ConfigData",
+    "ConfigMetadata",
+    "ConfigUpdate",
+    "ConfigStatus",
+    # Exceptions
+    "ConfigurationError"
 ]

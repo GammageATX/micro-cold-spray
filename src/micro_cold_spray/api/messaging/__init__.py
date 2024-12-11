@@ -1,11 +1,14 @@
 """Messaging API package."""
 
-from .service import MessagingService, MessagingError
+from .service import MessagingService
+from .exceptions import MessagingError
 from .router import router, init_router
 
 __all__ = [
+    # Core components
     "MessagingService",
-    "MessagingError",
     "router",
-    "init_router"
-] 
+    "init_router",
+    # Exceptions
+    "MessagingError"
+]

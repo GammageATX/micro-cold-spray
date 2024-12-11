@@ -1,11 +1,14 @@
 """Process management API package."""
 
-from .service import ProcessService, ProcessError
+from .service import ProcessService
+from .exceptions import ProcessError
 from .router import router, init_router
 
 __all__ = [
+    # Core components
     "ProcessService",
-    "ProcessError",
     "router",
-    "init_router"
+    "init_router",
+    # Exceptions
+    "ProcessError"
 ]

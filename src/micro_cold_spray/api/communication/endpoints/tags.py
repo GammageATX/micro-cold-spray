@@ -2,36 +2,73 @@
 
 from fastapi import APIRouter, HTTPException, Depends
 
-from .. import HardwareError
-from ..router import get_plc_service, get_tag_cache
-from ..services.plc_service import PLCTagService
-from ..services.tag_cache import TagCacheService, ValidationError
+from ..exceptions import HardwareError
+from ..services import TagCacheService, TagMappingService
 from ..models.tags import (
     TagWriteRequest,
     TagResponse,
     TagCacheRequest,
-    TagCacheResponse
+    TagCacheResponse,
+    TagError
 )
 
 router = APIRouter(prefix="/tags", tags=["tags"])
 
+# Service instances
+_tag_cache: TagCacheService | None = None
+_tag_mapping: TagMappingService | None = None
 
-@router.get("/{tag_path}")
+
+def init_router(
+    tag_cache: TagCacheService,
+    tag_mapping: TagMappingService
+) -> None:
+    """Initialize router with service instances."""
+    global _tag_cache, _tag_mapping
+    _tag_cache = tag_cache
+    _tag_mapping = tag_mapping
+
+
+def get_tag_cache() -> TagCacheService:
+    """Get tag cache instance."""
+    if not _tag_cache:
+        raise RuntimeError("Tag cache not initialized")
+    return _tag_cache
+
+
+def get_tag_mapping() -> TagMappingService:
+    """Get tag mapping instance."""
+    if not _tag_mapping:
+        raise RuntimeError("Tag mapping not initialized")
+    return _tag_mapping
+
+
+@router.get("/{tag_path}", response_model=TagResponse)
 async def get_tag(
     tag_path: str,
-    plc_service: PLCTagService = Depends(get_plc_service),
-    tag_cache: TagCacheService = Depends(get_tag_cache)
+    tag_cache: TagCacheService = Depends(get_tag_cache),
+    tag_mapping: TagMappingService = Depends(get_tag_mapping)
 ) -> TagResponse:
-    """Get tag value with metadata."""
+    """Get tag value with metadata.
+    
+    Args:
+        tag_path: Full path to the tag
+        
+    Returns:
+        Tag value with metadata
+        
+    Raises:
+        HTTPException: If tag read fails
+    """
     try:
-        # Get value from cache
-        tag_value = tag_cache.get_tag_with_metadata(tag_path)
+        # Get value and metadata from cache
+        tag_value = await tag_cache.get_tag(tag_path)
         
         # If mapped to hardware, get fresh value
         if tag_value.metadata.mapped:
-            value = await plc_service.read_tag(tag_path)
-            tag_cache.update_tag(tag_path, value)
-            tag_value = tag_cache.get_tag_with_metadata(tag_path)
+            value = await tag_mapping.read_tag(tag_path)
+            await tag_cache.update_tag(tag_path, value)
+            tag_value = await tag_cache.get_tag(tag_path)
             
         return TagResponse(
             tag=tag_path,
@@ -42,38 +79,56 @@ async def get_tag(
     except HardwareError as e:
         raise HTTPException(
             status_code=400,
-            detail={"error": str(e), "device": e.device, "context": e.context}
+            detail=TagError(
+                message=str(e),
+                device=e.device,
+                context=e.context
+            ).dict()
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=TagError(message=str(e)).dict()
+        )
 
 
-@router.post("/{tag_path}")
+@router.post("/{tag_path}", response_model=TagResponse)
 async def write_tag(
     tag_path: str,
     request: TagWriteRequest,
-    plc_service: PLCTagService = Depends(get_plc_service),
-    tag_cache: TagCacheService = Depends(get_tag_cache)
+    tag_cache: TagCacheService = Depends(get_tag_cache),
+    tag_mapping: TagMappingService = Depends(get_tag_mapping)
 ) -> TagResponse:
-    """Write tag value."""
+    """Write tag value.
+    
+    Args:
+        tag_path: Full path to the tag
+        request: Write request with value
+        
+    Returns:
+        Updated tag value with metadata
+        
+    Raises:
+        HTTPException: If tag write fails
+    """
     try:
         # Get current metadata
-        tag_value = tag_cache.get_tag_with_metadata(tag_path)
+        tag_value = await tag_cache.get_tag(tag_path)
         
         # Validate write access
-        if tag_value.metadata.access != "write":
-            raise ValidationError(f"Tag {tag_path} is not writable")
+        if not tag_value.metadata.writable:
+            raise ValueError(f"Tag {tag_path} is not writable")
             
         # Validate value against metadata
-        tag_cache.validate_value(tag_path, request.value)
+        await tag_cache.validate_value(tag_path, request.value)
         
         # Write to hardware if mapped
         if tag_value.metadata.mapped:
-            await plc_service.write_tag(tag_path, request.value)
+            await tag_mapping.write_tag(tag_path, request.value)
             
         # Update cache
-        tag_cache.update_tag(tag_path, request.value)
-        tag_value = tag_cache.get_tag_with_metadata(tag_path)
+        await tag_cache.update_tag(tag_path, request.value)
+        tag_value = await tag_cache.get_tag(tag_path)
         
         return TagResponse(
             tag=tag_path,
@@ -81,36 +136,56 @@ async def write_tag(
             metadata=tag_value.metadata,
             timestamp=tag_value.timestamp
         )
-    except ValidationError as e:
+    except ValueError as e:
         raise HTTPException(
             status_code=422,
-            detail={"error": str(e)}
+            detail=TagError(message=str(e)).dict()
         )
     except HardwareError as e:
         raise HTTPException(
             status_code=400,
-            detail={"error": str(e), "device": e.device, "context": e.context}
+            detail=TagError(
+                message=str(e),
+                device=e.device,
+                context=e.context
+            ).dict()
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=TagError(message=str(e)).dict()
+        )
 
 
-@router.post("/cache/filter")
+@router.post("/cache/filter", response_model=TagCacheResponse)
 async def filter_tags(
     request: TagCacheRequest,
     tag_cache: TagCacheService = Depends(get_tag_cache)
 ) -> TagCacheResponse:
-    """Get filtered tag values from cache."""
+    """Get filtered tag values from cache.
+    
+    Args:
+        request: Filter criteria
+        
+    Returns:
+        Filtered tag values with metadata
+        
+    Raises:
+        HTTPException: If filtering fails
+    """
     try:
-        return tag_cache.filter_tags(
+        return await tag_cache.filter_tags(
             groups=request.groups,
             types=request.types,
             access=request.access
         )
-    except ValidationError as e:
+    except ValueError as e:
         raise HTTPException(
             status_code=422,
-            detail={"error": str(e)}
+            detail=TagError(message=str(e)).dict()
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=TagError(message=str(e)).dict()
+        )

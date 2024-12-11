@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="panel">
+    <h2>Configuration Editor</h2>
+    <div class="control-group">
+        <h3>Config Type</h3>
+        <select id="config-type" onchange="loadConfig()">
+            <option value="hardware">Hardware Configuration</option>
+            <option value="process">Process Configuration</option>
+            <option value="system">System Configuration</option>
+        </select>
+    </div>
+
+    <div class="control-group">
+        <h3>Editor</h3>
+        <div class="editor-controls">
+            <button onclick="reloadFromFile()">Reload from File</button>
+            <button onclick="saveToFile()">Save to File</button>
+            <button onclick="clearCache()">Clear Cache</button>
+        </div>
+        <textarea id="config-editor" class="json-editor"></textarea>
+    </div>
+</div>
+
+<script>
+async function loadConfig() {
+    const configType = document.getElementById('config-type').value;
+    const editor = document.getElementById('config-editor');
+    try {
+        editor.disabled = true;
+        const response = await fetch(`${API_URLS.config}/file/${configType}`);
+        if (!response.ok) throw await response.json();
+        const config = await response.json();
+        editor.value = JSON.stringify(config, null, 2);
+    } catch (error) {
+        showError(error.detail || 'Failed to load configuration');
+    } finally {
+        editor.disabled = false;
+    }
+}
+
+async function saveToFile() {
+    const configType = document.getElementById('config-type').value;
+    const editor = document.getElementById('config-editor');
+    try {
+        const config = JSON.parse(editor.value);
+        const response = await fetch(`${API_URLS.config}/file/${configType}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(config)
+        });
+        if (!response.ok) throw await response.json();
+        showSuccess('Configuration saved to file');
+    } catch (error) {
+        showError(error.detail || 'Failed to save configuration');
+    }
+}
+
+async function reloadFromFile() {
+    const configType = document.getElementById('config-type').value;
+    try {
+        const response = await fetch(`${API_URLS.config}/file/${configType}/reload`, {
+            method: 'POST'
+        });
+        if (!response.ok) throw await response.json();
+        await loadConfig();
+        showSuccess('Configuration reloaded from file');
+    } catch (error) {
+        showError(error.detail || 'Failed to reload configuration');
+    }
+}
+
+async function clearCache() {
+    const configType = document.getElementById('config-type').value;
+    try {
+        const response = await fetch(`${API_URLS.config}/cache/${configType}/clear`, {
+            method: 'POST'
+        });
+        if (!response.ok) throw await response.json();
+        showSuccess('Cache cleared successfully');
+    } catch (error) {
+        showError(error.detail || 'Failed to clear cache');
+    }
+}
+
+// Load initial config
+loadConfig();
+</script>
+{% endblock %}

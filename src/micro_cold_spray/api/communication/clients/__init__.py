@@ -1,22 +1,30 @@
 """Hardware communication client components."""
 
-from .. import HardwareError
-from .plc_client import PLCClient
-from .ssh_client import SSHClient
-from .mock_clients import MockPLCClient, MockSSHClient
-from .client_factory import (
-    create_plc_client, create_ssh_client,
-    PLCClientType, SSHClientType
+from .base import CommunicationClient
+from .plc import PLCClient
+from .ssh import SSHClient
+from .mock import MockPLCClient, MockSSHClient
+from .factory import (
+    create_plc_client,
+    create_ssh_client,
+    create_client,
+    PLCClientType,
+    SSHClientType
 )
 
 __all__ = [
+    # Base classes
+    'CommunicationClient',
+    # Client implementations
     'PLCClient',
     'SSHClient',
     'MockPLCClient',
     'MockSSHClient',
+    # Factory functions
     'create_plc_client',
     'create_ssh_client',
+    'create_client',
+    # Type aliases
     'PLCClientType',
-    'SSHClientType',
-    'HardwareError'
+    'SSHClientType'
 ]

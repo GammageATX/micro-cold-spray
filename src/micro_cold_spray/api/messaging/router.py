@@ -2,11 +2,10 @@
 
 from fastapi import APIRouter, HTTPException, WebSocket, Depends
 from typing import Dict, Any, Optional, Set
-import logging
+from loguru import logger
 
-from .service import MessagingService, MessagingError
-
-logger = logging.getLogger(__name__)
+from .service import MessagingService
+from .exceptions import MessagingError
 
 router = APIRouter(prefix="/messaging", tags=["messaging"])
 _service: Optional[MessagingService] = None
@@ -56,7 +55,6 @@ async def publish_message(topic: str, data: Dict[str, Any]) -> Dict[str, str]:
         await service.publish(topic, data)
         return {"status": "published"}
     except MessagingError as e:
-        logger.warning(f"Failed to publish message: {str(e)}")
         raise HTTPException(
             status_code=400,
             detail={"error": str(e), "context": e.context}
@@ -65,7 +63,7 @@ async def publish_message(topic: str, data: Dict[str, Any]) -> Dict[str, str]:
         logger.error(f"Failed to publish message: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to publish message: {str(e)}"
+            detail=str(e)
         )
 
 
@@ -88,7 +86,6 @@ async def send_request(topic: str, data: Dict[str, Any]) -> Dict[str, Any]:
         response = await service.request(topic, data)
         return response
     except MessagingError as e:
-        logger.warning(f"Failed to send request: {str(e)}")
         raise HTTPException(
             status_code=400,
             detail={"error": str(e), "context": e.context}
@@ -97,7 +94,7 @@ async def send_request(topic: str, data: Dict[str, Any]) -> Dict[str, Any]:
         logger.error(f"Failed to send request: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to send request: {str(e)}"
+            detail=str(e)
         )
 
 
@@ -141,7 +138,6 @@ async def get_topics() -> Dict[str, Any]:
         topics = await service.get_topics()
         return {"topics": list(topics)}
     except MessagingError as e:
-        logger.warning(f"Failed to get topics: {str(e)}")
         raise HTTPException(
             status_code=400,
             detail={"error": str(e), "context": e.context}
@@ -150,7 +146,7 @@ async def get_topics() -> Dict[str, Any]:
         logger.error(f"Failed to get topics: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get topics: {str(e)}"
+            detail=str(e)
         )
 
 
@@ -173,7 +169,6 @@ async def set_topics(topics: Set[str]) -> Dict[str, str]:
         await service.set_valid_topics(topics)
         return {"status": "updated"}
     except MessagingError as e:
-        logger.warning(f"Failed to set topics: {str(e)}")
         raise HTTPException(
             status_code=400,
             detail={"error": str(e), "context": e.context}
@@ -182,7 +177,7 @@ async def set_topics(topics: Set[str]) -> Dict[str, str]:
         logger.error(f"Failed to set topics: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to set topics: {str(e)}"
+            detail=str(e)
         )
 
 
@@ -206,7 +201,6 @@ async def get_subscribers(topic: str) -> Dict[str, Any]:
         count = await service.get_subscriber_count(topic)
         return {"topic": topic, "subscriber_count": count}
     except MessagingError as e:
-        logger.warning(f"Failed to get subscribers: {str(e)}")
         raise HTTPException(
             status_code=400,
             detail={"error": str(e), "context": e.context}
@@ -215,7 +209,7 @@ async def get_subscribers(topic: str) -> Dict[str, Any]:
         logger.error(f"Failed to get subscribers: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get subscribers: {str(e)}"
+            detail=str(e)
         )
 
 
@@ -233,17 +227,17 @@ async def health_check(
     try:
         if not service.is_running:
             return {
-                "status": "Error",
-                "error": "Service not running"
+                "status": "error",
+                "message": "Service not running"
             }
             
         return {
-            "status": "Running",
-            "error": None
+            "status": "ok",
+            "message": "Service healthy"
         }
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")
         return {
-            "status": "Error",
-            "error": str(e)
+            "status": "error",
+            "message": str(e)
         }

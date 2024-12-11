@@ -1,3 +1,5 @@
+"""Tag management models."""
+
 from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set
@@ -34,9 +36,13 @@ class TagMetadata(BaseModel):
         None,
         description="Valid options for choice fields"
     )
-    internal: bool = Field(
+    mapped: bool = Field(
         False,
-        description="Whether this is an internal tag (not mapped to hardware)"
+        description="Whether this tag is mapped to hardware"
+    )
+    writable: bool = Field(
+        False,
+        description="Whether this tag can be written to"
     )
     group: str = Field(
         description="Top-level group this tag belongs to"
@@ -78,9 +84,6 @@ class TagWriteRequest(BaseModel):
     - Deagglomerator speed: "medium"
     - Valve state: true
     """
-    tag_path: str = Field(
-        description="Full path to the tag"
-    )
     value: Any = Field(
         description="Value in engineering units or human-readable form"
     )
@@ -99,6 +102,21 @@ class TagResponse(BaseModel):
     )
     timestamp: datetime = Field(
         description="When this value was last updated"
+    )
+
+
+class TagError(BaseModel):
+    """Error response for tag operations."""
+    message: str = Field(
+        description="Error message"
+    )
+    device: Optional[str] = Field(
+        None,
+        description="Device that caused the error"
+    )
+    context: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Additional error context"
     )
 
 

@@ -1,34 +1,14 @@
 """Messaging service for pub/sub operations."""
 
-from typing import Any, Dict, Optional, Callable, Set
+from typing import Any, Dict, Callable, Set
 import asyncio
 from loguru import logger
 from collections import defaultdict
 
 from ..base import BaseService
 from ..config import ConfigService
-
-
-class MessagingError(Exception):
-    """Raised when messaging operations fail."""
-    
-    def __init__(self, message: str, context: Dict[str, Any] | None = None):
-        super().__init__(message)
-        self.context = context if context is not None else {}
-
-
-class MessageHandler:
-    """Handler for subscribed messages."""
-    
-    def __init__(self, callback: Callable[[Dict[str, Any]], None]):
-        """Initialize message handler.
-        
-        Args:
-            callback: Function to call with message data
-        """
-        self.callback = callback
-        self.queue: asyncio.Queue = asyncio.Queue()
-        self.task: Optional[asyncio.Task] = None
+from .models import MessageHandler
+from .exceptions import MessagingError
 
 
 class MessagingService(BaseService):
@@ -113,7 +93,7 @@ class MessagingService(BaseService):
                 raise MessagingError(f"Invalid topic: {topic}")
                 
             # Create handler
-            handler = MessageHandler(callback)
+            handler = MessageHandler(callback=callback)
             handler.task = asyncio.create_task(self._handle_messages(handler))
             
             # Add to subscribers

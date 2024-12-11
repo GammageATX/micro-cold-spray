@@ -1,74 +1,116 @@
 """FastAPI router for hardware communication."""
 
+from typing import Dict, Any
 from fastapi import APIRouter, Depends
-from typing import Dict, Any, Optional
 
-from . import HardwareError
+from .exceptions import HardwareError
 from .endpoints import tags, motion, equipment
-from .services.plc_service import PLCTagService
-from .services.tag_cache import TagCacheService
+from .services import (
+    EquipmentService,
+    FeederService,
+    MotionService,
+    TagCacheService,
+    TagMappingService
+)
 
 router = APIRouter(prefix="/communication", tags=["communication"])
-router.include_router(tags.router)
-router.include_router(motion.router)
+
+# Initialize sub-routers
 router.include_router(equipment.router)
+router.include_router(motion.router)
+router.include_router(tags.router)
 
-_plc_service: Optional[PLCTagService] = None
-_tag_cache: Optional[TagCacheService] = None
+# Service instances
+_equipment_service: EquipmentService | None = None
+_feeder_service: FeederService | None = None
+_motion_service: MotionService | None = None
+_tag_cache: TagCacheService | None = None
+_tag_mapping: TagMappingService | None = None
 
 
-def init_router(plc_service: PLCTagService, tag_cache: TagCacheService) -> None:
+def init_router(
+    equipment: EquipmentService,
+    feeder: FeederService,
+    motion: MotionService,
+    tag_cache: TagCacheService,
+    tag_mapping: TagMappingService
+) -> None:
     """Initialize router with service instances."""
-    global _plc_service, _tag_cache
-    _plc_service = plc_service
+    global _equipment_service, _feeder_service, _motion_service, _tag_cache, _tag_mapping
+    
+    # Store service instances
+    _equipment_service = equipment
+    _feeder_service = feeder
+    _motion_service = motion
     _tag_cache = tag_cache
+    _tag_mapping = tag_mapping
+    
+    # Initialize sub-routers
+    equipment.init_router(_equipment_service, _feeder_service)
+    motion.init_router(_motion_service)
+    tags.init_router(_tag_cache, _tag_mapping)
 
 
-def get_plc_service() -> PLCTagService:
-    """Get PLC service instance."""
-    if _plc_service is None:
-        raise RuntimeError("PLC service not initialized")
-    return _plc_service
+def get_equipment_service() -> EquipmentService:
+    """Get equipment service instance."""
+    if not _equipment_service:
+        raise RuntimeError("Equipment service not initialized")
+    return _equipment_service
+
+
+def get_feeder_service() -> FeederService:
+    """Get feeder service instance."""
+    if not _feeder_service:
+        raise RuntimeError("Feeder service not initialized")
+    return _feeder_service
+
+
+def get_motion_service() -> MotionService:
+    """Get motion service instance."""
+    if not _motion_service:
+        raise RuntimeError("Motion service not initialized")
+    return _motion_service
 
 
 def get_tag_cache() -> TagCacheService:
     """Get tag cache instance."""
-    if _tag_cache is None:
+    if not _tag_cache:
         raise RuntimeError("Tag cache not initialized")
     return _tag_cache
 
 
+def get_tag_mapping() -> TagMappingService:
+    """Get tag mapping instance."""
+    if not _tag_mapping:
+        raise RuntimeError("Tag mapping not initialized")
+    return _tag_mapping
+
+
 @router.get("/health")
 async def health_check(
-    plc_service: PLCTagService = Depends(get_plc_service),
-    tag_cache: TagCacheService = Depends(get_tag_cache)
+    equipment: EquipmentService = Depends(get_equipment_service),
+    feeder: FeederService = Depends(get_feeder_service),
+    motion: MotionService = Depends(get_motion_service),
+    tag_cache: TagCacheService = Depends(get_tag_cache),
+    tag_mapping: TagMappingService = Depends(get_tag_mapping)
 ) -> Dict[str, Any]:
-    """
-    Check API health status.
+    """Check API health status.
     
     Returns:
         Dict containing health status and any error details
     """
     try:
-        # Check PLC connection
-        plc_status = await plc_service.check_connection()
-        if not plc_status:
-            return {
-                "status": "error",
-                "message": "PLC connection failed"
-            }
-            
-        # Check tag cache
-        cache_status = await tag_cache.check_status()
-        if not cache_status:
-            return {
-                "status": "error",
-                "message": "Tag cache error"
-            }
-            
+        status = {
+            "equipment": equipment.is_running,
+            "feeder": feeder.is_running,
+            "motion": motion.is_running,
+            "tag_cache": tag_cache.is_running,
+            "tag_mapping": tag_mapping.is_running
+        }
+        
         return {
-            "status": "ok",
-            "message": "Service healthy"
+            "status": "healthy" if all(status.values()) else "degraded",
+            "components": status
         }
         
     except HardwareError as e:

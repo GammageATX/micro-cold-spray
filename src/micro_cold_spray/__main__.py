@@ -3,6 +3,8 @@ import asyncio
 import sys
 from datetime import datetime
 from pathlib import Path
+import subprocess
+from multiprocessing import Process
 
 from loguru import logger
 
@@ -16,6 +18,8 @@ from micro_cold_spray.api.communication import (
     FeederTagService,
     TagCacheService
 )
+from micro_cold_spray.ui.router import app as ui_app
+import uvicorn
 
 src_path = Path(__file__).parent.parent
 if str(src_path) not in sys.path:
@@ -153,30 +157,108 @@ async def initialize_system() -> tuple[
         raise ConfigurationError("Failed to initialize system", error_msg) from e
 
 
-async def main() -> None:
+async def run_ui():
+    """Run the UI service."""
+    config = uvicorn.Config(ui_app, host="0.0.0.0", port=8000, reload=True)
+    server = uvicorn.Server(config)
+    await server.serve()
+
+
+# Service definitions
+SERVICES = {
+    "config": 8001,
+    "communication": 8002,
+    "process": 8003,
+    "state": 8004,
+    "data_collection": 8005,
+    "validation": 8006,
+    "messaging": 8007
+}
+
+
+class ServiceManager:
+    """Manages API service processes."""
+    
+    def __init__(self):
+        self.processes = {}
+        
+    def start_service(self, name: str, port: int):
+        """Start a service process."""
+        try:
+            process = subprocess.Popen(
+                [
+                    sys.executable, "-m", "uvicorn",
+                    f"micro_cold_spray.api.{name}.router:app",
+                    "--host", "0.0.0.0",
+                    "--port", str(port),
+                    "--reload"
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            self.processes[name] = process
+            
+            if process.poll() is not None:
+                error = process.stderr.read()
+                logger.error(f"Service {name} failed to start: {error}")
+                return None
+                
+            logger.info(f"Started {name} service on port {port}")
+            return process
+        except Exception as e:
+            logger.error(f"Failed to start {name} service: {e}")
+            return None
+
+    async def start_all(self):
+        """Start all API services."""
+        logger.info("Starting all services...")
+        for name, port in SERVICES.items():
+            if self.start_service(name, port) is None:
+                logger.error(f"Failed to start {name} service")
+                await self.stop_all()
+                sys.exit(1)
+
+    async def stop_all(self):
+        """Stop all running services."""
+        for name, process in self.processes.items():
+            try:
+                process.terminate()
+                process.wait(timeout=5)
+                logger.info(f"Stopped {name} service")
+            except subprocess.TimeoutExpired:
+                process.kill()
+                logger.warning(f"Killed {name} service")
+            except Exception as e:
+                logger.error(f"Error stopping {name} service: {e}")
+
+
+async def main():
     """Application entry point with proper cleanup chains."""
-    system_components = None
+    service_manager = ServiceManager()
 
     try:
         setup_logging()
         ensure_directories()
-        logger.info("Starting Micro Cold Spray application - Service Mode")
+        logger.info("Starting Micro Cold Spray application")
+
+        # Start all services
+        await service_manager.start_all()
 
         # Initialize system
         system_components = await initialize_system()
-        (
-            config_manager,
-            message_broker,
-            plc_service,
-            feeder_service,
-            state_service,
-            data_service
-        ) = system_components
+        
+        # Start UI
+        logger.info("Starting UI service")
+        ui_process = Process(target=lambda: asyncio.run(run_ui()))
+        ui_process.start()
 
         # Keep running until interrupted
         while True:
             await asyncio.sleep(1)
 
+    except KeyboardInterrupt:
+        logger.info("Shutdown requested...")
     except Exception as e:
         error_msg = {
             "error": str(e),
@@ -184,46 +266,12 @@ async def main() -> None:
             "timestamp": datetime.now().isoformat()
         }
         logger.exception(f"Critical application error: {error_msg}")
-        if 'message_broker' in locals() and message_broker:
-            try:
-                await message_broker.publish("error", error_msg)
-            except Exception as publish_error:
-                logger.error(f"Failed to publish error message: {publish_error}")
         raise
     finally:
-        # Proper cleanup chain
-        if system_components:
-            (
-                config_manager,
-                message_broker,
-                plc_service,
-                feeder_service,
-                state_service,
-                data_service
-            ) = system_components
-
-            logger.info("Shutting down system components")
-            try:
-                await state_service.stop()
-            except Exception as e:
-                logger.error(f"Error shutting down state service: {e}")
-            try:
-                await plc_service.stop()
-            except Exception as e:
-                logger.error(f"Error shutting down plc service: {e}")
-            try:
-                await feeder_service.stop()
-            except Exception as e:
-                logger.error(f"Error shutting down feeder service: {e}")
-            try:
-                await data_service.stop()
-            except Exception as e:
-                logger.error(f"Error shutting down data service: {e}")
-            try:
-                await message_broker.stop()
-            except Exception as e:
-                logger.error(f"Error shutting down message broker: {e}")
-
+        if 'ui_process' in locals():
+            ui_process.terminate()
+            ui_process.join()
+        await service_manager.stop_all()
         logger.info("Application shutdown complete")
         sys.exit(0)
 

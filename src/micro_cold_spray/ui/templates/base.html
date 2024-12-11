@@ -1,0 +1,77 @@
+<!-- micro_cold_spray/ui/templates/base.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MicroColdSpray Control System</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}">
+    <script>
+        // API URLs injected from backend
+        const API_URLS = {{ api_urls | tojson | safe }};
+
+        // Common WebSocket connection function
+        function connectWebSocket(url, onMessage) {
+            const ws = new WebSocket(url.replace('http', 'ws'));
+            ws.onmessage = onMessage;
+            ws.onclose = () => setTimeout(() => connectWebSocket(url, onMessage), 1000);
+            return ws;
+        }
+
+        // Common notification functions
+        function showSuccess(message) {
+            const notification = document.createElement('div');
+            notification.className = 'notification success';
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            setTimeout(() => notification.remove(), 3000);
+        }
+
+        function showError(message) {
+            const notification = document.createElement('div');
+            notification.className = 'notification error';
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            setTimeout(() => notification.remove(), 5000);
+        }
+    </script>
+</head>
+<body>
+    <nav class="sidebar">
+        <div class="logo">
+            <h1>MicroColdSpray</h1>
+        </div>
+        <ul class="nav-links">
+            <li class="nav-section">
+                <h3>Communication</h3>
+                <ul>
+                    <li><a href="/communication/motion">Motion Control</a></li>
+                    <li><a href="/communication/equipment">Equipment Control</a></li>
+                    <li><a href="/communication/tags">Tag Monitor</a></li>
+                </ul>
+            </li>
+            <li class="nav-section">
+                <h3>Process</h3>
+                <ul>
+                    <li><a href="/process/parameters">Parameters</a></li>
+                    <li><a href="/process/patterns">Pattern Editor</a></li>
+                    <li><a href="/process/sequences">Sequence Control</a></li>
+                </ul>
+            </li>
+            <li class="nav-section">
+                <h3>Configuration</h3>
+                <ul>
+                    <li><a href="/config/editor">Config Editor</a></li>
+                </ul>
+            </li>
+            <li class="nav-section">
+                <h3>Monitoring</h3>
+                <ul>
+                    <li><a href="/state/monitor">System State</a></li>
+                </ul>
+            </li>
+        </ul>
+    </nav>
+    <main class="content">
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

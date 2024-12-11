@@ -1,42 +1,30 @@
 """FastAPI router for process operations."""
 
-from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, Any, Optional
-import logging
+from fastapi import APIRouter, HTTPException, Depends
+from loguru import logger
 
-from .service import ProcessService, ProcessError
-
-logger = logging.getLogger(__name__)
+from .service import ProcessService
+from .exceptions import ProcessError
 
 router = APIRouter(prefix="/process", tags=["process"])
 _service: Optional[ProcessService] = None
 
 
 def init_router(service: ProcessService) -> None:
-    """Initialize router with service instance.
-    
-    Args:
-        service: Process service instance
-    """
+    """Initialize router with service instance."""
     global _service
     _service = service
 
 
 def get_service() -> ProcessService:
-    """Get process service instance.
-    
-    Returns:
-        ProcessService instance
-        
-    Raises:
-        RuntimeError: If service not initialized
-    """
+    """Get process service instance."""
     if _service is None:
         raise RuntimeError("Process service not initialized")
     return _service
 
 
-@router.post("/sequences/{sequence_id}/start")
+@router.post("/sequence/start/{sequence_id}")
 async def start_sequence(sequence_id: str) -> Dict[str, str]:
     """Start executing a sequence.
     
@@ -44,12 +32,7 @@ async def start_sequence(sequence_id: str) -> Dict[str, str]:
         sequence_id: ID of sequence to execute
         
     Returns:
-        Dictionary containing:
-            - status: Operation status
-            - sequence_id: ID of started sequence
-            
-    Raises:
-        HTTPException: If sequence cannot be started
+        Dict containing operation status
     """
     service = get_service()
     try:
@@ -59,7 +42,6 @@ async def start_sequence(sequence_id: str) -> Dict[str, str]:
             "sequence_id": sequence_id
         }
     except ProcessError as e:
-        logger.warning(f"Failed to start sequence: {str(e)}")
         raise HTTPException(
             status_code=400,
             detail={"error": str(e), "context": e.context}
@@ -68,27 +50,22 @@ async def start_sequence(sequence_id: str) -> Dict[str, str]:
         logger.error(f"Failed to start sequence: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to start sequence: {str(e)}"
+            detail=str(e)
         )
 
 
-@router.post("/sequences/cancel")
+@router.post("/sequence/cancel")
 async def cancel_sequence() -> Dict[str, str]:
-    """Cancel the current sequence.
+    """Cancel current sequence.
     
     Returns:
-        Dictionary containing:
-            - status: Operation status
-            
-    Raises:
-        HTTPException: If sequence cannot be cancelled
+        Dict containing operation status
     """
     service = get_service()
     try:
         await service.cancel_sequence()
         return {"status": "cancelled"}
     except ProcessError as e:
-        logger.warning(f"Failed to cancel sequence: {str(e)}")
         raise HTTPException(
             status_code=400,
             detail={"error": str(e), "context": e.context}
@@ -97,31 +74,28 @@ async def cancel_sequence() -> Dict[str, str]:
         logger.error(f"Failed to cancel sequence: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to cancel sequence: {str(e)}"
+            detail=str(e)
         )
 
 
-@router.get("/sequences/status")
+@router.get("/sequence/status")
 async def get_sequence_status() -> Dict[str, Any]:
     """Get current sequence status.
     
     Returns:
-        Dictionary containing:
-            - active_sequence: ID of active sequence if any
-            - step: Current step number
+        Dict containing sequence status
     """
     service = get_service()
-    try:
-        return {
-            "active_sequence": service.active_sequence,
-            "step": service.sequence_step
-        }
-    except Exception as e:
-        logger.error(f"Failed to get sequence status: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get sequence status: {str(e)}"
-        )
+    active_sequence = service.active_sequence
+    
+    if not active_sequence:
+        return {"status": "inactive"}
+        
+    return {
+        "status": "active",
+        "sequence_id": active_sequence,
+        "step": service.sequence_step
+    }
 
 
 @router.post("/patterns/generate")
@@ -132,19 +106,19 @@ async def generate_pattern(pattern_request: Dict[str, Any]) -> Dict[str, Any]:
         pattern_request: Pattern generation parameters
         
     Returns:
-        Dictionary containing:
-            - status: Operation status
-            - pattern: Generated pattern data
-            
-    Raises:
-        HTTPException: If pattern cannot be generated
+        Dict containing generated pattern data
     """
     service = get_service()
     try:
-        pattern = await service.generate_pattern(pattern_request)
-        return {"status": "success", "pattern": pattern}
+        pattern = await service.generate_pattern(
+            pattern_request.get("type"),
+            pattern_request.get("parameters", {})
+        )
+        return {
+            "status": "success",
+            "pattern": pattern
+        }
     except ProcessError as e:
-        logger.warning(f"Failed to generate pattern: {str(e)}")
         raise HTTPException(
             status_code=400,
             detail={"error": str(e), "context": e.context}
@@ -153,7 +127,7 @@ async def generate_pattern(pattern_request: Dict[str, Any]) -> Dict[str, Any]:
         logger.error(f"Failed to generate pattern: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to generate pattern: {str(e)}"
+            detail=str(e)
         )
 
 
@@ -165,19 +139,16 @@ async def validate_pattern(pattern_id: str) -> Dict[str, Any]:
         pattern_id: ID of pattern to validate
         
     Returns:
-        Dictionary containing:
-            - status: Operation status
-            - validation: Validation results
-            
-    Raises:
-        HTTPException: If pattern cannot be validated
+        Dict containing validation results
     """
     service = get_service()
     try:
-        result = await service.validate_pattern(pattern_id)
-        return {"status": "success", "validation": result}
+        await service.validate_pattern(pattern_id)
+        return {
+            "status": "success",
+            "message": "Pattern validation passed"
+        }
     except ProcessError as e:
-        logger.warning(f"Failed to validate pattern: {str(e)}")
         raise HTTPException(
             status_code=400,
             detail={"error": str(e), "context": e.context}
@@ -186,7 +157,7 @@ async def validate_pattern(pattern_id: str) -> Dict[str, Any]:
         logger.error(f"Failed to validate pattern: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to validate pattern: {str(e)}"
+            detail=str(e)
         )
 
 
@@ -198,18 +169,13 @@ async def create_sequence(sequence_data: Dict[str, Any]) -> Dict[str, str]:
         sequence_data: Sequence definition data
         
     Returns:
-        Dictionary containing:
-            - sequence_id: ID of created sequence
-            
-    Raises:
-        HTTPException: If sequence cannot be created
+        Dict containing created sequence ID
     """
     service = get_service()
     try:
         sequence_id = await service.create_sequence(sequence_data)
         return {"sequence_id": sequence_id}
     except ProcessError as e:
-        logger.warning(f"Failed to create sequence: {str(e)}")
         raise HTTPException(
             status_code=400,
             detail={"error": str(e), "context": e.context}
@@ -218,7 +184,7 @@ async def create_sequence(sequence_data: Dict[str, Any]) -> Dict[str, str]:
         logger.error(f"Failed to create sequence: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to create sequence: {str(e)}"
+            detail=str(e)
         )
 
 
@@ -230,18 +196,13 @@ async def create_parameter_set(parameter_data: Dict[str, Any]) -> Dict[str, str]
         parameter_data: Parameter set definition
         
     Returns:
-        Dictionary containing:
-            - parameter_id: ID of created parameter set
-            
-    Raises:
-        HTTPException: If parameter set cannot be created
+        Dict containing created parameter set ID
     """
     service = get_service()
     try:
         param_id = await service.create_parameter_set(parameter_data)
         return {"parameter_id": param_id}
     except ProcessError as e:
-        logger.warning(f"Failed to create parameter set: {str(e)}")
         raise HTTPException(
             status_code=400,
             detail={"error": str(e), "context": e.context}
@@ -250,7 +211,7 @@ async def create_parameter_set(parameter_data: Dict[str, Any]) -> Dict[str, str]
         logger.error(f"Failed to create parameter set: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to create parameter set: {str(e)}"
+            detail=str(e)
         )
 
 
@@ -259,18 +220,22 @@ async def list_parameter_files() -> Dict[str, Any]:
     """List available parameter files.
     
     Returns:
-        Dictionary containing:
-            - files: List of parameter file names
+        Dict containing list of parameter files
     """
     service = get_service()
     try:
         files = await service.list_parameter_files()
         return {"files": files}
+    except ProcessError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": str(e), "context": e.context}
+        )
     except Exception as e:
         logger.error(f"Failed to list parameter files: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to list parameter files: {str(e)}"
+            detail=str(e)
         )
 
 
@@ -279,18 +244,22 @@ async def list_pattern_files() -> Dict[str, Any]:
     """List available pattern files.
     
     Returns:
-        Dictionary containing:
-            - files: List of pattern file names
+        Dict containing list of pattern files
     """
     service = get_service()
     try:
         files = await service.list_pattern_files()
         return {"files": files}
+    except ProcessError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": str(e), "context": e.context}
+        )
     except Exception as e:
         logger.error(f"Failed to list pattern files: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to list pattern files: {str(e)}"
+            detail=str(e)
         )
 
 
@@ -299,18 +268,22 @@ async def list_sequence_files() -> Dict[str, Any]:
     """List available sequence files.
     
     Returns:
-        Dictionary containing:
-            - files: List of sequence file names
+        Dict containing list of sequence files
     """
     service = get_service()
     try:
         files = await service.list_sequence_files()
         return {"files": files}
+    except ProcessError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": str(e), "context": e.context}
+        )
     except Exception as e:
         logger.error(f"Failed to list sequence files: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to list sequence files: {str(e)}"
+            detail=str(e)
         )
 
 
@@ -321,24 +294,22 @@ async def health_check(
     """Check API health status.
     
     Returns:
-        Dictionary containing:
-            - status: Service status
-            - error: Error message if any
+        Dict containing health status
     """
     try:
         if not service.is_running:
             return {
-                "status": "Error",
-                "error": "Service not running"
+                "status": "error",
+                "message": "Service not running"
             }
             
         return {
-            "status": "Running",
-            "error": None
+            "status": "ok",
+            "message": "Service healthy"
         }
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")
         return {
-            "status": "Error",
-            "error": str(e)
+            "status": "error",
+            "message": str(e)
         }

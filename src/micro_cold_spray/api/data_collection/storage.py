@@ -1,12 +1,11 @@
 """Database storage implementation for spray events."""
 
-import logging
 from typing import List, Protocol
 import asyncpg
+from loguru import logger
 
-from .service import SprayEvent
-
-logger = logging.getLogger(__name__)
+from .models import SprayEvent
+from .exceptions import StorageError
 
 
 class DataStorage(Protocol):
@@ -72,12 +71,12 @@ class DatabaseStorage:
             logger.info("Database initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize database: {str(e)}")
-            raise
+            raise StorageError("Failed to initialize database", {"error": str(e)})
 
     async def save_spray_event(self, event: SprayEvent) -> None:
         """Save spray event to database."""
         if not self._pool:
-            raise RuntimeError("Database not initialized")
+            raise StorageError("Database not initialized")
             
         try:
             async with self._pool.acquire() as conn:
@@ -104,14 +103,21 @@ class DatabaseStorage:
                 logger.debug(f"Saved spray event {event.spray_index} to database")
         except asyncpg.UniqueViolationError:
             logger.warning(f"Spray event already exists: {event.sequence_id}/{event.spray_index}")
+            raise StorageError(
+                "Spray event already exists",
+                {
+                    "sequence_id": event.sequence_id,
+                    "spray_index": event.spray_index
+                }
+            )
         except Exception as e:
             logger.error(f"Failed to save spray event: {str(e)}")
-            raise
+            raise StorageError("Failed to save spray event", {"error": str(e)})
 
     async def update_spray_event(self, event: SprayEvent) -> None:
         """Update spray event in database."""
         if not self._pool:
-            raise RuntimeError("Database not initialized")
+            raise StorageError("Database not initialized")
             
         try:
             async with self._pool.acquire() as conn:
@@ -142,12 +148,12 @@ class DatabaseStorage:
                 logger.debug(f"Updated spray event {event.spray_index} in database")
         except Exception as e:
             logger.error(f"Failed to update spray event: {str(e)}")
-            raise
+            raise StorageError("Failed to update spray event", {"error": str(e)})
 
     async def get_spray_events(self, sequence_id: str) -> List[SprayEvent]:
         """Get spray events from database."""
         if not self._pool:
-            raise RuntimeError("Database not initialized")
+            raise StorageError("Database not initialized")
             
         try:
             async with self._pool.acquire() as conn:
@@ -174,4 +180,4 @@ class DatabaseStorage:
                 ]
         except Exception as e:
             logger.error(f"Failed to get spray events: {str(e)}")
-            raise
+            raise StorageError("Failed to get spray events", {"error": str(e)})
