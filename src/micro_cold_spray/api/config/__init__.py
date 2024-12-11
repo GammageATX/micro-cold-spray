@@ -8,4 +8,4 @@ __all__ = [
     "ConfigurationError",
     "router",
     "init_router"
-] 
+]

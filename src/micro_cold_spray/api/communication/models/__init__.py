@@ -1,5 +1,6 @@
-"""Data models for hardware communication."""
+"""Hardware communication data models."""
 
+from .. import HardwareError
 from .tags import (
     TagMetadata,
     TagValue,
@@ -17,5 +18,6 @@ __all__ = [
     'TagWriteRequest',
     'TagResponse',
     'TagCacheRequest',
-    'TagCacheResponse'
-] 
+    'TagCacheResponse',
+    'HardwareError'
+]

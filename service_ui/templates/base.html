@@ -3,308 +3,131 @@
 <html>
 <head>
     <title>MicroColdSpray Service UI</title>
-    <style>
-        body {
-            margin: 20px;
-            font-family: system-ui, -apple-system, sans-serif;
+    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}">
+    <script>
+        // API URLs for all services
+        const API_URLS = {{ api_urls | tojson | safe }};
+
+        // Common WebSocket connection function
+        function connectWebSocket(url, onMessage) {
+            const ws = new WebSocket(url.replace('http', 'ws'));
+            ws.onmessage = onMessage;
+            ws.onerror = (error) => console.error('WebSocket error:', error);
+            ws.onclose = () => {
+                console.log('WebSocket closed, attempting reconnect...');
+                setTimeout(() => connectWebSocket(url, onMessage), 5000);
+            };
+            return ws;
         }
-        .service {
-            margin-bottom: 30px;
+
+        // Toast notifications
+        function showToast(message, type = 'success') {
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            toast.style.display = 'block';
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
         }
-        .status {
-            margin: 10px 0;
+
+        function showError(message) {
+            showToast(message, 'error');
         }
-        .controls {
-            margin: 10px 0;
+
+        function showSuccess(message) {
+            showToast(message, 'success');
         }
-        button {
-            margin-right: 5px;
-            padding: 2px 6px;
-            background: #f0f0f0;
-            border: 1px solid #ccc;
-            border-radius: 2px;
+
+        // Service status monitoring
+        async function checkServiceStatus(service, url) {
+            try {
+                const response = await fetch(`${url}/health`);
+                const data = await response.json();
+                return {
+                    name: service,
+                    status: response.ok ? 'online' : 'offline',
+                    details: data
+                };
+            } catch (error) {
+                return {
+                    name: service,
+                    status: 'offline',
+                    error: error.message
+                };
+            }
         }
-        button:not(:disabled):hover {
-            background: #e0e0e0;
+
+        async function updateServiceStatuses() {
+            const statusContainer = document.getElementById('service-status');
+            if (!statusContainer) return;
+
+            for (const [service, url] of Object.entries(API_URLS)) {
+                const status = await checkServiceStatus(service, url);
+                const statusElement = document.getElementById(`${service}-status`);
+                if (statusElement) {
+                    statusElement.className = `service-status ${status.status}`;
+                    statusElement.innerHTML = `
+                        <div class="status-indicator ${status.status}"></div>
+                        <div class="status-name">${service}</div>
+                        <div class="status-details">
+                            ${status.status === 'online' 
+                                ? `Version: ${status.details?.version || 'N/A'}`
+                                : `Error: ${status.error || 'Service unreachable'}`}
+                        </div>
+                    `;
+                }
+            }
+            setTimeout(updateServiceStatuses, 5000);
         }
-        .config-info {
-            margin-top: 20px;
-            padding: 10px;
-            background: #f5f5f5;
-            border-radius: 4px;
-        }
-        .config-info ul {
-            list-style: none;
-            padding: 0;
-        }
-        .config-info li {
-            padding: 5px 0;
-            border-bottom: 1px solid #eee;
-        }
-        .button {
-            display: inline-block;
-            padding: 5px 10px;
-            background: #f0f0f0;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            text-decoration: none;
-            color: #333;
-            margin-top: 10px;
-        }
-        .button:hover {
-            background: #e0e0e0;
-        }
-        .config-actions {
-            margin-top: 10px;
-            padding-top: 10px;
-            border-top: 1px solid #eee;
-        }
-        .nav-menu {
-            margin-bottom: 20px;
-            padding: 10px 0;
-            border-bottom: 1px solid #eee;
-            display: flex;
-            align-items: center;
-        }
-        .nav-group {
-            margin-left: 20px;
-            padding-left: 20px;
-            border-left: 1px solid #eee;
-            display: flex;
-            align-items: center;
-        }
-        .nav-label {
-            color: #666;
-            font-size: 0.9em;
-            margin-right: 10px;
-        }
-        .nav-item {
-            margin-right: 10px;
-            text-decoration: none;
-            color: #333;
-            padding: 5px 10px;
-            border-radius: 4px;
-        }
-        .nav-item:hover {
-            background: #f0f0f0;
-        }
-        /* Highlight active page */
-        .nav-item.active {
-            background: #e3f2fd;
-            color: #1976d2;
-        }
-        .content {
-            padding: 20px;
-        }
-    </style>
+
+        // Start monitoring on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            if (document.getElementById('service-status')) {
+                updateServiceStatuses();
+            }
+        });
+    </script>
 </head>
 <body>
-    <nav class="nav-menu">
-        <a href="/" class="nav-item">Dashboard</a>
-        
+    <nav>
         <div class="nav-group">
-            <span class="nav-label">Communication</span>
-            <a href="/communication/tags" class="nav-item">Tags</a>
-            <a href="/communication/equipment" class="nav-item">Equipment</a>
-            <a href="/communication/motion" class="nav-item">Motion</a>
+            <h3>Communication</h3>
+            <a href="/communication/motion">Motion Control</a>
+            <a href="/communication/equipment">Equipment Control</a>
+            <a href="/communication/tags">Tag Monitor</a>
         </div>
-        
         <div class="nav-group">
-            <span class="nav-label">Process</span>
-            <a href="/process/sequences" class="nav-item">Sequences</a>
-            <a href="/process/patterns" class="nav-item">Patterns</a>
-            <a href="/process/parameters" class="nav-item">Parameters</a>
+            <h3>Process</h3>
+            <a href="/process/parameters">Parameters</a>
+            <a href="/process/patterns">Pattern Editor</a>
+            <a href="/process/sequences">Sequences</a>
         </div>
-        
         <div class="nav-group">
-            <span class="nav-label">System</span>
-            <a href="/config/editor" class="nav-item">Config</a>
-            <a href="/state/monitor" class="nav-item">State</a>
-        </div>
-
-        <div class="nav-group">
-            <span class="nav-label">Diagnostics</span>
-            <a href="/diagnostics/services" class="nav-item">Services</a>
+            <h3>System</h3>
+            <a href="/config/editor">Config Editor</a>
+            <a href="/state/monitor">State Monitor</a>
         </div>
     </nav>
 
-    <div class="content">
-        {% if request.url.path == "/diagnostics/services" %}
-            <div class="services">
-                <div class="service">
-                    <h2>Config API</h2>
-                    <div class="status">Status: <span id="config-status">Offline</span></div>
-                    <div class="error-message" id="config-error"></div>
-                    <div class="controls" id="config-controls">
-                        <button onclick="controlService('config', 'start')" disabled>Start</button>
-                        <button onclick="controlService('config', 'stop')" disabled>Stop</button>
-                        <button onclick="controlService('config', 'restart')" disabled>Restart</button>
-                    </div>
-                    
-                    <!-- Add Config Info Panel -->
-                    <div class="config-info" id="config-info" style="display: none;">
-                        <h3>Available Configs</h3>
-                        <ul id="config-list"></ul>
-                    </div>
+    <main>
+        {% if request.url.path == "/" %}
+        <div class="panel">
+            <h2>Service Status</h2>
+            <div id="service-status" class="service-grid">
+                {% for service in api_urls %}
+                <div id="{{ service }}-status" class="service-status offline">
+                    <div class="status-indicator offline"></div>
+                    <div class="status-name">{{ service }}</div>
+                    <div class="status-details">Checking status...</div>
                 </div>
+                {% endfor %}
             </div>
-        {% else %}
-            {% block content %}{% endblock %}
+        </div>
         {% endif %}
-    </div>
-
-    <script>
-    function updateButtons(service, status) {
-        const controls = document.getElementById(`${service}-controls`);
-        const [startBtn, stopBtn, restartBtn] = controls.getElementsByTagName('button');
-
-        // Enable all buttons by default
-        startBtn.disabled = false;
-        stopBtn.disabled = false;
-        restartBtn.disabled = false;
-
-        if (status === 'Running') {
-            startBtn.disabled = true;  // Can't start if running
-        } else if (status === 'Offline') {
-            stopBtn.disabled = true;   // Can't stop if offline
-            restartBtn.disabled = true; // Can't restart if offline
-        } else if (status === 'Checking...') {
-            startBtn.disabled = true;  // Can't start while checking
-            restartBtn.disabled = true; // Can't restart while checking
-        }
-    }
-
-    async function controlService(service, action) {
-        try {
-            console.log(`Controlling ${service}: ${action}`);
-            const response = await fetch(`/service/${service}/${action}`, {
-                method: 'POST',
-                headers: {
-                    'Accept': 'application/json'
-                }
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            
-            const result = await response.json();
-            console.log('Control result:', result);
-            
-            if (result.status === 'success') {
-                // Wait a bit for service to change state
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                // Then check status
-                await checkStatus(service);
-            } else {
-                throw new Error(result.message);
-            }
-            
-        } catch (error) {
-            console.error(`Service control failed:`, error);
-            document.getElementById(`${service}-status`).textContent = 'Error';
-            document.getElementById(`${service}-error`).textContent = error.message;
-            updateButtons(service, 'Error');
-        }
-    }
-
-    async function checkStatus(service) {
-        try {
-            console.log(`Checking ${service} status at ${API_URLS[service]}/health`); // More detailed logging
-            const response = await fetch(`${API_URLS[service]}/health`, {
-                method: 'GET',
-                headers: {
-                    'Accept': 'application/json'
-                }
-            });
-            
-            console.log(`Status response:`, response); // Log full response
-            
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            
-            const data = await response.json();
-            console.log(`${service} status data:`, data); // Log parsed data
-            
-            // Update status display
-            document.getElementById(`${service}-status`).textContent = data.status;
-            
-            // Update error message
-            const errorDiv = document.getElementById(`${service}-error`);
-            if (data.error) {
-                errorDiv.textContent = data.error;
-                errorDiv.style.display = 'block';
-            } else {
-                errorDiv.textContent = '';
-                errorDiv.style.display = 'none';
-            }
-            
-            // Update buttons
-            updateButtons(service, data.status);
-            
-            // If Config API is running, fetch configs
-            if (service === 'config' && data.status === 'Running') {
-                await fetchConfigs();
-            }
-            
-        } catch (error) {
-            console.error(`${service} check failed:`, error); // Log error details
-            document.getElementById(`${service}-status`).textContent = 'Offline';
-            document.getElementById(`${service}-error`).textContent = 'Service unreachable';
-            document.getElementById('config-info').style.display = 'none';
-            updateButtons(service, 'Offline');
-        }
-    }
-
-    // Start checking immediately
-    Object.keys(API_URLS).forEach(service => {
-        console.log(`Initial check for ${service}`); // Debug logging
-        checkStatus(service);
-    });
-
-    // Refresh every 5 seconds
-    setInterval(() => {
-        console.log('Refreshing all services...'); // Debug logging
-        Object.keys(API_URLS).forEach(checkStatus);
-    }, 5000);
-
-    // Add function to fetch configs
-    async function fetchConfigs() {
-        try {
-            console.log('Fetching configs...');
-            const response = await fetch(`${API_URLS.config}/configs`);
-            console.log('Response:', response);
-            const data = await response.json();
-            console.log('Config data:', data);
-            
-            const configList = document.getElementById('config-list');
-            configList.innerHTML = '';
-            
-            if (data.configs) {
-                data.configs.forEach(config => {
-                    console.log('Adding config:', config);
-                    const li = document.createElement('li');
-                    li.textContent = config;
-                    configList.appendChild(li);
-                });
-                document.getElementById('config-info').style.display = 'block';
-            }
-        } catch (error) {
-            console.error('Failed to fetch configs:', error);
-            document.getElementById('config-info').style.display = 'none';
-        }
-    }
-
-    // Highlight active page
-    document.addEventListener('DOMContentLoaded', () => {
-        const path = window.location.pathname;
-        document.querySelectorAll('.nav-item').forEach(link => {
-            if (link.getAttribute('href') === path) {
-                link.classList.add('active');
-            }
-        });
-    });
-    </script>
+        {% block content %}{% endblock %}
+    </main>
 </body>
 </html>

@@ -39,7 +39,7 @@ class BaseService:
             if self._config_service:
                 await self._load_config()
                 await self._config_service.subscribe(
-                    "config/update/*", 
+                    "config/update/*",
                     self._handle_config_update
                 )
 

@@ -2,8 +2,9 @@
 
 import logging
 from typing import List, Protocol
-from datetime import datetime
 import asyncpg
+
+from .service import SprayEvent
 
 logger = logging.getLogger(__name__)
 
@@ -15,15 +16,15 @@ class DataStorage(Protocol):
         """Initialize storage (create tables etc)."""
         ...
     
-    async def save_spray_event(self, event: "SprayEvent") -> None:
+    async def save_spray_event(self, event: SprayEvent) -> None:
         """Save a spray event."""
         ...
     
-    async def update_spray_event(self, event: "SprayEvent") -> None:
+    async def update_spray_event(self, event: SprayEvent) -> None:
         """Update an existing spray event."""
         ...
     
-    async def get_spray_events(self, sequence_id: str) -> List["SprayEvent"]:
+    async def get_spray_events(self, sequence_id: str) -> List[SprayEvent]:
         """Get all spray events for a sequence."""
         ...
 
@@ -34,8 +35,7 @@ class DatabaseStorage:
     def __init__(self, dsn: str):
         """Initialize with database connection string."""
         self._dsn = dsn
-        self._pool: asyncpg.Pool = None
-        logger.info("Initialized database storage")
+        self._pool = None
 
     async def initialize(self) -> None:
         """Initialize database connection pool and tables."""
@@ -62,52 +62,61 @@ class DatabaseStorage:
                     );
                     
                     -- Create TimescaleDB hypertable
-                    SELECT create_hypertable('spray_events', 'timestamp', 
+                    SELECT create_hypertable('spray_events', 'timestamp',
                         if_not_exists => TRUE);
                     
                     -- Create index on sequence_id for faster lookups
-                    CREATE INDEX IF NOT EXISTS idx_spray_events_sequence_id 
+                    CREATE INDEX IF NOT EXISTS idx_spray_events_sequence_id
                         ON spray_events(sequence_id);
                 """)
             logger.info("Database initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize database: {str(e)}")
             raise
-    
-    async def save_spray_event(self, event: "SprayEvent") -> None:
+
+    async def save_spray_event(self, event: SprayEvent) -> None:
         """Save spray event to database."""
         if not self._pool:
             raise RuntimeError("Database not initialized")
             
         try:
             async with self._pool.acquire() as conn:
-                await conn.execute("""
+                await conn.execute(
+                    """
                     INSERT INTO spray_events (
                         sequence_id, spray_index, timestamp,
                         x_pos, y_pos, z_pos,
                         pressure, temperature, flow_rate,
                         status
                     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                """, event.sequence_id, event.spray_index, event.timestamp,
-                     event.x_pos, event.y_pos, event.z_pos,
-                     event.pressure, event.temperature, event.flow_rate,
-                     event.status)
+                    """,
+                    event.sequence_id,
+                    event.spray_index,
+                    event.timestamp,
+                    event.x_pos,
+                    event.y_pos,
+                    event.z_pos,
+                    event.pressure,
+                    event.temperature,
+                    event.flow_rate,
+                    event.status
+                )
                 logger.debug(f"Saved spray event {event.spray_index} to database")
         except asyncpg.UniqueViolationError:
             logger.warning(f"Spray event already exists: {event.sequence_id}/{event.spray_index}")
-            await self.update_spray_event(event)
         except Exception as e:
             logger.error(f"Failed to save spray event: {str(e)}")
             raise
-    
-    async def update_spray_event(self, event: "SprayEvent") -> None:
+
+    async def update_spray_event(self, event: SprayEvent) -> None:
         """Update spray event in database."""
         if not self._pool:
             raise RuntimeError("Database not initialized")
             
         try:
             async with self._pool.acquire() as conn:
-                await conn.execute("""
+                await conn.execute(
+                    """
                     UPDATE spray_events SET
                         timestamp = $3,
                         x_pos = $4,
@@ -118,25 +127,32 @@ class DatabaseStorage:
                         flow_rate = $9,
                         status = $10
                     WHERE sequence_id = $1 AND spray_index = $2
-                """, event.sequence_id, event.spray_index, event.timestamp,
-                     event.x_pos, event.y_pos, event.z_pos,
-                     event.pressure, event.temperature, event.flow_rate,
-                     event.status)
+                    """,
+                    event.sequence_id,
+                    event.spray_index,
+                    event.timestamp,
+                    event.x_pos,
+                    event.y_pos,
+                    event.z_pos,
+                    event.pressure,
+                    event.temperature,
+                    event.flow_rate,
+                    event.status
+                )
                 logger.debug(f"Updated spray event {event.spray_index} in database")
         except Exception as e:
             logger.error(f"Failed to update spray event: {str(e)}")
             raise
-    
-    async def get_spray_events(self, sequence_id: str) -> List["SprayEvent"]:
+
+    async def get_spray_events(self, sequence_id: str) -> List[SprayEvent]:
         """Get spray events from database."""
         if not self._pool:
             raise RuntimeError("Database not initialized")
             
         try:
-            from .service import SprayEvent
             async with self._pool.acquire() as conn:
                 rows = await conn.fetch("""
-                    SELECT * FROM spray_events 
+                    SELECT * FROM spray_events
                     WHERE sequence_id = $1
                     ORDER BY spray_index ASC
                 """, sequence_id)

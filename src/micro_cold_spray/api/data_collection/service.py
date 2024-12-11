@@ -129,4 +129,4 @@ class DataCollectionService:
             return True
         except Exception as e:
             logger.error(f"Storage check failed: {str(e)}")
-            return False 
+            return False

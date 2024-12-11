@@ -6,10 +6,10 @@ from .storage import DataStorage, DatabaseStorage
 
 __all__ = [
     "DataCollectionService",
-    "DataCollectionError", 
+    "DataCollectionError",
     "SprayEvent",
     "router",
     "init_router",
     "DataStorage",
     "DatabaseStorage"
-] 
+]

@@ -1,108 +1,160 @@
+"""PLC communication service implementation."""
+
 from typing import Any
-import asyncio
 from loguru import logger
 
-from .base import BaseService
+from .. import HardwareError
 from .tag_mapping import TagMappingService
 from .tag_cache import TagCacheService
 from ..clients import PLCClient, create_plc_client
 
 
-class PLCTagService(BaseService):
-    """Handles PLC tag operations and caching."""
-    
-    def __init__(self, config_manager: ConfigManager):
-        super().__init__(config_manager)
+class PLCTagService:
+    """Service for managing PLC communication."""
+
+    def __init__(self, config_service):
+        """Initialize PLC service."""
+        self._config_service = config_service
         self._plc_client: PLCClient = None
         self._tag_mapping: TagMappingService = None
         self._tag_cache: TagCacheService = None
-        self._polling_task = None
+        self._is_running = False
 
-    async def initialize(self):
-        """Initialize service with config and start polling."""
-        await super().initialize()
+    @property
+    def is_running(self) -> bool:
+        """Check if service is running."""
+        return self._is_running
+
+    async def start(self) -> None:
+        """Initialize service."""
+        # Load hardware config
+        hw_config = await self._config_service.get_config("hardware")
         
-        # Initialize services
-        self._tag_mapping = TagMappingService(self._config_manager)
-        await self._tag_mapping.initialize()
-        
-        self._tag_cache = TagCacheService(self._config_manager)
-        await self._tag_cache.initialize()
-        
-        # Create PLC client from config
-        self._plc_client = create_plc_client(self._hw_config)
+        # Create PLC client
+        self._plc_client = create_plc_client(hw_config)
         await self._plc_client.connect()
-
-        # Get polling interval from config
-        self._poll_interval = self._hw_config.get('network', {}).get(
-            'plc', {}).get('polling_interval', 1.0)
-
-        # Start polling
-        self._polling_task = asyncio.create_task(self._poll_tags())
-        logger.info("PLC tag polling started")
-
-    async def _poll_tags(self):
-        """Poll PLC for mapped tag updates."""
-        while True:
-            try:
-                # Get all hardware tag values
-                hw_values = await self._plc_client.get_all_tags()
-                
-                # Convert hardware tags to mapped names and update cache
-                for hw_tag, value in hw_values.items():
-                    try:
-                        mapped_name = self._tag_mapping.to_mapped_name(hw_tag)
-                        self._tag_cache.update_tag(mapped_name, value)
-                    except HardwareError:
-                        # Skip unmapped tags
-                        continue
-                        
-                logger.debug(f"Updated {len(hw_values)} PLC tags")
-            except Exception as e:
-                logger.error(f"Error polling PLC tags: {e}")
-            await asyncio.sleep(self._poll_interval)
-
-    async def read_tag(self, mapped_name: str) -> Any:
-        """Get cached tag value."""
-        if not self._tag_mapping.is_plc_tag(mapped_name):
-            raise HardwareError(f"Not a PLC tag: {mapped_name}", "plc")
-        return self._tag_cache.get_tag(mapped_name)
-
-    async def write_tag(self, mapped_name: str, value: Any):
-        """Write tag value to PLC."""
-        try:
-            if not self._tag_mapping.is_plc_tag(mapped_name):
-                raise HardwareError(f"Not a PLC tag: {mapped_name}", "plc")
-                
-            # Convert to hardware tag
-            hw_tag = self._tag_mapping.to_hardware_tag(mapped_name)
-            
-            # Write and update cache
-            await self._plc_client.write_tag(hw_tag, value)
-            self._tag_cache.update_tag(mapped_name, value)
-        except Exception as e:
-            raise HardwareError(f"Failed to write tag {mapped_name}: {e}", "plc")
-
-    async def _on_hardware_config_update(self):
-        """Handle hardware config updates."""
-        # Update polling interval
-        self._poll_interval = self._hw_config.get('network', {}).get(
-            'plc', {}).get('polling_interval', 1.0)
         
-        # Reconnect PLC client if connection settings changed
-        await self._plc_client.disconnect()
-        self._plc_client = create_plc_client(self._hw_config)
-        await self._plc_client.connect()
+        # Initialize tag services
+        self._tag_mapping = TagMappingService(self._config_service)
+        await self._tag_mapping.start()
+        
+        self._tag_cache = TagCacheService(self._config_service)
+        await self._tag_cache.start()
+        
+        # Initial tag read
+        await self._read_all_tags()
+        
+        self._is_running = True
+        logger.info("PLC service initialized")
 
-    async def shutdown(self):
-        """Cleanup PLC connections."""
-        await super().shutdown()
-        if self._polling_task:
-            self._polling_task.cancel()
-            try:
-                await self._polling_task
-            except asyncio.CancelledError:
-                pass
+    async def stop(self) -> None:
+        """Cleanup service."""
+        self._is_running = False
+        
         if self._plc_client:
             await self._plc_client.disconnect()
-        logger.info("PLC service shutdown complete")
+            
+        if self._tag_mapping:
+            await self._tag_mapping.stop()
+            
+        if self._tag_cache:
+            await self._tag_cache.stop()
+            
+        logger.info("PLC service stopped")
+
+    async def _read_all_tags(self) -> None:
+        """Read all tags from PLC and update cache."""
+        try:
+            tag_values = await self._plc_client.get_all_tags()
+            for hw_tag, value in tag_values.items():
+                try:
+                    mapped_name = self._tag_mapping.to_mapped_name(hw_tag)
+                    self._tag_cache.update_tag(mapped_name, value)
+                except HardwareError:
+                    # Skip unmapped tags
+                    continue
+                    
+            logger.debug("Updated all PLC tags")
+        except Exception as e:
+            logger.error(f"Failed to read all tags: {str(e)}")
+            raise HardwareError(
+                "Failed to read all tags",
+                "plc",
+                {"error": str(e)}
+            )
+
+    async def read_tag(self, mapped_name: str) -> Any:
+        """Read tag value from PLC."""
+        if not self.is_running:
+            raise HardwareError(
+                "PLC service not running",
+                "plc",
+                {"mapped_name": mapped_name}
+            )
+            
+        if not self._tag_mapping.is_plc_tag(mapped_name):
+            raise HardwareError(
+                f"Not a PLC tag: {mapped_name}",
+                "plc",
+                {"mapped_name": mapped_name}
+            )
+            
+        try:
+            hw_tag = self._tag_mapping.to_hardware_tag(mapped_name)
+            value = await self._plc_client.read_tag(hw_tag)
+            self._tag_cache.update_tag(mapped_name, value)
+            return value
+        except Exception as e:
+            raise HardwareError(
+                f"Failed to read tag: {str(e)}",
+                "plc",
+                {
+                    "mapped_name": mapped_name,
+                    "error": str(e)
+                }
+            )
+
+    async def write_tag(self, mapped_name: str, value: Any) -> None:
+        """Write tag value to PLC."""
+        if not self.is_running:
+            raise HardwareError(
+                "PLC service not running",
+                "plc",
+                {"mapped_name": mapped_name}
+            )
+            
+        if not self._tag_mapping.is_plc_tag(mapped_name):
+            raise HardwareError(
+                f"Not a PLC tag: {mapped_name}",
+                "plc",
+                {"mapped_name": mapped_name}
+            )
+            
+        try:
+            hw_tag = self._tag_mapping.to_hardware_tag(mapped_name)
+            await self._plc_client.write_tag(hw_tag, value)
+            self._tag_cache.update_tag(mapped_name, value)
+            logger.debug(f"Wrote {value} to {mapped_name}")
+        except Exception as e:
+            raise HardwareError(
+                f"Failed to write tag: {str(e)}",
+                "plc",
+                {
+                    "mapped_name": mapped_name,
+                    "value": value,
+                    "error": str(e)
+                }
+            )
+
+    async def check_connection(self) -> bool:
+        """Check if PLC is accessible."""
+        try:
+            if not self.is_running:
+                return False
+                
+            # Try reading a test tag
+            await self._plc_client.read_tag("System.Heartbeat")
+            return True
+        except Exception as e:
+            logger.error(f"PLC connection check failed: {str(e)}")
+            return False

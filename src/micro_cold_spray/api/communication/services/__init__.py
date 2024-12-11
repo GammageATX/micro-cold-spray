@@ -1,6 +1,6 @@
-"""Hardware communication services."""
+"""Hardware communication service components."""
 
-from .base import BaseService
+from .. import HardwareError
 from .feeder_service import FeederTagService
 from .plc_service import PLCTagService
 from .tag_cache import TagCacheService, ValidationError
@@ -12,5 +12,6 @@ __all__ = [
     'PLCTagService',
     'TagCacheService',
     'TagMappingService',
-    'ValidationError'
-] 
+    'ValidationError',
+    'HardwareError'
+]

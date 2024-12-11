@@ -1,7 +1,10 @@
 """Mock hardware client implementations."""
+
 import asyncio
 from typing import Any, Dict
 from loguru import logger
+
+from .. import HardwareError
 
 
 class MockPLCClient:
@@ -39,11 +42,15 @@ class MockPLCClient:
     async def read_tag(self, tag_name: str) -> Any:
         """Read value from simulated tag."""
         if not self._connected:
-            raise HardwareError("Not connected to PLC", "plc", {
-                "operation": "read_tag",
-                "tag": tag_name,
-                "connected": False
-            })
+            raise HardwareError(
+                "Not connected to PLC",
+                "plc",
+                {
+                    "operation": "read_tag",
+                    "tag": tag_name,
+                    "connected": False
+                }
+            )
         await asyncio.sleep(0.1)  # Simulate network delay
         if tag_name in self._tag_values:
             return self._tag_values[tag_name]
@@ -53,11 +60,15 @@ class MockPLCClient:
     async def write_tag(self, tag_name: str, value: Any) -> None:
         """Write value to simulated tag."""
         if not self._connected:
-            raise HardwareError("Not connected to PLC", "plc", {
-                "operation": "write_tag",
-                "tag": tag_name,
-                "connected": False
-            })
+            raise HardwareError(
+                "Not connected to PLC",
+                "plc",
+                {
+                    "operation": "write_tag",
+                    "tag": tag_name,
+                    "connected": False
+                }
+            )
         await asyncio.sleep(0.1)  # Simulate network delay
         self._tag_values[tag_name] = value
         logger.debug(f"MockPLC wrote {value} to {tag_name}")
@@ -88,10 +99,14 @@ class MockSSHClient:
     async def write_command(self, command: str) -> None:
         """Write command to simulated feeder controller."""
         if not self._connected:
-            raise HardwareError("Not connected to feeder controller", "feeder", {
-                "operation": "write_command",
-                "connected": False
-            })
+            raise HardwareError(
+                "Not connected to feeder controller",
+                "feeder",
+                {
+                    "operation": "write_command",
+                    "connected": False
+                }
+            )
         await asyncio.sleep(0.1)  # Simulate network delay
         self._last_command = command
         logger.debug(f"MockSSH command: {command}")
@@ -99,9 +114,13 @@ class MockSSHClient:
     async def read_response(self) -> str:
         """Read response from simulated feeder controller."""
         if not self._connected:
-            raise HardwareError("Not connected to feeder controller", "feeder", {
-                "operation": "read_response",
-                "connected": False
-            })
+            raise HardwareError(
+                "Not connected to feeder controller",
+                "feeder",
+                {
+                    "operation": "read_response",
+                    "connected": False
+                }
+            )
         await asyncio.sleep(0.1)  # Simulate network delay
         return "OK"
