@@ -3,7 +3,6 @@
 import logging
 from typing import Dict, Any, Optional, List
 from fastapi import APIRouter, HTTPException, Depends
-from datetime import datetime
 
 from .service import DataCollectionService, DataCollectionError, SprayEvent
 

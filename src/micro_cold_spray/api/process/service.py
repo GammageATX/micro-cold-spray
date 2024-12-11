@@ -15,11 +15,13 @@ from ..data_collection import DataCollectionService, DataCollectionError
 
 logger = logging.getLogger(__name__)
 
+
 class ProcessError(Exception):
     """Base exception for process operations."""
     def __init__(self, message: str, context: Dict[str, Any] | None = None):
         super().__init__(message)
         self.context = context if context is not None else {}
+
 
 class ProcessService(BaseService):
     """Service for managing process operations."""
@@ -171,43 +173,52 @@ class ProcessService(BaseService):
             ProcessError: If step execution fails
         """
         try:
-            # Execute pattern if present
             if "pattern" in step:
-                await self._execute_pattern(step["pattern"], step.get("parameters", {}))
-                
-            # Apply parameters if present
-            if "parameters" in step:
-                await self._apply_parameters(step["parameters"])
-                
-            # Execute action if present
-            if "action" in step:
-                await self._execute_action(step["action"], step.get("parameters", {}))
-                
-            # Execute action group if present
-            if "action_group" in step:
-                await self.execute_action_group(step["action_group"], step.get("parameters", {}))
-                
-            # Log step completion
-            await self._message_broker.publish(
-                "sequence/step",
+                # Execute pattern step
+                await self._pattern_manager.execute_pattern(
+                    step["pattern"],
+                    step.get("parameters", {})
+                )
+                await self._log_process_data({
+                    "type": "pattern",
+                    "pattern": step["pattern"],
+                    "parameters": step.get("parameters", {})
+                })
+            elif "action" in step:
+                # Execute action step
+                await self._action_manager.execute_action(
+                    step["action"],
+                    step.get("parameters", {})
+                )
+                await self._log_process_data({
+                    "type": "action",
+                    "action": step["action"],
+                    "parameters": step.get("parameters", {})
+                })
+            elif "action_group" in step:
+                # Execute action group
+                await self.execute_action_group(
+                    step["action_group"],
+                    step.get("parameters", {})
+                )
+                await self._log_process_data({
+                    "type": "action_group",
+                    "group": step["action_group"],
+                    "parameters": step.get("parameters", {})
+                })
+            else:
+                raise ProcessError(
+                    "Invalid step type",
+                    {"step": step}
+                )
+        except Exception as e:
+            raise ProcessError(
+                f"Failed to execute step: {str(e)}",
                 {
-                    "sequence_id": self._active_sequence,
-                    "step": self._sequence_step,
-                    "status": "completed",
-                    "timestamp": datetime.now().isoformat()
+                    "step": step,
+                    "error": str(e)
                 }
             )
-            
-            # Move to next step
-            self._sequence_step += 1
-            
-        except Exception as e:
-            error_context = {
-                "step": step,
-                "error": str(e)
-            }
-            logger.error("Step execution failed", extra=error_context)
-            raise ProcessError("Step execution failed", error_context)
 
     async def _validate_step(self, step: Dict[str, Any]) -> None:
         """Validate a sequence step.
@@ -491,23 +502,18 @@ class ProcessService(BaseService):
         except Exception as e:
             logger.error(f"Error completing sequence: {e}")
 
-    async def _execute_step(self, step: Dict[str, Any]) -> None:
-        """Execute a sequence step."""
-        try:
-            if "pattern" in step:
-                # Execute pattern step
-                await self._pattern_manager.execute_pattern(
-                    step["pattern"],
-                    step.get("parameters", {})
-                )
-                await self._log_process_data({
-                    "type": "pattern",
-                    "pattern": step["pattern"],
-                    "parameters": step.get("parameters", {})
-                })
-
     async def create_sequence(self, sequence_data: Dict[str, Any]) -> str:
-        """Create a new sequence file."""
+        """Create a new sequence file.
+        
+        Args:
+            sequence_data: Sequence data to save
+            
+        Returns:
+            Generated sequence ID
+            
+        Raises:
+            ProcessError: If sequence creation fails
+        """
         try:
             # Validate sequence structure
             await self._validate_sequence_structure(sequence_data)
@@ -518,10 +524,19 @@ class ProcessService(BaseService):
             # Save sequence file
             await self._save_sequence_file(sequence_id, sequence_data)
             
+            logger.info(f"Created sequence: {sequence_id}")
             return sequence_id
             
         except Exception as e:
-            raise ProcessError("Failed to create sequence", {"error": str(e)})
+            error_context = {
+                "error": str(e),
+                "sequence_data": sequence_data
+            }
+            logger.error("Failed to create sequence", extra=error_context)
+            raise ProcessError(
+                "Failed to create sequence",
+                error_context
+            )
 
     async def create_parameter_set(self, parameter_data: Dict[str, Any]) -> str:
         """Create a new parameter set file."""
@@ -568,7 +583,7 @@ class ProcessService(BaseService):
             raise ProcessError("Sequence validation failed", {"error": str(e)})
 
     async def _validate_with_validation_api(
-        self, 
+        self,
         validation_type: str,
         data: Dict[str, Any]
     ) -> None:
@@ -834,6 +849,7 @@ class ProcessService(BaseService):
                     
         except Exception as e:
             raise ProcessError(f"Action group failed: {group}", {"error": str(e)})
+
 
 class SafetyMonitor:
     async def check_pattern_safety(self, pattern: Dict[str, Any]) -> None:

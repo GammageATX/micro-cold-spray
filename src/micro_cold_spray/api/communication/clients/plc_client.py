@@ -1,10 +1,13 @@
 """PLC communication client using Productivity PLC library."""
+
 import asyncio
 from pathlib import Path
 from typing import Any, Dict
 
 from loguru import logger
 from productivity import ProductivityPLC
+
+from .. import HardwareError
 
 
 class PLCClient:
@@ -41,9 +44,8 @@ class PLCClient:
 
         self._plc = ProductivityPLC(self._address, str(self._tag_file))
         logger.info(
-            f"PLCClient initialized with address={
-                self._address}, tag_file={
-                self._tag_file}")
+            f"PLCClient initialized with address={self._address}, tag_file={self._tag_file}"
+        )
 
     async def connect(self) -> None:
         """Connect to PLC.
@@ -72,7 +74,11 @@ class PLCClient:
             return {}
         except Exception as e:
             logger.error(f"Failed to read tags: {e}")
-            raise HardwareError("Failed to read tags", "plc") from e
+            raise HardwareError(
+                "Failed to read tags",
+                "plc",
+                {"error": str(e)}
+            )
 
     async def write_tag(self, tag_name: str, value: Any) -> None:
         """Write single tag value to PLC."""
@@ -80,4 +86,12 @@ class PLCClient:
             await self._plc.set({tag_name: value})  # Library expects a dict
         except Exception as e:
             logger.error(f"Failed to write tag {tag_name}: {e}")
-            raise HardwareError(f"Failed to write tag {tag_name}", "plc") from e
+            raise HardwareError(
+                f"Failed to write tag {tag_name}",
+                "plc",
+                {
+                    "tag": tag_name,
+                    "value": value,
+                    "error": str(e)
+                }
+            )

@@ -1,4 +1,6 @@
-"""Hardware communication components."""
+"""Hardware communication client components."""
+
+from .. import HardwareError
 from .plc_client import PLCClient
 from .ssh_client import SSHClient
 from .mock_clients import MockPLCClient, MockSSHClient
@@ -15,5 +17,6 @@ __all__ = [
     'create_plc_client',
     'create_ssh_client',
     'PLCClientType',
-    'SSHClientType'
+    'SSHClientType',
+    'HardwareError'
 ]

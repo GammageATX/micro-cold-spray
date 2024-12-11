@@ -1,79 +1,143 @@
-from typing import Dict, Any, Optional
+"""Tag mapping service implementation."""
+
+from typing import Dict, Any
 from loguru import logger
 
-from .base import BaseService
+from .. import HardwareError
 
 
-class TagMappingService(BaseService):
-    """Handles mapping between human-readable tag names and hardware tags."""
-    
-    def __init__(self, config_manager: ConfigManager):
-        super().__init__(config_manager)
-        self._mapped_to_hw: Dict[str, str] = {}
+class TagMappingService:
+    """Service for mapping between hardware and logical tag names."""
+
+    def __init__(self, config_service):
+        """Initialize tag mapping service."""
+        self._config_service = config_service
         self._hw_to_mapped: Dict[str, str] = {}
-        self._tag_metadata: Dict[str, Dict[str, Any]] = {}
+        self._mapped_to_hw: Dict[str, str] = {}
+        self._plc_tags: set = set()
+        self._feeder_tags: set = set()
+        self._is_running = False
 
-    async def initialize(self):
-        """Initialize mappings from config."""
-        await super().initialize()
-        await self._build_mappings()
+    @property
+    def is_running(self) -> bool:
+        """Check if service is running."""
+        return self._is_running
 
-    async def _build_mappings(self):
-        """Build bidirectional mappings from tag config."""
-        self._mapped_to_hw = {}
-        self._hw_to_mapped = {}
-        self._tag_metadata = {}
+    async def start(self) -> None:
+        """Initialize service."""
+        # Load tag definitions
+        tag_config = await self._config_service.get_config("tags")
+        await self._build_mappings(tag_config)
+        
+        self._is_running = True
+        logger.info("Tag mapping initialized")
 
-        # Process all tag groups
-        for group_name, group in self._tag_config.items():
-            for tag_path, tag_data in group.get('tags', {}).items():
-                # Skip unmapped tags
-                if not tag_data.get('mapped', False):
-                    continue
+    async def stop(self) -> None:
+        """Cleanup service."""
+        self._is_running = False
+        
+        self._hw_to_mapped.clear()
+        self._mapped_to_hw.clear()
+        self._plc_tags.clear()
+        self._feeder_tags.clear()
+        
+        logger.info("Tag mapping stopped")
 
-                # Full mapped name includes group
-                mapped_name = f"{group_name}.{tag_path}"
-
-                # Get hardware tag - either PLC tag or SSH P-variable
-                hw_tag = tag_data.get('plc_tag')
-                if not hw_tag and tag_data.get('ssh', {}).get('freq_var'):
-                    hw_tag = tag_data['ssh']['freq_var']
-
-                if hw_tag:
-                    self._mapped_to_hw[mapped_name] = hw_tag
+    async def _build_mappings(self, config: Dict[str, Any]) -> None:
+        """Build tag mappings from config."""
+        try:
+            self._hw_to_mapped.clear()
+            self._mapped_to_hw.clear()
+            self._plc_tags.clear()
+            self._feeder_tags.clear()
+            
+            for group_name, group in config.get("tag_groups", {}).items():
+                for tag_path, tag_def in group.items():
+                    if not tag_def.get("mapped", False):
+                        continue
+                        
+                    mapped_name = f"{group_name}.{tag_path}"
+                    hw_tag = tag_def["hardware_tag"]
+                    
                     self._hw_to_mapped[hw_tag] = mapped_name
-                    self._tag_metadata[mapped_name] = tag_data
+                    self._mapped_to_hw[mapped_name] = hw_tag
+                    
+                    # Track tag type
+                    if tag_def.get("device") == "plc":
+                        self._plc_tags.add(mapped_name)
+                    elif tag_def.get("device") == "feeder":
+                        self._feeder_tags.add(mapped_name)
+                        
+            logger.info(f"Built mappings for {len(self._mapped_to_hw)} tags")
+        except Exception as e:
+            raise HardwareError(
+                "Failed to build tag mappings",
+                "mapping",
+                {"error": str(e)}
+            )
 
-        logger.info(f"Built tag mappings for {len(self._mapped_to_hw)} tags")
+    def to_mapped_name(self, hw_tag: str) -> str:
+        """Convert hardware tag to mapped name."""
+        if not self.is_running:
+            raise HardwareError(
+                "Tag mapping not running",
+                "mapping",
+                {"hw_tag": hw_tag}
+            )
+            
+        try:
+            return self._hw_to_mapped[hw_tag]
+        except KeyError:
+            raise HardwareError(
+                f"No mapping for hardware tag: {hw_tag}",
+                "mapping",
+                {"hw_tag": hw_tag}
+            )
 
     def to_hardware_tag(self, mapped_name: str) -> str:
         """Convert mapped name to hardware tag."""
-        if mapped_name not in self._mapped_to_hw:
-            raise HardwareError(f"Unknown mapped tag: {mapped_name}", "mapping")
-        return self._mapped_to_hw[mapped_name]
-
-    def to_mapped_name(self, hardware_tag: str) -> str:
-        """Convert hardware tag to mapped name."""
-        if hardware_tag not in self._hw_to_mapped:
-            raise HardwareError(f"Unknown hardware tag: {hardware_tag}", "mapping")
-        return self._hw_to_mapped[hardware_tag]
-
-    def get_tag_metadata(self, mapped_name: str) -> Dict[str, Any]:
-        """Get metadata for a mapped tag."""
-        if mapped_name not in self._tag_metadata:
-            raise HardwareError(f"Unknown mapped tag: {mapped_name}", "mapping")
-        return self._tag_metadata[mapped_name]
+        if not self.is_running:
+            raise HardwareError(
+                "Tag mapping not running",
+                "mapping",
+                {"mapped_name": mapped_name}
+            )
+            
+        try:
+            return self._mapped_to_hw[mapped_name]
+        except KeyError:
+            raise HardwareError(
+                f"No mapping for tag: {mapped_name}",
+                "mapping",
+                {"mapped_name": mapped_name}
+            )
 
     def is_plc_tag(self, mapped_name: str) -> bool:
-        """Check if tag is a PLC tag."""
-        metadata = self.get_tag_metadata(mapped_name)
-        return 'plc_tag' in metadata
+        """Check if tag is mapped to PLC."""
+        if not self.is_running:
+            raise HardwareError(
+                "Tag mapping not running",
+                "mapping",
+                {"mapped_name": mapped_name}
+            )
+            
+        return mapped_name in self._plc_tags
 
     def is_feeder_tag(self, mapped_name: str) -> bool:
-        """Check if tag is a feeder tag."""
-        metadata = self.get_tag_metadata(mapped_name)
-        return bool(metadata.get('ssh', {}).get('freq_var'))
+        """Check if tag is mapped to feeder."""
+        if not self.is_running:
+            raise HardwareError(
+                "Tag mapping not running",
+                "mapping",
+                {"mapped_name": mapped_name}
+            )
+            
+        return mapped_name in self._feeder_tags
 
-    async def _on_tag_config_update(self):
-        """Handle tag config updates."""
-        await self._build_mappings() 
+    async def check_status(self) -> bool:
+        """Check if mapping is healthy."""
+        try:
+            return self.is_running and bool(self._mapped_to_hw)
+        except Exception as e:
+            logger.error(f"Mapping status check failed: {str(e)}")
+            return False

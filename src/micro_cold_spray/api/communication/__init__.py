@@ -1,6 +1,12 @@
-"""Hardware communication API."""
+"""Hardware communication API package."""
 
+from typing import Dict, Any
+
+# Core components
 from .router import router, init_router
+
+
+# Service components
 from .services import (
     PLCTagService,
     FeederTagService,
@@ -8,6 +14,9 @@ from .services import (
     TagMappingService,
     ValidationError
 )
+
+
+# Client components
 from .clients import (
     PLCClient,
     SSHClient,
@@ -19,10 +28,22 @@ from .clients import (
     SSHClientType
 )
 
+
+# Error types
+class HardwareError(Exception):
+    """Base exception for hardware communication errors."""
+    def __init__(self, message: str, device: str, context: Dict[str, Any] = None):
+        super().__init__(message)
+        self.device = device
+        self.context = context or {}
+
+
 __all__ = [
     # Router
     'router',
     'init_router',
+    # Errors
+    'HardwareError',
     # Services
     'PLCTagService',
     'FeederTagService',
@@ -38,4 +59,4 @@ __all__ = [
     'create_ssh_client',
     'PLCClientType',
     'SSHClientType'
-] 
+]

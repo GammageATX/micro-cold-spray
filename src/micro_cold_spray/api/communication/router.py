@@ -1,10 +1,14 @@
+"""FastAPI router for hardware communication."""
+
 from fastapi import APIRouter, Depends
+from typing import Dict, Any, Optional
+
+from . import HardwareError
 from .endpoints import tags, motion, equipment
 from .services.plc_service import PLCTagService
 from .services.tag_cache import TagCacheService
-from typing import Optional
 
-router = APIRouter(prefix="/communication")
+router = APIRouter(prefix="/communication", tags=["communication"])
 router.include_router(tags.router)
 router.include_router(motion.router)
 router.include_router(equipment.router)
@@ -38,34 +42,44 @@ def get_tag_cache() -> TagCacheService:
 async def health_check(
     plc_service: PLCTagService = Depends(get_plc_service),
     tag_cache: TagCacheService = Depends(get_tag_cache)
-):
-    """Check API health status."""
+) -> Dict[str, Any]:
+    """
+    Check API health status.
+    
+    Returns:
+        Dict containing health status and any error details
+    """
     try:
         # Check PLC connection
         plc_status = await plc_service.check_connection()
-        
         if not plc_status:
             return {
-                "status": "Error",
-                "error": "PLC connection failed"
+                "status": "error",
+                "message": "PLC connection failed"
             }
             
         # Check tag cache
         cache_status = await tag_cache.check_status()
-        
         if not cache_status:
             return {
-                "status": "Error",
-                "error": "Tag cache error"
+                "status": "error",
+                "message": "Tag cache error"
             }
             
         return {
-            "status": "Running",
-            "error": None
+            "status": "ok",
+            "message": "Service healthy"
         }
         
+    except HardwareError as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "device": e.device,
+            "context": e.context
+        }
     except Exception as e:
         return {
-            "status": "Error",
-            "error": str(e)
+            "status": "error",
+            "message": str(e)
         }

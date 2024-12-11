@@ -8,14 +8,13 @@ from loguru import logger
 
 # API imports
 from micro_cold_spray.api.config import ConfigService, ConfigurationError
-from micro_cold_spray.api.messaging import MessagingService, MessagingError
+from micro_cold_spray.api.messaging import MessagingService
 from micro_cold_spray.api.state import StateService
 from micro_cold_spray.api.data_collection import DataCollectionService
 from micro_cold_spray.api.communication import (
     PLCTagService,
     FeederTagService,
-    TagCacheService,
-    HardwareError
+    TagCacheService
 )
 
 src_path = Path(__file__).parent.parent
