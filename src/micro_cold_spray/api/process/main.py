@@ -6,8 +6,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .router import router, init_router
 from .service import ProcessService
-from ...core.infrastructure.config.config_manager import ConfigManager
-from ...core.infrastructure.messaging.message_broker import MessageBroker
 from ..data_collection import init_api as init_data_collection
 
 
@@ -68,10 +66,31 @@ async def shutdown():
     await config_manager.stop()
 
 
+@app.get("/health")
+async def health_check():
+    """Check API health."""
+    try:
+        # Check if service is initialized
+        if process_service is None:
+            return {
+                "status": "Error",
+                "error": "Service not initialized"
+            }
+        return {
+            "status": "Running",
+            "error": None
+        }
+    except Exception as e:
+        return {
+            "status": "Error",
+            "error": str(e)
+        }
+
+
 if __name__ == "__main__":
     uvicorn.run(
         "micro_cold_spray.api.process.main:app",
         host="0.0.0.0",
         port=8000,
         reload=True
-    ) 
+    )

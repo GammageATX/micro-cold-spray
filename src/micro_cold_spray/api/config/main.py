@@ -1,17 +1,12 @@
-import uvicorn
+"""Config API for managing configuration files."""
+
+import yaml
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pathlib import Path
+import os
 
-from .router import router, init_router
-from .service import ConfigService
-from ...core.infrastructure.messaging.message_broker import MessageBroker
-
-app = FastAPI(
-    title="Config API",
-    description="API for configuration management",
-    version="1.0.0"
-)
+app = FastAPI(title="Config API")
 
 # Enable CORS
 app.add_middleware(
@@ -22,41 +17,90 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize services
-config_path = Path("config")
-message_broker = MessageBroker()
-
-# Initialize config service
-config_service = ConfigService(
-    config_path=config_path,
-    message_broker=message_broker
-)
-
-# Initialize router
-init_router(config_service)
-
-# Register router
-app.include_router(router)
+# Config directory
+CONFIG_DIR = Path("config")
+CONFIG_DIR.mkdir(exist_ok=True)
 
 
-@app.on_event("startup")
-async def startup():
-    """Initialize services on startup."""
-    await message_broker.start()
-    await config_service.start()
+@app.get("/health")
+async def health_check():
+    """Check if API is running and config dir is accessible."""
+    try:
+        # Check if config dir exists and is writable
+        if not CONFIG_DIR.exists() or not os.access(CONFIG_DIR, os.W_OK):
+            return {
+                "status": "Error",
+                "error": "Config directory not accessible"
+            }
+        return {
+            "status": "Running",
+            "error": None
+        }
+    except Exception as e:
+        return {
+            "status": "Error",
+            "error": str(e)
+        }
 
 
-@app.on_event("shutdown")
-async def shutdown():
-    """Clean up on shutdown."""
-    await config_service.stop()
-    await message_broker.stop()
+@app.get("/configs")
+async def list_configs():
+    """List available config files."""
+    try:
+        configs = [f.stem for f in CONFIG_DIR.glob("*.yaml")]
+        return {"configs": configs}
+    except Exception as e:
+        return {"error": str(e)}
 
 
-if __name__ == "__main__":
-    uvicorn.run(
-        "micro_cold_spray.api.config.main:app",
-        host="0.0.0.0",
-        port=8001,
-        reload=True
-    ) 
+@app.get("/configs/{name}")
+async def get_config(name: str):
+    """Get contents of a config file."""
+    try:
+        config_file = CONFIG_DIR / f"{name}.yaml"
+        if not config_file.exists():
+            return {"error": f"Config {name} not found"}
+            
+        with open(config_file) as f:
+            return yaml.safe_load(f)
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/configs/{name}")
+async def save_config(name: str, config: dict):
+    """Save a config file."""
+    try:
+        config_file = CONFIG_DIR / f"{name}.yaml"
+        with open(config_file, 'w') as f:
+            yaml.dump(config, f)
+        return {"status": "saved"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/configs/{name}/validate")
+async def validate_config(name: str, config: dict):
+    """Validate config without saving."""
+    try:
+        # Basic validation - check if it's valid YAML
+        yaml.dump(config)
+        return {"valid": True}
+    except Exception as e:
+        return {
+            "valid": False,
+            "error": str(e)
+        }
+
+
+@app.delete("/configs/{name}")
+async def delete_config(name: str):
+    """Delete a config file."""
+    try:
+        config_file = CONFIG_DIR / f"{name}.yaml"
+        if not config_file.exists():
+            return {"error": f"Config {name} not found"}
+        config_file.unlink()
+        return {"status": "deleted"}
+    except Exception as e:
+        return {"error": str(e)}

@@ -5,8 +5,6 @@ from loguru import logger
 from .base import BaseService
 from .tag_mapping import TagMappingService
 from ..models.tags import TagValue, TagMetadata
-from ....core.exceptions import HardwareError
-from ....core.infrastructure.config.config_manager import ConfigManager
 
 
 class ValidationError(HardwareError):

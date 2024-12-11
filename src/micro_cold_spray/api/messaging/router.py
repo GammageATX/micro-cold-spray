@@ -82,4 +82,28 @@ async def get_subscribers(topic: str) -> Dict[str, Any]:
         count = await service.get_subscriber_count(topic)
         return {"topic": topic, "subscriber_count": count}
     except MessagingError as e:
-        raise HTTPException(status_code=400, detail=str(e)) 
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/health")
+async def health_check(
+    service: MessagingService = Depends(get_service)
+):
+    """Check API health status."""
+    try:
+        # Check message broker connection
+        queue_status = await service.get_queue_size() is not None
+        if not queue_status:
+            return {
+                "status": "Error",
+                "error": "Message queue error"
+            }
+        
+        return {
+            "status": "Running",
+            "error": None
+        }
+    except Exception as e:
+        return {
+            "status": "Error",
+            "error": str(e)
+        } 

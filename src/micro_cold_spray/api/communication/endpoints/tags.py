@@ -10,8 +10,6 @@ from ..services.plc_service import PLCTagService
 from ..services.feeder_service import FeederTagService
 from ..services.tag_mapping import TagMappingService
 from ..services.tag_cache import TagCacheService, ValidationError
-from ....core.infrastructure.config.config_manager import ConfigManager
-from ....core.exceptions import HardwareError
 
 
 # Dependency injection

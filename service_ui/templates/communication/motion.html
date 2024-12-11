@@ -32,6 +32,8 @@
 document.getElementById('single-axis-form').onsubmit = async (e) => {
     e.preventDefault();
     const form = e.target;
+    const elements = form.querySelectorAll('input, select, button');
+    elements.forEach(el => el.disabled = true);
     try {
         const response = await fetch(`${API_URLS.communication}/motion/move`, {
             method: 'POST',
@@ -46,6 +48,8 @@ document.getElementById('single-axis-form').onsubmit = async (e) => {
         showSuccess('Motion started');
     } catch (error) {
         showError(error.detail || 'Motion failed');
+    } finally {
+        elements.forEach(el => el.disabled = false);
     }
 };
 

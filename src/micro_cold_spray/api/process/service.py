@@ -10,17 +10,6 @@ import uuid
 
 from ..base import BaseService
 from ..data_collection.service import DataCollectionService, DataCollectionError
-from ...core.infrastructure.config.config_manager import ConfigManager
-from ...core.infrastructure.messaging.message_broker import MessageBroker
-from ...core.infrastructure.pattern.pattern_manager import PatternManager
-from ...core.infrastructure.validation.validation_client import ValidationClient
-from ...core.infrastructure.operations.actions.action_manager import ActionManager
-from ...core.infrastructure.operations.parameters.parameter_manager import ParameterManager
-from ...core.infrastructure.operations.sequences.sequence_manager import SequenceManager
-from .actions import ActionService
-from .parameters import ParameterService
-from .patterns import PatternService
-from .sequences import SequenceService
 
 logger = logging.getLogger(__name__)
 
@@ -35,22 +24,10 @@ class ProcessService(BaseService):
     
     def __init__(
         self,
-        config_manager: ConfigManager,
-        message_broker: MessageBroker,
         data_collection_service: DataCollectionService,
-        action_service: ActionService,
-        parameter_service: ParameterService,
-        pattern_service: PatternService,
-        sequence_service: SequenceService
     ):
         super().__init__(service_name="process")
-        self._config_manager = config_manager
-        self._message_broker = message_broker
         self._data_collection = data_collection_service
-        self._action_service = action_service
-        self._parameter_service = parameter_service
-        self._pattern_service = pattern_service
-        self._sequence_service = sequence_service
         
         # Process state
         self._active_sequence: Optional[str] = None
@@ -675,4 +652,3 @@ class SafetyMonitor:
         # Verify speed constraints
         # Check collision avoidance
         # Validate work envelope
-``` 

@@ -40,6 +40,8 @@
 <script>
 // Load current parameters
 async function loadParameters() {
+    const forms = document.querySelectorAll('form');
+    forms.forEach(form => form.querySelectorAll('input, select, button').forEach(el => el.disabled = true));
     try {
         const response = await fetch(`${API_URLS.process}/parameters`);
         if (!response.ok) throw await response.json();
@@ -52,12 +54,16 @@ async function loadParameters() {
         });
     } catch (error) {
         showError('Failed to load parameters');
+    } finally {
+        forms.forEach(form => form.querySelectorAll('input, select, button').forEach(el => el.disabled = false));
     }
 }
 
 // Save parameters
 async function saveParameters(formId, endpoint) {
     const form = document.getElementById(formId);
+    const elements = form.querySelectorAll('input, select, button');
+    elements.forEach(el => el.disabled = true);
     const data = Object.fromEntries(new FormData(form));
     
     try {
@@ -70,6 +76,8 @@ async function saveParameters(formId, endpoint) {
         showSuccess('Parameters saved');
     } catch (error) {
         showError(error.detail || 'Failed to save parameters');
+    } finally {
+        elements.forEach(el => el.disabled = false);
     }
 }
 

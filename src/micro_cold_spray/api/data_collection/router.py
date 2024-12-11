@@ -2,7 +2,7 @@
 
 import logging
 from typing import Dict, Any, Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 
 from .service import DataCollectionService, DataCollectionError
 
@@ -101,4 +101,29 @@ async def get_collection_status() -> Dict[str, Any]:
         "sequence_id": session.sequence_id,
         "start_time": session.start_time.isoformat(),
         "collection_params": session.collection_params
-    } 
+    }
+
+
+@router.get("/health")
+async def health_check(
+    service: DataCollectionService = Depends(get_service)
+):
+    """Check API health status."""
+    try:
+        # Check storage connection
+        storage_status = await service.check_storage()
+        if not storage_status:
+            return {
+                "status": "Error",
+                "error": "Storage connection failed"
+            }
+        
+        return {
+            "status": "Running",
+            "error": None
+        }
+    except Exception as e:
+        return {
+            "status": "Error",
+            "error": str(e)
+        }

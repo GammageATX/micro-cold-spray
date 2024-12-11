@@ -3,61 +3,46 @@
     --primary-color: #1976d2;
     --error-color: #d32f2f;
     --success-color: #388e3c;
-    --nav-width: 200px;
 }
 
 body {
-    margin: 0;
+    margin: 20px;
     font-family: system-ui, -apple-system, sans-serif;
-    display: flex;
 }
 
-nav {
-    width: var(--nav-width);
-    height: 100vh;
+.services {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 20px;
     padding: 20px;
-    background: #f5f5f5;
-    border-right: 1px solid #ddd;
-    position: fixed;
 }
 
-.nav-section {
-    margin-bottom: 20px;
-}
-
-.nav-section h3 {
-    margin: 0 0 10px 0;
-    color: var(--primary-color);
-}
-
-nav a {
-    display: block;
-    padding: 8px 16px;
-    color: #333;
-    text-decoration: none;
-    border-radius: 4px;
-}
-
-nav a:hover {
-    background: #e0e0e0;
-}
-
-main {
-    margin-left: var(--nav-width);
-    padding: 20px;
-    flex: 1;
-}
-
-.panel {
+.service-panel {
     background: white;
     padding: 20px;
     border-radius: 8px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    margin-bottom: 20px;
+    border: 1px solid #eee;
 }
 
-.control-group {
-    margin-bottom: 20px;
+.status {
+    margin: 10px 0;
+    font-weight: bold;
+}
+
+.controls {
+    display: flex;
+    gap: 10px;
+    margin: 10px 0;
+}
+
+.errors {
+    margin-top: 10px;
+    color: var(--error-color);
+    font-family: monospace;
+    white-space: pre-wrap;
 }
 
 .toast {
@@ -70,10 +55,12 @@ main {
     display: none;
 }
 
-.toast.error {
-    background: var(--error-color);
-}
+.toast.error { background: var(--error-color); }
+.toast.success { background: var(--success-color); }
 
-.toast.success {
-    background: var(--success-color);
+.error-message {
+    color: #d32f2f;
+    font-size: 0.9em;
+    margin: 5px 0;
+    min-height: 1.2em;  /* Prevent layout shift */
 }

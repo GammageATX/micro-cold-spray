@@ -2,7 +2,7 @@
 
 import logging
 from typing import Dict, Any, Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 
 from .service import ProcessService, ProcessError
 
@@ -170,4 +170,29 @@ async def list_sequence_files() -> Dict[str, Any]:
     """List available sequence files."""
     service = get_service()
     files = await service.list_sequence_files()
-    return {"files": files} 
+    return {"files": files}
+
+
+@router.get("/health")
+async def health_check(
+    service: ProcessService = Depends(get_service)
+):
+    """Check API health status."""
+    try:
+        # Check process service status
+        status = await service.check_status()
+        if not status:
+            return {
+                "status": "Error",
+                "error": "Process service not ready"
+            }
+        
+        return {
+            "status": "Running",
+            "error": None
+        }
+    except Exception as e:
+        return {
+            "status": "Error",
+            "error": str(e)
+        }

@@ -2,8 +2,6 @@ from typing import Dict, Any, Optional
 from loguru import logger
 
 from .base import BaseService
-from ....core.infrastructure.config.config_manager import ConfigManager
-from ....core.exceptions import HardwareError
 
 
 class TagMappingService(BaseService):

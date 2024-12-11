@@ -6,8 +6,6 @@ from .base import BaseService
 from .tag_mapping import TagMappingService
 from .tag_cache import TagCacheService
 from ..clients import PLCClient, create_plc_client
-from ....core.exceptions import HardwareError
-from ....core.infrastructure.config.config_manager import ConfigManager
 
 
 class PLCTagService(BaseService):
