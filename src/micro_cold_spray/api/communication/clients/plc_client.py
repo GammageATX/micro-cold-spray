@@ -6,8 +6,6 @@ from typing import Any, Dict
 from loguru import logger
 from productivity import ProductivityPLC
 
-from ...exceptions import HardwareError
-
 
 class PLCClient:
     """Client for PLC communication using Productivity library."""

@@ -43,7 +43,9 @@ document.getElementById('gas-flow-form').onsubmit = async (e) => {
 };
 
 async function controlValve(valve, state) {
+    const button = event.target;
     try {
+        button.disabled = true;
         const response = await fetch(`${API_URLS.communication}/equipment/gas/valve`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -53,6 +55,8 @@ async function controlValve(valve, state) {
         showSuccess('Valve state updated');
     } catch (error) {
         showError(error.detail || 'Failed to control valve');
+    } finally {
+        button.disabled = false;
     }
 }
 </script>

@@ -2,7 +2,7 @@
 
 import logging
 from typing import Dict, List, Optional
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 
 from .service import StateService, StateTransitionError
 
@@ -111,4 +111,29 @@ async def get_state_conditions(
         Dict of condition names to their current status
     """
     service = get_service()
-    return await service.get_conditions(state) 
+    return await service.get_conditions(state)
+
+
+@router.get("/health")
+async def health_check(
+    service: StateService = Depends(get_service)
+):
+    """Check API health status."""
+    try:
+        # Check state machine status
+        status = await service.check_state_machine()
+        if not status:
+            return {
+                "status": "Error",
+                "error": "State machine error"
+            }
+        
+        return {
+            "status": "Running",
+            "error": None
+        }
+    except Exception as e:
+        return {
+            "status": "Error",
+            "error": str(e)
+        } 

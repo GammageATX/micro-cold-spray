@@ -39,6 +39,32 @@ async def shutdown():
     """Clean up on shutdown."""
     await messaging_service.stop()
 
+@app.get("/health")
+async def health_check():
+    """Check API health."""
+    try:
+        if messaging_service is None:
+            return {
+                "status": "Error",
+                "error": "Service not initialized"
+            }
+        # Check message broker connection
+        queue_size = await messaging_service.get_queue_size()
+        if queue_size is None:
+            return {
+                "status": "Error",
+                "error": "Message broker not connected"
+            }
+        return {
+            "status": "Running",
+            "error": None
+        }
+    except Exception as e:
+        return {
+            "status": "Error",
+            "error": str(e)
+        }
+
 if __name__ == "__main__":
     uvicorn.run(
         "micro_cold_spray.api.messaging.main:app",

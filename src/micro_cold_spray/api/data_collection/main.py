@@ -6,8 +6,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .router import router, init_router
 from .service import DataCollectionService
-from ...core.infrastructure.messaging.message_broker import MessageBroker
-from ...core.infrastructure.config.config_manager import ConfigManager
 
 
 app = FastAPI(
@@ -58,6 +56,33 @@ async def shutdown():
     await config_manager.stop()
 
 
+@app.get("/health")
+async def health_check():
+    """Check API health."""
+    try:
+        if service is None:
+            return {
+                "status": "Error",
+                "error": "Service not initialized"
+            }
+        # Check storage access
+        storage_ok = await service._spray_storage is not None
+        if not storage_ok:
+            return {
+                "status": "Error",
+                "error": "Storage not accessible"
+            }
+        return {
+            "status": "Running",
+            "error": None
+        }
+    except Exception as e:
+        return {
+            "status": "Error",
+            "error": str(e)
+        }
+
+
 def init_api(
     message_broker: MessageBroker,
     config_manager: ConfigManager
@@ -84,4 +109,4 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8001,  # Different port than Process API
         reload=True
-    ) 
+    )

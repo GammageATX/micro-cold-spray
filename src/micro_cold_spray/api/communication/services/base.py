@@ -1,6 +1,5 @@
 from typing import Any, Dict
 from loguru import logger
-from ....core.infrastructure.config.config_manager import ConfigManager
 
 
 class BaseService:

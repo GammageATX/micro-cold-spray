@@ -7,8 +7,6 @@ from typing import Any, Dict
 import paramiko
 from loguru import logger
 
-from ...exceptions import HardwareError
-
 
 class SSHClient:
     """Client for SSH communication with feeder controllers."""

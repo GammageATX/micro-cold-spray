@@ -4,10 +4,6 @@ import logging
 from datetime import datetime
 from typing import Any, Dict
 
-from ....core.exceptions import HardwareError
-from ...infrastructure.config.config_manager import ConfigManager
-from ...infrastructure.messaging.message_broker import MessageBroker
-from ..validation.hardware_validator import HardwareValidator
 from fastapi import APIRouter, HTTPException, Depends
 
 logger = logging.getLogger(__name__)

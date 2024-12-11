@@ -23,11 +23,10 @@
 
 <script>
 // WebSocket for state updates
-const ws = new WebSocket(`${API_URLS.state}/ws/monitor`);
-ws.onmessage = (event) => {
+const ws = connectWebSocket(`${API_URLS.state}/ws/monitor`, (event) => {
     const data = JSON.parse(event.data);
     updateState(data);
-};
+});
 
 function updateState(data) {
     // Update current state

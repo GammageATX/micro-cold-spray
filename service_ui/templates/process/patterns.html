@@ -69,5 +69,21 @@ document.getElementById('pattern-form').onsubmit = async (e) => {
         showError(error.detail || 'Failed to save pattern');
     }
 };
+
+async function loadConfig() {
+    const configType = document.getElementById('config-select').value;
+    const editor = document.getElementById('config-editor');
+    try {
+        editor.disabled = true;
+        const response = await fetch(`${API_URLS.config}/${configType}`);
+        if (!response.ok) throw await response.json();
+        const config = await response.json();
+        editor.value = JSON.stringify(config, null, 2);
+    } catch (error) {
+        showError('Failed to load config');
+    } finally {
+        editor.disabled = false;
+    }
+}
 </script>
 {% endblock %}

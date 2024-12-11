@@ -2,7 +2,6 @@
 import asyncio
 from typing import Any, Dict
 from loguru import logger
-from ...exceptions import HardwareError
 
 
 class MockPLCClient:

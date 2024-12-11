@@ -62,11 +62,10 @@ async function controlSequence(action) {
 loadSequences();
 
 // WebSocket for status updates
-const ws = new WebSocket(`${API_URLS.process}/ws/sequence/status`);
-ws.onmessage = (event) => {
+const ws = connectWebSocket(`${API_URLS.process}/ws/sequence/status`, (event) => {
     const status = JSON.parse(event.data);
     updateStatus(status);
-};
+});
 
 function updateStatus(status) {
     const container = document.getElementById('sequence-status');

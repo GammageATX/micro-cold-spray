@@ -38,12 +38,23 @@ app.include_router(
     tags=["state"]
 )
 
+
 # Health check
 @app.get("/health")
 async def health_check():
-    """Check if the API is running."""
-    return {
-        "status": "ok",
-        "service": "state",
-        "version": "1.0.0"
-    } 
+    """Check API health."""
+    try:
+        if state_service is None:
+            return {
+                "status": "Error",
+                "error": "Service not initialized"
+            }
+        return {
+            "status": "Running",
+            "error": None
+        }
+    except Exception as e:
+        return {
+            "status": "Error",
+            "error": str(e)
+        }

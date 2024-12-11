@@ -43,11 +43,10 @@ document.getElementById('write-tag-form').onsubmit = async (e) => {
 };
 
 // WebSocket for tag updates
-const ws = new WebSocket(`${API_URLS.communication}/ws/tags`);
-ws.onmessage = (event) => {
+const ws = connectWebSocket(`${API_URLS.communication}/ws/tags`, (event) => {
     const data = JSON.parse(event.data);
     updateTagValues(data);
-};
+});
 
 function updateTagValues(data) {
     const container = document.getElementById('tag-values');
