@@ -9,7 +9,9 @@ import yaml
 import uuid
 
 from ..base import BaseService
-from ..data_collection.service import DataCollectionService, DataCollectionError
+from ..config import ConfigService
+from ..messaging import MessagingService
+from ..data_collection import DataCollectionService, DataCollectionError
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +26,19 @@ class ProcessService(BaseService):
     
     def __init__(
         self,
-        data_collection_service: DataCollectionService,
+        config_service: ConfigService,
+        message_broker: MessagingService,
+        data_collection_service: DataCollectionService
     ):
-        super().__init__(service_name="process")
+        """Initialize process service.
+        
+        Args:
+            config_service: Configuration service
+            message_broker: Message broker service
+            data_collection_service: Data collection service
+        """
+        super().__init__(service_name="process", config_service=config_service)
+        self._message_broker = message_broker
         self._data_collection = data_collection_service
         
         # Process state
@@ -37,7 +49,201 @@ class ProcessService(BaseService):
         # Configuration
         self._data_path: Optional[Path] = None
         self._config: Dict[str, Any] = {}
+        self._action_groups: Dict[str, Dict[str, Any]] = {}
         
+    async def _start(self) -> None:
+        """Initialize process service."""
+        try:
+            # Load configuration
+            config = await self._config_service.get_config("process")
+            self._config = config.get("process", {})
+            
+            # Load action groups
+            self._action_groups = self._config.get("action_groups", {})
+            
+            # Load application config for paths
+            app_config = await self._config_service.get_config("application")
+            paths = app_config.get("application", {}).get("paths", {})
+            
+            # Set data paths
+            root_path = Path(paths.get("data", {}).get("root", "data"))
+            self._data_path = root_path
+            
+            # Subscribe to state changes
+            await self._message_broker.subscribe(
+                "state/changed",
+                self._handle_state_change
+            )
+            
+            logger.info("Process service started")
+            
+        except Exception as e:
+            error_context = {
+                "source": "process_service",
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            }
+            logger.error("Failed to start process service", extra=error_context)
+            raise ProcessError("Failed to start process service", error_context)
+
+    async def define_action_group(self, group_data: Dict[str, Any]) -> None:
+        """Define a new action group.
+        
+        Args:
+            group_data: Action group definition containing:
+                - name: Group name
+                - actions: List of actions
+                - parameters: Optional parameters
+                
+        Raises:
+            ProcessError: If action group cannot be defined
+        """
+        try:
+            # Validate group data
+            if "name" not in group_data:
+                raise ProcessError("Missing action group name")
+            if "actions" not in group_data:
+                raise ProcessError("Missing action group actions")
+                
+            # Register group
+            group_name = group_data["name"]
+            self._action_groups[group_name] = {
+                "actions": group_data["actions"],
+                "parameters": group_data.get("parameters", {})
+            }
+            
+            logger.info(f"Defined action group: {group_name}")
+            
+        except Exception as e:
+            error_context = {
+                "group_data": group_data,
+                "error": str(e)
+            }
+            logger.error("Failed to define action group", extra=error_context)
+            raise ProcessError("Failed to define action group", error_context)
+
+    async def execute_action_group(self, group_name: str, parameters: Dict[str, Any]) -> None:
+        """Execute an action group.
+        
+        Args:
+            group_name: Name of action group to execute
+            parameters: Parameters for action group
+            
+        Raises:
+            ProcessError: If action group cannot be executed
+        """
+        try:
+            # Validate group exists
+            if group_name not in self._action_groups:
+                raise ProcessError(f"Action group not found: {group_name}")
+                
+            group = self._action_groups[group_name]
+            
+            # Execute each action in group
+            for action in group["actions"]:
+                action_name = action["name"]
+                action_params = {**group["parameters"], **parameters, **action.get("parameters", {})}
+                
+                await self._execute_action(action_name, action_params)
+                
+                # Handle delays between actions
+                if "delay" in action:
+                    await asyncio.sleep(action["delay"])
+                    
+            logger.info(f"Executed action group: {group_name}")
+            
+        except Exception as e:
+            error_context = {
+                "group_name": group_name,
+                "parameters": parameters,
+                "error": str(e)
+            }
+            logger.error("Failed to execute action group", extra=error_context)
+            raise ProcessError("Failed to execute action group", error_context)
+
+    async def _execute_step(self, step: Dict[str, Any]) -> None:
+        """Execute a sequence step.
+        
+        Args:
+            step: Step data to execute
+            
+        Raises:
+            ProcessError: If step execution fails
+        """
+        try:
+            # Execute pattern if present
+            if "pattern" in step:
+                await self._execute_pattern(step["pattern"], step.get("parameters", {}))
+                
+            # Apply parameters if present
+            if "parameters" in step:
+                await self._apply_parameters(step["parameters"])
+                
+            # Execute action if present
+            if "action" in step:
+                await self._execute_action(step["action"], step.get("parameters", {}))
+                
+            # Execute action group if present
+            if "action_group" in step:
+                await self.execute_action_group(step["action_group"], step.get("parameters", {}))
+                
+            # Log step completion
+            await self._message_broker.publish(
+                "sequence/step",
+                {
+                    "sequence_id": self._active_sequence,
+                    "step": self._sequence_step,
+                    "status": "completed",
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+            
+            # Move to next step
+            self._sequence_step += 1
+            
+        except Exception as e:
+            error_context = {
+                "step": step,
+                "error": str(e)
+            }
+            logger.error("Step execution failed", extra=error_context)
+            raise ProcessError("Step execution failed", error_context)
+
+    async def _validate_step(self, step: Dict[str, Any]) -> None:
+        """Validate a sequence step.
+        
+        Args:
+            step: Step data to validate
+            
+        Raises:
+            ProcessError: If step validation fails
+        """
+        try:
+            # Check step has valid action
+            if not any(key in step for key in ["pattern", "parameters", "action", "action_group"]):
+                raise ProcessError("Step missing valid action")
+                
+            # Validate pattern if present
+            if "pattern" in step:
+                await self._validate_pattern_exists(step["pattern"])
+                
+            # Validate parameters if present
+            if "parameters" in step:
+                await self._validate_parameters_exist(step["parameters"])
+                
+            # Validate action group if present
+            if "action_group" in step:
+                if step["action_group"] not in self._action_groups:
+                    raise ProcessError(f"Action group not found: {step['action_group']}")
+                
+        except Exception as e:
+            error_context = {
+                "step": step,
+                "error": str(e)
+            }
+            logger.error("Step validation failed", extra=error_context)
+            raise ProcessError("Step validation failed", error_context)
+
     async def start(self) -> None:
         """Start the process service."""
         await super().start()
@@ -316,22 +522,6 @@ class ProcessService(BaseService):
             
         except Exception as e:
             raise ProcessError("Failed to create sequence", {"error": str(e)})
-
-    async def define_action_group(self, group_data: Dict[str, Any]) -> None:
-        """Define a new action group."""
-        try:
-            # Validate action group structure
-            await self._validate_action_group(group_data)
-            
-            # Register with action manager
-            await self._action_manager.register_group(
-                group_data["name"],
-                group_data["actions"],
-                group_data.get("parameters", {})
-            )
-            
-        except Exception as e:
-            raise ProcessError("Failed to define action group", {"error": str(e)})
 
     async def create_parameter_set(self, parameter_data: Dict[str, Any]) -> str:
         """Create a new parameter set file."""

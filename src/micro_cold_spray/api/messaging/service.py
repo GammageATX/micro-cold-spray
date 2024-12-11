@@ -1,144 +1,268 @@
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Callable, Set
+"""Messaging service for pub/sub operations."""
+
+from typing import Any, Dict, Optional, Callable, Set
 import asyncio
 from loguru import logger
-import uuid
 from collections import defaultdict
 
 from ..base import BaseService
+from ..config import ConfigService
+
 
 class MessagingError(Exception):
+    """Raised when messaging operations fail."""
+    
     def __init__(self, message: str, context: Dict[str, Any] | None = None):
         super().__init__(message)
         self.context = context if context is not None else {}
 
+
+class MessageHandler:
+    """Handler for subscribed messages."""
+    
+    def __init__(self, callback: Callable[[Dict[str, Any]], None]):
+        """Initialize message handler.
+        
+        Args:
+            callback: Function to call with message data
+        """
+        self.callback = callback
+        self.queue: asyncio.Queue = asyncio.Queue()
+        self.task: Optional[asyncio.Task] = None
+
+
 class MessagingService(BaseService):
     """Service for handling pub/sub messaging."""
-
-    def __init__(self):
-        super().__init__(service_name="messaging")
+    
+    def __init__(self, config_service: ConfigService):
+        """Initialize messaging service.
+        
+        Args:
+            config_service: Configuration service
+        """
+        super().__init__(service_name="messaging", config_service=config_service)
         self._valid_topics: Set[str] = set()
         self._subscribers: Dict[str, Set[MessageHandler]] = defaultdict(set)
         self._message_queue: asyncio.Queue = asyncio.Queue()
         self._running = False
         self._shutdown_event = asyncio.Event()
-        self._processing_task: Optional[asyncio.Task] = None
-
-        # Default topics from message_broker.py
-        self._default_topics = {
-            "tag/request", "tag/response", "tag/update",
-            "config/request", "config/response", "config/update",
-            "state/request", "state/response", "state/change",
-            "sequence/request", "sequence/response", "sequence/state",
-            # ... (copy all default topics)
-        }
-
-    async def start(self) -> None:
+        
+    async def _start(self) -> None:
         """Initialize messaging service."""
-        await super().start()
         try:
-            # Start with default topics
-            await self.set_valid_topics(self._default_topics)
+            # Load valid topics from config
+            config = await self._config_service.get_config("messaging")
+            self._valid_topics = set(config.get("messaging", {}).get("valid_topics", []))
             
             # Start message processing
             self._running = True
-            self._shutdown_event.clear()
-            self._processing_task = asyncio.create_task(self._process_messages())
+            asyncio.create_task(self._process_messages())
             
             logger.info("Messaging service started")
             
         except Exception as e:
-            raise MessagingError(f"Failed to start: {str(e)}")
-
-    async def set_valid_topics(self, topics: Set[str]) -> None:
-        """Set valid topics."""
+            error_context = {
+                "source": "messaging_service",
+                "error": str(e)
+            }
+            logger.error("Failed to start messaging service", extra=error_context)
+            raise MessagingError("Failed to start messaging service", error_context)
+            
+    async def publish(self, topic: str, data: Dict[str, Any]) -> None:
+        """Publish message to topic.
+        
+        Args:
+            topic: Topic to publish to
+            data: Message data
+            
+        Raises:
+            MessagingError: If message cannot be published
+        """
         try:
-            if not topics:
-                raise MessagingError("Topics set cannot be empty")
+            # Validate topic
+            if topic not in self._valid_topics:
+                raise MessagingError(f"Invalid topic: {topic}")
                 
-            self._valid_topics = topics
-            # Initialize subscriber sets
-            for topic in topics:
-                if topic not in self._subscribers:
-                    self._subscribers[topic] = set()
-                    
+            # Add message to queue
+            await self._message_queue.put((topic, data))
+            
+            logger.debug(f"Published message to {topic}")
+            
         except Exception as e:
-            raise MessagingError(f"Failed to set topics: {str(e)}")
-
+            error_context = {
+                "topic": topic,
+                "data": data,
+                "error": str(e)
+            }
+            logger.error("Failed to publish message", extra=error_context)
+            raise MessagingError("Failed to publish message", error_context)
+            
+    async def subscribe(self, topic: str, callback: Callable[[Dict[str, Any]], None]) -> None:
+        """Subscribe to topic.
+        
+        Args:
+            topic: Topic to subscribe to
+            callback: Function to call with message data
+            
+        Raises:
+            MessagingError: If subscription fails
+        """
+        try:
+            # Validate topic
+            if topic not in self._valid_topics:
+                raise MessagingError(f"Invalid topic: {topic}")
+                
+            # Create handler
+            handler = MessageHandler(callback)
+            handler.task = asyncio.create_task(self._handle_messages(handler))
+            
+            # Add to subscribers
+            self._subscribers[topic].add(handler)
+            
+            logger.debug(f"Subscribed to {topic}")
+            
+        except Exception as e:
+            error_context = {
+                "topic": topic,
+                "error": str(e)
+            }
+            logger.error("Failed to subscribe", extra=error_context)
+            raise MessagingError("Failed to subscribe", error_context)
+            
+    async def request(self, topic: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Send request and get response.
+        
+        Args:
+            topic: Topic to send request to
+            data: Request data
+            
+        Returns:
+            Response data
+            
+        Raises:
+            MessagingError: If request fails
+        """
+        try:
+            # Create response queue
+            response_queue: asyncio.Queue = asyncio.Queue()
+            
+            # Subscribe to response
+            response_topic = f"{topic}/response"
+            await self.subscribe(response_topic, lambda resp: response_queue.put_nowait(resp))
+            
+            # Send request
+            await self.publish(topic, data)
+            
+            # Wait for response
+            try:
+                response = await asyncio.wait_for(response_queue.get(), timeout=5.0)
+                return response
+            except asyncio.TimeoutError:
+                raise MessagingError("Request timed out")
+                
+        except Exception as e:
+            error_context = {
+                "topic": topic,
+                "data": data,
+                "error": str(e)
+            }
+            logger.error("Failed to send request", extra=error_context)
+            raise MessagingError("Failed to send request", error_context)
+            
+    async def get_topics(self) -> Set[str]:
+        """Get list of valid topics.
+        
+        Returns:
+            Set of valid topics
+            
+        Raises:
+            MessagingError: If topics cannot be retrieved
+        """
+        return self._valid_topics
+        
+    async def set_valid_topics(self, topics: Set[str]) -> None:
+        """Set valid topics.
+        
+        Args:
+            topics: Set of valid topics
+            
+        Raises:
+            MessagingError: If topics cannot be set
+        """
+        try:
+            self._valid_topics = topics
+            logger.info(f"Updated valid topics: {topics}")
+            
+        except Exception as e:
+            error_context = {
+                "topics": topics,
+                "error": str(e)
+            }
+            logger.error("Failed to set topics", extra=error_context)
+            raise MessagingError("Failed to set topics", error_context)
+            
+    async def get_subscriber_count(self, topic: str) -> int:
+        """Get number of subscribers for topic.
+        
+        Args:
+            topic: Topic to get subscribers for
+            
+        Returns:
+            Number of subscribers
+            
+        Raises:
+            MessagingError: If subscriber count cannot be retrieved
+        """
+        try:
+            return len(self._subscribers[topic])
+            
+        except Exception as e:
+            error_context = {
+                "topic": topic,
+                "error": str(e)
+            }
+            logger.error("Failed to get subscriber count", extra=error_context)
+            raise MessagingError("Failed to get subscriber count", error_context)
+            
     async def _process_messages(self) -> None:
         """Process messages from queue."""
-        try:
-            while self._running and not self._shutdown_event.is_set():
-                try:
-                    topic, message = await asyncio.wait_for(
-                        self._message_queue.get(),
-                        timeout=0.1
-                    )
-                    await self._deliver_message(topic, message)
-                    self._message_queue.task_done()
-                except asyncio.TimeoutError:
-                    continue
-                except Exception as e:
-                    logger.error(f"Error processing message: {e}")
-        except asyncio.CancelledError:
-            logger.debug("Message processing cancelled")
-        finally:
-            self._running = False
-
-    async def _deliver_message(self, topic: str, data: Dict[str, Any]) -> None:
-        """Deliver message to subscribers."""
-        if not self._subscribers[topic]:
-            return
-
-        tasks = []
-        for handler in self._subscribers[topic]:
-            task = asyncio.create_task(handler(data))
-            tasks.append(task)
-
-        if tasks:
+        while self._running:
             try:
-                await asyncio.wait_for(
-                    asyncio.gather(*tasks, return_exceptions=True),
-                    timeout=1.0
-                )
-            except asyncio.TimeoutError:
-                logger.error(f"Message delivery timeout: {topic}")
-                for task in tasks:
-                    if not task.done():
-                        task.cancel()
-            except Exception as e:
-                logger.error(f"Error delivering message: {e}") 
-
-    async def get_queue_size(self) -> int:
-        """Get current message queue size."""
-        return self._message_queue.qsize()
-
-    async def clear_queue(self) -> None:
-        """Clear message queue."""
-        try:
-            while True:
-                self._message_queue.get_nowait()
+                # Get next message
+                topic, data = await self._message_queue.get()
+                
+                # Deliver to subscribers
+                for handler in self._subscribers[topic]:
+                    await handler.queue.put(data)
+                    
                 self._message_queue.task_done()
-        except asyncio.QueueEmpty:
-            pass
-
-    async def stop(self) -> None:
-        """Stop messaging service."""
-        try:
-            self._running = False
-            self._shutdown_event.set()
-            
-            if self._processing_task:
-                self._processing_task.cancel()
-                try:
-                    await self._processing_task
-                except asyncio.CancelledError:
-                    pass
-            
-            await self.clear_queue()
-            self._subscribers.clear()
-            
-            logger.info("Messaging service stopped")
-            
-        except Exception as e:
-            raise MessagingError(f"Failed to stop: {str(e)}") 
+                
+            except Exception as e:
+                logger.error(f"Error processing message: {e}")
+                
+            # Check for shutdown
+            if self._shutdown_event.is_set():
+                break
+                
+    async def _handle_messages(self, handler: MessageHandler) -> None:
+        """Handle messages for subscriber.
+        
+        Args:
+            handler: Message handler
+        """
+        while self._running:
+            try:
+                # Get next message
+                data = await handler.queue.get()
+                
+                # Call callback
+                await handler.callback(data)
+                
+                handler.queue.task_done()
+                
+            except Exception as e:
+                logger.error(f"Error handling message: {e}")
+                
+            # Check for shutdown
+            if self._shutdown_event.is_set():
+                break

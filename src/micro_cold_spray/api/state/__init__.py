@@ -1,10 +1,11 @@
-"""State management API module."""
+"""State management API package."""
 
-from .service import StateService
+from .service import StateService, StateTransitionError
 from .router import router, init_router
 
 __all__ = [
-    'StateService',
-    'router',
-    'init_router'
+    "StateService",
+    "StateTransitionError",
+    "router",
+    "init_router"
 ] 

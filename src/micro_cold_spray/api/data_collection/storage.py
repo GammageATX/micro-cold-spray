@@ -1,137 +1,161 @@
-"""Storage implementations for data collection."""
+"""Database storage implementation for spray events."""
 
 import logging
-from typing import List, Optional, Dict, Any
+from typing import List, Protocol
 from datetime import datetime
-from abc import ABC, abstractmethod
-from pathlib import Path
+import asyncpg
 
 logger = logging.getLogger(__name__)
 
 
-class SprayDataStorage(ABC):
-    """Abstract base class for spray data storage implementations."""
+class DataStorage(Protocol):
+    """Protocol for data storage implementations."""
     
-    @abstractmethod
+    async def initialize(self) -> None:
+        """Initialize storage (create tables etc)."""
+        ...
+    
     async def save_spray_event(self, event: "SprayEvent") -> None:
         """Save a spray event."""
-        pass
+        ...
     
-    @abstractmethod
     async def update_spray_event(self, event: "SprayEvent") -> None:
         """Update an existing spray event."""
-        pass
+        ...
     
-    @abstractmethod
     async def get_spray_events(self, sequence_id: str) -> List["SprayEvent"]:
         """Get all spray events for a sequence."""
-        pass
+        ...
 
 
-class CSVSprayStorage(SprayDataStorage):
-    """CSV implementation of spray data storage."""
-    
-    def __init__(self, file_path: Path):
-        self.file_path = file_path
-        self._ensure_file_exists()
-    
-    def _ensure_file_exists(self) -> None:
-        """Ensure CSV file exists with headers."""
-        if not self.file_path.exists():
-            headers = [
-                "spray_index", "sequence_file", "material_type", "pattern_name",
-                "start_time", "end_time", "chamber_pressure_start", "chamber_pressure_end",
-                "nozzle_pressure_start", "nozzle_pressure_end", "main_flow",
-                "feeder_flow", "feeder_frequency", "pattern_type", "completed", "error"
-            ]
-            self.file_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.file_path, 'w') as f:
-                f.write(','.join(headers) + '\n')
-    
-    async def save_spray_event(self, event: "SprayEvent") -> None:
-        """Save a spray event to CSV."""
-        with open(self.file_path, 'a') as f:
-            f.write(self._format_event(event) + '\n')
-    
-    async def update_spray_event(self, event: "SprayEvent") -> None:
-        """Update an existing spray event in CSV."""
-        # For CSV, we'll append a new line - in a real DB we'd update
-        await self.save_spray_event(event)
-    
-    async def get_spray_events(self, sequence_id: str) -> List["SprayEvent"]:
-        """Get all spray events for a sequence from CSV."""
-        from .service import SprayEvent  # Import here to avoid circular dependency
-        events = []
-        with open(self.file_path, 'r') as f:
-            # Skip header
-            next(f)
-            for line in f:
-                event = self._parse_event(line)
-                if event.sequence_id == sequence_id:
-                    events.append(event)
-        return events
-    
-    def _format_event(self, event: "SprayEvent") -> str:
-        """Format spray event as CSV line."""
-        return ','.join([
-            str(event.spray_index),
-            event.sequence_id,
-            event.material_type,
-            event.pattern_name,
-            event.start_time.isoformat(),
-            event.end_time.isoformat() if event.end_time else '',
-            str(event.chamber_pressure_start or ''),
-            str(event.chamber_pressure_end or ''),
-            str(event.nozzle_pressure_start or ''),
-            str(event.nozzle_pressure_end or ''),
-            str(event.main_flow or ''),
-            str(event.feeder_flow or ''),
-            str(event.feeder_frequency or ''),
-            str(event.pattern_type or ''),
-            str(event.completed).upper(),
-            str(event.error or '')
-        ])
-    
-    def _parse_event(self, line: str) -> "SprayEvent":
-        """Parse CSV line into spray event."""
-        from .service import SprayEvent  # Import here to avoid circular dependency
-        parts = line.strip().split(',')
-        return SprayEvent(
-            spray_index=int(parts[0]),
-            sequence_id=parts[1],
-            material_type=parts[2],
-            pattern_name=parts[3],
-            start_time=datetime.fromisoformat(parts[4]),
-            end_time=datetime.fromisoformat(parts[5]) if parts[5] else None,
-            chamber_pressure_start=float(parts[6]) if parts[6] else None,
-            chamber_pressure_end=float(parts[7]) if parts[7] else None,
-            nozzle_pressure_start=float(parts[8]) if parts[8] else None,
-            nozzle_pressure_end=float(parts[9]) if parts[9] else None,
-            main_flow=float(parts[10]) if parts[10] else None,
-            feeder_flow=float(parts[11]) if parts[11] else None,
-            feeder_frequency=float(parts[12]) if parts[12] else None,
-            pattern_type=parts[13] if parts[13] else None,
-            completed=parts[14].upper() == 'TRUE',
-            error=parts[15] if parts[15] else None
-        )
-
-
-class TimescaleDBStorage(SprayDataStorage):
-    """TimescaleDB implementation of spray data storage."""
+class DatabaseStorage:
+    """PostgreSQL/TimescaleDB storage implementation."""
     
     def __init__(self, dsn: str):
-        """Initialize TimescaleDB storage."""
+        """Initialize with database connection string."""
         self._dsn = dsn
-        
+        self._pool: asyncpg.Pool = None
+        logger.info("Initialized database storage")
+
+    async def initialize(self) -> None:
+        """Initialize database connection pool and tables."""
+        try:
+            self._pool = await asyncpg.create_pool(self._dsn)
+            
+            # Create tables if they don't exist
+            async with self._pool.acquire() as conn:
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS spray_events (
+                        id SERIAL PRIMARY KEY,
+                        sequence_id TEXT NOT NULL,
+                        spray_index INTEGER NOT NULL,
+                        timestamp TIMESTAMPTZ NOT NULL,
+                        x_pos FLOAT NOT NULL,
+                        y_pos FLOAT NOT NULL,
+                        z_pos FLOAT NOT NULL,
+                        pressure FLOAT NOT NULL,
+                        temperature FLOAT NOT NULL,
+                        flow_rate FLOAT NOT NULL,
+                        status TEXT NOT NULL,
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(sequence_id, spray_index)
+                    );
+                    
+                    -- Create TimescaleDB hypertable
+                    SELECT create_hypertable('spray_events', 'timestamp', 
+                        if_not_exists => TRUE);
+                    
+                    -- Create index on sequence_id for faster lookups
+                    CREATE INDEX IF NOT EXISTS idx_spray_events_sequence_id 
+                        ON spray_events(sequence_id);
+                """)
+            logger.info("Database initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize database: {str(e)}")
+            raise
+    
     async def save_spray_event(self, event: "SprayEvent") -> None:
-        """Save a spray event."""
-        logger.info(f"Saving spray event {event.spray_index} for sequence {event.sequence_id}")
+        """Save spray event to database."""
+        if not self._pool:
+            raise RuntimeError("Database not initialized")
             
+        try:
+            async with self._pool.acquire() as conn:
+                await conn.execute("""
+                    INSERT INTO spray_events (
+                        sequence_id, spray_index, timestamp,
+                        x_pos, y_pos, z_pos,
+                        pressure, temperature, flow_rate,
+                        status
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                """, event.sequence_id, event.spray_index, event.timestamp,
+                     event.x_pos, event.y_pos, event.z_pos,
+                     event.pressure, event.temperature, event.flow_rate,
+                     event.status)
+                logger.debug(f"Saved spray event {event.spray_index} to database")
+        except asyncpg.UniqueViolationError:
+            logger.warning(f"Spray event already exists: {event.sequence_id}/{event.spray_index}")
+            await self.update_spray_event(event)
+        except Exception as e:
+            logger.error(f"Failed to save spray event: {str(e)}")
+            raise
+    
     async def update_spray_event(self, event: "SprayEvent") -> None:
-        """Update an existing spray event."""
-        logger.info(f"Updating spray event {event.spray_index} for sequence {event.sequence_id}")
+        """Update spray event in database."""
+        if not self._pool:
+            raise RuntimeError("Database not initialized")
             
+        try:
+            async with self._pool.acquire() as conn:
+                await conn.execute("""
+                    UPDATE spray_events SET
+                        timestamp = $3,
+                        x_pos = $4,
+                        y_pos = $5,
+                        z_pos = $6,
+                        pressure = $7,
+                        temperature = $8,
+                        flow_rate = $9,
+                        status = $10
+                    WHERE sequence_id = $1 AND spray_index = $2
+                """, event.sequence_id, event.spray_index, event.timestamp,
+                     event.x_pos, event.y_pos, event.z_pos,
+                     event.pressure, event.temperature, event.flow_rate,
+                     event.status)
+                logger.debug(f"Updated spray event {event.spray_index} in database")
+        except Exception as e:
+            logger.error(f"Failed to update spray event: {str(e)}")
+            raise
+    
     async def get_spray_events(self, sequence_id: str) -> List["SprayEvent"]:
-        """Get all spray events for a sequence."""
-        logger.info(f"Getting spray events for sequence {sequence_id}")
-        return [] 
+        """Get spray events from database."""
+        if not self._pool:
+            raise RuntimeError("Database not initialized")
+            
+        try:
+            from .service import SprayEvent
+            async with self._pool.acquire() as conn:
+                rows = await conn.fetch("""
+                    SELECT * FROM spray_events 
+                    WHERE sequence_id = $1
+                    ORDER BY spray_index ASC
+                """, sequence_id)
+                
+                return [
+                    SprayEvent(
+                        sequence_id=row['sequence_id'],
+                        spray_index=row['spray_index'],
+                        timestamp=row['timestamp'],
+                        x_pos=row['x_pos'],
+                        y_pos=row['y_pos'],
+                        z_pos=row['z_pos'],
+                        pressure=row['pressure'],
+                        temperature=row['temperature'],
+                        flow_rate=row['flow_rate'],
+                        status=row['status']
+                    )
+                    for row in rows
+                ]
+        except Exception as e:
+            logger.error(f"Failed to get spray events: {str(e)}")
+            raise
