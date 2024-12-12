@@ -11,7 +11,11 @@ class MockPLCClient(CommunicationClient):
     """Mock PLC client for testing."""
 
     def __init__(self, config: Dict[str, Any]):
-        """Initialize mock PLC client."""
+        """Initialize mock PLC client.
+        
+        Args:
+            config: Configuration dict (can be empty for mock clients)
+        """
         super().__init__("mock_plc", config)
         self._tag_values: Dict[str, Any] = {}
         logger.info("MockPLCClient initialized")

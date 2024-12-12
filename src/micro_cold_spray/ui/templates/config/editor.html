@@ -6,9 +6,7 @@
     <div class="control-group">
         <h3>Config Type</h3>
         <select id="config-type" onchange="loadConfig()">
-            <option value="hardware">Hardware Configuration</option>
-            <option value="process">Process Configuration</option>
-            <option value="system">System Configuration</option>
+            <!-- Config types loaded dynamically -->
         </select>
     </div>
 
@@ -24,17 +22,33 @@
 </div>
 
 <script>
+async function loadConfigTypes() {
+    try {
+        const response = await fetch(`${API_URLS.config}/config/types`);
+        if (!response.ok) throw await response.json();
+        const types = await response.json();
+        const select = document.getElementById('config-type');
+        select.innerHTML = types.map(type => 
+            `<option value="${type.id}">${type.name}</option>`
+        ).join('');
+        await loadConfig();
+    } catch (error) {
+        showError(error.detail?.error || error.detail || 'Failed to load config types');
+    }
+}
+
 async function loadConfig() {
     const configType = document.getElementById('config-type').value;
     const editor = document.getElementById('config-editor');
     try {
         editor.disabled = true;
-        const response = await fetch(`${API_URLS.config}/file/${configType}`);
+        const response = await fetch(`${API_URLS.config}/config/${configType}`);
         if (!response.ok) throw await response.json();
         const config = await response.json();
-        editor.value = JSON.stringify(config, null, 2);
+        editor.value = JSON.stringify(config.config, null, 2);
     } catch (error) {
-        showError(error.detail || 'Failed to load configuration');
+        showError(error.detail?.error || error.detail || 'Failed to load configuration');
+        editor.value = '{}';  // Set empty object on error
     } finally {
         editor.disabled = false;
     }
@@ -45,46 +59,42 @@ async function saveToFile() {
     const editor = document.getElementById('config-editor');
     try {
         const config = JSON.parse(editor.value);
-        const response = await fetch(`${API_URLS.config}/file/${configType}`, {
+        const response = await fetch(`${API_URLS.config}/config/${configType}`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(config)
         });
         if (!response.ok) throw await response.json();
-        showSuccess('Configuration saved to file');
+        showSuccess('Configuration saved successfully');
     } catch (error) {
-        showError(error.detail || 'Failed to save configuration');
+        showError(error.detail?.error || error.detail || 'Failed to save configuration');
     }
 }
 
 async function reloadFromFile() {
     const configType = document.getElementById('config-type').value;
     try {
-        const response = await fetch(`${API_URLS.config}/file/${configType}/reload`, {
-            method: 'POST'
-        });
-        if (!response.ok) throw await response.json();
         await loadConfig();
-        showSuccess('Configuration reloaded from file');
+        showSuccess('Configuration reloaded successfully');
     } catch (error) {
-        showError(error.detail || 'Failed to reload configuration');
+        showError(error.detail?.error || error.detail || 'Failed to reload configuration');
     }
 }
 
 async function clearCache() {
-    const configType = document.getElementById('config-type').value;
     try {
-        const response = await fetch(`${API_URLS.config}/cache/${configType}/clear`, {
+        const response = await fetch(`${API_URLS.config}/config/cache/clear`, {
             method: 'POST'
         });
         if (!response.ok) throw await response.json();
         showSuccess('Cache cleared successfully');
+        await loadConfig();
     } catch (error) {
-        showError(error.detail || 'Failed to clear cache');
+        showError(error.detail?.error || error.detail || 'Failed to clear cache');
     }
 }
 
-// Load initial config
-loadConfig();
+// Load config types and initial config
+loadConfigTypes();
 </script>
 {% endblock %}

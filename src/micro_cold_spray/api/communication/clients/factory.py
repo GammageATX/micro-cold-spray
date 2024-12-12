@@ -8,6 +8,7 @@ from .base import CommunicationClient
 from .plc import PLCClient
 from .ssh import SSHClient
 from .mock import MockPLCClient, MockSSHClient
+from micro_cold_spray.api.base.exceptions import ConfigurationError
 
 # Type aliases to shorten return type hints
 PLCClientType: TypeAlias = Union[PLCClient, MockPLCClient]
@@ -26,32 +27,47 @@ def create_plc_client(config: Dict[str, Any], use_mock: bool = False) -> PLCClie
     """
     if use_mock:
         logger.info("Creating mock PLC client")
-        return MockPLCClient({})  # Mock client doesn't need config
-    else:
-        logger.info("Creating real PLC client")
-        if not config or 'hardware' not in config:
-            raise ValueError("Missing hardware configuration")
-        return PLCClient(config)
+        return MockPLCClient({})
+        
+    logger.debug(f"Creating real PLC client with config: {config}")
+    
+    if not config:
+        raise ConfigurationError(
+            "Missing hardware configuration",
+            "plc"
+        )
+        
+    required_fields = ["ip", "tag_file", "polling_interval"]
+    missing_fields = [field for field in required_fields if field not in config]
+    
+    if missing_fields:
+        raise ConfigurationError(
+            f"Missing required PLC config fields: {missing_fields}",
+            "plc",
+            {"missing_fields": missing_fields}
+        )
+        
+    return PLCClient(config)
 
 
 def create_ssh_client(config: Dict[str, Any], use_mock: bool = False) -> SSHClientType:
-    """Create SSH client instance.
-
-    Args:
-        config: Hardware configuration dictionary
-        use_mock: Whether to create a mock client
-
-    Returns:
-        SSHClient or MockSSHClient instance
-    """
+    """Create SSH client instance."""
     if use_mock:
         logger.info("Creating mock SSH client")
         return MockSSHClient({})  # Mock client doesn't need config
-    else:
-        logger.info("Creating real SSH client")
-        if not config or 'hardware' not in config:
-            raise ValueError("Missing hardware configuration")
-        return SSHClient(config)
+        
+    logger.debug(f"Creating real SSH client with config: {config}")
+    
+    if not config:
+        raise ValueError("Missing hardware configuration")
+        
+    required_fields = ["host", "username"]
+    missing_fields = [field for field in required_fields if field not in config]
+    
+    if missing_fields:
+        raise ValueError(f"Missing required SSH config fields: {missing_fields}")
+        
+    return SSHClient(config)
 
 
 def create_client(

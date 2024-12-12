@@ -43,12 +43,23 @@ class CommunicationService(ConfigurableService):
         """Start communication service."""
         try:
             # Load hardware config
-            config = await self._config_service.get_config("hardware")
-            await self.configure(config)
+            config_data = await self._config_service.get_config("hardware")
+            logger.debug(f"Loaded hardware config: {config_data.data.keys()}")
+            
+            if not config_data or not config_data.data:
+                raise HardwareError("Hardware configuration is empty", device="config")
+            
+            config = config_data.data
+            logger.debug(f"Network config keys: {config.get('network', {}).keys()}")
+            logger.debug(f"PLC config: {config.get('network', {}).get('plc', {})}")
             
             # Initialize with config
-            plc_config = config.get("network", {}).get("plc", {})
-            ssh_config = config.get("network", {}).get("ssh", {})
+            network_config = config.get("network", {})
+            plc_config = network_config.get("plc", {})
+            ssh_config = network_config.get("ssh", {})
+            
+            if not plc_config:
+                raise HardwareError("PLC configuration missing", device="plc")
             
             try:
                 self._plc_client = create_plc_client(plc_config)

@@ -17,7 +17,8 @@ class SSHClient(CommunicationClient):
         """Initialize SSH client with configuration."""
         super().__init__("ssh", config)
         try:
-            ssh_config = config['hardware']['network']['ssh']
+            # Config is already at SSH level
+            ssh_config = config
             self._host = ssh_config['host']
             self._port = ssh_config.get('port', 22)
             self._username = ssh_config['username']
@@ -33,17 +34,9 @@ class SSHClient(CommunicationClient):
                 )
 
         except KeyError as e:
-            raise HardwareError(
-                f"Missing required SSH configuration: {e}",
-                "ssh",
-                {"config": config}
-            )
+            raise ValueError(f"Missing required SSH config field: {e}")
         except Exception as e:
-            raise HardwareError(
-                f"Failed to initialize SSH client: {e}",
-                "ssh",
-                {"host": self._host}
-            )
+            raise ValueError(f"Failed to initialize SSH client: {e}")
 
         self._connection: Optional[asyncssh.SSHClientConnection] = None
         logger.info(f"SSHClient initialized for {self._username}@{self._host}")

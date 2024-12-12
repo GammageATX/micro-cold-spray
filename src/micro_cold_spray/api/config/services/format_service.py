@@ -1,19 +1,14 @@
-"""Format validation service."""
+"""Format service for configuration validation."""
 
 import re
-from typing import Dict, Any, Optional, Callable, NamedTuple
 from pathlib import Path
+from typing import Dict, Any, Optional, Callable, List
+
 from loguru import logger
 
-from ...base import BaseService
-from ..models import ConfigValidationResult
-from ..exceptions import ConfigurationError
-
-
-class FormatMetadata(NamedTuple):
-    """Format validator metadata."""
-    description: str
-    examples: list[str]
+from micro_cold_spray.api.base import BaseService
+from micro_cold_spray.api.base.exceptions import ConfigurationError, ValidationError
+from micro_cold_spray.api.config.models import FormatMetadata
 
 
 class FormatService(BaseService):
@@ -30,7 +25,8 @@ class FormatService(BaseService):
         """Start format service."""
         try:
             logger.info(
-                f"Format service started with {len(self._format_validators)} validators"
+                "Format service started with {} validators",
+                len(self._format_validators)
             )
         except Exception as e:
             raise ConfigurationError("Failed to start format service", {"error": str(e)})
@@ -40,23 +36,13 @@ class FormatService(BaseService):
         format_type: str,
         validator: Callable,
         description: str,
-        examples: list[str]
+        examples: List[str]
     ) -> None:
-        """Register a new format validator.
-        
-        Args:
-            format_type: Format identifier
-            validator: Validation function
-            description: Format description
-            examples: Example valid values
-            
-        Raises:
-            ConfigurationError: If registration fails
-        """
+        """Register a new format validator."""
         try:
             if format_type in self._format_validators:
                 raise ConfigurationError(
-                    f"Format {format_type} already registered",
+                    "Format already registered",
                     {"format": format_type}
                 )
             
@@ -65,7 +51,7 @@ class FormatService(BaseService):
                 description=description,
                 examples=examples
             )
-            logger.debug(f"Registered format validator: {format_type}")
+            logger.debug("Registered format validator: {}", format_type)
             
         except Exception as e:
             raise ConfigurationError(
@@ -76,129 +62,44 @@ class FormatService(BaseService):
                 }
             )
 
-    def get_format_info(self, format_type: str) -> Optional[FormatMetadata]:
-        """Get format metadata.
-        
-        Args:
-            format_type: Format to get info for
-            
-        Returns:
-            Format metadata if found
-        """
-        return self._format_metadata.get(format_type)
-
-    @property
-    def available_formats(self) -> list[str]:
-        """Get list of available format validators."""
-        return list(self._format_validators.keys())
-
-    async def validate(
-        self,
-        data: Any,
-        format_type: str,
-        path: str = ""
-    ) -> ConfigValidationResult:
-        """Validate data against format.
-        
-        Args:
-            data: Data to validate
-            format_type: Format to validate against
-            path: Path for error messages
-            
-        Returns:
-            Validation result
-            
-        Raises:
-            ConfigurationError: If validation fails
-        """
-        errors = []
-        warnings = []
-
+    def validate_format(self, format_type: str, value: Any) -> Optional[str]:
+        """Validate value against format type."""
         try:
-            validator = self._format_validators.get(format_type)
-            if validator:
-                error = validator(data)
-                if error:
-                    errors.append(f"{path}: {error}")
-            else:
-                warnings.append(f"{path}: Unknown format {format_type}")
-
+            if format_type not in self._format_validators:
+                raise ValidationError(
+                    "Unknown format type",
+                    {
+                        "format": format_type,
+                        "available_formats": list(self._format_validators.keys())
+                    }
+                )
+                
+            validator = self._format_validators[format_type]
+            error = validator(value)
+            
+            if error:
+                raise ValidationError(
+                    "Format validation failed",
+                    {
+                        "format": format_type,
+                        "value": str(value),
+                        "error": error
+                    }
+                )
+                
+            return None
+            
+        except ValidationError:
+            raise
         except Exception as e:
-            raise ConfigurationError(
+            logger.error("Unexpected format validation error: {}", e)
+            raise ValidationError(
                 "Format validation failed",
                 {
                     "format": format_type,
-                    "path": path,
                     "error": str(e)
                 }
             )
-
-        return ConfigValidationResult(
-            valid=len(errors) == 0,
-            errors=errors,
-            warnings=warnings
-        )
-
-    def _register_default_validators(self) -> None:
-        """Register default format validators."""
-        # Numeric formats
-        self.register_format(
-            "12bit_linear",
-            self._validate_12bit,
-            "12-bit linear value (0-4095)",
-            ["0", "2048", "4095"]
-        )
-        
-        self.register_format(
-            "12bit_dac",
-            self._validate_12bit,
-            "12-bit DAC value (0-4095)",
-            ["0", "2048", "4095"]
-        )
-        
-        self.register_format(
-            "percentage",
-            self._validate_percentage,
-            "Percentage value (0-100)",
-            ["0", "50", "100"]
-        )
-
-        # Network formats
-        self.register_format(
-            "ip_address",
-            self._validate_ip_address,
-            "IPv4 address",
-            ["192.168.1.1", "10.0.0.1"]
-        )
-        
-        self.register_format(
-            "port",
-            self._validate_port,
-            "Network port (1-65535)",
-            ["80", "443", "8080"]
-        )
-        
-        self.register_format(
-            "hostname",
-            self._validate_hostname,
-            "Network hostname",
-            ["localhost", "example.com"]
-        )
-
-        # Path formats
-        self.register_format(
-            "path",
-            self._validate_path,
-            "File system path",
-            ["C:/path/to/file", "/usr/local/bin"]
-        )
-        
-        self.register_format(
-            "tag_path",
-            self._validate_tag_path,
-            "Tag path (group.subgroup.tag)",
-            ["system.sensors.temp", "control.valves.inlet"]
-        )
 
     def _validate_12bit(self, value: Any) -> Optional[str]:
         """Validate 12-bit value (0-4095)."""
@@ -208,8 +109,11 @@ class FormatService(BaseService):
             num_value = float(value)
             if not 0 <= num_value <= 4095:
                 return "Value must be between 0 and 4095"
-        except Exception:
+        except ValueError:
             return "Invalid numeric value"
+        except Exception as e:
+            logger.error("Unexpected error in 12-bit validation: {}", e)
+            return f"Validation failed: {str(e)}"
         return None
 
     def _validate_percentage(self, value: Any) -> Optional[str]:
@@ -220,8 +124,11 @@ class FormatService(BaseService):
             num_value = float(value)
             if not 0 <= num_value <= 100:
                 return "Value must be between 0 and 100"
-        except Exception:
+        except ValueError:
             return "Invalid numeric value"
+        except Exception as e:
+            logger.error("Unexpected error in percentage validation: {}", e)
+            return f"Validation failed: {str(e)}"
         return None
 
     def _validate_ip_address(self, value: str) -> Optional[str]:
@@ -229,15 +136,22 @@ class FormatService(BaseService):
         if not isinstance(value, str):
             return "Value must be string"
             
-        pattern = r"^(\d{1,3}\.){3}\d{1,3}$"
-        if not re.match(pattern, value):
-            return "Invalid IP address format"
-            
-        # Validate each octet
-        octets = value.split(".")
-        for octet in octets:
-            if not 0 <= int(octet) <= 255:
-                return "IP address octets must be between 0 and 255"
+        try:
+            pattern = r"^(\d{1,3}\.){3}\d{1,3}$"
+            if not re.match(pattern, value):
+                return "Invalid IP address format"
+                
+            # Validate each octet
+            octets = value.split(".")
+            for octet in octets:
+                octet_value = int(octet)
+                if not 0 <= octet_value <= 255:
+                    return "IP address octets must be between 0 and 255"
+        except ValueError:
+            return "Invalid IP address format - octets must be numbers"
+        except Exception as e:
+            logger.error("Unexpected error in IP validation: {}", e)
+            return f"Validation failed: {str(e)}"
                 
         return None
 
@@ -246,12 +160,16 @@ class FormatService(BaseService):
         if not isinstance(value, str):
             return "Value must be string"
             
-        pattern = r"^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$"
-        if not re.match(pattern, value):
-            return "Invalid hostname format"
-            
-        if len(value) > 255:
-            return "Hostname too long (max 255 characters)"
+        try:
+            pattern = r"^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$"
+            if not re.match(pattern, value):
+                return "Invalid hostname format"
+                
+            if len(value) > 255:
+                return "Hostname too long (max 255 characters)"
+        except Exception as e:
+            logger.error("Unexpected error in hostname validation: {}", e)
+            return f"Validation failed: {str(e)}"
             
         return None
 
@@ -262,8 +180,11 @@ class FormatService(BaseService):
                 return "Port must be integer"
             if not 1 <= value <= 65535:
                 return "Port must be between 1 and 65535"
-        except Exception:
-            return "Invalid port number"
+        except ValueError:
+            return "Invalid port number format"
+        except Exception as e:
+            logger.error("Unexpected error in port validation: {}", e)
+            return f"Validation failed: {str(e)}"
         return None
 
     def _validate_path(self, value: str) -> Optional[str]:
@@ -284,10 +205,15 @@ class FormatService(BaseService):
                 
             # Check path length
             if len(str(path)) > 260:  # Windows MAX_PATH
-                return "Path too long"
+                return "Path too long (max 260 characters)"
                 
-        except Exception:
-            return "Invalid path format"
+            # Additional path validation
+            if not path.is_absolute() and '..' in str(path):
+                return "Relative paths cannot contain parent directory references (..)"
+                
+        except Exception as e:
+            logger.error("Unexpected error in path validation: {}", e)
+            return f"Invalid path format: {str(e)}"
             
         return None
 
@@ -296,15 +222,78 @@ class FormatService(BaseService):
         if not isinstance(value, str):
             return "Tag path must be string"
             
-        pattern = r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)*$"
-        if not re.match(pattern, value):
-            return "Invalid tag path format"
-            
-        # Check depth and length
-        parts = value.split(".")
-        if len(parts) > 10:
-            return "Tag path too deep (max 10 levels)"
-        if len(value) > 255:
-            return "Tag path too long (max 255 characters)"
+        try:
+            # Basic format validation
+            pattern = r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)*$"
+            if not re.match(pattern, value):
+                return "Invalid tag path format - must be dot-separated alphanumeric segments"
+                
+            # Length validation
+            if len(value) > 255:
+                return "Tag path too long (max 255 characters)"
+                
+            # Segment validation
+            segments = value.split(".")
+            if len(segments) < 1:
+                return "Tag path must have at least one segment"
+                
+            for segment in segments:
+                if len(segment) > 63:
+                    return "Tag path segment too long (max 63 characters)"
+                    
+        except Exception as e:
+            logger.error("Unexpected error in tag path validation: {}", e)
+            return f"Invalid tag path format: {str(e)}"
             
         return None
+
+    def _register_default_validators(self) -> None:
+        """Register default format validators."""
+        self.register_format(
+            "12bit",
+            self._validate_12bit,
+            "12-bit integer value (0-4095)",
+            ["0", "2048", "4095"]
+        )
+        
+        self.register_format(
+            "percentage",
+            self._validate_percentage,
+            "Percentage value (0-100)",
+            ["0", "50", "100"]
+        )
+        
+        self.register_format(
+            "ip_address",
+            self._validate_ip_address,
+            "IPv4 address",
+            ["192.168.0.1", "10.0.0.1"]
+        )
+        
+        self.register_format(
+            "hostname",
+            self._validate_hostname,
+            "Valid hostname",
+            ["localhost", "example.com"]
+        )
+        
+        self.register_format(
+            "port",
+            self._validate_port,
+            "TCP/UDP port number (1-65535)",
+            ["80", "443", "8080"]
+        )
+        
+        self.register_format(
+            "path",
+            self._validate_path,
+            "File system path",
+            ["C:/path/to/file", "/usr/local/bin"]
+        )
+        
+        self.register_format(
+            "tag_path",
+            self._validate_tag_path,
+            "PLC tag path (group.subgroup.tag)",
+            ["system.status", "motor.speed"]
+        )

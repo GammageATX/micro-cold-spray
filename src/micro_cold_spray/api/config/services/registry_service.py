@@ -1,11 +1,11 @@
 """Registry service for config references."""
 
-from typing import Dict, Any, Set
+from typing import Dict, Any, Set, Callable
 from loguru import logger
 
-from ...base import BaseService
-from ..models import ConfigValidationResult
-from ..exceptions import ConfigurationError
+from micro_cold_spray.api.base import BaseService
+from micro_cold_spray.api.base.exceptions import ConfigurationError, ValidationError
+from micro_cold_spray.api.config.models import ConfigValidationResult
 
 
 class RegistryService(BaseService):
@@ -27,20 +27,17 @@ class RegistryService(BaseService):
             await self._load_validation_registry()
             logger.info("Registry service started")
         except Exception as e:
-            raise ConfigurationError(f"Failed to start registry service: {e}")
+            logger.error(f"Failed to start registry service: {e}")
+            raise ConfigurationError(
+                "Failed to start registry service",
+                {"error": str(e)}
+            )
 
     async def validate_references(
         self,
         data: Dict[str, Any]
     ) -> ConfigValidationResult:
-        """Validate references in config data.
-        
-        Args:
-            data: Config data to validate
-            
-        Returns:
-            Validation result
-        """
+        """Validate references in config data."""
         errors = []
         warnings = []
 
@@ -48,8 +45,14 @@ class RegistryService(BaseService):
             self._validate_tag_references(data, "", errors)
             self._validate_action_references(data, "", errors)
             self._validate_validation_references(data, "", errors)
+        except ValidationError as e:
+            errors.append(str(e))
         except Exception as e:
-            errors.append(f"Reference validation failed: {str(e)}")
+            logger.error(f"Unexpected error during reference validation: {e}")
+            raise ValidationError(
+                "Reference validation failed",
+                {"error": str(e)}
+            )
 
         return ConfigValidationResult(
             valid=len(errors) == 0,
@@ -63,23 +66,19 @@ class RegistryService(BaseService):
         path: str,
         errors: list
     ) -> None:
-        """Validate tag references recursively.
-        
-        Args:
-            data: Data to validate
-            path: Current path for error messages
-            errors: List to collect errors
-        """
-        if isinstance(data, dict):
-            for key, value in data.items():
-                if key == "tag" and isinstance(value, str):
-                    if not self._tag_exists(value):
-                        errors.append(f"{path}.{key}: Unknown tag {value}")
-                else:
-                    self._validate_tag_references(value, f"{path}.{key}", errors)
-        elif isinstance(data, list):
-            for i, item in enumerate(data):
-                self._validate_tag_references(item, f"{path}[{i}]", errors)
+        """Validate tag references recursively."""
+        try:
+            self._validate_reference(
+                data, path, "tag", "tag", self._tag_exists, errors
+            )
+        except Exception as e:
+            raise ValidationError(
+                "Tag reference validation failed",
+                {
+                    "path": path,
+                    "error": str(e)
+                }
+            )
 
     def _validate_action_references(
         self,
@@ -87,23 +86,19 @@ class RegistryService(BaseService):
         path: str,
         errors: list
     ) -> None:
-        """Validate action references recursively.
-        
-        Args:
-            data: Data to validate
-            path: Current path for error messages
-            errors: List to collect errors
-        """
-        if isinstance(data, dict):
-            for key, value in data.items():
-                if key == "action" and isinstance(value, str):
-                    if not self._action_exists(value):
-                        errors.append(f"{path}.{key}: Unknown action {value}")
-                else:
-                    self._validate_action_references(value, f"{path}.{key}", errors)
-        elif isinstance(data, list):
-            for i, item in enumerate(data):
-                self._validate_action_references(item, f"{path}[{i}]", errors)
+        """Validate action references recursively."""
+        try:
+            self._validate_reference(
+                data, path, "action", "action", self._action_exists, errors
+            )
+        except Exception as e:
+            raise ValidationError(
+                "Action reference validation failed",
+                {
+                    "path": path,
+                    "error": str(e)
+                }
+            )
 
     def _validate_validation_references(
         self,
@@ -111,35 +106,99 @@ class RegistryService(BaseService):
         path: str,
         errors: list
     ) -> None:
-        """Validate validation references recursively.
-        
-        Args:
-            data: Data to validate
-            path: Current path for error messages
-            errors: List to collect errors
-        """
-        if isinstance(data, dict):
-            for key, value in data.items():
-                if key == "validation" and isinstance(value, str):
-                    if not self._validation_exists(value):
-                        errors.append(f"{path}.{key}: Unknown validation {value}")
-                else:
-                    self._validate_validation_references(value, f"{path}.{key}", errors)
-        elif isinstance(data, list):
-            for i, item in enumerate(data):
-                self._validate_validation_references(item, f"{path}[{i}]", errors)
+        """Validate validation references recursively."""
+        try:
+            self._validate_reference(
+                data, path, "validation", "validation", self._validation_exists, errors
+            )
+        except Exception as e:
+            raise ValidationError(
+                "Validation reference validation failed",
+                {
+                    "path": path,
+                    "error": str(e)
+                }
+            )
+
+    def _validate_reference(
+        self,
+        data: Any,
+        path: str,
+        ref_type: str,
+        ref_key: str,
+        exists_check: Callable[[str], bool],
+        errors: list
+    ) -> None:
+        """Generic reference validation."""
+        try:
+            if isinstance(data, dict):
+                for key, value in data.items():
+                    if key == ref_key and isinstance(value, str):
+                        if not exists_check(value):
+                            raise ValidationError(
+                                f"Unknown {ref_type} reference",
+                                {
+                                    "reference": value,
+                                    "path": f"{path}.{key}",
+                                    "type": ref_type
+                                }
+                            )
+                    else:
+                        self._validate_reference(
+                            value, f"{path}.{key}",
+                            ref_type, ref_key, exists_check, errors
+                        )
+            elif isinstance(data, list):
+                for i, item in enumerate(data):
+                    self._validate_reference(
+                        item, f"{path}[{i}]",
+                        ref_type, ref_key, exists_check, errors
+                    )
+        except ValidationError as e:
+            errors.append(str(e))
+        except Exception as e:
+            logger.error(f"Unexpected error in reference validation: {e}")
+            raise ValidationError(
+                "Reference validation failed",
+                {
+                    "path": path,
+                    "type": ref_type,
+                    "error": str(e)
+                }
+            )
 
     def _tag_exists(self, tag: str) -> bool:
         """Check if tag exists in registry."""
-        return tag in self._tags
+        try:
+            return tag in self._tags
+        except Exception as e:
+            logger.error(f"Error checking tag existence: {e}")
+            raise ValidationError(
+                "Failed to check tag existence",
+                {"tag": tag, "error": str(e)}
+            )
 
     def _action_exists(self, action: str) -> bool:
         """Check if action exists in registry."""
-        return action in self._actions
+        try:
+            return action in self._actions
+        except Exception as e:
+            logger.error(f"Error checking action existence: {e}")
+            raise ValidationError(
+                "Failed to check action existence",
+                {"action": action, "error": str(e)}
+            )
 
     def _validation_exists(self, validation: str) -> bool:
         """Check if validation exists in registry."""
-        return validation in self._validations
+        try:
+            return validation in self._validations
+        except Exception as e:
+            logger.error(f"Error checking validation existence: {e}")
+            raise ValidationError(
+                "Failed to check validation existence",
+                {"validation": validation, "error": str(e)}
+            )
 
     async def _load_tag_registry(self) -> None:
         """Load tag registry."""
@@ -149,7 +208,11 @@ class RegistryService(BaseService):
             self._tags = set()
             logger.info("Tag registry loaded")
         except Exception as e:
-            raise ConfigurationError(f"Failed to load tag registry: {e}")
+            logger.error(f"Failed to load tag registry: {e}")
+            raise ConfigurationError(
+                "Failed to load tag registry",
+                {"error": str(e)}
+            )
 
     async def _load_action_registry(self) -> None:
         """Load action registry."""
@@ -163,7 +226,11 @@ class RegistryService(BaseService):
             }
             logger.info("Action registry loaded")
         except Exception as e:
-            raise ConfigurationError(f"Failed to load action registry: {e}")
+            logger.error(f"Failed to load action registry: {e}")
+            raise ConfigurationError(
+                "Failed to load action registry",
+                {"error": str(e)}
+            )
 
     async def _load_validation_registry(self) -> None:
         """Load validation registry."""
@@ -177,4 +244,8 @@ class RegistryService(BaseService):
             }
             logger.info("Validation registry loaded")
         except Exception as e:
-            raise ConfigurationError(f"Failed to load validation registry: {e}")
+            logger.error(f"Failed to load validation registry: {e}")
+            raise ConfigurationError(
+                "Failed to load validation registry",
+                {"error": str(e)}
+            )

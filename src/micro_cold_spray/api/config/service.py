@@ -1,6 +1,5 @@
 """Configuration service implementation."""
 
-import os
 import json
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Set
@@ -18,11 +17,7 @@ from micro_cold_spray.api.config.services import (
     SchemaService, RegistryService, ConfigFileService,
     ConfigCacheService, FormatService
 )
-from micro_cold_spray.api.config.exceptions import ConfigurationError
-
-# Config directory - use workspace root config directory
-CONFIG_DIR = Path(__file__).parents[4] / "config"
-SCHEMA_DIR = CONFIG_DIR / "schemas"
+from micro_cold_spray.api.base.exceptions import ConfigurationError
 
 
 class ConfigService(BaseService):
@@ -31,11 +26,19 @@ class ConfigService(BaseService):
     def __init__(self):
         """Initialize config service."""
         super().__init__(service_name="config")
+        
+        # Use simple hardcoded paths relative to current directory
+        self._config_dir = Path("config")
+        self._schema_dir = self._config_dir / "schemas"
+        
+        # Initialize services
         self._cache_service = ConfigCacheService()
-        self._file_service = ConfigFileService(CONFIG_DIR)
+        self._file_service = ConfigFileService(self._config_dir)
         self._schema_service = SchemaService()
         self._registry_service = RegistryService()
         self._format_service = FormatService()
+        
+        # State tracking
         self._last_error: Optional[str] = None
         self._last_update: Optional[datetime] = None
         self._known_tags: Set[str] = set()
@@ -50,7 +53,7 @@ class ConfigService(BaseService):
         Returns:
             Schema data dictionary
         """
-        schema_path = os.path.join("config", "schemas", filename)
+        schema_path = self._schema_dir / filename
         
         try:
             with open(schema_path, 'r') as f:
@@ -153,22 +156,19 @@ class ConfigService(BaseService):
             raise
 
     async def get_config(self, config_type: str) -> ConfigData:
-        """Get configuration data.
-        
-        Args:
-            config_type: Type of configuration to get
-            
-        Returns:
-            Configuration data
-        """
+        """Get configuration data."""
         try:
+            logger.debug(f"Loading config type: {config_type}")
+            
             # Check cache first
             cached_data = await self._cache_service.get_cached_config(config_type)
             if cached_data:
+                logger.debug(f"Found cached config for {config_type}")
                 return cached_data
 
             # Load from file if not cached
             config_data = await self._file_service.load_config(config_type)
+            logger.debug(f"Loaded config data: {config_data.data.keys()}")
             
             # Cache the loaded data
             await self._cache_service.cache_config(config_type, config_data)

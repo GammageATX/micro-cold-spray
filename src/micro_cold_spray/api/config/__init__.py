@@ -7,7 +7,7 @@ from .models import (
     ConfigUpdate,
     ConfigStatus
 )
-from .exceptions import ConfigurationError
+from micro_cold_spray.api.base.exceptions import ConfigurationError
 from .router import router, init_router
 
 __all__ = [

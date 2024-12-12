@@ -5,6 +5,12 @@ from datetime import datetime
 from pydantic import BaseModel, Field, validator
 
 
+class FormatMetadata(BaseModel):
+    """Metadata for format validators."""
+    description: str
+    examples: List[str]
+
+
 class ConfigSchema(BaseModel):
     """Schema definition for config validation."""
     type: str = Field(description="Basic types: string, number, boolean, object, array")
