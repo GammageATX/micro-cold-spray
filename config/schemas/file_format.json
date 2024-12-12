@@ -1,0 +1,80 @@
+{
+    "type": "object",
+    "title": "File Format Configuration",
+    "required": ["formats"],
+    "properties": {
+        "formats": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "object",
+                "required": ["extension", "fields"],
+                "properties": {
+                    "extension": {
+                        "type": "string",
+                        "pattern": "^\\.[a-zA-Z0-9]+$"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "fields": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["name", "type"],
+                            "properties": {
+                                "name": {
+                                    "type": "string"
+                                },
+                                "type": {
+                                    "type": "string",
+                                    "enum": ["string", "integer", "float", "boolean", "datetime"]
+                                },
+                                "required": {
+                                    "type": "boolean",
+                                    "default": true
+                                },
+                                "format": {
+                                    "type": "string"
+                                },
+                                "validation": {
+                                    "type": "object",
+                                    "properties": {
+                                        "min": {
+                                            "type": "number"
+                                        },
+                                        "max": {
+                                            "type": "number"
+                                        },
+                                        "pattern": {
+                                            "type": "string"
+                                        },
+                                        "enum": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": ["string", "number", "boolean"]
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "minItems": 1
+                    },
+                    "delimiter": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1
+                    },
+                    "header": {
+                        "type": "boolean",
+                        "default": true
+                    },
+                    "encoding": {
+                        "type": "string",
+                        "default": "utf-8"
+                    }
+                }
+            }
+        }
+    }
+} 

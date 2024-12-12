@@ -1,0 +1,79 @@
+{
+    "type": "object",
+    "title": "Tags Configuration",
+    "required": ["plc", "feeder"],
+    "properties": {
+        "plc": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "object",
+                "required": ["address", "data_type"],
+                "properties": {
+                    "address": {
+                        "type": "string",
+                        "pattern": "^[A-Z]\\d+(\\.\\d+)?$"
+                    },
+                    "data_type": {
+                        "type": "string",
+                        "enum": ["BOOL", "INT", "REAL", "STRING"]
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "read_only": {
+                        "type": "boolean",
+                        "default": false
+                    },
+                    "scaling": {
+                        "type": "object",
+                        "required": ["factor", "offset"],
+                        "properties": {
+                            "factor": {
+                                "type": "number"
+                            },
+                            "offset": {
+                                "type": "number"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "feeder": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "object",
+                "required": ["address", "data_type"],
+                "properties": {
+                    "address": {
+                        "type": "string",
+                        "pattern": "^[A-Z]\\d+(\\.\\d+)?$"
+                    },
+                    "data_type": {
+                        "type": "string",
+                        "enum": ["BOOL", "INT", "REAL", "STRING"]
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "read_only": {
+                        "type": "boolean",
+                        "default": false
+                    },
+                    "scaling": {
+                        "type": "object",
+                        "required": ["factor", "offset"],
+                        "properties": {
+                            "factor": {
+                                "type": "number"
+                            },
+                            "offset": {
+                                "type": "number"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+} 

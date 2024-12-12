@@ -16,10 +16,12 @@ from micro_cold_spray.api.data_collection import DataCollectionService
 from micro_cold_spray.api.communication import (
     PLCTagService,
     FeederTagService,
-    TagCacheService
+    TagCacheService,
+    CommunicationService
 )
 from micro_cold_spray.ui.router import app as ui_app
 import uvicorn
+from micro_cold_spray.api.base import register_service
 
 src_path = Path(__file__).parent.parent
 if str(src_path) not in sys.path:
@@ -242,12 +244,31 @@ async def main():
         ensure_directories()
         logger.info("Starting Micro Cold Spray application")
 
-        # Start all services
+        # Start config service first since others depend on it
+        config_service = ConfigService()
+        await config_service.start()
+        register_service(config_service)
+
+        # Start services in dependency order
+        message_broker = MessagingService(config_service=config_service)
+        await message_broker.start()
+        register_service(message_broker)
+
+        comm_service = CommunicationService()
+        await comm_service.start()
+        register_service(comm_service)
+
+        state_service = StateService()
+        await state_service.start()
+        register_service(state_service)
+
+        data_service = DataCollectionService()
+        await data_service.start()
+        register_service(data_service)
+
+        # Start API services
         await service_manager.start_all()
 
-        # Initialize system
-        system_components = await initialize_system()
-        
         # Start UI
         logger.info("Starting UI service")
         ui_process = Process(target=lambda: asyncio.run(run_ui()))

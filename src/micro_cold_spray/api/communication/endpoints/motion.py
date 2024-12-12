@@ -3,90 +3,77 @@
 from typing import Dict, Any
 from fastapi import APIRouter, Depends
 
-from ..exceptions import HardwareError
-from ..services import MotionService
 from ..models.motion import (
-    SingleAxisMoveRequest,
-    CoordinatedMoveRequest,
+    SingleAxisMoveRequest, CoordinatedMoveRequest,
     MotionStatus
 )
+from ..service import CommunicationService
+from ...base import get_service
 
 router = APIRouter(prefix="/motion", tags=["motion"])
 
-# Service instance
-_motion_service: MotionService | None = None
 
-
-def init_router(motion: MotionService) -> None:
-    """Initialize router with service instance."""
-    global _motion_service
-    _motion_service = motion
-
-
-def get_motion_service() -> MotionService:
-    """Get motion service instance."""
-    if not _motion_service:
-        raise RuntimeError("Motion service not initialized")
-    return _motion_service
+@router.get("/status")
+async def get_motion_status(
+    service: CommunicationService = Depends(get_service(CommunicationService))
+) -> MotionStatus:
+    """Get current motion status."""
+    return await service.motion.get_status()
 
 
 @router.post("/move")
 async def move_axis(
     request: SingleAxisMoveRequest,
-    motion: MotionService = Depends(get_motion_service)
+    service: CommunicationService = Depends(get_service(CommunicationService))
 ) -> Dict[str, Any]:
     """Execute single axis move."""
     try:
-        await motion.move_axis(
+        await service.motion.move_axis(
             request.axis,
             request.position,
             request.velocity
         )
         return {"status": "ok"}
-    except ValueError as e:
-        return {
-            "status": "error",
-            "message": str(e)
-        }
-    except HardwareError as e:
-        return {
-            "status": "error",
-            "message": str(e),
-            "device": e.device,
-            "context": e.context
-        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
 @router.post("/move/xy")
 async def move_xy(
     request: CoordinatedMoveRequest,
-    motion: MotionService = Depends(get_motion_service)
+    service: CommunicationService = Depends(get_service(CommunicationService))
 ) -> Dict[str, Any]:
     """Execute coordinated XY move."""
     try:
-        await motion.move_xy(
+        await service.motion.move_xy(
             request.x_position,
             request.y_position,
             request.velocity
         )
         return {"status": "ok"}
-    except ValueError as e:
-        return {
-            "status": "error",
-            "message": str(e)
-        }
-    except HardwareError as e:
-        return {
-            "status": "error",
-            "message": str(e),
-            "device": e.device,
-            "context": e.context
-        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
-@router.get("/status")
-async def get_motion_status(
-    motion: MotionService = Depends(get_motion_service)
-) -> MotionStatus:
-    """Get current motion status."""
-    return await motion.get_status()
+@router.post("/home")
+async def home_axes(
+    service: CommunicationService = Depends(get_service(CommunicationService))
+) -> Dict[str, Any]:
+    """Home all axes."""
+    try:
+        await service.motion.home_axes()
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@router.post("/stop")
+async def stop_motion(
+    service: CommunicationService = Depends(get_service(CommunicationService))
+) -> Dict[str, Any]:
+    """Stop all motion."""
+    try:
+        await service.motion.stop_motion()
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}

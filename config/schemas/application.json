@@ -1,0 +1,220 @@
+{
+    "type": "object",
+    "title": "Application Configuration",
+    "required": ["environment"],
+    "properties": {
+        "development": {
+            "type": "object",
+            "properties": {
+                "mock_hardware": {
+                    "type": "boolean",
+                    "description": "Enable mock hardware for development"
+                },
+                "profiling": {
+                    "type": "boolean",
+                    "description": "Enable performance profiling"
+                },
+                "testing": {
+                    "type": "object",
+                    "properties": {
+                        "coverage": {
+                            "type": "boolean"
+                        },
+                        "enabled": {
+                            "type": "boolean"
+                        }
+                    }
+                }
+            }
+        },
+        "environment": {
+            "type": "object",
+            "required": ["async_mode", "debug", "log_level", "mode"],
+            "properties": {
+                "async_mode": {
+                    "type": "boolean"
+                },
+                "debug": {
+                    "type": "boolean"
+                },
+                "log_level": {
+                    "type": "string",
+                    "enum": ["DEBUG", "INFO", "WARNING", "ERROR"]
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["development", "production"]
+                },
+                "user": {
+                    "type": "string"
+                }
+            }
+        },
+        "services": {
+            "type": "object",
+            "properties": {
+                "config_manager": {
+                    "type": "object",
+                    "properties": {
+                        "backup_enabled": {
+                            "type": "boolean"
+                        },
+                        "backup_interval": {
+                            "type": "number"
+                        },
+                        "validation_enabled": {
+                            "type": "boolean"
+                        }
+                    }
+                },
+                "data_manager": {
+                    "type": "object",
+                    "properties": {
+                        "cache_enabled": {
+                            "type": "boolean"
+                        },
+                        "cache_timeout": {
+                            "type": "number"
+                        },
+                        "formats": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "validation_enabled": {
+                            "type": "boolean"
+                        }
+                    }
+                },
+                "message_broker": {
+                    "type": "object",
+                    "properties": {
+                        "topics": {
+                            "type": "object",
+                            "properties": {
+                                "action_operations": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "config_operations": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "data_operations": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "error_topic": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "hardware_operations": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "motion_operations": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "parameter_operations": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "pattern_operations": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "sequence_operations": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "state_operations": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "tag_operations": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "ui_operations": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "validation_operations": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "state_manager": {
+                    "type": "object",
+                    "properties": {
+                        "history_enabled": {
+                            "type": "boolean"
+                        },
+                        "history_length": {
+                            "type": "number"
+                        },
+                        "transition_timeout": {
+                            "type": "number"
+                        }
+                    }
+                },
+                "tag_manager": {
+                    "type": "object",
+                    "properties": {
+                        "cache_enabled": {
+                            "type": "boolean"
+                        },
+                        "cache_timeout": {
+                            "type": "number"
+                        },
+                        "poll_rate": {
+                            "type": "number"
+                        }
+                    }
+                },
+                "ui_manager": {
+                    "type": "object",
+                    "properties": {
+                        "error_display_timeout": {
+                            "type": "number"
+                        },
+                        "update_rate": {
+                            "type": "number"
+                        }
+                    }
+                }
+            }
+        }
+    }
+} 

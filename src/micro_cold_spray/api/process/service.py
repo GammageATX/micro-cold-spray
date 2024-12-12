@@ -4,7 +4,7 @@ from typing import Dict, Any, List, Optional
 from loguru import logger
 from datetime import datetime
 
-from ..base import BaseService
+from ..base import ConfigurableService
 from ..config import ConfigService
 from ..communication import CommunicationService
 from ..messaging import MessagingService
@@ -19,7 +19,7 @@ from .services import (
 )
 
 
-class ProcessService(BaseService):
+class ProcessService(ConfigurableService):
     """Service for managing the spray process."""
 
     def __init__(
@@ -39,9 +39,10 @@ class ProcessService(BaseService):
             data_collection_service: Data collection service
             validation_service: Validation service
         """
-        super().__init__(service_name="process", config_service=config_service)
+        super().__init__(service_name="process")
         
         # Store service dependencies
+        self._config_service = config_service
         self._comm_service = comm_service
         self._message_broker = message_broker
         self._data_collection = data_collection_service

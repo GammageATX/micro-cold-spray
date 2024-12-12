@@ -1,0 +1,472 @@
+{
+    "type": "object",
+    "title": "Hardware Configuration",
+    "required": ["network", "physical", "safety"],
+    "properties": {
+        "network": {
+            "type": "object",
+            "required": ["connection", "plc", "ssh"],
+            "properties": {
+                "connection": {
+                    "type": "object",
+                    "required": ["timeout"],
+                    "properties": {
+                        "timeout": {
+                            "type": "number"
+                        }
+                    }
+                },
+                "plc": {
+                    "type": "object",
+                    "required": ["ip", "tag_file", "polling_interval", "retry", "timeout"],
+                    "properties": {
+                        "ip": {
+                            "type": "string",
+                            "format": "ipv4"
+                        },
+                        "tag_file": {
+                            "type": "string"
+                        },
+                        "polling_interval": {
+                            "type": "number",
+                            "minimum": 0.1,
+                            "maximum": 10.0
+                        },
+                        "retry": {
+                            "type": "object",
+                            "required": ["delay", "max_attempts"],
+                            "properties": {
+                                "delay": {
+                                    "type": "number",
+                                    "minimum": 0
+                                },
+                                "max_attempts": {
+                                    "type": "number",
+                                    "minimum": 1
+                                }
+                            }
+                        },
+                        "timeout": {
+                            "type": "number",
+                            "minimum": 0
+                        }
+                    }
+                },
+                "ssh": {
+                    "type": "object",
+                    "required": ["command_timeout", "host", "password", "port", "retry", "timeout", "username"],
+                    "properties": {
+                        "command_timeout": {
+                            "type": "number",
+                            "minimum": 0
+                        },
+                        "host": {
+                            "type": "string",
+                            "format": "ipv4"
+                        },
+                        "password": {
+                            "type": "string"
+                        },
+                        "port": {
+                            "type": "number",
+                            "minimum": 1,
+                            "maximum": 65535
+                        },
+                        "retry": {
+                            "type": "object",
+                            "required": ["delay", "max_attempts"],
+                            "properties": {
+                                "delay": {
+                                    "type": "number",
+                                    "minimum": 0
+                                },
+                                "max_attempts": {
+                                    "type": "number",
+                                    "minimum": 1
+                                }
+                            }
+                        },
+                        "timeout": {
+                            "type": "number",
+                            "minimum": 0
+                        },
+                        "username": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "physical": {
+            "type": "object",
+            "required": ["hardware_sets", "nozzles", "stage", "substrate_holder"],
+            "properties": {
+                "hardware_sets": {
+                    "type": "object",
+                    "required": ["set1", "set2", "deagglomerator", "feeder"],
+                    "properties": {
+                        "set1": {
+                            "type": "object",
+                            "required": ["deagglomerator", "feeder", "nozzle", "offset_x"],
+                            "properties": {
+                                "deagglomerator": {
+                                    "type": "string"
+                                },
+                                "feeder": {
+                                    "type": "string"
+                                },
+                                "nozzle": {
+                                    "type": "string"
+                                },
+                                "offset_x": {
+                                    "type": "number"
+                                }
+                            }
+                        },
+                        "set2": {
+                            "type": "object",
+                            "required": ["deagglomerator", "feeder", "nozzle", "offset_x"],
+                            "properties": {
+                                "deagglomerator": {
+                                    "type": "string"
+                                },
+                                "feeder": {
+                                    "type": "string"
+                                },
+                                "nozzle": {
+                                    "type": "string"
+                                },
+                                "offset_x": {
+                                    "type": "number"
+                                }
+                            }
+                        },
+                        "deagglomerator": {
+                            "type": "object",
+                            "required": ["speeds"],
+                            "properties": {
+                                "speeds": {
+                                    "type": "object",
+                                    "required": ["off", "low", "medium", "high"],
+                                    "properties": {
+                                        "off": {
+                                            "type": "number"
+                                        },
+                                        "low": {
+                                            "type": "number"
+                                        },
+                                        "medium": {
+                                            "type": "number"
+                                        },
+                                        "high": {
+                                            "type": "number"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "feeder": {
+                            "type": "object",
+                            "required": ["frequency"],
+                            "properties": {
+                                "frequency": {
+                                    "type": "object",
+                                    "required": ["default", "max", "min", "step"],
+                                    "properties": {
+                                        "default": {
+                                            "type": "number"
+                                        },
+                                        "max": {
+                                            "type": "number"
+                                        },
+                                        "min": {
+                                            "type": "number"
+                                        },
+                                        "step": {
+                                            "type": "number"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "nozzles": {
+                    "type": "object",
+                    "required": ["common_y", "nozzle1_offset_x", "nozzle2_offset_x"],
+                    "properties": {
+                        "common_y": {
+                            "type": "number"
+                        },
+                        "nozzle1_offset_x": {
+                            "type": "number"
+                        },
+                        "nozzle2_offset_x": {
+                            "type": "number"
+                        }
+                    }
+                },
+                "stage": {
+                    "type": "object",
+                    "required": ["dimensions", "home"],
+                    "properties": {
+                        "dimensions": {
+                            "type": "object",
+                            "required": ["x", "y", "z"],
+                            "properties": {
+                                "x": {
+                                    "type": "number",
+                                    "minimum": 0
+                                },
+                                "y": {
+                                    "type": "number",
+                                    "minimum": 0
+                                },
+                                "z": {
+                                    "type": "number",
+                                    "minimum": 0
+                                }
+                            }
+                        },
+                        "home": {
+                            "type": "object",
+                            "required": ["x", "y", "z"],
+                            "properties": {
+                                "x": {
+                                    "type": "number"
+                                },
+                                "y": {
+                                    "type": "number"
+                                },
+                                "z": {
+                                    "type": "number"
+                                }
+                            }
+                        }
+                    }
+                },
+                "substrate_holder": {
+                    "type": "object",
+                    "required": ["dimensions"],
+                    "properties": {
+                        "dimensions": {
+                            "type": "object",
+                            "required": ["sprayable", "total", "trough"],
+                            "properties": {
+                                "sprayable": {
+                                    "type": "object",
+                                    "required": ["height", "width"],
+                                    "properties": {
+                                        "height": {
+                                            "type": "number",
+                                            "minimum": 0
+                                        },
+                                        "width": {
+                                            "type": "number",
+                                            "minimum": 0
+                                        }
+                                    }
+                                },
+                                "total": {
+                                    "type": "object",
+                                    "required": ["height", "width"],
+                                    "properties": {
+                                        "height": {
+                                            "type": "number",
+                                            "minimum": 0
+                                        },
+                                        "width": {
+                                            "type": "number",
+                                            "minimum": 0
+                                        }
+                                    }
+                                },
+                                "trough": {
+                                    "type": "object",
+                                    "required": ["height", "offset_y", "width"],
+                                    "properties": {
+                                        "height": {
+                                            "type": "number",
+                                            "minimum": 0
+                                        },
+                                        "offset_y": {
+                                            "type": "number"
+                                        },
+                                        "width": {
+                                            "type": "number",
+                                            "minimum": 0
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "safety": {
+            "type": "object",
+            "required": ["gas", "motion", "position", "powder"],
+            "properties": {
+                "gas": {
+                    "type": "object",
+                    "required": ["feeder_flow", "feeder_pressure", "main_flow", "main_pressure", "regulator_pressure"],
+                    "properties": {
+                        "feeder_flow": {
+                            "type": "object",
+                            "required": ["max", "min", "warning"],
+                            "properties": {
+                                "max": {
+                                    "type": "number"
+                                },
+                                "min": {
+                                    "type": "number"
+                                },
+                                "warning": {
+                                    "type": "number"
+                                }
+                            }
+                        },
+                        "feeder_pressure": {
+                            "type": "object",
+                            "required": ["max", "min", "warning"],
+                            "properties": {
+                                "max": {
+                                    "type": "number"
+                                },
+                                "min": {
+                                    "type": "number"
+                                },
+                                "warning": {
+                                    "type": "number"
+                                }
+                            }
+                        },
+                        "main_flow": {
+                            "type": "object",
+                            "required": ["max", "min", "warning"],
+                            "properties": {
+                                "max": {
+                                    "type": "number"
+                                },
+                                "min": {
+                                    "type": "number"
+                                },
+                                "warning": {
+                                    "type": "number"
+                                }
+                            }
+                        },
+                        "main_pressure": {
+                            "type": "object",
+                            "required": ["max", "min", "warning"],
+                            "properties": {
+                                "max": {
+                                    "type": "number"
+                                },
+                                "min": {
+                                    "type": "number"
+                                },
+                                "warning": {
+                                    "type": "number"
+                                }
+                            }
+                        },
+                        "regulator_pressure": {
+                            "type": "object",
+                            "required": ["max", "min"],
+                            "properties": {
+                                "max": {
+                                    "type": "number"
+                                },
+                                "min": {
+                                    "type": "number"
+                                }
+                            }
+                        }
+                    }
+                },
+                "motion": {
+                    "type": "object",
+                    "required": ["acceleration_check", "limit_check", "require_safe_z_for_xy", "velocity_check"],
+                    "properties": {
+                        "acceleration_check": {
+                            "type": "boolean"
+                        },
+                        "limit_check": {
+                            "type": "boolean"
+                        },
+                        "require_safe_z_for_xy": {
+                            "type": "boolean"
+                        },
+                        "velocity_check": {
+                            "type": "boolean"
+                        }
+                    }
+                },
+                "position": {
+                    "type": "object",
+                    "required": ["tolerance", "verification_interval"],
+                    "properties": {
+                        "tolerance": {
+                            "type": "number",
+                            "minimum": 0
+                        },
+                        "verification_interval": {
+                            "type": "number",
+                            "minimum": 0
+                        }
+                    }
+                },
+                "powder": {
+                    "type": "object",
+                    "required": ["feeder"],
+                    "properties": {
+                        "feeder": {
+                            "type": "object",
+                            "required": ["deagglomerator"],
+                            "properties": {
+                                "deagglomerator": {
+                                    "type": "object",
+                                    "required": ["duty_cycle", "frequency"],
+                                    "properties": {
+                                        "duty_cycle": {
+                                            "type": "object",
+                                            "required": ["max", "min"],
+                                            "properties": {
+                                                "max": {
+                                                    "type": "number",
+                                                    "minimum": 0,
+                                                    "maximum": 100
+                                                },
+                                                "min": {
+                                                    "type": "number",
+                                                    "minimum": 0,
+                                                    "maximum": 100
+                                                }
+                                            }
+                                        },
+                                        "frequency": {
+                                            "type": "object",
+                                            "required": ["max", "min"],
+                                            "properties": {
+                                                "max": {
+                                                    "type": "number",
+                                                    "minimum": 0
+                                                },
+                                                "min": {
+                                                    "type": "number",
+                                                    "minimum": 0
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+} 

@@ -4,14 +4,14 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime
 from loguru import logger
 
-from ..base import BaseService
+from ..base import ConfigurableService
 from ..config import ConfigService
 from .storage import DataStorage
 from .models import SprayEvent, CollectionSession
 from .exceptions import DataCollectionError, StorageError
 
 
-class DataCollectionService(BaseService):
+class DataCollectionService(ConfigurableService):
     """Service for managing data collection operations."""
 
     def __init__(
@@ -25,8 +25,9 @@ class DataCollectionService(BaseService):
             storage: Storage backend implementation
             config_service: Optional configuration service
         """
-        super().__init__("data_collection", config_service)
+        super().__init__("data_collection")
         self._storage = storage
+        self._config_service = config_service
         self._active_session: Optional[CollectionSession] = None
 
     async def _start(self) -> None:

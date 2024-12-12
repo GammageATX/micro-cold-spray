@@ -26,29 +26,12 @@ def get_service() -> ConfigService:
 async def health_check(
     service: ConfigService = Depends(get_service)
 ) -> Dict[str, Any]:
-    """
-    Check API health status.
-    
-    Returns:
-        Dict containing health status and any error details
-    """
+    """Check API health status."""
     try:
         config_ok = await service.check_config_access()
-        if not config_ok:
-            return {
-                "status": "error",
-                "message": "Cannot access config files"
-            }
-            
-        return {
-            "status": "ok",
-            "message": "Service healthy"
-        }
+        return {"status": "ok" if config_ok else "error"}
     except Exception as e:
-        return {
-            "status": "error",
-            "message": str(e)
-        }
+        return {"status": "error", "message": str(e)}
 
 
 @router.get("/{config_type}")
@@ -159,5 +142,43 @@ async def update_tag_mapping(
     try:
         await service.update_tag_mapping(tag_path, plc_tag)
         return {"status": "updated"}
+    except ConfigurationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/schema/{config_type}")
+async def get_config_schema(
+    config_type: str,
+    service: ConfigService = Depends(get_service)
+) -> Dict[str, Any]:
+    """Get schema for config type."""
+    try:
+        return await service.get_config_schema(config_type)
+    except ConfigurationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/tags/remap")
+async def remap_tag(
+    old_tag: str,
+    new_tag: str,
+    service: ConfigService = Depends(get_service)
+) -> Dict[str, str]:
+    """Update tag mapping."""
+    try:
+        await service.update_tag_mapping(old_tag, new_tag)
+        return {"status": "updated"}
+    except ConfigurationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/fields/{config_type}")
+async def get_editable_fields(
+    config_type: str,
+    service: ConfigService = Depends(get_service)
+) -> Dict[str, Any]:
+    """Get editable fields for config type."""
+    try:
+        return await service.get_editable_fields(config_type)
     except ConfigurationError as e:
         raise HTTPException(status_code=400, detail=str(e))

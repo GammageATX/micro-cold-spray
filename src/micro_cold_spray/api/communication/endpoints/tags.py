@@ -1,191 +1,87 @@
 """Tag management endpoints."""
 
-from fastapi import APIRouter, HTTPException, Depends
+from typing import Dict, Any, List
+from fastapi import APIRouter, Depends
 
-from ..exceptions import HardwareError
-from ..services import TagCacheService, TagMappingService
-from ..models.tags import (
-    TagWriteRequest,
-    TagResponse,
-    TagCacheRequest,
-    TagCacheResponse,
-    TagError
-)
+from ..models.tags import TagRequest, TagSubscription, TagUpdate
+from ..service import CommunicationService
+from ...base import get_service
 
 router = APIRouter(prefix="/tags", tags=["tags"])
 
-# Service instances
-_tag_cache: TagCacheService | None = None
-_tag_mapping: TagMappingService | None = None
 
-
-def init_router(
-    tag_cache: TagCacheService,
-    tag_mapping: TagMappingService
-) -> None:
-    """Initialize router with service instances."""
-    global _tag_cache, _tag_mapping
-    _tag_cache = tag_cache
-    _tag_mapping = tag_mapping
-
-
-def get_tag_cache() -> TagCacheService:
-    """Get tag cache instance."""
-    if not _tag_cache:
-        raise RuntimeError("Tag cache not initialized")
-    return _tag_cache
-
-
-def get_tag_mapping() -> TagMappingService:
-    """Get tag mapping instance."""
-    if not _tag_mapping:
-        raise RuntimeError("Tag mapping not initialized")
-    return _tag_mapping
-
-
-@router.get("/{tag_path}", response_model=TagResponse)
-async def get_tag(
-    tag_path: str,
-    tag_cache: TagCacheService = Depends(get_tag_cache),
-    tag_mapping: TagMappingService = Depends(get_tag_mapping)
-) -> TagResponse:
-    """Get tag value with metadata.
-    
-    Args:
-        tag_path: Full path to the tag
-        
-    Returns:
-        Tag value with metadata
-        
-    Raises:
-        HTTPException: If tag read fails
-    """
+@router.get("/values")
+async def get_tag_values(
+    tags: List[str],
+    service: CommunicationService = Depends(get_service(CommunicationService))
+) -> Dict[str, Any]:
+    """Get tag values."""
     try:
-        # Get value and metadata from cache
-        tag_value = await tag_cache.get_tag(tag_path)
-        
-        # If mapped to hardware, get fresh value
-        if tag_value.metadata.mapped:
-            value = await tag_mapping.read_tag(tag_path)
-            await tag_cache.update_tag(tag_path, value)
-            tag_value = await tag_cache.get_tag(tag_path)
-            
-        return TagResponse(
-            tag=tag_path,
-            value=tag_value.value,
-            metadata=tag_value.metadata,
-            timestamp=tag_value.timestamp
-        )
-    except HardwareError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=TagError(
-                message=str(e),
-                device=e.device,
-                context=e.context
-            ).dict()
-        )
+        values = await service.tag_cache.get_values(tags)
+        return {"values": values}
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=TagError(message=str(e)).dict()
-        )
+        return {"status": "error", "message": str(e)}
 
 
-@router.post("/{tag_path}", response_model=TagResponse)
-async def write_tag(
-    tag_path: str,
-    request: TagWriteRequest,
-    tag_cache: TagCacheService = Depends(get_tag_cache),
-    tag_mapping: TagMappingService = Depends(get_tag_mapping)
-) -> TagResponse:
-    """Write tag value.
-    
-    Args:
-        tag_path: Full path to the tag
-        request: Write request with value
-        
-    Returns:
-        Updated tag value with metadata
-        
-    Raises:
-        HTTPException: If tag write fails
-    """
+@router.post("/write")
+async def write_tag_value(
+    request: TagUpdate,
+    service: CommunicationService = Depends(get_service(CommunicationService))
+) -> Dict[str, Any]:
+    """Write tag value."""
     try:
-        # Get current metadata
-        tag_value = await tag_cache.get_tag(tag_path)
-        
-        # Validate write access
-        if not tag_value.metadata.writable:
-            raise ValueError(f"Tag {tag_path} is not writable")
-            
-        # Validate value against metadata
-        await tag_cache.validate_value(tag_path, request.value)
-        
-        # Write to hardware if mapped
-        if tag_value.metadata.mapped:
-            await tag_mapping.write_tag(tag_path, request.value)
-            
-        # Update cache
-        await tag_cache.update_tag(tag_path, request.value)
-        tag_value = await tag_cache.get_tag(tag_path)
-        
-        return TagResponse(
-            tag=tag_path,
-            value=tag_value.value,
-            metadata=tag_value.metadata,
-            timestamp=tag_value.timestamp
-        )
-    except ValueError as e:
-        raise HTTPException(
-            status_code=422,
-            detail=TagError(message=str(e)).dict()
-        )
-    except HardwareError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=TagError(
-                message=str(e),
-                device=e.device,
-                context=e.context
-            ).dict()
-        )
+        await service.tag_cache.write_value(request.tag, request.value)
+        return {"status": "ok"}
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=TagError(message=str(e)).dict()
-        )
+        return {"status": "error", "message": str(e)}
 
 
-@router.post("/cache/filter", response_model=TagCacheResponse)
-async def filter_tags(
-    request: TagCacheRequest,
-    tag_cache: TagCacheService = Depends(get_tag_cache)
-) -> TagCacheResponse:
-    """Get filtered tag values from cache.
-    
-    Args:
-        request: Filter criteria
-        
-    Returns:
-        Filtered tag values with metadata
-        
-    Raises:
-        HTTPException: If filtering fails
-    """
+@router.post("/subscribe")
+async def subscribe_to_tags(
+    request: TagSubscription,
+    service: CommunicationService = Depends(get_service(CommunicationService))
+) -> Dict[str, Any]:
+    """Subscribe to tag updates."""
     try:
-        return await tag_cache.filter_tags(
-            groups=request.groups,
-            types=request.types,
-            access=request.access
-        )
-    except ValueError as e:
-        raise HTTPException(
-            status_code=422,
-            detail=TagError(message=str(e)).dict()
-        )
+        await service.tag_cache.subscribe(request.tags, request.callback_url)
+        return {"status": "ok"}
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=TagError(message=str(e)).dict()
-        )
+        return {"status": "error", "message": str(e)}
+
+
+@router.post("/unsubscribe")
+async def unsubscribe_from_tags(
+    request: TagSubscription,
+    service: CommunicationService = Depends(get_service(CommunicationService))
+) -> Dict[str, Any]:
+    """Unsubscribe from tag updates."""
+    try:
+        await service.tag_cache.unsubscribe(request.tags, request.callback_url)
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@router.get("/mappings")
+async def get_tag_mappings(
+    service: CommunicationService = Depends(get_service(CommunicationService))
+) -> Dict[str, Any]:
+    """Get tag mappings."""
+    try:
+        mappings = await service.tag_mapping.get_mappings()
+        return {"mappings": mappings}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@router.post("/mappings")
+async def update_tag_mapping(
+    request: TagRequest,
+    service: CommunicationService = Depends(get_service(CommunicationService))
+) -> Dict[str, Any]:
+    """Update tag mapping."""
+    try:
+        await service.tag_mapping.update_mapping(request.tag_path, request.plc_tag)
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}

@@ -1,17 +1,28 @@
 """Configuration service implementation."""
 
-from pathlib import Path
-from typing import Dict, Any, Optional
+import os
+import json
 from datetime import datetime
+from typing import Dict, Any, Optional, List, Set
+from pathlib import Path
+
 from loguru import logger
 
-from ..base import BaseService
-from .models import ConfigUpdate, ConfigStatus
-from .exceptions import ConfigurationError
-from .services import ConfigCacheService, ConfigFileService
+from micro_cold_spray.api.base import BaseService
+from micro_cold_spray.api.config.models import (
+    ConfigSchema, SchemaRegistry, ConfigData, ConfigUpdate,
+    ConfigValidationResult, ConfigMetadata,
+    ConfigFieldInfo, TagRemapRequest
+)
+from micro_cold_spray.api.config.services import (
+    SchemaService, RegistryService, ConfigFileService,
+    ConfigCacheService, FormatService
+)
+from micro_cold_spray.api.config.exceptions import ConfigurationError
 
 # Config directory - use workspace root config directory
 CONFIG_DIR = Path(__file__).parents[4] / "config"
+SCHEMA_DIR = CONFIG_DIR / "schemas"
 
 
 class ConfigService(BaseService):
@@ -22,143 +33,277 @@ class ConfigService(BaseService):
         super().__init__(service_name="config")
         self._cache_service = ConfigCacheService()
         self._file_service = ConfigFileService(CONFIG_DIR)
+        self._schema_service = SchemaService()
+        self._registry_service = RegistryService()
+        self._format_service = FormatService()
         self._last_error: Optional[str] = None
         self._last_update: Optional[datetime] = None
+        self._known_tags: Set[str] = set()
+        self._schema_registry: Optional[SchemaRegistry] = None
 
-    async def _start(self) -> None:
-        """Start config service."""
-        try:
-            # Start component services
-            await self._cache_service.start()
-            await self._file_service.start()
-            logger.info("Config service started")
-        except Exception as e:
-            error_msg = f"Failed to start config service: {str(e)}"
-            self._last_error = error_msg
-            logger.error(error_msg)
-            raise ConfigurationError(error_msg)
-
-    async def _stop(self) -> None:
-        """Stop config service."""
-        try:
-            # Stop component services in reverse order
-            await self._cache_service.stop()
-            await self._file_service.stop()
-            logger.info("Config service stopped")
-        except Exception as e:
-            error_msg = f"Failed to stop config service: {str(e)}"
-            self._last_error = error_msg
-            logger.error(error_msg)
-            raise ConfigurationError(error_msg)
-
-    async def get_config(self, config_type: str) -> Dict[str, Any]:
-        """Get configuration by type.
+    def _load_schema_file(self, filename: str) -> Dict[str, Any]:
+        """Load schema from JSON file.
         
         Args:
-            config_type: Type of config to get (e.g. "hardware", "tags")
+            filename: Name of schema file to load
             
         Returns:
-            Dict containing configuration data
-            
-        Raises:
-            ConfigurationError: If config cannot be loaded or service not running
+            Schema data dictionary
         """
-        if not self.is_running:
-            raise ConfigurationError(
-                "Config service not running",
-                {"config_type": config_type}
-            )
-            
+        schema_path = os.path.join("config", "schemas", filename)
+        
         try:
-            # Check if file exists
-            if not self._file_service.config_exists(config_type):
-                raise ConfigurationError(
-                    f"Config file not found: {config_type}",
-                    {"config_type": config_type}
-                )
-                
-            # Get file timestamp
-            file_timestamp = self._file_service.get_config_timestamp(config_type)
-            
-            # Return cached config if valid
-            if self._cache_service.is_cache_valid(config_type, file_timestamp):
-                config_data = self._cache_service.get_cached_config(config_type)
-                if config_data:
-                    return config_data.data
-            
-            # Load from file and update cache
-            config_data = await self._file_service.load_config(config_type)
-            self._cache_service.update_cache(config_type, config_data.data)
-            
-            return config_data.data
-            
-        except ConfigurationError:
-            raise
+            with open(schema_path, 'r') as f:
+                return json.load(f)
         except Exception as e:
-            error_msg = f"Failed to get config: {str(e)}"
-            self._last_error = error_msg
-            logger.error(error_msg)
-            raise ConfigurationError(
-                error_msg,
-                {
-                    "config_type": config_type,
-                    "error": str(e)
-                }
+            logger.error(f"Failed to load schema file {filename}: {e}")
+            raise
+
+    def _build_application_schema(self) -> ConfigSchema:
+        """Build application configuration schema."""
+        try:
+            schema_data = self._load_schema_file("application.json")
+            return self._schema_service.build_schema(schema_data)
+        except Exception as e:
+            logger.error(f"Failed to build application schema: {e}")
+            raise
+
+    def _build_hardware_schema(self) -> ConfigSchema:
+        """Build hardware configuration schema."""
+        try:
+            schema_data = self._load_schema_file("hardware.json")
+            return self._schema_service.build_schema(schema_data)
+        except Exception as e:
+            logger.error(f"Failed to build hardware schema: {e}")
+            raise
+
+    def _build_process_schema(self) -> ConfigSchema:
+        """Build process configuration schema."""
+        try:
+            schema_data = self._load_schema_file("process.json")
+            return self._schema_service.build_schema(schema_data)
+        except Exception as e:
+            logger.error(f"Failed to build process schema: {e}")
+            raise
+
+    def _build_tags_schema(self) -> ConfigSchema:
+        """Build tags configuration schema."""
+        try:
+            schema_data = self._load_schema_file("tags.json")
+            return self._schema_service.build_schema(schema_data)
+        except Exception as e:
+            logger.error(f"Failed to build tags schema: {e}")
+            raise
+
+    def _build_state_schema(self) -> ConfigSchema:
+        """Build state configuration schema."""
+        try:
+            schema_data = self._load_schema_file("state.json")
+            return self._schema_service.build_schema(schema_data)
+        except Exception as e:
+            logger.error(f"Failed to build state schema: {e}")
+            raise
+
+    def _build_file_format_schema(self) -> ConfigSchema:
+        """Build file format configuration schema."""
+        try:
+            schema_data = self._load_schema_file("file_format.json")
+            return self._schema_service.build_schema(schema_data)
+        except Exception as e:
+            logger.error(f"Failed to build file format schema: {e}")
+            raise
+
+    async def _start(self) -> None:
+        """Start the configuration service."""
+        try:
+            # Build schema registry
+            self._schema_registry = SchemaRegistry(
+                application=self._build_application_schema(),
+                hardware=self._build_hardware_schema(),
+                process=self._build_process_schema(),
+                tags=self._build_tags_schema(),
+                state=self._build_state_schema(),
+                file_format=self._build_file_format_schema()
             )
 
-    async def update_config(self, update: ConfigUpdate) -> None:
-        """Update configuration.
+            # Initialize services
+            await self._cache_service.start()
+            await self._file_service.start()
+            await self._schema_service.start()
+            await self._registry_service.start()
+            await self._format_service.start()
+
+            logger.info("Configuration service started successfully")
+
+        except Exception as e:
+            logger.error(f"Failed to start configuration service: {e}")
+            raise
+
+    async def _stop(self) -> None:
+        """Stop the configuration service."""
+        try:
+            await self._cache_service.stop()
+            await self._file_service.stop()
+            await self._schema_service.stop()
+            await self._registry_service.stop()
+            await self._format_service.stop()
+            logger.info("Configuration service stopped successfully")
+        except Exception as e:
+            logger.error(f"Failed to stop configuration service: {e}")
+            raise
+
+    async def get_config(self, config_type: str) -> ConfigData:
+        """Get configuration data.
+        
+        Args:
+            config_type: Type of configuration to get
+            
+        Returns:
+            Configuration data
+        """
+        try:
+            # Check cache first
+            cached_data = await self._cache_service.get_cached_config(config_type)
+            if cached_data:
+                return cached_data
+
+            # Load from file if not cached
+            config_data = await self._file_service.load_config(config_type)
+            
+            # Cache the loaded data
+            await self._cache_service.cache_config(config_type, config_data)
+            
+            return config_data
+
+        except Exception as e:
+            logger.error(f"Failed to get config {config_type}: {e}")
+            raise ConfigurationError(f"Failed to get config {config_type}") from e
+
+    async def update_config(self, update: ConfigUpdate) -> ConfigValidationResult:
+        """Update configuration data.
         
         Args:
             update: Configuration update request
             
-        Raises:
-            ConfigurationError: If config cannot be updated or service not running
+        Returns:
+            Validation result
         """
-        if not self.is_running:
-            raise ConfigurationError(
-                "Config service not running",
-                {"config_type": update.config_type}
-            )
-            
         try:
-            # Save to file
-            await self._file_service.save_config(
-                update.config_type,
-                update.data,
-                update.backup
-            )
-            
-            # Update cache
-            self._cache_service.update_cache(update.config_type, update.data)
-            
-            # Update status
-            self._last_update = datetime.now()
-            self._last_error = None
-            
-            logger.info(f"Updated config: {update.config_type}")
-            
-        except Exception as e:
-            error_msg = f"Failed to update config: {str(e)}"
-            self._last_error = error_msg
-            logger.error(error_msg)
-            raise ConfigurationError(
-                error_msg,
-                {
-                    "config_type": update.config_type,
-                    "error": str(e)
-                }
+            # Validate update if requested
+            if update.validate:
+                validation_result = await self.validate_config(
+                    update.config_type, update.data
+                )
+                if not validation_result.valid:
+                    return validation_result
+
+            # Create config data object
+            config_data = ConfigData(
+                metadata=ConfigMetadata(
+                    config_type=update.config_type,
+                    last_modified=datetime.now()
+                ),
+                data=update.data
             )
 
-    def get_status(self) -> ConfigStatus:
-        """Get service status.
+            # Save config
+            await self._file_service.save_config(config_data)
+            
+            # Update cache
+            await self._cache_service.cache_config(update.config_type, config_data)
+            
+            # Create backup if requested
+            if update.backup:
+                await self._file_service.create_backup(update.config_type)
+
+            return ConfigValidationResult(valid=True, errors=[], warnings=[])
+
+        except Exception as e:
+            logger.error(f"Failed to update config {update.config_type}: {e}")
+            raise ConfigurationError(f"Failed to update config {update.config_type}") from e
+
+    async def validate_config(
+        self, config_type: str, config_data: Dict[str, Any]
+    ) -> ConfigValidationResult:
+        """Validate configuration data against schema.
         
+        Args:
+            config_type: Type of configuration to validate
+            config_data: Configuration data to validate
+            
         Returns:
-            Current service status including running state, cache info, and errors
+            Validation result
         """
-        return ConfigStatus(
-            is_running=self.is_running,
-            cache_size=self._cache_service.cache_size,
-            last_error=self._last_error,
-            last_update=self._last_update
-        )
+        try:
+            if not self._schema_registry:
+                raise ConfigurationError("Schema registry not initialized")
+
+            schema = getattr(self._schema_registry, config_type, None)
+            if not schema:
+                raise ConfigurationError(f"Unknown config type: {config_type}")
+
+            return await self._schema_service.validate(schema, config_data)
+
+        except Exception as e:
+            logger.error(f"Failed to validate config {config_type}: {e}")
+            raise ConfigurationError(f"Failed to validate config {config_type}") from e
+
+    async def get_editable_fields(
+        self, config_type: str
+    ) -> List[ConfigFieldInfo]:
+        """Get list of editable fields for a config type.
+        
+        Args:
+            config_type: Type of configuration
+            
+        Returns:
+            List of field information
+        """
+        try:
+            if not self._schema_registry:
+                raise ConfigurationError("Schema registry not initialized")
+
+            schema = getattr(self._schema_registry, config_type, None)
+            if not schema:
+                raise ConfigurationError(f"Unknown config type: {config_type}")
+
+            config_data = await self.get_config(config_type)
+            
+            return await self._schema_service.get_editable_fields(
+                schema, config_data.data
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to get editable fields for {config_type}: {e}")
+            raise ConfigurationError(
+                f"Failed to get editable fields for {config_type}"
+            ) from e
+
+    async def remap_tag(self, request: TagRemapRequest) -> None:
+        """Remap a tag reference in all configs.
+        
+        Args:
+            request: Tag remapping request
+        """
+        try:
+            # Validate new tag if requested
+            if request.validate:
+                if not await self._registry_service.validate_tag(request.new_tag):
+                    raise ConfigurationError(f"Invalid tag: {request.new_tag}")
+
+            # Update all configs
+            for config_type in self._schema_registry.__fields__:
+                config_data = await self.get_config(config_type)
+                updated = await self._registry_service.update_tag_references(
+                    config_data.data, request.old_tag, request.new_tag
+                )
+                if updated:
+                    await self.update_config(ConfigUpdate(
+                        config_type=config_type,
+                        data=config_data.data,
+                        validate=request.validate
+                    ))
+
+        except Exception as e:
+            logger.error(f"Failed to remap tag {request.old_tag}: {e}")
+            raise ConfigurationError(f"Failed to remap tag {request.old_tag}") from e
