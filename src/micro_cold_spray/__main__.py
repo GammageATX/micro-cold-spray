@@ -3,34 +3,13 @@ import asyncio
 import sys
 from datetime import datetime
 from pathlib import Path
-import subprocess
 from multiprocessing import Process
 
 from loguru import logger
-
-# API imports
-from micro_cold_spray.api.config import ConfigService, ConfigurationError
-from micro_cold_spray.api.messaging import MessagingService
-from micro_cold_spray.api.state import StateService
-from micro_cold_spray.api.data_collection import DataCollectionService
-from micro_cold_spray.api.communication import (
-    PLCTagService,
-    FeederTagService,
-    TagCacheService,
-    CommunicationService
-)
-from micro_cold_spray.ui.router import app as ui_app
 import uvicorn
-from micro_cold_spray.api.base import register_service
 
-src_path = Path(__file__).parent.parent
-if str(src_path) not in sys.path:
-    sys.path.insert(0, str(src_path))
-
-
-def get_project_root() -> Path:
-    """Get the absolute path to the project root directory."""
-    return Path(__file__).parent.parent.parent
+from micro_cold_spray.api.config import ConfigService
+from micro_cold_spray.ui.router import app as ui_app
 
 
 def setup_logging() -> None:
@@ -64,214 +43,60 @@ def setup_logging() -> None:
 
 
 def ensure_directories() -> None:
-    """Ensure required directories exist."""
-    project_root = get_project_root()
-    directories = [
-        "config",
-        "data/parameters",
-        "data/patterns",
-        "data/sequences",
-        "data/runs",
+    """Create necessary directories if they don't exist."""
+    dirs = [
         "logs",
-        "resources"
+        "config",
+        "config/schemas",
+        "data"
     ]
+    for dir_name in dirs:
+        Path(dir_name).mkdir(exist_ok=True)
 
-    for directory in directories:
-        (project_root / directory).mkdir(parents=True, exist_ok=True)
+
+def run_ui_process():
+    """Process function to run the UI service."""
+    async def run_ui():
+        config = uvicorn.Config(ui_app, host="0.0.0.0", port=8000, reload=True)
+        server = uvicorn.Server(config)
+        await server.serve()
+    asyncio.run(run_ui())
 
 
-async def initialize_system() -> tuple[
-    ConfigService,
-    MessagingService,
-    PLCTagService,
-    FeederTagService,
-    StateService,
-    DataCollectionService
-]:
-    """Initialize all system components."""
-    logger.info("Starting system initialization")
-
-    try:
-        # Create message broker first
-        logger.debug("Initializing MessageBroker")
-        message_broker = MessagingService()
-        await message_broker.initialize()
-
-        # Create config manager with proper path and message broker
-        logger.debug("Initializing ConfigManager")
-        config_path = get_project_root() / "config"
-        config_manager = ConfigService(config_path, message_broker)
-        await config_manager.initialize()
-
-        # Initialize tag cache service
-        logger.debug("Initializing TagCacheService")
-        tag_cache = TagCacheService()
-
-        # Initialize communication services
-        logger.debug("Initializing Communication Services")
-        plc_service = PLCTagService(
-            config_manager=config_manager,
-            message_broker=message_broker,
-            tag_cache=tag_cache
+def run_config_api_process():
+    """Process function to run the Config API service."""
+    async def run_config_api():
+        config = uvicorn.Config(
+            "micro_cold_spray.api.config.router:app",
+            host="0.0.0.0",
+            port=8001,
+            reload=True
         )
-        await plc_service.start()
-
-        feeder_service = FeederTagService(
-            config_manager=config_manager,
-            message_broker=message_broker,
-            tag_cache=tag_cache
-        )
-        await feeder_service.start()
-
-        # Create and initialize state service
-        logger.debug("Initializing StateService")
-        state_service = StateService(
-            config_manager=config_manager,
-            message_broker=message_broker
-        )
-        await state_service.start()
-
-        # Create and initialize data manager
-        logger.debug("Initializing DataCollectionService")
-        data_service = DataCollectionService(
-            message_broker=message_broker,
-            config_manager=config_manager
-        )
-        await data_service.start()
-
-        logger.info("System initialization complete")
-        return (
-            config_manager,
-            message_broker,
-            plc_service,
-            feeder_service,
-            state_service,
-            data_service
-        )
-
-    except Exception as e:
-        error_msg = {
-            "error": str(e),
-            "context": "system_initialization",
-            "timestamp": datetime.now().isoformat()
-        }
-        logger.exception(f"Critical error during system initialization: {error_msg}")
-        raise ConfigurationError("Failed to initialize system", error_msg) from e
-
-
-async def run_ui():
-    """Run the UI service."""
-    config = uvicorn.Config(ui_app, host="0.0.0.0", port=8000, reload=True)
-    server = uvicorn.Server(config)
-    await server.serve()
-
-
-# Service definitions
-SERVICES = {
-    "config": 8001,
-    "communication": 8002,
-    "process": 8003,
-    "state": 8004,
-    "data_collection": 8005,
-    "validation": 8006,
-    "messaging": 8007
-}
-
-
-class ServiceManager:
-    """Manages API service processes."""
-    
-    def __init__(self):
-        self.processes = {}
-        
-    def start_service(self, name: str, port: int):
-        """Start a service process."""
-        try:
-            process = subprocess.Popen(
-                [
-                    sys.executable, "-m", "uvicorn",
-                    f"micro_cold_spray.api.{name}.router:app",
-                    "--host", "0.0.0.0",
-                    "--port", str(port),
-                    "--reload"
-                ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
-            )
-            self.processes[name] = process
-            
-            if process.poll() is not None:
-                error = process.stderr.read()
-                logger.error(f"Service {name} failed to start: {error}")
-                return None
-                
-            logger.info(f"Started {name} service on port {port}")
-            return process
-        except Exception as e:
-            logger.error(f"Failed to start {name} service: {e}")
-            return None
-
-    async def start_all(self):
-        """Start all API services."""
-        logger.info("Starting all services...")
-        for name, port in SERVICES.items():
-            if self.start_service(name, port) is None:
-                logger.error(f"Failed to start {name} service")
-                await self.stop_all()
-                sys.exit(1)
-
-    async def stop_all(self):
-        """Stop all running services."""
-        for name, process in self.processes.items():
-            try:
-                process.terminate()
-                process.wait(timeout=5)
-                logger.info(f"Stopped {name} service")
-            except subprocess.TimeoutExpired:
-                process.kill()
-                logger.warning(f"Killed {name} service")
-            except Exception as e:
-                logger.error(f"Error stopping {name} service: {e}")
+        server = uvicorn.Server(config)
+        await server.serve()
+    asyncio.run(run_config_api())
 
 
 async def main():
-    """Application entry point with proper cleanup chains."""
-    service_manager = ServiceManager()
-
+    """Application entry point."""
     try:
         setup_logging()
         ensure_directories()
-        logger.info("Starting Micro Cold Spray application")
+        logger.info("Starting Micro Cold Spray application (UI + Config API only)")
 
-        # Start config service first since others depend on it
-        config_service = ConfigService()
+        # Start Config service with hardcoded config directory
+        config_service = ConfigService()  # Uses default config directory
         await config_service.start()
-        register_service(config_service)
+        logger.info("Config service started")
 
-        # Start services in dependency order
-        message_broker = MessagingService(config_service=config_service)
-        await message_broker.start()
-        register_service(message_broker)
+        # Start Config API in a separate process
+        logger.info("Starting Config API service")
+        config_api_process = Process(target=run_config_api_process)
+        config_api_process.start()
 
-        comm_service = CommunicationService()
-        await comm_service.start()
-        register_service(comm_service)
-
-        state_service = StateService()
-        await state_service.start()
-        register_service(state_service)
-
-        data_service = DataCollectionService()
-        await data_service.start()
-        register_service(data_service)
-
-        # Start API services
-        await service_manager.start_all()
-
-        # Start UI
+        # Start UI in a separate process
         logger.info("Starting UI service")
-        ui_process = Process(target=lambda: asyncio.run(run_ui()))
+        ui_process = Process(target=run_ui_process)
         ui_process.start()
 
         # Keep running until interrupted
@@ -292,7 +117,9 @@ async def main():
         if 'ui_process' in locals():
             ui_process.terminate()
             ui_process.join()
-        await service_manager.stop_all()
+        if 'config_api_process' in locals():
+            config_api_process.terminate()
+            config_api_process.join()
         logger.info("Application shutdown complete")
         sys.exit(0)
 

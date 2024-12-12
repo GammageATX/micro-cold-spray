@@ -1,12 +1,33 @@
 """FastAPI router for configuration operations."""
 
-from fastapi import APIRouter, HTTPException, Depends
-from typing import Dict, Any, Optional
+from fastapi import APIRouter, HTTPException, Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from typing import Dict, Any, Optional, List
 
 from .service import ConfigService, ConfigurationError
 
+# Create FastAPI app
+app = FastAPI(title="Config API")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace with specific origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 router = APIRouter(prefix="/config", tags=["config"])
 _service: Optional[ConfigService] = None
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on startup."""
+    global _service
+    _service = ConfigService()  # Uses default config directory
+    await _service.start()
 
 
 def init_router(service: ConfigService) -> None:
@@ -20,6 +41,19 @@ def get_service() -> ConfigService:
     if _service is None:
         raise RuntimeError("Config service not initialized")
     return _service
+
+
+@router.get("/types")
+async def get_config_types() -> List[Dict[str, str]]:
+    """Get available configuration types."""
+    return [
+        {"id": "application", "name": "Application Configuration"},
+        {"id": "hardware", "name": "Hardware Configuration"},
+        {"id": "file_format", "name": "File Format Configuration"},
+        {"id": "process", "name": "Process Configuration"},
+        {"id": "state", "name": "State Configuration"},
+        {"id": "tags", "name": "Tag Configuration"}
+    ]
 
 
 @router.get("/health")
@@ -94,91 +128,20 @@ async def update_config(
         )
 
 
-@router.post("/{config_type}/validate")
-async def validate_config(
-    config_type: str,
-    config_data: Dict[str, Any],
+@router.post("/cache/clear")
+async def clear_cache(
     service: ConfigService = Depends(get_service)
-) -> Dict[str, Any]:
-    """
-    Validate configuration data.
-    
-    Args:
-        config_type: Type of configuration to validate
-        config_data: Configuration data to validate
-        
-    Returns:
-        Dict containing validation result
-    """
+) -> Dict[str, str]:
+    """Clear configuration cache."""
     try:
-        await service.validate_config(config_type, config_data)
-        return {
-            "valid": True,
-            "message": "Configuration is valid"
-        }
-    except ConfigurationError as e:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "valid": False,
-                "error": str(e),
-                "context": e.context
-            }
-        )
+        await service.clear_cache()
+        return {"status": "Cache cleared"}
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=str(e)
+            detail={"error": str(e)}
         )
 
 
-@router.post("/tags/mapping")
-async def update_tag_mapping(
-    tag_path: str,
-    plc_tag: str,
-    service: ConfigService = Depends(get_service)
-) -> Dict[str, str]:
-    """Update PLC tag mapping."""
-    try:
-        await service.update_tag_mapping(tag_path, plc_tag)
-        return {"status": "updated"}
-    except ConfigurationError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@router.get("/schema/{config_type}")
-async def get_config_schema(
-    config_type: str,
-    service: ConfigService = Depends(get_service)
-) -> Dict[str, Any]:
-    """Get schema for config type."""
-    try:
-        return await service.get_config_schema(config_type)
-    except ConfigurationError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@router.post("/tags/remap")
-async def remap_tag(
-    old_tag: str,
-    new_tag: str,
-    service: ConfigService = Depends(get_service)
-) -> Dict[str, str]:
-    """Update tag mapping."""
-    try:
-        await service.update_tag_mapping(old_tag, new_tag)
-        return {"status": "updated"}
-    except ConfigurationError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@router.get("/fields/{config_type}")
-async def get_editable_fields(
-    config_type: str,
-    service: ConfigService = Depends(get_service)
-) -> Dict[str, Any]:
-    """Get editable fields for config type."""
-    try:
-        return await service.get_editable_fields(config_type)
-    except ConfigurationError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+# Include router in app
+app.include_router(router)

@@ -7,45 +7,53 @@ from typing import Any, Dict
 from loguru import logger
 from productivity import ProductivityPLC
 
-from ..exceptions import HardwareError
+from ..exceptions import HardwareError, FileError, ConfigurationError
 from .base import CommunicationClient
 
 
 class PLCClient(CommunicationClient):
-    """Client for PLC communication using Productivity library."""
+    """Client for PLC communication."""
 
     def __init__(self, config: Dict[str, Any]):
-        """Initialize PLC client with configuration."""
+        """Initialize PLC client."""
         super().__init__("plc", config)
         try:
-            plc_config = config['hardware']['network']['plc']
-            self._address = plc_config['ip']
-            self._tag_file = Path(plc_config['tag_file'])
-
+            # Extract required configuration
+            self._ip = config['ip']
+            self._tag_file = Path(config['tag_file'])
+            self._polling_interval = config['polling_interval']
+            self._retry_delay = config.get('retry', {}).get('delay', 1.0)
+            self._max_attempts = config.get('retry', {}).get('max_attempts', 3)
+            self._timeout = config.get('timeout', 5.0)
+            
             # Validate tag file exists
             if not self._tag_file.exists():
-                raise HardwareError(
-                    f"PLC tag file not found: {self._tag_file}",
+                raise FileError(
+                    f"Tag file not found: {self._tag_file}",
                     "plc",
-                    {"tag_file": str(self._tag_file)}
+                    {"path": str(self._tag_file)}
                 )
-
+            
+            logger.info(f"Initialized PLC client for {self._ip}")
+            
         except KeyError as e:
-            raise HardwareError(
-                f"Missing required PLC configuration: {e}",
+            raise ConfigurationError(
+                f"Missing required PLC config field: {e}",
                 "plc",
-                {"config": config}
+                {"field": str(e)}
             )
+        except FileError:
+            raise
         except Exception as e:
             raise HardwareError(
                 f"Failed to initialize PLC client: {e}",
                 "plc",
-                {"address": self._address}
+                {"error": str(e)}
             )
 
-        self._plc = ProductivityPLC(self._address, str(self._tag_file))
+        self._plc = ProductivityPLC(self._ip, str(self._tag_file))
         logger.info(
-            f"PLCClient initialized with address={self._address}, tag_file={self._tag_file}"
+            f"PLCClient initialized with address={self._ip}, tag_file={self._tag_file}"
         )
 
     async def connect(self) -> None:

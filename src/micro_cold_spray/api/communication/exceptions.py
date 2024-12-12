@@ -14,3 +14,18 @@ class HardwareError(ServiceError):
 class ConnectionError(HardwareError):
     """Connection-specific errors."""
     pass
+
+
+class ConfigurationError(HardwareError):
+    """Hardware configuration errors."""
+    pass
+
+
+class TagError(HardwareError):
+    """Tag-related errors."""
+    pass
+
+
+class FileError(HardwareError):
+    """File-related hardware errors."""
+    pass

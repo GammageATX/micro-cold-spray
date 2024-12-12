@@ -19,7 +19,7 @@ class CommunicationClient(ABC, BaseService):
             config: Client configuration
         """
         super().__init__(service_name=f"{client_name}_client")
-        self._config = config
+        self._config = config or {}  # Ensure config is never None
         self._connection = None
         self._connected = False
 
