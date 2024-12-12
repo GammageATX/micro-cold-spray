@@ -1,10 +1,13 @@
 """Base validator class."""
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union, Pattern
+import re
 from abc import ABC, abstractmethod
+from datetime import datetime
+from loguru import logger
 
 from ...messaging import MessagingService
-from ..exceptions import ValidationError
+from ..exceptions import TagError
 
 
 class BaseValidator(ABC):
@@ -14,7 +17,7 @@ class BaseValidator(ABC):
         self,
         validation_rules: Dict[str, Any],
         message_broker: Optional[MessagingService] = None
-    ):
+    ) -> None:
         """Initialize validator.
         
         Args:
@@ -25,7 +28,7 @@ class BaseValidator(ABC):
         self._message_broker = message_broker
 
     @abstractmethod
-    async def validate(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def validate(self, data: Dict[str, Any]) -> Dict[str, bool | List[str]]:
         """Validate data against rules.
         
         Args:
@@ -52,10 +55,10 @@ class BaseValidator(ABC):
             Tag value
             
         Raises:
-            ValidationError: If tag value cannot be retrieved
+            TagError: If tag value cannot be retrieved
         """
         if not self._message_broker:
-            raise ValidationError("Message broker not available")
+            raise TagError("Message broker not available")
             
         try:
             response = await self._message_broker.request(
@@ -64,7 +67,8 @@ class BaseValidator(ABC):
             )
             return response["value"]
         except Exception as e:
-            raise ValidationError(f"Failed to get tag value: {tag}", {"error": str(e)})
+            logger.error(f"Failed to get tag value {tag}: {str(e)}")
+            raise TagError(f"Failed to get tag value: {tag}", {"error": str(e)})
 
     def _check_required_fields(
         self,
@@ -82,10 +86,12 @@ class BaseValidator(ABC):
         Returns:
             List of error messages
         """
-        errors = []
+        errors: List[str] = []
         for field in required_fields:
             if field not in data:
                 errors.append(f"{prefix}Missing required field: {field}")
+            elif data[field] is None:
+                errors.append(f"{prefix}Field cannot be null: {field}")
         return errors
 
     def _check_unknown_fields(
@@ -104,7 +110,7 @@ class BaseValidator(ABC):
         Returns:
             List of error messages
         """
-        errors = []
+        errors: List[str] = []
         for field in data:
             if field not in valid_fields:
                 errors.append(f"{prefix}Unknown field: {field}")
@@ -112,7 +118,7 @@ class BaseValidator(ABC):
 
     def _check_numeric_range(
         self,
-        value: float,
+        value: Union[int, float, str],
         min_val: Optional[float] = None,
         max_val: Optional[float] = None,
         field_name: str = "Value"
@@ -128,11 +134,15 @@ class BaseValidator(ABC):
         Returns:
             Error message if validation fails, None otherwise
         """
-        if min_val is not None and value < min_val:
-            return f"{field_name} {value} below minimum: {min_val}"
-        if max_val is not None and value > max_val:
-            return f"{field_name} {value} above maximum: {max_val}"
-        return None
+        try:
+            num_value = float(value)
+            if min_val is not None and num_value < min_val:
+                return f"{field_name} {value} below minimum: {min_val}"
+            if max_val is not None and num_value > max_val:
+                return f"{field_name} {value} above maximum: {max_val}"
+            return None
+        except (TypeError, ValueError):
+            return f"{field_name} must be numeric"
 
     def _check_enum_value(
         self,
@@ -153,3 +163,80 @@ class BaseValidator(ABC):
         if value not in valid_values:
             return f"{field_name} must be one of: {valid_values}"
         return None
+
+    def _check_pattern(
+        self,
+        value: str,
+        pattern: Union[str, Pattern[str]],
+        field_name: str = "Value"
+    ) -> Optional[str]:
+        """Check string matches pattern.
+        
+        Args:
+            value: String to check
+            pattern: Regex pattern to match
+            field_name: Name of field for error message
+            
+        Returns:
+            Error message if validation fails, None otherwise
+        """
+        try:
+            if not isinstance(value, str):
+                return f"{field_name} must be string"
+                
+            if isinstance(pattern, str):
+                pattern = re.compile(pattern)
+                
+            if not pattern.match(value):
+                return f"{field_name} does not match pattern: {pattern.pattern}"
+                
+            return None
+            
+        except Exception as e:
+            logger.error(f"Pattern check failed: {str(e)}")
+            return f"Invalid pattern check: {str(e)}"
+
+    def _check_timestamp(
+        self,
+        value: Union[str, datetime],
+        field_name: str = "Timestamp"
+    ) -> Optional[str]:
+        """Check timestamp is valid.
+        
+        Args:
+            value: Timestamp to check
+            field_name: Name of field for error message
+            
+        Returns:
+            Error message if validation fails, None otherwise
+        """
+        try:
+            if isinstance(value, str):
+                datetime.fromisoformat(value)
+            elif not isinstance(value, datetime):
+                return f"{field_name} must be ISO format string or datetime"
+            return None
+        except ValueError:
+            return f"{field_name} must be valid ISO format"
+
+    def _format_error(
+        self,
+        message: str,
+        field: Optional[str] = None,
+        value: Any = None
+    ) -> str:
+        """Format error message.
+        
+        Args:
+            message: Base error message
+            field: Optional field name
+            value: Optional field value
+            
+        Returns:
+            Formatted error message
+        """
+        if field:
+            message = f"{field}: {message}"
+        if value is not None:
+            message = f"{message} (got: {value})"
+        return message

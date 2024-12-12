@@ -1,9 +1,9 @@
-"""Configuration file service."""
+"""File service for config operations."""
 
-import yaml
 from pathlib import Path
 from typing import Dict, Any
 from datetime import datetime
+import yaml
 from loguru import logger
 
 from ...base import BaseService
@@ -12,14 +12,10 @@ from ..exceptions import ConfigurationError
 
 
 class ConfigFileService(BaseService):
-    """Service for managing configuration files."""
+    """Service for file operations."""
 
     def __init__(self, config_dir: Path):
-        """Initialize file service.
-        
-        Args:
-            config_dir: Directory for config files
-        """
+        """Initialize file service."""
         super().__init__(service_name="config_file")
         self._config_dir = config_dir
         self._config_dir.mkdir(exist_ok=True)
@@ -58,6 +54,11 @@ class ConfigFileService(BaseService):
             with open(config_path, 'r') as f:
                 data = yaml.safe_load(f)
                 
+            # Handle nested config structure
+            if config_type in data:
+                # If config is nested under its type name, extract it
+                data = data[config_type]
+                
             metadata = ConfigMetadata(
                 config_type=config_type,
                 last_modified=datetime.fromtimestamp(config_path.stat().st_mtime)
@@ -75,45 +76,43 @@ class ConfigFileService(BaseService):
                 }
             )
 
-    async def save_config(
-        self,
-        config_type: str,
-        data: Dict[str, Any],
-        backup: bool = True
-    ) -> None:
+    async def save_config(self, config_data: ConfigData) -> None:
         """Save configuration to file.
         
         Args:
-            config_type: Type of config to save
-            data: Configuration data to save
-            backup: Whether to create backup of existing file
+            config_data: Configuration data to save
             
         Raises:
             ConfigurationError: If config cannot be saved
         """
+        config_type = config_data.metadata.config_type
         config_path = self._config_dir / f"{config_type}.yaml"
         
         try:
-            # Create backup if requested
-            if backup and config_path.exists():
+            # Create backup
+            if config_path.exists():
                 backup_path = config_path.with_suffix(".yaml.bak")
                 config_path.rename(backup_path)
             
+            # Wrap data in its type if it's a known nested config
+            save_data = config_data.data
+            if config_type in ["hardware", "application", "process", "state"]:
+                save_data = {config_type: config_data.data}
+            
             # Write new config
             with open(config_path, 'w') as f:
-                yaml.safe_dump(data, f)
+                yaml.safe_dump(save_data, f, default_flow_style=False)
                 
             # Remove backup if successful
-            if backup:
-                backup_path = config_path.with_suffix(".yaml.bak")
-                if backup_path.exists():
-                    backup_path.unlink()
+            backup_path = config_path.with_suffix(".yaml.bak")
+            if backup_path.exists():
+                backup_path.unlink()
                     
             logger.info(f"Saved config: {config_type}")
             
         except Exception as e:
             # Restore backup if it exists
-            if backup and config_path.with_suffix(".yaml.bak").exists():
+            if config_path.with_suffix(".yaml.bak").exists():
                 backup_path = config_path.with_suffix(".yaml.bak")
                 backup_path.rename(config_path)
                 

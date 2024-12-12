@@ -1,98 +1,84 @@
 """Configuration cache service."""
 
-from typing import Dict, Any, Optional
 from datetime import datetime
+from typing import Dict, Optional
+
 from loguru import logger
 
-from ...base import BaseService
-from ..models import ConfigData, ConfigMetadata
-from ..exceptions import ConfigurationError
+from micro_cold_spray.api.base import BaseService
+from micro_cold_spray.api.config.models import ConfigData
 
 
 class ConfigCacheService(BaseService):
-    """Service for managing configuration cache."""
+    """Service for caching configuration data."""
 
     def __init__(self):
         """Initialize cache service."""
         super().__init__(service_name="config_cache")
-        self._config_cache: Dict[str, ConfigData] = {}
-        self._last_modified: Dict[str, float] = {}
+        self._cache: Dict[str, ConfigData] = {}
+        self._last_update: Optional[datetime] = None
 
     async def _start(self) -> None:
-        """Start cache service."""
+        """Start the cache service."""
         try:
-            self._config_cache.clear()
-            self._last_modified.clear()
-            logger.info("Config cache service started")
+            self._cache = {}
+            self._last_update = None
+            logger.info("Cache service started successfully")
         except Exception as e:
-            raise ConfigurationError("Failed to start cache service", {"error": str(e)})
+            logger.error(f"Failed to start cache service: {e}")
+            raise
 
     async def _stop(self) -> None:
-        """Stop cache service."""
+        """Stop the cache service."""
         try:
-            self._config_cache.clear()
-            self._last_modified.clear()
-            logger.info("Config cache service stopped")
+            self._cache = {}
+            self._last_update = None
+            logger.info("Cache service stopped successfully")
         except Exception as e:
-            raise ConfigurationError("Failed to stop cache service", {"error": str(e)})
+            logger.error(f"Failed to stop cache service: {e}")
+            raise
 
-    def get_cached_config(self, config_type: str) -> Optional[ConfigData]:
-        """Get cached configuration.
+    async def get_cached_config(self, config_type: str) -> Optional[ConfigData]:
+        """Get cached configuration data.
         
         Args:
-            config_type: Type of config to get
+            config_type: Type of configuration to get
             
         Returns:
-            Cached config data or None if not cached
+            Cached configuration data or None if not found
         """
-        return self._config_cache.get(config_type)
+        return self._cache.get(config_type)
 
-    def update_cache(self, config_type: str, data: Dict[str, Any]) -> None:
-        """Update cache with new config data.
+    async def cache_config(self, config_type: str, config_data: ConfigData) -> None:
+        """Cache configuration data.
         
         Args:
-            config_type: Type of config to update
-            data: New configuration data
+            config_type: Type of configuration to cache
+            config_data: Configuration data to cache
         """
-        metadata = ConfigMetadata(
-            config_type=config_type,
-            last_modified=datetime.now()
-        )
-        config_data = ConfigData(metadata=metadata, data=data)
-        self._config_cache[config_type] = config_data
-        self._last_modified[config_type] = metadata.last_modified.timestamp()
+        self._cache[config_type] = config_data
+        self._last_update = datetime.now()
 
-    def clear_cache(self, config_type: Optional[str] = None) -> None:
-        """Clear cache entries.
+    async def clear_cache(self) -> None:
+        """Clear all cached data."""
+        self._cache = {}
+        self._last_update = None
+
+    async def remove_from_cache(self, config_type: str) -> None:
+        """Remove configuration from cache.
         
         Args:
-            config_type: Optional specific config to clear, clears all if None
+            config_type: Type of configuration to remove
         """
-        if config_type:
-            self._config_cache.pop(config_type, None)
-            self._last_modified.pop(config_type, None)
-        else:
-            self._config_cache.clear()
-            self._last_modified.clear()
-
-    def is_cache_valid(self, config_type: str, file_timestamp: float) -> bool:
-        """Check if cached config is still valid.
-        
-        Args:
-            config_type: Type of config to check
-            file_timestamp: File modification timestamp to compare against
-            
-        Returns:
-            True if cache is valid
-        """
-        cache_conditions = (
-            config_type in self._config_cache and
-            config_type in self._last_modified and
-            self._last_modified[config_type] >= file_timestamp
-        )
-        return cache_conditions
+        if config_type in self._cache:
+            del self._cache[config_type]
 
     @property
     def cache_size(self) -> int:
-        """Get number of cached configs."""
-        return len(self._config_cache)
+        """Get number of cached configurations."""
+        return len(self._cache)
+
+    @property
+    def last_update(self) -> Optional[datetime]:
+        """Get timestamp of last cache update."""
+        return self._last_update

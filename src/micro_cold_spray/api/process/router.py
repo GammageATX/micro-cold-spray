@@ -1,315 +1,336 @@
 """FastAPI router for process operations."""
 
-from typing import Dict, Any, Optional
-from fastapi import APIRouter, HTTPException, Depends
+from typing import Dict, Any, Optional, List
+from datetime import datetime
+from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi.responses import JSONResponse
 from loguru import logger
 
 from .service import ProcessService
-from .exceptions import ProcessError
+from .exceptions import (
+    ProcessError,
+    SequenceError
+)
+from .models import (
+    ExecutionStatus,
+    ActionStatus,
+    ProcessPattern,
+    ParameterSet
+)
 
 router = APIRouter(prefix="/process", tags=["process"])
 _service: Optional[ProcessService] = None
 
 
 def init_router(service: ProcessService) -> None:
-    """Initialize router with service instance."""
+    """Initialize router with service instance.
+    
+    Args:
+        service: Process service instance
+    """
     global _service
     _service = service
 
 
 def get_service() -> ProcessService:
-    """Get process service instance."""
+    """Get process service instance.
+    
+    Returns:
+        ProcessService instance
+        
+    Raises:
+        RuntimeError: If service not initialized
+    """
     if _service is None:
+        logger.error("Process service not initialized")
         raise RuntimeError("Process service not initialized")
     return _service
 
 
-@router.post("/sequence/start/{sequence_id}")
-async def start_sequence(sequence_id: str) -> Dict[str, str]:
+@router.post("/sequence/start/{sequence_id}", response_model=Dict[str, Any])
+async def start_sequence(
+    sequence_id: str,
+    background_tasks: BackgroundTasks
+) -> Dict[str, Any]:
     """Start executing a sequence.
     
     Args:
         sequence_id: ID of sequence to execute
+        background_tasks: FastAPI background tasks
         
     Returns:
         Dict containing operation status
+        
+    Raises:
+        HTTPException: If sequence cannot be started
     """
     service = get_service()
+    
     try:
         await service.start_sequence(sequence_id)
+        background_tasks.add_task(
+            logger.info,
+            f"Started sequence {sequence_id}"
+        )
+        
         return {
             "status": "started",
-            "sequence_id": sequence_id
+            "sequence_id": sequence_id,
+            "timestamp": datetime.now().isoformat()
         }
-    except ProcessError as e:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": str(e), "context": e.context}
-        )
-    except Exception as e:
+    except SequenceError as e:
         logger.error(f"Failed to start sequence: {str(e)}")
         raise HTTPException(
+            status_code=400,
+            detail={"error": str(e), "context": e.context}
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
+        raise HTTPException(
             status_code=500,
-            detail=str(e)
+            detail={"error": "Internal server error", "message": str(e)}
         )
 
 
-@router.post("/sequence/cancel")
-async def cancel_sequence() -> Dict[str, str]:
-    """Cancel current sequence.
+@router.post("/sequence/abort", response_model=Dict[str, Any])
+async def abort_sequence(
+    background_tasks: BackgroundTasks
+) -> Dict[str, Any]:
+    """Abort current sequence.
     
+    Args:
+        background_tasks: FastAPI background tasks
+        
     Returns:
         Dict containing operation status
+        
+    Raises:
+        HTTPException: If sequence cannot be aborted
     """
     service = get_service()
+    
     try:
-        await service.cancel_sequence()
-        return {"status": "cancelled"}
+        await service.abort_sequence()
+        background_tasks.add_task(
+            logger.info,
+            "Aborted current sequence"
+        )
+        
+        return {
+            "status": "aborted",
+            "timestamp": datetime.now().isoformat()
+        }
     except ProcessError as e:
+        logger.error(f"Failed to abort sequence: {str(e)}")
         raise HTTPException(
             status_code=400,
             detail={"error": str(e), "context": e.context}
         )
     except Exception as e:
-        logger.error(f"Failed to cancel sequence: {str(e)}")
+        logger.error(f"Unexpected error: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=str(e)
+            detail={"error": "Internal server error", "message": str(e)}
         )
 
 
-@router.get("/sequence/status")
-async def get_sequence_status() -> Dict[str, Any]:
+@router.get("/sequence/status", response_model=ExecutionStatus)
+async def get_sequence_status() -> ExecutionStatus:
     """Get current sequence status.
     
     Returns:
-        Dict containing sequence status
-    """
-    service = get_service()
-    active_sequence = service.active_sequence
-    
-    if not active_sequence:
-        return {"status": "inactive"}
+        Current sequence execution status
         
-    return {
-        "status": "active",
-        "sequence_id": active_sequence,
-        "step": service.sequence_step
-    }
-
-
-@router.post("/patterns/generate")
-async def generate_pattern(pattern_request: Dict[str, Any]) -> Dict[str, Any]:
-    """Generate a new pattern.
+    Raises:
+        HTTPException: If status cannot be retrieved
+    """
+    service = get_service()
     
-    Args:
-        pattern_request: Pattern generation parameters
+    try:
+        sequence = await service.get_current_sequence()
+        if not sequence:
+            return ExecutionStatus(
+                sequence_id="",
+                status="inactive",
+                current_step=0,
+                total_steps=0,
+                start_time=datetime.now()
+            )
+            
+        return ExecutionStatus(
+            sequence_id=sequence["id"],
+            status=sequence["status"],
+            current_step=sequence["current_step"],
+            total_steps=len(sequence["sequence"]["steps"]),
+            start_time=datetime.fromisoformat(sequence["start_time"]),
+            end_time=datetime.fromisoformat(sequence["end_time"]) if "end_time" in sequence else None,
+            error=sequence.get("error"),
+            progress=sequence["current_step"] / len(sequence["sequence"]["steps"]) * 100
+        )
+    except Exception as e:
+        logger.error(f"Failed to get sequence status: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "Internal server error", "message": str(e)}
+        )
+
+
+@router.get("/sequences", response_model=List[Dict[str, Any]])
+async def list_sequences() -> List[Dict[str, Any]]:
+    """List available sequences.
+    
+    Returns:
+        List of sequences with metadata
         
-    Returns:
-        Dict containing generated pattern data
+    Raises:
+        HTTPException: If sequences cannot be retrieved
     """
     service = get_service()
+    
     try:
-        pattern = await service.generate_pattern(
-            pattern_request.get("type"),
-            pattern_request.get("parameters", {})
-        )
-        return {
-            "status": "success",
-            "pattern": pattern
-        }
+        sequences = await service.list_sequences()
+        return sequences
     except ProcessError as e:
+        logger.error(f"Failed to list sequences: {str(e)}")
         raise HTTPException(
             status_code=400,
             detail={"error": str(e), "context": e.context}
         )
     except Exception as e:
-        logger.error(f"Failed to generate pattern: {str(e)}")
+        logger.error(f"Unexpected error: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=str(e)
+            detail={"error": "Internal server error", "message": str(e)}
         )
 
 
-@router.post("/patterns/{pattern_id}/validate")
-async def validate_pattern(pattern_id: str) -> Dict[str, Any]:
-    """Validate a pattern.
+@router.get("/patterns", response_model=List[ProcessPattern])
+async def list_patterns() -> List[ProcessPattern]:
+    """List available patterns.
     
-    Args:
-        pattern_id: ID of pattern to validate
+    Returns:
+        List of patterns with metadata
         
-    Returns:
-        Dict containing validation results
+    Raises:
+        HTTPException: If patterns cannot be retrieved
     """
     service = get_service()
+    
     try:
-        await service.validate_pattern(pattern_id)
-        return {
-            "status": "success",
-            "message": "Pattern validation passed"
-        }
+        patterns = await service.list_patterns()
+        return patterns
     except ProcessError as e:
+        logger.error(f"Failed to list patterns: {str(e)}")
         raise HTTPException(
             status_code=400,
             detail={"error": str(e), "context": e.context}
         )
     except Exception as e:
-        logger.error(f"Failed to validate pattern: {str(e)}")
+        logger.error(f"Unexpected error: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=str(e)
+            detail={"error": "Internal server error", "message": str(e)}
         )
 
 
-@router.post("/sequences/create")
-async def create_sequence(sequence_data: Dict[str, Any]) -> Dict[str, str]:
-    """Create a new sequence.
+@router.get("/parameters", response_model=List[ParameterSet])
+async def list_parameter_sets() -> List[ParameterSet]:
+    """List available parameter sets.
     
-    Args:
-        sequence_data: Sequence definition data
+    Returns:
+        List of parameter sets with metadata
         
-    Returns:
-        Dict containing created sequence ID
+    Raises:
+        HTTPException: If parameter sets cannot be retrieved
     """
     service = get_service()
+    
     try:
-        sequence_id = await service.create_sequence(sequence_data)
-        return {"sequence_id": sequence_id}
+        parameter_sets = await service.list_parameter_sets()
+        return parameter_sets
     except ProcessError as e:
+        logger.error(f"Failed to list parameter sets: {str(e)}")
         raise HTTPException(
             status_code=400,
             detail={"error": str(e), "context": e.context}
         )
     except Exception as e:
-        logger.error(f"Failed to create sequence: {str(e)}")
+        logger.error(f"Unexpected error: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=str(e)
+            detail={"error": "Internal server error", "message": str(e)}
         )
 
 
-@router.post("/parameters/create")
-async def create_parameter_set(parameter_data: Dict[str, Any]) -> Dict[str, str]:
-    """Create a new parameter set.
+@router.get("/action/status", response_model=Optional[ActionStatus])
+async def get_action_status() -> Optional[ActionStatus]:
+    """Get current action status.
     
-    Args:
-        parameter_data: Parameter set definition
+    Returns:
+        Current action status or None if no action is running
         
-    Returns:
-        Dict containing created parameter set ID
+    Raises:
+        HTTPException: If status cannot be retrieved
     """
     service = get_service()
-    try:
-        param_id = await service.create_parameter_set(parameter_data)
-        return {"parameter_id": param_id}
-    except ProcessError as e:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": str(e), "context": e.context}
-        )
-    except Exception as e:
-        logger.error(f"Failed to create parameter set: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
-
-
-@router.get("/files/parameters")
-async def list_parameter_files() -> Dict[str, Any]:
-    """List available parameter files.
     
-    Returns:
-        Dict containing list of parameter files
-    """
-    service = get_service()
     try:
-        files = await service.list_parameter_files()
-        return {"files": files}
-    except ProcessError as e:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": str(e), "context": e.context}
+        action = await service.get_current_action()
+        if not action:
+            return None
+            
+        return ActionStatus(
+            action_type=action["type"],
+            parameters=action["parameters"],
+            status=action["status"],
+            start_time=datetime.fromisoformat(action["start_time"]),
+            end_time=datetime.fromisoformat(action["end_time"]) if "end_time" in action else None,
+            error=action.get("error"),
+            progress=action.get("progress", 0.0),
+            data=action.get("data", {})
         )
     except Exception as e:
-        logger.error(f"Failed to list parameter files: {str(e)}")
+        logger.error(f"Failed to get action status: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=str(e)
-        )
-
-
-@router.get("/files/patterns")
-async def list_pattern_files() -> Dict[str, Any]:
-    """List available pattern files.
-    
-    Returns:
-        Dict containing list of pattern files
-    """
-    service = get_service()
-    try:
-        files = await service.list_pattern_files()
-        return {"files": files}
-    except ProcessError as e:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": str(e), "context": e.context}
-        )
-    except Exception as e:
-        logger.error(f"Failed to list pattern files: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
-
-
-@router.get("/files/sequences")
-async def list_sequence_files() -> Dict[str, Any]:
-    """List available sequence files.
-    
-    Returns:
-        Dict containing list of sequence files
-    """
-    service = get_service()
-    try:
-        files = await service.list_sequence_files()
-        return {"files": files}
-    except ProcessError as e:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": str(e), "context": e.context}
-        )
-    except Exception as e:
-        logger.error(f"Failed to list sequence files: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
+            detail={"error": "Internal server error", "message": str(e)}
         )
 
 
 @router.get("/health")
-async def health_check(
-    service: ProcessService = Depends(get_service)
-) -> Dict[str, Any]:
-    """Check API health status.
+async def health_check() -> JSONResponse:
+    """Check API and service health status.
     
     Returns:
-        Dict containing health status
+        JSON response with health status
+        
+    Note:
+        Returns 503 if service unhealthy
     """
+    service = get_service()
+    
     try:
-        if not service.is_running:
-            return {
-                "status": "error",
-                "message": "Service not running"
-            }
-            
-        return {
-            "status": "ok",
-            "message": "Service healthy"
+        status = {
+            "service": "ok" if service.is_running else "error",
+            "sequence": await service.get_current_sequence(),
+            "timestamp": datetime.now().isoformat()
         }
+        
+        if not service.is_running:
+            return JSONResponse(
+                status_code=503,
+                content=status
+            )
+            
+        return JSONResponse(status)
+        
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")
-        return {
-            "status": "error",
-            "message": str(e)
-        }
+        return JSONResponse(
+            status_code=503,
+            content={
+                "service": "error",
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            }
+        )

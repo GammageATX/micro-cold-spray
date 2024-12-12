@@ -5,13 +5,13 @@ import asyncio
 from loguru import logger
 from collections import defaultdict
 
-from ..base import BaseService
+from ..base import ConfigurableService
 from ..config import ConfigService
 from .models import MessageHandler
 from .exceptions import MessagingError
 
 
-class MessagingService(BaseService):
+class MessagingService(ConfigurableService):
     """Service for handling pub/sub messaging."""
     
     def __init__(self, config_service: ConfigService):
@@ -20,7 +20,8 @@ class MessagingService(BaseService):
         Args:
             config_service: Configuration service
         """
-        super().__init__(service_name="messaging", config_service=config_service)
+        super().__init__(service_name="messaging")
+        self._config_service = config_service
         self._valid_topics: Set[str] = set()
         self._subscribers: Dict[str, Set[MessageHandler]] = defaultdict(set)
         self._message_queue: asyncio.Queue = asyncio.Queue()
@@ -30,9 +31,17 @@ class MessagingService(BaseService):
     async def _start(self) -> None:
         """Initialize messaging service."""
         try:
-            # Load valid topics from config
-            config = await self._config_service.get_config("messaging")
-            self._valid_topics = set(config.get("messaging", {}).get("valid_topics", []))
+            # Load valid topics from application config
+            app_config = await self._config_service.get_config("application")
+            message_broker_config = app_config.get("services", {}).get("message_broker", {})
+            
+            # Extract all topics from each topic group
+            topics = set()
+            for topic_group in message_broker_config.get("topics", {}).values():
+                topics.update(topic_group)
+            
+            self._valid_topics = topics
+            logger.debug(f"Loaded {len(self._valid_topics)} valid topics")
             
             # Start message processing
             self._running = True

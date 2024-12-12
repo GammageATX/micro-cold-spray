@@ -1,0 +1,37 @@
+{
+    "type": "object",
+    "title": "State Configuration",
+    "required": ["initial_state", "transitions"],
+    "properties": {
+        "initial_state": {
+            "type": "string",
+            "description": "Initial state of the system"
+        },
+        "transitions": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "object",
+                "required": ["description", "next_states"],
+                "properties": {
+                    "description": {
+                        "type": "string"
+                    },
+                    "conditions": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "tag_path"
+                        }
+                    },
+                    "next_states": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "minItems": 1
+                    }
+                }
+            }
+        }
+    }
+} 

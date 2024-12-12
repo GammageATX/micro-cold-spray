@@ -152,3 +152,23 @@ class TagCacheResponse(BaseModel):
     groups: Set[str] = Field(
         description="Groups present in the filtered results"
     )
+
+
+class TagUpdate(BaseModel):
+    """Request to update a tag value."""
+    tag: str = Field(
+        description="Full path to the tag (e.g., 'gas_control.main_flow.setpoint')"
+    )
+    value: Any = Field(
+        description="New value in engineering units or human-readable form"
+    )
+
+
+class TagSubscription(BaseModel):
+    """Request to subscribe to tag updates."""
+    tags: List[str] = Field(
+        description="List of tag paths to subscribe to"
+    )
+    callback_url: str = Field(
+        description="URL to receive tag update notifications"
+    )

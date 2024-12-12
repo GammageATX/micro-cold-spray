@@ -1,0 +1,90 @@
+{
+    "type": "object",
+    "title": "Process Configuration",
+    "required": ["action_groups", "validation"],
+    "properties": {
+        "action_groups": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "object",
+                "required": ["steps"],
+                "properties": {
+                    "description": {
+                        "type": "string"
+                    },
+                    "requires": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["name", "type"],
+                            "properties": {
+                                "name": {
+                                    "type": "string"
+                                },
+                                "type": {
+                                    "type": "string",
+                                    "enum": ["parameter", "pattern", "sequence"]
+                                }
+                            }
+                        }
+                    },
+                    "steps": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["action"],
+                            "properties": {
+                                "action": {
+                                    "type": "string",
+                                    "format": "action_reference"
+                                },
+                                "validation": {
+                                    "type": "string",
+                                    "format": "validation_reference"
+                                },
+                                "parameters": {
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "minItems": 1
+                    }
+                }
+            }
+        },
+        "validation": {
+            "type": "object",
+            "properties": {
+                "states": {
+                    "type": "object",
+                    "properties": {
+                        "checks": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "required": ["condition", "tag", "value"],
+                                "properties": {
+                                    "condition": {
+                                        "type": "string",
+                                        "enum": ["less_than", "greater_than", "equals"]
+                                    },
+                                    "tag": {
+                                        "type": "string",
+                                        "format": "tag_path"
+                                    },
+                                    "value": {
+                                        "type": "number"
+                                    },
+                                    "timeout": {
+                                        "type": "number",
+                                        "minimum": 0
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+} 

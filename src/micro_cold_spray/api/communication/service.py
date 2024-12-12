@@ -3,7 +3,7 @@
 from typing import Dict, Any, Optional
 from loguru import logger
 
-from ..base import BaseService
+from ..base import ConfigurableService
 from ..config import ConfigService
 from .exceptions import HardwareError
 from .clients import (
@@ -21,16 +21,12 @@ from .services import (
 )
 
 
-class CommunicationService(BaseService):
+class CommunicationService(ConfigurableService):
     """Service for hardware communication and control."""
 
-    def __init__(self, config_service: Optional[ConfigService] = None):
-        """Initialize communication service.
-        
-        Args:
-            config_service: Optional config service for loading settings
-        """
-        super().__init__("communication", config_service)
+    def __init__(self):
+        super().__init__(service_name="communication")
+        self._config_service = ConfigService()
         
         # Clients
         self._plc_client: Optional[PLCClient] = None
@@ -46,35 +42,73 @@ class CommunicationService(BaseService):
     async def _start(self) -> None:
         """Start communication service."""
         try:
-            # Create clients
-            use_mock = self._config.get('use_mock', False)
-            self._plc_client = create_plc_client(self._config, use_mock)
-            self._ssh_client = create_ssh_client(self._config, use_mock)
+            # Load hardware config
+            config = await self._config_service.get_config("hardware")
+            await self.configure(config)
             
-            # Create services
-            self._equipment = EquipmentService(self._plc_client)
-            self._feeder = FeederService(self._plc_client)
-            self._motion = MotionService(self._plc_client)
-            self._tag_cache = TagCacheService()
-            self._tag_mapping = TagMappingService(self._config)
+            # Initialize with config
+            plc_config = config.get("network", {}).get("plc", {})
+            ssh_config = config.get("network", {}).get("ssh", {})
             
-            # Start clients
-            await self._plc_client.start()
-            await self._ssh_client.start()
+            try:
+                self._plc_client = create_plc_client(plc_config)
+            except Exception as e:
+                raise HardwareError(f"Failed to create PLC client: {str(e)}", device="plc")
+                
+            try:
+                self._ssh_client = create_ssh_client(ssh_config)
+            except Exception as e:
+                raise HardwareError(f"Failed to create SSH client: {str(e)}", device="ssh")
             
-            # Start services
-            await self._equipment.start()
-            await self._feeder.start()
-            await self._motion.start()
-            await self._tag_cache.start()
-            await self._tag_mapping.start()
+            # Initialize services
+            try:
+                self._equipment = EquipmentService(
+                    plc_client=self._plc_client,
+                    ssh_client=self._ssh_client,
+                    config=config.get("physical", {})
+                )
+                
+                self._feeder = FeederService(
+                    plc_client=self._plc_client,
+                    ssh_client=self._ssh_client,
+                    config=config.get("physical", {}).get("hardware_sets", {})
+                )
+                
+                self._motion = MotionService(
+                    plc_client=self._plc_client,
+                    config=config.get("physical", {}).get("stage", {})
+                )
+                
+                self._tag_cache = TagCacheService(
+                    plc_client=self._plc_client,
+                    config=config.get("network", {}).get("plc", {})
+                )
+                
+                self._tag_mapping = TagMappingService(
+                    plc_client=self._plc_client,
+                    config=config.get("network", {}).get("plc", {})
+                )
+            except Exception as e:
+                raise HardwareError(f"Failed to initialize services: {str(e)}", device="services")
+            
+            # Start all services
+            try:
+                await self._equipment.start()
+                await self._feeder.start()
+                await self._motion.start()
+                await self._tag_cache.start()
+                await self._tag_mapping.start()
+            except Exception as e:
+                raise HardwareError(f"Failed to start services: {str(e)}", device="services")
             
             logger.info("Communication service started")
             
-        except Exception as e:
-            logger.error(f"Failed to start communication service: {e}")
-            await self._cleanup()
+        except HardwareError:
             raise
+        except Exception as e:
+            error_msg = f"Failed to start communication service: {str(e)}"
+            logger.error(error_msg)
+            raise HardwareError(error_msg, device="unknown")
 
     async def _stop(self) -> None:
         """Stop communication service."""
