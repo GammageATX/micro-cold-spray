@@ -4,6 +4,8 @@ from typing import Any, Dict, Callable, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 import asyncio
+from micro_cold_spray.api.base.exceptions import ValidationError, MessageError
+from loguru import logger
 
 
 @dataclass
@@ -37,16 +39,25 @@ class MessageHandler:
     task: Optional[asyncio.Task] = None
     stats: MessageStats = field(default_factory=MessageStats)
 
+    def __post_init__(self):
+        """Validate handler after initialization."""
+        if not callable(self.callback):
+            raise ValidationError(
+                "Message handler callback must be callable",
+                {"callback_type": type(self.callback)}
+            )
+
     async def process_message(self, data: Dict[str, Any]) -> None:
-        """Process a message through the handler.
-        
-        Args:
-            data: Message data to process
-        """
+        """Process a message through the handler."""
         try:
             self.stats.record_message()
             await self.callback(data)
             self.stats.record_processed()
-        except Exception:
+        except Exception as e:
             self.stats.record_error()
-            raise
+            error_context = {
+                "handler": self.__class__.__name__,
+                "error": str(e)
+            }
+            logger.error("Message handler error", extra=error_context)
+            raise MessageError("Message handler error", error_context)

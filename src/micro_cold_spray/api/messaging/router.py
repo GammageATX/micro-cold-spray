@@ -2,25 +2,62 @@
 
 from typing import Dict, Any, Optional, Set
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, WebSocket, BackgroundTasks
+from fastapi import FastAPI, APIRouter, HTTPException, WebSocket, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 from loguru import logger
+import asyncio
 
 from .service import MessagingService
-from .exceptions import MessagingError
+from micro_cold_spray.api.base.exceptions import MessageError
+from micro_cold_spray.api.base.router import add_health_endpoints
 
+# Create FastAPI app
+app = FastAPI(title="Messaging API")
 router = APIRouter(prefix="/messaging", tags=["messaging"])
+
+# Add router to app
+app.include_router(router)
+
 _service: Optional[MessagingService] = None
 
 
 def init_router(service: MessagingService) -> None:
-    """Initialize router with service instance.
-    
-    Args:
-        service: Messaging service instance
-    """
+    """Initialize router with service instance."""
     global _service
+    
+    if not isinstance(service, MessagingService):
+        error_msg = f"Expected MessagingService instance, got {type(service)}"
+        logger.error(error_msg)
+        raise TypeError(error_msg)
+        
+    if _service is not None:
+        logger.warning("Reinitializing existing messaging service")
+        
     _service = service
+    # Add health endpoints to router
+    add_health_endpoints(router, service)
+    
+    # Start the service
+    asyncio.create_task(_service.start())
+    logger.info("Messaging router initialized")
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Handle startup tasks."""
+    logger.info("Messaging API starting up")
+    # Initialize service if not already done
+    if _service is None:
+        service = MessagingService()
+        init_router(service)
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Handle shutdown tasks."""
+    logger.info("Messaging API shutting down")
+    if _service:
+        await _service.stop()
 
 
 def get_service() -> MessagingService:
@@ -85,7 +122,7 @@ async def publish_message(
             "topic": topic,
             "timestamp": datetime.now().isoformat()
         }
-    except MessagingError as e:
+    except MessageError as e:
         logger.error(f"Failed to publish message: {str(e)}")
         raise HTTPException(
             status_code=400,
@@ -131,7 +168,7 @@ async def send_request(
             "response": response,
             "timestamp": datetime.now().isoformat()
         }
-    except MessagingError as e:
+    except MessageError as e:
         logger.error(f"Failed to send request: {str(e)}")
         raise HTTPException(
             status_code=400,
@@ -215,7 +252,7 @@ async def get_topics() -> Dict[str, Any]:
             "count": len(topics),
             "timestamp": datetime.now().isoformat()
         }
-    except MessagingError as e:
+    except MessageError as e:
         logger.error(f"Failed to get topics: {str(e)}")
         raise HTTPException(
             status_code=400,
@@ -258,7 +295,7 @@ async def set_topics(
             "count": len(topics),
             "timestamp": datetime.now().isoformat()
         }
-    except MessagingError as e:
+    except MessageError as e:
         logger.error(f"Failed to set topics: {str(e)}")
         raise HTTPException(
             status_code=400,
@@ -295,7 +332,7 @@ async def get_subscribers(topic: str) -> Dict[str, Any]:
             "subscriber_count": count,
             "timestamp": datetime.now().isoformat()
         }
-    except MessagingError as e:
+    except MessageError as e:
         logger.error(f"Failed to get subscribers: {str(e)}")
         raise HTTPException(
             status_code=400,
@@ -345,4 +382,35 @@ async def health_check() -> JSONResponse:
                 "error": str(e),
                 "timestamp": datetime.now().isoformat()
             }
+        )
+
+
+@router.post("/control")
+async def control_service(request: Request):
+    """Control service operation."""
+    data = await request.json()
+    action = data.get("action")
+    service = get_service()
+    
+    try:
+        if action == "stop":
+            await service.stop()
+            return {"status": "stopped"}
+        elif action == "start":
+            await service._start()
+            return {"status": "started"}
+        elif action == "restart":
+            await service.stop()
+            await asyncio.sleep(1)
+            await service._start()
+            return {"status": "restarted"}
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid action: {action}"
+            )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to {action} service: {str(e)}"
         )

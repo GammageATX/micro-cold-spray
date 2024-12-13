@@ -1,5 +1,6 @@
 """Base service class for all APIs."""
 
+from datetime import datetime
 from loguru import logger
 
 
@@ -10,6 +11,8 @@ class BaseService:
         """Initialize base service."""
         self._service_name = service_name
         self._initialized = False
+        self.start_time = datetime.now()
+        self.version = "1.0.0"
 
     async def start(self) -> None:
         """Start the service."""

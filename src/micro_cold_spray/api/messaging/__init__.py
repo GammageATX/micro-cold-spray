@@ -1,8 +1,8 @@
 """Messaging API package."""
 
 from .service import MessagingService
-from .exceptions import MessagingError
 from .router import router, init_router
+from micro_cold_spray.api.base.exceptions import MessageError, ValidationError
 
 __all__ = [
     # Core components
@@ -10,5 +10,6 @@ __all__ = [
     "router",
     "init_router",
     # Exceptions
-    "MessagingError"
+    "MessageError",
+    "ValidationError"
 ]

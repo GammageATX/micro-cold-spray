@@ -1,10 +1,15 @@
 """Service UI router."""
 
 from pathlib import Path
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException, WebSocket
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
+import httpx
+from loguru import logger
+import asyncio
+
+from .utils import get_uptime, get_memory_usage, monitor_service_logs
 
 app = FastAPI(title="MicroColdSpray UI")
 
@@ -26,7 +31,13 @@ API_URLS = {
     "state": "http://localhost:8004",
     "data_collection": "http://localhost:8005",
     "validation": "http://localhost:8006",
-    "messaging": "http://localhost:8007"
+    "messaging": "http://localhost:8007",
+    "ws": {
+        "messaging": "ws://localhost:8007/messaging/subscribe",
+        "state": "ws://localhost:8004/state/monitor",
+        "tags": "ws://localhost:8002/communication/tags",
+        "services": "ws://localhost:8000/monitoring/logs"
+    }
 }
 
 
@@ -37,7 +48,8 @@ async def home(request: Request):
         "base.html",
         {
             "request": request,
-            "api_urls": API_URLS
+            "api_urls": API_URLS,
+            "ws_urls": API_URLS["ws"]
         }
     )
 
@@ -50,7 +62,8 @@ async def motion_control(request: Request):
         "communication/motion.html",
         {
             "request": request,
-            "api_urls": API_URLS
+            "api_urls": API_URLS,
+            "ws_urls": API_URLS["ws"]
         }
     )
 
@@ -62,7 +75,8 @@ async def equipment_control(request: Request):
         "communication/equipment.html",
         {
             "request": request,
-            "api_urls": API_URLS
+            "api_urls": API_URLS,
+            "ws_urls": API_URLS["ws"]
         }
     )
 
@@ -74,7 +88,8 @@ async def tag_monitor(request: Request):
         "communication/tags.html",
         {
             "request": request,
-            "api_urls": API_URLS
+            "api_urls": API_URLS,
+            "ws_urls": API_URLS["ws"]
         }
     )
 
@@ -87,7 +102,8 @@ async def config_editor(request: Request):
         "config/editor.html",
         {
             "request": request,
-            "api_urls": API_URLS
+            "api_urls": API_URLS,
+            "ws_urls": API_URLS["ws"]
         }
     )
 
@@ -100,7 +116,8 @@ async def process_parameters(request: Request):
         "process/parameters.html",
         {
             "request": request,
-            "api_urls": API_URLS
+            "api_urls": API_URLS,
+            "ws_urls": API_URLS["ws"]
         }
     )
 
@@ -112,7 +129,8 @@ async def pattern_editor(request: Request):
         "process/patterns.html",
         {
             "request": request,
-            "api_urls": API_URLS
+            "api_urls": API_URLS,
+            "ws_urls": API_URLS["ws"]
         }
     )
 
@@ -124,7 +142,8 @@ async def sequence_control(request: Request):
         "process/sequences.html",
         {
             "request": request,
-            "api_urls": API_URLS
+            "api_urls": API_URLS,
+            "ws_urls": API_URLS["ws"]
         }
     )
 
@@ -137,6 +156,134 @@ async def state_monitor(request: Request):
         "state/monitor.html",
         {
             "request": request,
-            "api_urls": API_URLS
+            "api_urls": API_URLS,
+            "ws_urls": API_URLS["ws"]
         }
     )
+
+
+@app.get("/health")
+async def health_check():
+    """Check health of all services."""
+    health = {}
+    for service, url in API_URLS.items():
+        if service != "ws":
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(f"{url}/health")
+                    health[service] = "ok" if response.status_code == 200 else "error"
+            except Exception as e:
+                health[service] = f"error: {str(e)}"
+    return health
+
+
+@app.get("/monitoring/services", response_class=HTMLResponse)
+async def service_monitor(request: Request):
+    """Render service monitoring page."""
+    return templates.TemplateResponse(
+        "monitoring/services.html",
+        {
+            "request": request,
+            "api_urls": API_URLS,
+            "ws_urls": API_URLS["ws"]
+        }
+    )
+
+
+@app.get("/monitoring/services/status")
+async def get_service_status():
+    """Get status of all services."""
+    services = {}
+    
+    async def check_service(name: str, url: str):
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(f"{url}/health", timeout=2.0)
+                if response.status_code == 200:
+                    data = response.json()
+                    return {
+                        "name": name,
+                        "status": data.get("status", "error"),
+                        "port": url.split(":")[-1],
+                        "uptime": data.get("uptime", 0),
+                        "memory_usage": data.get("memory_usage", 0),
+                        "service_info": data.get("service_info", {})
+                    }
+        except Exception:
+            pass
+        
+        return {
+            "name": name,
+            "status": "stopped",
+            "port": url.split(":")[-1],
+            "uptime": "N/A",
+            "memory_usage": "N/A",
+            "service_info": {"name": name}
+        }
+
+    # Check all services in parallel
+    tasks = []
+    for service, url in API_URLS.items():
+        if service != "ws":
+            tasks.append(check_service(service, url))
+    
+    results = await asyncio.gather(*tasks)
+    
+    for result in results:
+        services[result["name"]] = result
+        
+    return services
+
+
+@app.post("/monitoring/services/control")
+async def control_service(request: Request):
+    """Control a service."""
+    data = await request.json()
+    service = data.get("service")
+    action = data.get("action")
+    
+    if not service or not action:
+        raise HTTPException(status_code=400, detail="Missing service or action")
+        
+    if service not in API_URLS or service == "ws":
+        raise HTTPException(status_code=400, detail="Invalid service")
+        
+    try:
+        # Send control signal to service
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{API_URLS[service]}/control",
+                json={"action": action}
+            )
+            return await response.json()
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to control service: {str(e)}"
+        )
+
+
+@app.websocket("/monitoring/logs")
+async def service_logs_ws(websocket: WebSocket):
+    """WebSocket endpoint for service logs."""
+    await websocket.accept()
+    try:
+        while True:
+            # Monitor log files and send updates
+            log_entry = await monitor_service_logs()
+            if log_entry:  # Only send if there's new data
+                await websocket.send_json(log_entry)
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+    finally:
+        logger.info("Client disconnected from service logs")
+
+
+@app.get("/health")
+async def ui_health():
+    """Health check endpoint."""
+    return {
+        "status": "ok",
+        "uptime": get_uptime(),
+        "memory_usage": get_memory_usage()
+    }

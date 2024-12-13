@@ -1,0 +1,386 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="panel">
+    <h2>Service Monitor</h2>
+    <div class="control-group">
+        <h3>Service Status</h3>
+        <div id="service-list"></div>
+    </div>
+    
+    <div class="control-group">
+        <h3>Service Logs</h3>
+        <div id="service-logs" class="log-display"></div>
+    </div>
+</div>
+
+<script>
+// Service status updates
+let updateInterval;
+
+// Initial load function
+async function updateServices() {
+    const serviceList = document.getElementById('service-list');
+    try {
+        // Show loading state
+        serviceList.innerHTML = `
+            <div class="service-card loading">
+                <div class="loading-spinner"></div>
+                <p>Loading services...</p>
+            </div>
+        `;
+        
+        const response = await fetch('/monitoring/services/status');
+        const services = await response.json();
+        
+        serviceList.innerHTML = Object.values(services)
+            .map(getServiceCard)
+            .join('');
+    } catch (error) {
+        serviceList.innerHTML = `
+            <div class="service-card error">
+                <div class="service-header">
+                    <h4>Error</h4>
+                    <span class="status-badge">error</span>
+                </div>
+                <div class="service-details">
+                    <p>Failed to load services: ${error.message}</p>
+                </div>
+            </div>
+        `;
+    }
+}
+
+function startUpdates() {
+    updateServices();  // Initial update
+    updateInterval = setInterval(async () => {
+        try {
+            const response = await fetch('/monitoring/services/status');
+            const services = await response.json();
+            
+            // Only update cards that have changed
+            Object.values(services).forEach(service => {
+                const existingCard = document.querySelector(`#service-${service.name}`);
+                if (!existingCard || 
+                    existingCard.dataset.status !== service.status ||
+                    existingCard.dataset.uptime !== service.uptime ||
+                    existingCard.dataset.memory !== service.memory_usage) {
+                    
+                    // Update or create card
+                    const newCard = getServiceCard(service);
+                    if (existingCard) {
+                        existingCard.outerHTML = newCard;
+                    } else {
+                        document.getElementById('service-list').innerHTML += newCard;
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Update failed:', error);
+        }
+    }, 5000);
+}
+
+function stopUpdates() {
+    if (updateInterval) {
+        clearInterval(updateInterval);
+    }
+}
+
+// Update service card template to include data attributes
+function getServiceCard(service) {
+    const info = service.service_info || {};
+    return `
+        <div id="service-${service.name}" 
+             class="service-card ${service.status}"
+             data-status="${service.status}"
+             data-uptime="${service.uptime}"
+             data-memory="${service.memory_usage}">
+            <div class="service-header">
+                <div class="service-title">
+                    <h4>${service.name}</h4>
+                    ${info.version ? `<span class="version">v${info.version}</span>` : ''}
+                </div>
+                <span class="status-badge">${service.status}</span>
+            </div>
+            <div class="service-details">
+                <p><i class="fas fa-network-wired"></i> Port: ${service.port}</p>
+                <p><i class="fas fa-clock"></i> Uptime: ${formatUptime(service.uptime)}</p>
+                <p><i class="fas fa-memory"></i> Memory: ${formatMemoryUsage(service.memory_usage)}</p>
+                ${info.name ? `<p><i class="fas fa-info-circle"></i> Type: ${info.name}</p>` : ''}
+            </div>
+            <div class="service-controls">
+                ${service.status === 'running' ? 
+                    `<button onclick="controlService('${service.name}', 'stop')" class="stop-btn">
+                        <i class="fas fa-stop"></i> Stop
+                    </button>
+                     <button onclick="controlService('${service.name}', 'restart')" class="restart-btn">
+                        <i class="fas fa-sync"></i> Restart
+                     </button>` :
+                    `<button onclick="controlService('${service.name}', 'start')" class="start-btn">
+                        <i class="fas fa-play"></i> Start
+                     </button>`
+                }
+            </div>
+        </div>
+    `;
+}
+
+// Start updates when page loads, stop when page is hidden
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        stopUpdates();
+    } else {
+        startUpdates();
+    }
+});
+
+// Call updateServices immediately when the page loads
+document.addEventListener('DOMContentLoaded', () => {
+    updateServices();  // Initial load
+    startUpdates();    // Start periodic updates
+});
+
+// Control service
+async function controlService(serviceName, action) {
+    const button = event.target.closest('button');  // Handle icon clicks
+    if (!button) return;
+    
+    try {
+        button.disabled = true;
+        const card = button.closest('.service-card');
+        card.classList.add('updating');
+        
+        const response = await fetch('/monitoring/services/control', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                service: serviceName,
+                action: action
+            })
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || `Failed to ${action} service`);
+        }
+        
+        showSuccess(`Service ${action} request sent`);
+        await updateServices();
+    } catch (error) {
+        showError(error.message);
+    } finally {
+        button.disabled = false;
+        const card = button.closest('.service-card');
+        card.classList.remove('updating');
+    }
+}
+
+// WebSocket for log updates
+const ws = connectWebSocket(WS_URLS.services, (event) => {
+    const log = JSON.parse(event.data);
+    updateLogDisplay(log);
+});
+
+function updateLogDisplay(log) {
+    const logDisplay = document.getElementById('service-logs');
+    
+    const logEntry = document.createElement('div');
+    logEntry.className = `log-entry ${log.level.toLowerCase()}`;
+    logEntry.innerHTML = `
+        <span class="timestamp">${new Date(log.timestamp).toLocaleString()}</span>
+        <span class="service">${log.service}</span>
+        <span class="level">${log.level}</span>
+        <span class="message">${log.message}</span>
+    `;
+    
+    logDisplay.appendChild(logEntry);
+    while (logDisplay.childNodes.length > 100) {
+        logDisplay.removeChild(logDisplay.firstChild);
+    }
+    logDisplay.scrollTop = logDisplay.scrollHeight;
+}
+
+// Add memory and uptime formatting
+function formatMemoryUsage(bytes) {
+    if (bytes === 'N/A') return bytes;
+    const mb = bytes / (1024 * 1024);
+    return `${mb.toFixed(1)} MB`;
+}
+
+function formatUptime(seconds) {
+    if (seconds === 'N/A') return seconds;
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    return `${hours}h ${minutes}m`;
+}
+</script>
+
+<style>
+.service-card {
+    background: white;
+    border-radius: 4px;
+    padding: 15px;
+    margin-bottom: 15px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.service-card.running { border-left: 4px solid var(--success-color); }
+.service-card.stopped { border-left: 4px solid var(--error-color); }
+.service-card.error { border-left: 4px solid #ff9800; }
+
+.service-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.status-badge {
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.8em;
+    font-weight: bold;
+}
+
+.running .status-badge { background: var(--success-color); color: white; }
+.stopped .status-badge { background: var(--error-color); color: white; }
+.error .status-badge { background: #ff9800; color: white; }
+
+.service-controls {
+    margin-top: 10px;
+    display: flex;
+    gap: 10px;
+}
+
+.start-btn { background: var(--success-color); }
+.stop-btn { background: var(--error-color); }
+.restart-btn { background: var(--primary-color); }
+
+.log-display {
+    height: 300px;
+    overflow-y: auto;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    padding: 10px;
+    font-family: monospace;
+    border-radius: 4px;
+}
+
+.log-entry {
+    padding: 2px 0;
+    border-bottom: 1px solid #333;
+}
+
+.log-entry .timestamp { color: #569cd6; }
+.log-entry .service { color: #4ec9b0; margin: 0 10px; }
+.log-entry .level { color: #ce9178; margin-right: 10px; }
+.log-entry.error { color: #f44747; }
+.log-entry.warning { color: #dcdcaa; }
+
+.service-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.version {
+    font-size: 0.8em;
+    color: #666;
+    padding: 2px 6px;
+    background: #eee;
+    border-radius: 10px;
+}
+
+.service-details i {
+    width: 20px;
+    text-align: center;
+    color: #666;
+}
+
+.service-controls button i {
+    margin-right: 5px;
+}
+
+#service-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+    padding: 20px;
+}
+
+.service-card {
+    background: white;
+    border-radius: 4px;
+    padding: 15px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin-bottom: 0;
+    height: fit-content;
+    display: flex;
+    flex-direction: column;
+}
+
+.service-details {
+    flex-grow: 1;
+    font-size: 0.9em;
+}
+
+.service-details p {
+    margin: 5px 0;
+}
+
+.service-controls {
+    margin-top: 8px;
+    display: flex;
+    gap: 8px;
+}
+
+.service-controls button {
+    padding: 6px 12px;
+    font-size: 0.9em;
+}
+
+.service-header {
+    margin-bottom: 8px;
+}
+
+.service-header h4 {
+    margin: 0;
+    font-size: 1.1em;
+}
+
+.status-badge {
+    padding: 3px 8px;
+    font-size: 0.75em;
+}
+
+.version {
+    font-size: 0.75em;
+    padding: 1px 4px;
+}
+
+.service-details i {
+    width: 16px;
+    font-size: 0.9em;
+}
+
+.loading-spinner {
+    width: 30px;
+    height: 30px;
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 20px auto;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.service-card.loading {
+    text-align: center;
+    color: #666;
+}
+</style>
+{% endblock %} 
