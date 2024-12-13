@@ -1,13 +1,13 @@
 """Communication API package."""
 
-from .exceptions import HardwareError, ConnectionError
 from .service import CommunicationService
 from .router import router, init_router
 from .services import (
-    PLCTagService,
-    FeederTagService,
+    EquipmentService,
+    MotionService,
     FeederService,
-    TagCacheService
+    TagCacheService,
+    TagMappingService
 )
 
 __all__ = [
@@ -16,11 +16,9 @@ __all__ = [
     "router",
     "init_router",
     # Services
-    "PLCTagService",
-    "FeederTagService",
+    "EquipmentService",
+    "MotionService",
     "FeederService",
     "TagCacheService",
-    # Exceptions
-    "HardwareError",
-    "ConnectionError"
+    "TagMappingService"
 ]

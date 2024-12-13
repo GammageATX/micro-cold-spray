@@ -8,7 +8,6 @@ from multiprocessing import Process
 from loguru import logger
 import uvicorn
 
-from micro_cold_spray.api.config import ConfigService
 from micro_cold_spray.ui.router import app as ui_app
 
 
@@ -77,22 +76,36 @@ def run_config_api_process():
     asyncio.run(run_config_api())
 
 
+def run_communication_api_process():
+    """Process function to run the Communication API service."""
+    async def run_communication_api():
+        config = uvicorn.Config(
+            "micro_cold_spray.api.communication.router:app",
+            host="0.0.0.0",
+            port=8002,
+            reload=True
+        )
+        server = uvicorn.Server(config)
+        await server.serve()
+    asyncio.run(run_communication_api())
+
+
 async def main():
     """Application entry point."""
     try:
         setup_logging()
         ensure_directories()
-        logger.info("Starting Micro Cold Spray application (UI + Config API only)")
-
-        # Start Config service with hardcoded config directory
-        config_service = ConfigService()  # Uses default config directory
-        await config_service.start()
-        logger.info("Config service started")
+        logger.info("Starting Micro Cold Spray application")
 
         # Start Config API in a separate process
         logger.info("Starting Config API service")
         config_api_process = Process(target=run_config_api_process)
         config_api_process.start()
+
+        # Start Communication API in a separate process
+        logger.info("Starting Communication API service")
+        comm_api_process = Process(target=run_communication_api_process)
+        comm_api_process.start()
 
         # Start UI in a separate process
         logger.info("Starting UI service")
@@ -120,6 +133,9 @@ async def main():
         if 'config_api_process' in locals():
             config_api_process.terminate()
             config_api_process.join()
+        if 'comm_api_process' in locals():
+            comm_api_process.terminate()
+            comm_api_process.join()
         logger.info("Application shutdown complete")
         sys.exit(0)
 

@@ -7,7 +7,7 @@ from typing import Any, Dict
 from loguru import logger
 from productivity import ProductivityPLC
 
-from ..exceptions import HardwareError, FileError, ConfigurationError
+from ...base.exceptions import ServiceError, ValidationError
 from .base import CommunicationClient
 
 
@@ -28,26 +28,23 @@ class PLCClient(CommunicationClient):
             
             # Validate tag file exists
             if not self._tag_file.exists():
-                raise FileError(
+                raise ValidationError(
                     f"Tag file not found: {self._tag_file}",
-                    "plc",
                     {"path": str(self._tag_file)}
                 )
             
             logger.info(f"Initialized PLC client for {self._ip}")
             
         except KeyError as e:
-            raise ConfigurationError(
+            raise ValidationError(
                 f"Missing required PLC config field: {e}",
-                "plc",
                 {"field": str(e)}
             )
-        except FileError:
+        except ValidationError:
             raise
         except Exception as e:
-            raise HardwareError(
+            raise ServiceError(
                 f"Failed to initialize PLC client: {e}",
-                "plc",
                 {"error": str(e)}
             )
 
@@ -79,16 +76,20 @@ class PLCClient(CommunicationClient):
         try:
             values = await self._plc.get()  # Library expects no arguments
             if tag not in values:
-                raise KeyError(f"Tag {tag} not found in PLC response")
+                raise ValidationError(
+                    f"Tag {tag} not found in PLC response",
+                    {"tag": tag}
+                )
             return values[tag]
         except asyncio.CancelledError:
             logger.debug("PLC connection attempt cancelled")
             return None
+        except ValidationError:
+            raise
         except Exception as e:
             logger.error(f"Failed to read tag {tag}: {e}")
-            raise HardwareError(
+            raise ServiceError(
                 f"Failed to read tag {tag}",
-                "plc",
                 {"tag": tag, "error": str(e)}
             )
 
@@ -98,9 +99,8 @@ class PLCClient(CommunicationClient):
             await self._plc.set({tag: value})  # Library expects a dict
         except Exception as e:
             logger.error(f"Failed to write tag {tag}: {e}")
-            raise HardwareError(
+            raise ServiceError(
                 f"Failed to write tag {tag}",
-                "plc",
                 {
                     "tag": tag,
                     "value": value,

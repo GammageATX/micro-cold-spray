@@ -1,11 +1,12 @@
 """Tag management endpoints."""
 
 from typing import Dict, Any, List
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from ..models.tags import TagRequest, TagSubscription, TagUpdate
 from ..service import CommunicationService
 from ...base import get_service
+from ...base.exceptions import ServiceError, ValidationError
 
 router = APIRouter(prefix="/tags", tags=["tags"])
 
@@ -19,8 +20,16 @@ async def get_tag_values(
     try:
         values = await service.tag_cache.get_values(tags)
         return {"values": values}
+    except (ServiceError, ValidationError) as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": str(e), "context": e.context}
+        )
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 
 @router.post("/write")
@@ -32,8 +41,16 @@ async def write_tag_value(
     try:
         await service.tag_cache.write_value(request.tag, request.value)
         return {"status": "ok"}
+    except (ServiceError, ValidationError) as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": str(e), "context": e.context}
+        )
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 
 @router.post("/subscribe")
@@ -45,8 +62,16 @@ async def subscribe_to_tags(
     try:
         await service.tag_cache.subscribe(request.tags, request.callback_url)
         return {"status": "ok"}
+    except (ServiceError, ValidationError) as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": str(e), "context": e.context}
+        )
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 
 @router.post("/unsubscribe")
@@ -58,8 +83,16 @@ async def unsubscribe_from_tags(
     try:
         await service.tag_cache.unsubscribe(request.tags, request.callback_url)
         return {"status": "ok"}
+    except (ServiceError, ValidationError) as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": str(e), "context": e.context}
+        )
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 
 @router.get("/mappings")
@@ -70,8 +103,16 @@ async def get_tag_mappings(
     try:
         mappings = await service.tag_mapping.get_mappings()
         return {"mappings": mappings}
+    except (ServiceError, ValidationError) as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": str(e), "context": e.context}
+        )
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 
 @router.post("/mappings")
@@ -83,5 +124,13 @@ async def update_tag_mapping(
     try:
         await service.tag_mapping.update_mapping(request.tag_path, request.plc_tag)
         return {"status": "ok"}
+    except (ServiceError, ValidationError) as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": str(e), "context": e.context}
+        )
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )

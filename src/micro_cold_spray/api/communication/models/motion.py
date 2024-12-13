@@ -1,5 +1,6 @@
 """Motion control request and response models."""
 
+from typing import Dict
 from pydantic import BaseModel, Field
 
 
@@ -40,14 +41,17 @@ class CoordinatedMoveRequest(BaseModel):
     )
 
 
+class AxisStatus(BaseModel):
+    """Status for a single axis."""
+    position: float = Field(description="Current position in mm")
+    moving: bool = Field(description="Axis in motion")
+    complete: bool = Field(description="Move complete")
+    status: int = Field(description="Detailed axis status")
+
+
 class MotionStatus(BaseModel):
     """Current motion system status."""
-    x_position: float = Field(description="Current X position in mm")
-    y_position: float = Field(description="Current Y position in mm")
-    z_position: float = Field(description="Current Z position in mm")
-    x_moving: bool = Field(description="X axis in motion")
-    y_moving: bool = Field(description="Y axis in motion")
-    z_moving: bool = Field(description="Z axis in motion")
-    x_error: bool = Field(description="X axis error state")
-    y_error: bool = Field(description="Y axis error state")
-    z_error: bool = Field(description="Z axis error state")
+    position: Dict[str, float] = Field(description="Current axis positions")
+    moving: Dict[str, bool] = Field(description="Axis motion states")
+    complete: Dict[str, bool] = Field(description="Axis completion states")
+    status: Dict[str, int] = Field(description="Detailed axis status values")

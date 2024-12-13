@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 
 from loguru import logger
 
-from ..exceptions import HardwareError, ConnectionError
+from ...base.exceptions import ServiceError, ValidationError
 from .base import CommunicationClient
 
 
@@ -27,16 +27,23 @@ class SSHClient(CommunicationClient):
             
             # Validate we have either key file or password
             if not self._key_file.exists() and not self._password:
-                raise HardwareError(
+                raise ValidationError(
                     "No valid authentication method provided",
-                    "ssh",
                     {"host": self._host}
                 )
 
         except KeyError as e:
-            raise ValueError(f"Missing required SSH config field: {e}")
+            raise ValidationError(
+                f"Missing required SSH config field: {e}",
+                {"field": str(e)}
+            )
+        except ValidationError:
+            raise
         except Exception as e:
-            raise ValueError(f"Failed to initialize SSH client: {e}")
+            raise ServiceError(
+                f"Failed to initialize SSH client: {e}",
+                {"error": str(e)}
+            )
 
         self._connection: Optional[asyncssh.SSHClientConnection] = None
         logger.info(f"SSHClient initialized for {self._username}@{self._host}")
@@ -45,7 +52,7 @@ class SSHClient(CommunicationClient):
         """Establish SSH connection.
         
         Raises:
-            ConnectionError: If connection fails
+            ServiceError: If connection fails
         """
         try:
             # Setup connection options
@@ -69,13 +76,13 @@ class SSHClient(CommunicationClient):
         except Exception as e:
             error_msg = f"Failed to connect to {self._host}: {str(e)}"
             logger.error(error_msg)
-            raise ConnectionError(error_msg, {"host": self._host})
+            raise ServiceError(error_msg, {"host": self._host})
 
     async def disconnect(self) -> None:
         """Close SSH connection.
         
         Raises:
-            ConnectionError: If disconnect fails
+            ServiceError: If disconnect fails
         """
         try:
             if self._connection:
@@ -86,7 +93,7 @@ class SSHClient(CommunicationClient):
         except Exception as e:
             error_msg = f"Error disconnecting from {self._host}: {str(e)}"
             logger.error(error_msg)
-            raise ConnectionError(error_msg, {"host": self._host})
+            raise ServiceError(error_msg, {"host": self._host})
 
     async def read_tag(self, tag: str) -> Any:
         """Read tag value via SSH command.
@@ -98,10 +105,11 @@ class SSHClient(CommunicationClient):
             Tag value
             
         Raises:
-            ConnectionError: If read fails
+            ServiceError: If read fails
+            ValidationError: If tag not found
         """
         if not self._connection:
-            raise ConnectionError("Not connected", {"host": self._host})
+            raise ServiceError("Not connected", {"host": self._host})
             
         try:
             # Execute read command
@@ -109,7 +117,7 @@ class SSHClient(CommunicationClient):
             result = await self._connection.run(command)
             
             if result.exit_status != 0:
-                raise ConnectionError(
+                raise ValidationError(
                     f"Failed to read tag: {result.stderr}",
                     {
                         "tag": tag,
@@ -120,10 +128,12 @@ class SSHClient(CommunicationClient):
             # Parse result
             return float(result.stdout.strip())  # Adjust parsing as needed
             
+        except ValidationError:
+            raise
         except Exception as e:
             error_msg = f"Failed to read tag {tag}: {str(e)}"
             logger.error(error_msg)
-            raise ConnectionError(error_msg, {"tag": tag})
+            raise ServiceError(error_msg, {"tag": tag})
 
     async def write_tag(self, tag: str, value: Any) -> None:
         """Write tag value via SSH command.
@@ -133,10 +143,11 @@ class SSHClient(CommunicationClient):
             value: Value to write
             
         Raises:
-            ConnectionError: If write fails
+            ServiceError: If write fails
+            ValidationError: If tag not found
         """
         if not self._connection:
-            raise ConnectionError("Not connected", {"host": self._host})
+            raise ServiceError("Not connected", {"host": self._host})
             
         try:
             # Execute write command
@@ -144,7 +155,7 @@ class SSHClient(CommunicationClient):
             result = await self._connection.run(command)
             
             if result.exit_status != 0:
-                raise ConnectionError(
+                raise ValidationError(
                     f"Failed to write tag: {result.stderr}",
                     {
                         "tag": tag,
@@ -153,10 +164,12 @@ class SSHClient(CommunicationClient):
                     }
                 )
                 
+        except ValidationError:
+            raise
         except Exception as e:
             error_msg = f"Failed to write tag {tag}: {str(e)}"
             logger.error(error_msg)
-            raise ConnectionError(
+            raise ServiceError(
                 error_msg,
                 {
                     "tag": tag,

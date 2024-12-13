@@ -1,41 +1,69 @@
 """Feeder control service."""
 
-from typing import Dict, Any
+from typing import Dict
 from loguru import logger
 
-from ...base import BaseService
-from ..exceptions import HardwareError
-from ..clients import PLCClient
+from ...base import ConfigurableService
+from ...base.exceptions import HardwareError, ValidationError
+from ..clients import SSHClient
 
 
-class FeederService(BaseService):
-    """Service for controlling powder feeder."""
+class FeederService(ConfigurableService):
+    """Service for controlling powder feeder via P tags."""
 
-    def __init__(self, plc_client: PLCClient):
+    def __init__(self, ssh_client: SSHClient, hardware_set: int = 1):
         """Initialize feeder service.
         
         Args:
-            plc_client: PLC client for hardware communication
+            ssh_client: SSH client for direct feeder control
+            hardware_set: Hardware set number (1 or 2)
         """
         super().__init__(service_name="feeder")
-        self._plc = plc_client
-        self._running = False
+        self._ssh = ssh_client
+        self._hardware_set = hardware_set
+        
+        # Get P tag variables based on hardware set
+        if hardware_set == 1:
+            self._freq_var = "P6"
+            self._start_var = "P10"
+            self._time_var = "P12"
+        else:
+            self._freq_var = "P106"
+            self._start_var = "P110"
+            self._time_var = "P112"
 
-    async def start_feeder(self) -> None:
+    async def start_feeder(self, frequency: float) -> None:
         """Start powder feeder.
         
+        Args:
+            frequency: Feeder frequency (200-1200 Hz)
+            
         Raises:
             HardwareError: If start fails
+            ValidationError: If frequency out of range
         """
+        if not 200 <= frequency <= 1200:
+            raise ValidationError(
+                "Frequency must be between 200 and 1200 Hz",
+                {"frequency": frequency, "limits": (200, 1200)}
+            )
+            
         try:
-            await self._plc.write_tag("feeder.start", True)
-            self._running = True
-            logger.info("Feeder started")
+            # Set frequency
+            await self._ssh.execute_command(f"{self._freq_var}={frequency}")
+            # Set run time to 999 seconds
+            await self._ssh.execute_command(f"{self._time_var}=999")
+            # Start feeder
+            await self._ssh.execute_command(f"{self._start_var}=1")
+            logger.info(f"Started feeder at {frequency} Hz")
         except Exception as e:
             raise HardwareError(
                 "Failed to start feeder",
                 "feeder",
-                {"error": str(e)}
+                {
+                    "frequency": frequency,
+                    "error": str(e)
+                }
             )
 
     async def stop_feeder(self) -> None:
@@ -45,9 +73,8 @@ class FeederService(BaseService):
             HardwareError: If stop fails
         """
         try:
-            await self._plc.write_tag("feeder.start", False)
-            self._running = False
-            logger.info("Feeder stopped")
+            await self._ssh.execute_command(f"{self._start_var}=4")
+            logger.info("Stopped feeder")
         except Exception as e:
             raise HardwareError(
                 "Failed to stop feeder",
@@ -55,51 +82,18 @@ class FeederService(BaseService):
                 {"error": str(e)}
             )
 
-    async def set_speed(self, speed: float) -> None:
-        """Set feeder speed.
-        
-        Args:
-            speed: Speed setpoint (0-100%)
-            
-        Raises:
-            HardwareError: If setting speed fails
-            ValueError: If speed out of range
-        """
-        if not 0 <= speed <= 100:
-            raise ValueError("Speed must be between 0 and 100%")
-            
-        try:
-            await self._plc.write_tag("feeder.speed", speed)
-            logger.info(f"Feeder speed set to {speed}%")
-        except Exception as e:
-            raise HardwareError(
-                "Failed to set feeder speed",
-                "feeder",
-                {
-                    "speed": speed,
-                    "error": str(e)
-                }
-            )
-
-    async def get_status(self) -> Dict[str, Any]:
-        """Get feeder status.
+    async def get_status(self) -> Dict[str, float]:
+        """Get feeder frequency setting.
         
         Returns:
-            Dictionary with feeder status
+            Dictionary with current frequency setting
             
         Raises:
-            HardwareError: If reading status fails
+            HardwareError: If reading fails
         """
         try:
-            speed = await self._plc.read_tag("feeder.speed")
-            running = await self._plc.read_tag("feeder.running")
-            error = await self._plc.read_tag("feeder.error")
-            
-            return {
-                "running": running,
-                "speed": speed,
-                "error": error
-            }
+            freq = await self._ssh.execute_command(f"echo ${self._freq_var}")
+            return {"frequency": float(freq)}
         except Exception as e:
             raise HardwareError(
                 "Failed to get feeder status",

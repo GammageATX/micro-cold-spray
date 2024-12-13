@@ -14,7 +14,8 @@ class FormatMetadata(BaseModel):
 class ConfigSchema(BaseModel):
     """Schema definition for config validation."""
     type: str = Field(description="Basic types: string, number, boolean, object, array")
-    required: bool = False
+    title: Optional[str] = None
+    required: Optional[List[str]] = None
     min_value: Optional[float] = None
     max_value: Optional[float] = None
     enum: Optional[List[Any]] = None

@@ -105,21 +105,6 @@ class TagResponse(BaseModel):
     )
 
 
-class TagError(BaseModel):
-    """Error response for tag operations."""
-    message: str = Field(
-        description="Error message"
-    )
-    device: Optional[str] = Field(
-        None,
-        description="Device that caused the error"
-    )
-    context: Optional[Dict[str, Any]] = Field(
-        None,
-        description="Additional error context"
-    )
-
-
 class TagCacheRequest(BaseModel):
     """
     Request to get filtered tag values from the cache.

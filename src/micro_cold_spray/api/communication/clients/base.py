@@ -5,7 +5,7 @@ from typing import Dict, Any
 from loguru import logger
 
 from ...base import BaseService
-from ..exceptions import ConnectionError
+from ...base.exceptions import ServiceError
 
 
 class CommunicationClient(ABC, BaseService):
@@ -33,7 +33,7 @@ class CommunicationClient(ABC, BaseService):
         """Establish connection to hardware.
         
         Raises:
-            ConnectionError: If connection fails
+            ServiceError: If connection fails
         """
         pass
 
@@ -42,7 +42,7 @@ class CommunicationClient(ABC, BaseService):
         """Close connection to hardware.
         
         Raises:
-            ConnectionError: If disconnect fails
+            ServiceError: If disconnect fails
         """
         pass
 
@@ -57,7 +57,7 @@ class CommunicationClient(ABC, BaseService):
             Tag value
             
         Raises:
-            ConnectionError: If read fails
+            ServiceError: If read fails
         """
         pass
 
@@ -70,7 +70,7 @@ class CommunicationClient(ABC, BaseService):
             value: Value to write
             
         Raises:
-            ConnectionError: If write fails
+            ServiceError: If write fails
         """
         pass
 
@@ -82,7 +82,7 @@ class CommunicationClient(ABC, BaseService):
         except Exception as e:
             error_msg = f"Failed to start {self.service_name}: {str(e)}"
             logger.error(error_msg)
-            raise ConnectionError(error_msg, {"device": self.service_name})
+            raise ServiceError(error_msg, {"device": self.service_name})
 
     async def _stop(self) -> None:
         """Stop client service."""
@@ -93,7 +93,7 @@ class CommunicationClient(ABC, BaseService):
         except Exception as e:
             error_msg = f"Failed to stop {self.service_name}: {str(e)}"
             logger.error(error_msg)
-            raise ConnectionError(error_msg, {"device": self.service_name})
+            raise ServiceError(error_msg, {"device": self.service_name})
 
     async def check_connection(self) -> bool:
         """Check if connection is healthy.

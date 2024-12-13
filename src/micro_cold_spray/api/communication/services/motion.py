@@ -1,14 +1,14 @@
 """Motion control service."""
 
+from typing import Dict
 from loguru import logger
 
-from ...base import BaseService
-from ..exceptions import HardwareError
+from ...base import ConfigurableService
+from ...base.exceptions import HardwareError, ValidationError
 from ..clients import PLCClient
-from ..models.motion import MotionStatus
 
 
-class MotionService(BaseService):
+class MotionService(ConfigurableService):
     """Service for motion system control."""
 
     def __init__(self, plc_client: PLCClient):
@@ -30,24 +30,39 @@ class MotionService(BaseService):
             
         Raises:
             HardwareError: If move fails
-            ValueError: If parameters invalid
+            ValidationError: If parameters invalid
         """
         if axis not in ['x', 'y', 'z']:
-            raise ValueError(f"Invalid axis: {axis}")
+            raise ValidationError(
+                f"Invalid axis: {axis}",
+                {"axis": axis, "valid_axes": ['x', 'y', 'z']}
+            )
             
+        # Get limits from hardware config
         if not -1000 <= position <= 1000:
-            raise ValueError("Position must be between -1000 and 1000 mm")
+            raise ValidationError(
+                "Position must be between -1000 and 1000 mm",
+                {"axis": axis, "position": position, "limits": (-1000, 1000)}
+            )
             
         if not 0 <= velocity <= 100:
-            raise ValueError("Velocity must be between 0 and 100 mm/s")
+            raise ValidationError(
+                "Velocity must be between 0 and 100 mm/s",
+                {"axis": axis, "velocity": velocity, "limits": (0, 100)}
+            )
             
         try:
-            # Write motion parameters
-            await self._plc.write_tag(f"motion.{axis}.target", position)
-            await self._plc.write_tag(f"motion.{axis}.velocity", velocity)
+            axis_num = {'x': '1', 'y': '2', 'z': '3'}[axis]
             
-            # Trigger move
-            await self._plc.write_tag(f"motion.{axis}.start", True)
+            # Set velocity and acceleration
+            await self._plc.write_tag(f"{axis.upper()}Axis.Velocity", velocity)
+            await self._plc.write_tag(f"{axis.upper()}Axis.Accel", 100)  # Fixed accel
+            await self._plc.write_tag(f"{axis.upper()}Axis.Decel", 100)  # Fixed decel
+            
+            # Set target position and trigger move
+            await self._plc.write_tag(f"AMC.Ax{axis_num}Position", position)
+            await self._plc.write_tag(f"Move{axis.upper()}", True)
+            
             logger.info(f"Started {axis}-axis move to {position} mm")
             
         except Exception as e:
@@ -72,25 +87,35 @@ class MotionService(BaseService):
             
         Raises:
             HardwareError: If move fails
-            ValueError: If parameters invalid
+            ValidationError: If parameters invalid
         """
         if not -1000 <= x_pos <= 1000:
-            raise ValueError("X position must be between -1000 and 1000 mm")
+            raise ValidationError(
+                "X position must be between -1000 and 1000 mm",
+                {"axis": "x", "position": x_pos, "limits": (-1000, 1000)}
+            )
             
         if not -1000 <= y_pos <= 1000:
-            raise ValueError("Y position must be between -1000 and 1000 mm")
+            raise ValidationError(
+                "Y position must be between -1000 and 1000 mm",
+                {"axis": "y", "position": y_pos, "limits": (-1000, 1000)}
+            )
             
         if not 0 <= velocity <= 100:
-            raise ValueError("Velocity must be between 0 and 100 mm/s")
+            raise ValidationError(
+                "Velocity must be between 0 and 100 mm/s",
+                {"velocity": velocity, "limits": (0, 100)}
+            )
             
         try:
-            # Write motion parameters
-            await self._plc.write_tag("motion.x.target", x_pos)
-            await self._plc.write_tag("motion.y.target", y_pos)
-            await self._plc.write_tag("motion.xy.velocity", velocity)
+            # Set XY move parameters
+            await self._plc.write_tag("XYMove.XPosition", x_pos)
+            await self._plc.write_tag("XYMove.YPosition", y_pos)
+            await self._plc.write_tag("XYMove.LINVelocity", velocity)
+            await self._plc.write_tag("XYMove.LINRamps", 0.5)  # Fixed ramp time
             
             # Trigger coordinated move
-            await self._plc.write_tag("motion.xy.start", True)
+            await self._plc.write_tag("MoveXY", True)
             logger.info(f"Started XY move to ({x_pos}, {y_pos}) mm")
             
         except Exception as e:
@@ -105,7 +130,7 @@ class MotionService(BaseService):
                 }
             )
 
-    async def get_status(self) -> MotionStatus:
+    async def get_status(self) -> Dict[str, float]:
         """Get current motion status.
         
         Returns:
@@ -115,32 +140,29 @@ class MotionService(BaseService):
             HardwareError: If status read fails
         """
         try:
-            # Read axis positions
-            x_pos = await self._plc.read_tag("motion.x.position")
-            y_pos = await self._plc.read_tag("motion.y.position")
-            z_pos = await self._plc.read_tag("motion.z.position")
-            
-            # Read axis states
-            x_moving = await self._plc.read_tag("motion.x.moving")
-            y_moving = await self._plc.read_tag("motion.y.moving")
-            z_moving = await self._plc.read_tag("motion.z.moving")
-            
-            # Read error states
-            x_error = await self._plc.read_tag("motion.x.error")
-            y_error = await self._plc.read_tag("motion.y.error")
-            z_error = await self._plc.read_tag("motion.z.error")
-            
-            return MotionStatus(
-                x_position=x_pos,
-                y_position=y_pos,
-                z_position=z_pos,
-                x_moving=x_moving,
-                y_moving=y_moving,
-                z_moving=z_moving,
-                x_error=x_error,
-                y_error=y_error,
-                z_error=z_error
-            )
+            status = {
+                'position': {
+                    'x': await self._plc.read_tag("AMC.Ax1Position"),
+                    'y': await self._plc.read_tag("AMC.Ax2Position"),
+                    'z': await self._plc.read_tag("AMC.Ax3Position")
+                },
+                'moving': {
+                    'x': await self._plc.read_tag("XAxis.InProgress"),
+                    'y': await self._plc.read_tag("YAxis.InProgress"),
+                    'z': await self._plc.read_tag("ZAxis.InProgress")
+                },
+                'complete': {
+                    'x': await self._plc.read_tag("XAxis.Complete"),
+                    'y': await self._plc.read_tag("YAxis.Complete"),
+                    'z': await self._plc.read_tag("ZAxis.Complete")
+                },
+                'status': {
+                    'x': await self._plc.read_tag("AMC.Ax1AxisStatus"),
+                    'y': await self._plc.read_tag("AMC.Ax2AxisStatus"),
+                    'z': await self._plc.read_tag("AMC.Ax3AxisStatus")
+                }
+            }
+            return status
             
         except Exception as e:
             raise HardwareError(
