@@ -27,11 +27,12 @@ templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 API_URLS = {
     "config": "http://localhost:8001",
     "communication": "http://localhost:8002",
-    "process": "http://localhost:8003",
+    "messaging": "http://localhost:8007",
+    # Comment out services that aren't ready yet
+    # "process": "http://localhost:8003",
     "state": "http://localhost:8004",
     "data_collection": "http://localhost:8005",
-    "validation": "http://localhost:8006",
-    "messaging": "http://localhost:8007",
+    # "validation": "http://localhost:8006",
     "ws": {
         "messaging": "ws://localhost:8007/messaging/subscribe",
         "state": "ws://localhost:8004/state/monitor",
@@ -196,29 +197,43 @@ async def get_service_status():
     services = {}
     
     async def check_service(name: str, url: str):
+        """Check health of a single service."""
+        error_msg = "Unknown error"  # Default error message
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(f"{url}/health", timeout=2.0)
                 if response.status_code == 200:
                     data = response.json()
+                    logger.debug(f"Health check response for {name}: {data}")
                     return {
                         "name": name,
                         "status": data.get("status", "error"),
+                        "running": data.get("service_info", {}).get("running", False),
                         "port": url.split(":")[-1],
                         "uptime": data.get("uptime", 0),
                         "memory_usage": data.get("memory_usage", 0),
-                        "service_info": data.get("service_info", {})
+                        "service_info": data.get("service_info", {}),
+                        "error": data.get("error")
                     }
-        except Exception:
-            pass
+                else:
+                    error_msg = f"Service returned status code: {response.status_code}"
+                    logger.error(f"Failed health check for {name}: {error_msg}")
+        except Exception as e:
+            error_msg = str(e) if str(e) else type(e).__name__
+            logger.error(f"Failed to check {name} service: {error_msg}")
         
+        # If we get here, something went wrong
         return {
             "name": name,
             "status": "stopped",
+            "running": False,
             "port": url.split(":")[-1],
-            "uptime": "N/A",
-            "memory_usage": "N/A",
-            "service_info": {"name": name}
+            "uptime": 0,
+            "memory_usage": 0,
+            "service_info": {
+                "name": name,
+                "error": f"Service unreachable: {error_msg}"
+            }
         }
 
     # Check all services in parallel
@@ -238,28 +253,48 @@ async def get_service_status():
 @app.post("/monitoring/services/control")
 async def control_service(request: Request):
     """Control a service."""
-    data = await request.json()
-    service = data.get("service")
-    action = data.get("action")
-    
-    if not service or not action:
-        raise HTTPException(status_code=400, detail="Missing service or action")
-        
-    if service not in API_URLS or service == "ws":
-        raise HTTPException(status_code=400, detail="Invalid service")
-        
     try:
-        # Send control signal to service
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{API_URLS[service]}/control",
-                json={"action": action}
+        data = await request.json()
+        service = data.get("service")
+        action = data.get("action")
+        
+        if not service or not action:
+            raise HTTPException(status_code=400, detail="Missing service or action")
+            
+        if service not in API_URLS or service == "ws":
+            raise HTTPException(status_code=400, detail="Invalid service")
+            
+        try:
+            # Send control signal to service
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{API_URLS[service]}/control",
+                    json={"action": action},
+                    timeout=5.0  # Add timeout
+                )
+                if response.status_code != 200:
+                    raise HTTPException(
+                        status_code=response.status_code,
+                        detail=f"Service returned error: {response.text}"
+                    )
+                return await response.json()
+        except httpx.TimeoutError:
+            raise HTTPException(
+                status_code=504,
+                detail=f"Timeout while controlling service: {service}"
             )
-            return await response.json()
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to control service: {str(e)}"
+            )
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Error in control_service: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to control service: {str(e)}"
+            detail=f"Internal server error: {str(e)}"
         )
 
 

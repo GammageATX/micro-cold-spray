@@ -1,7 +1,7 @@
 """State management API package."""
 
 from .service import StateService
-from .router import router, init_router
+from .router import router, app
 from .models import (
     StateCondition,
     StateConfig,
@@ -28,5 +28,5 @@ __all__ = [
     "InvalidStateError",
     "ConditionError",
     "router",
-    "init_router"
+    "app"
 ]

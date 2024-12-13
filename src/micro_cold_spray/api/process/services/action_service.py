@@ -6,9 +6,10 @@ from loguru import logger
 
 from ...base import BaseService
 from ...config import ConfigService
-from ...communication import CommunicationService, HardwareError
+from ...communication import CommunicationService
 from ...messaging import MessagingService
 from ..exceptions import ProcessError
+from ...base.exceptions import HardwareError
 
 
 class ActionService(BaseService):

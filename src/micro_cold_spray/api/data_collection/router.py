@@ -2,7 +2,7 @@
 
 from typing import Dict, Any, Optional, List
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, FastAPI
 from fastapi.responses import JSONResponse
 from loguru import logger
 
@@ -10,8 +10,13 @@ from .service import DataCollectionService
 from .models import SprayEvent
 from .exceptions import DataCollectionError
 
+# Create FastAPI app and router
+app = FastAPI()
 router = APIRouter(prefix="/data-collection", tags=["data-collection"])
 _service: Optional[DataCollectionService] = None
+
+# Mount router to app
+app.include_router(router)
 
 
 def init_router(service: DataCollectionService) -> None:

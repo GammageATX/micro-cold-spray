@@ -585,44 +585,6 @@ tag_groups:
       internal: true
       mapped: false
       type: dict
-  system_state:
-    errors:
-      access: read/write
-      description: Active system errors
-      internal: true
-      mapped: false
-      type: dict
-    hardware_set:
-      access: read/write
-      description: Active hardware set (1 or 2)
-      internal: true
-      mapped: false
-      type: integer
-    previous_state:
-      access: read
-      description: Previous system state
-      internal: true
-      mapped: false
-      type: string
-    state:
-      access: read/write
-      description: Current system state
-      internal: true
-      mapped: false
-      options:
-      - STARTUP
-      - READY
-      - RUNNING
-      - PAUSED
-      - ERROR
-      - SHUTDOWN
-      type: string
-    state_changed:
-      access: read
-      description: Last state change timestamp
-      internal: true
-      mapped: false
-      type: datetime
   vacuum_control:
     booster_pump:
       start:

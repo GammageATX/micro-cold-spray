@@ -74,6 +74,48 @@
                     }
                 }
             }
+        },
+        "system_state": {
+            "type": "object",
+            "properties": {
+                "state": {
+                    "type": "object",
+                    "required": ["access", "description", "internal", "mapped", "options"],
+                    "properties": {
+                        "access": {
+                            "type": "string",
+                            "enum": ["read", "read/write"]
+                        },
+                        "description": {
+                            "type": "string"
+                        },
+                        "internal": {
+                            "type": "boolean"
+                        },
+                        "mapped": {
+                            "type": "boolean"
+                        },
+                        "options": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": [
+                                    "INITIALIZING",
+                                    "IDLE", 
+                                    "READY",
+                                    "RUNNING",
+                                    "ERROR",
+                                    "SHUTDOWN"
+                                ]
+                            }
+                        },
+                        "type": {
+                            "type": "string",
+                            "enum": ["string"]
+                        }
+                    }
+                }
+            }
         }
     }
 } 

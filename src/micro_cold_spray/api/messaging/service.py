@@ -3,12 +3,7 @@
 from typing import Any, Dict, Callable, Set
 import asyncio
 from loguru import logger
-from collections import defaultdict
-from pathlib import Path
-import yaml
-import json
-import jsonschema
-from datetime import datetime
+from fastapi import WebSocket
 
 from ..base import ConfigurableService
 from ..config import ConfigService
@@ -27,89 +22,74 @@ class MessagingService(ConfigurableService):
         """
         super().__init__(service_name="messaging")
         self._config_service = config_service
-        self.is_running = False
-        self.start_time = datetime.now()
-        self._subscribers = defaultdict(set)
-        self._valid_topics = set()
-        self._shutdown_event = asyncio.Event()
+        self._topics: Dict[str, Set[WebSocket]] = {}
+        self._subscribers: Dict[str, Set[WebSocket]] = {}
+        self._message_queue: asyncio.Queue = asyncio.Queue()
+        self._background_tasks: Set[asyncio.Task] = set()
+        self._valid_topics: Set[str] = set()
         
-    @property
-    def is_running(self) -> bool:
-        """Check if service is running."""
-        return self.is_running and not self._shutdown_event.is_set()
+    async def _start(self) -> None:
+        """Start the messaging service."""
+        try:
+            # Initialize message handling
+            self._topics = {}
+            self._subscribers = {}
+            self._message_queue = asyncio.Queue()
+            self._background_tasks = set()
+            
+            # Load valid topics from application config
+            config = await self._config_service.get_config("application")
+            services_config = config.data.get("services", {})
+            message_config = services_config.get("message_broker", {})
+            topic_groups = message_config.get("topics", {})
+            
+            # Flatten topic groups into a set of valid topics
+            valid_topics = set()
+            for group in topic_groups.values():
+                valid_topics.update(group)
+            
+            # Set valid topics
+            await self.set_valid_topics(valid_topics)
+            
+            # Initialize subscriber sets for each topic
+            for topic in valid_topics:
+                self._subscribers[topic] = set()
+            
+            # Start message processing task
+            task = asyncio.create_task(self._process_messages())
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+            
+            logger.info(f"Messaging service started with {len(self._valid_topics)} topics")
+            
+        except Exception as e:
+            logger.error(f"Failed to start messaging service: {e}")
+            raise MessageError("Failed to start messaging service", {"error": str(e)})
 
-    async def stop(self) -> None:
+    async def _stop(self) -> None:
         """Stop the messaging service."""
         try:
-            self.is_running = False
-            self._shutdown_event.set()
+            # Cancel all background tasks
+            for task in self._background_tasks:
+                task.cancel()
             
-            # Wait for message queue to empty
-            if not self._message_queue.empty():
-                await self._message_queue.join()
-                
-            # Cancel all subscriber tasks
-            for handlers in self._subscribers.values():
-                for handler in handlers:
-                    if handler.task:
-                        handler.task.cancel()
-                        
+            # Clear all subscribers and topics
+            self._topics.clear()
+            self._subscribers.clear()
+            
+            # Clear message queue
+            while not self._message_queue.empty():
+                try:
+                    self._message_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                    
             logger.info("Messaging service stopped")
             
         except Exception as e:
-            error_context = {"error": str(e)}
-            logger.error("Failed to stop messaging service", extra=error_context)
-            raise MessageError("Failed to stop messaging service", error_context)
-        
-    async def _start(self) -> None:
-        """Initialize messaging service."""
-        try:
-            # Load schema first
-            schema_path = Path("config/schemas/messaging.json")
-            if schema_path.exists():
-                with open(schema_path) as f:
-                    self._schema = json.load(f)
-            
-            # Load config (YAML)
-            app_config = await self._config_service.get_config("application")
-            if isinstance(app_config, str):
-                # If returned as YAML string, parse it
-                app_config = yaml.safe_load(app_config)
-                
-            message_broker_config = app_config.get("services", {}).get("message_broker", {})
-            
-            # Validate against schema if available
-            if hasattr(self, '_schema'):
-                try:
-                    jsonschema.validate(message_broker_config, self._schema)
-                except jsonschema.exceptions.ValidationError as e:
-                    raise ValidationError(f"Config validation failed: {str(e)}")
-            
-            # Extract topics
-            topics = set()
-            for topic_group in message_broker_config.get("topics", {}).values():
-                if isinstance(topic_group, (list, set)):
-                    topics.update(topic_group)
-                elif isinstance(topic_group, dict):
-                    topics.update(topic_group.keys())
-            
-            self._valid_topics = topics
-            logger.debug(f"Loaded {len(self._valid_topics)} valid topics")
-            
-            # Start message processing
-            self.is_running = True
-            asyncio.create_task(self._process_messages())
-            
-            logger.info("Messaging service started")
-            
-        except Exception as e:
-            error_context = {
-                "source": "messaging_service",
-                "error": str(e)
-            }
-            logger.error("Failed to start messaging service", extra=error_context)
-            raise MessageError("Failed to start messaging service", error_context)
-            
+            logger.error(f"Error stopping messaging service: {e}")
+            raise MessageError("Error stopping messaging service", {"error": str(e)})
+
     def _validate_topic(self, topic: str) -> None:
         """Validate topic name.
         
@@ -316,3 +296,24 @@ class MessagingService(ConfigurableService):
             # Check for shutdown
             if self._shutdown_event.is_set():
                 break
+
+    async def check_health(self) -> Dict[str, Any]:
+        """Check service health.
+        
+        Returns:
+            Health status dictionary
+        """
+        try:
+            return {
+                "status": "ok" if self.is_running else "error",
+                "topics": len(self._valid_topics),
+                "active_subscribers": sum(len(subs) for subs in self._subscribers.values()),
+                "background_tasks": len(self._background_tasks),
+                "queue_size": self._message_queue.qsize()
+            }
+        except Exception as e:
+            logger.error(f"Health check failed: {e}")
+            return {
+                "status": "error",
+                "error": str(e)
+            }

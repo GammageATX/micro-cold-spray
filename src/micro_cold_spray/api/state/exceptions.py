@@ -6,14 +6,9 @@ from ..base.exceptions import ServiceError
 
 class StateError(ServiceError):
     """Base class for state management errors."""
-    pass
-
-
-class StateTransitionError(StateError):
-    """Raised when a state transition fails."""
     
     def __init__(self, message: str, context: Optional[Dict[str, Any]] = None):
-        """Initialize state transition error.
+        """Initialize state error.
         
         Args:
             message: Error message
@@ -21,6 +16,11 @@ class StateTransitionError(StateError):
         """
         super().__init__(message)
         self.context = context if context is not None else {}
+
+
+class StateTransitionError(StateError):
+    """Raised when a state transition fails."""
+    pass
 
 
 class InvalidStateError(StateError):

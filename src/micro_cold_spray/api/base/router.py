@@ -10,7 +10,7 @@ from loguru import logger
 def add_health_endpoints(router: APIRouter, service):
     """Add health and control endpoints to router."""
     
-    @router.get("/health")
+    @router.get("/health", tags=["health"])
     async def health_check():
         """Check service health."""
         try:
@@ -18,20 +18,31 @@ def add_health_endpoints(router: APIRouter, service):
             uptime = (datetime.now() - service.start_time).total_seconds()
             memory = process.memory_info().rss
 
+            # Get service-specific health status if available
+            service_status = "ok"
+            if hasattr(service, "check_health"):
+                health_info = await service.check_health()
+                service_status = health_info.get("status", "ok")
+
             return {
-                "status": "ok" if service.is_running else "stopped",
+                "status": service_status if service.is_running else "stopped",
                 "uptime": uptime,
                 "memory_usage": memory,
                 "service_info": {
                     "name": service._service_name,
-                    "version": getattr(service, "version", "1.0.0")
+                    "version": getattr(service, "version", "1.0.0"),
+                    "running": service.is_running
                 }
             }
         except Exception as e:
             logger.error(f"Health check failed: {e}")
             return {
                 "status": "error",
-                "error": str(e)
+                "error": str(e),
+                "service_info": {
+                    "name": service._service_name,
+                    "running": False
+                }
             }
 
     @router.post("/control")

@@ -2,26 +2,25 @@
 
 from typing import Dict, List, Any, Optional
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import FastAPI, APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 from loguru import logger
 
 from .service import StateService
 from .models import StateRequest, StateResponse, StateTransition
 from .exceptions import InvalidStateError, StateTransitionError, ConditionError
+from ..base.router import add_health_endpoints
 
+# Create FastAPI app
+app = FastAPI(title="State API")
+
+# Create router
 router = APIRouter(prefix="/state", tags=["state"])
+
+# Add router to app
+app.include_router(router)
+
 _service: Optional[StateService] = None
-
-
-def init_router(service: StateService) -> None:
-    """Initialize router with service instance.
-    
-    Args:
-        service: State service instance
-    """
-    global _service
-    _service = service
 
 
 def get_service() -> StateService:
@@ -31,12 +30,66 @@ def get_service() -> StateService:
         StateService instance
         
     Raises:
-        RuntimeError: If service not initialized
+        HTTPException: If service not initialized
     """
     if _service is None:
         logger.error("State service not initialized")
-        raise RuntimeError("State service not initialized")
+        raise HTTPException(
+            status_code=503,
+            detail="State service not initialized"
+        )
     return _service
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on startup."""
+    logger.info("State API starting up")
+    global _service
+    if _service is None:
+        try:
+            # Get config service instance
+            from ..config.service import ConfigService
+            config_service = ConfigService()
+            await config_service.start()
+            
+            # Get messaging service instance
+            from ..messaging.service import MessagingService
+            message_broker = MessagingService(config_service=config_service)
+            await message_broker.start()
+            
+            # Get communication service instance
+            from ..communication.service import CommunicationService
+            communication_service = CommunicationService()
+            communication_service._config_service = config_service
+            await communication_service.start()
+            
+            # Create state service
+            _service = StateService(
+                config_service=config_service,
+                message_broker=message_broker,
+                communication_service=communication_service
+            )
+            await _service.start()
+            
+            # Add health endpoint directly to app
+            add_health_endpoints(app, _service)
+            logger.info("State service started successfully")
+        except Exception as e:
+            logger.error(f"Failed to start state service: {e}")
+            raise
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Handle shutdown tasks."""
+    logger.info("State API shutting down")
+    if _service:
+        try:
+            await _service.stop()
+            logger.info("State service stopped successfully")
+        except Exception as e:
+            logger.error(f"Error stopping state service: {e}")
 
 
 @router.get("/status", response_model=Dict[str, Any])

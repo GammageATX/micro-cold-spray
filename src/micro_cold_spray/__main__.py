@@ -102,6 +102,22 @@ def run_messaging_api_process():
     )
 
 
+# Define critical and non-critical services
+CRITICAL_SERVICES = {
+    'config',          # Configuration must be available
+    'messaging',       # Required for inter-service communication
+    'communication'    # Required for hardware interface
+}
+
+NON_CRITICAL_SERVICES = {
+    'state',            # State tracking can recover
+    'process',          # Process control can be restarted
+    'data_collection',  # Data collection can be interrupted
+    'validation',       # Validation can be restarted
+    'ui'                # UI can be refreshed
+}
+
+
 async def main():
     """Application entry point."""
     try:
@@ -109,35 +125,46 @@ async def main():
         ensure_directories()
         logger.info("Starting Micro Cold Spray application")
 
-        # Start Config API first since other services depend on it
-        logger.info("Starting Config API service")
-        config_api_process = Process(target=run_config_api_process)
-        config_api_process.start()
-        await asyncio.sleep(2)  # Give config service time to start
+        # Dictionary to track all processes
+        processes = {}
 
-        # Start Messaging API next as communication depends on it
-        logger.info("Starting Messaging API service")
-        msg_api_process = Process(target=run_messaging_api_process)
-        msg_api_process.start()
-        await asyncio.sleep(1)  # Give messaging service time to start
+        # Start critical services first
+        logger.info("Starting critical services...")
+        
+        # Config API must start first
+        processes['config'] = Process(target=run_config_api_process)
+        processes['config'].start()
+        await asyncio.sleep(2)
 
-        # Start Communication API after messaging is ready
-        logger.info("Starting Communication API service")
-        comm_api_process = Process(target=run_communication_api_process)
-        comm_api_process.start()
+        # Messaging API next
+        processes['messaging'] = Process(target=run_messaging_api_process)
+        processes['messaging'].start()
         await asyncio.sleep(1)
 
-        # Start UI last after all APIs are running
-        logger.info("Starting UI service")
-        ui_process = Process(target=run_ui_process)
-        ui_process.start()
+        # Communication API
+        processes['communication'] = Process(target=run_communication_api_process)
+        processes['communication'].start()
+        await asyncio.sleep(1)
 
-        # Create shutdown handler
+        # Start non-critical services
+        logger.info("Starting non-critical services...")
+        
+        for service, runner in [
+            ('process', run_process_api_process),
+            ('state', run_state_api_process),
+            ('data_collection', run_data_collection_api_process),
+            ('validation', run_validation_api_process),
+            ('ui', run_ui_process)
+        ]:
+            processes[service] = Process(target=runner)
+            processes[service].start()
+            await asyncio.sleep(1)
+
         def shutdown_handler(sig, frame):
             logger.info("Shutdown requested...")
-            for process in [ui_process, config_api_process,
-                            comm_api_process, msg_api_process]:
+            for name, process in processes.items():
                 if process.is_alive():
+                    logger.info(f"Stopping {name} service...")
                     process.terminate()
                     process.join(timeout=5.0)
                     if process.is_alive():
@@ -147,8 +174,15 @@ async def main():
         signal.signal(signal.SIGINT, shutdown_handler)
         signal.signal(signal.SIGTERM, shutdown_handler)
 
-        # Keep running until interrupted
+        # Monitor processes
         while True:
+            for name, process in processes.items():
+                if not process.is_alive():
+                    if name in CRITICAL_SERVICES:
+                        logger.critical(f"Critical service {name} died - shutting down system")
+                        shutdown_handler(None, None)
+                    else:
+                        logger.warning(f"Non-critical service {name} died - system continuing")
             await asyncio.sleep(1)
 
     except KeyboardInterrupt:
@@ -162,20 +196,55 @@ async def main():
         logger.exception(f"Critical application error: {error_msg}")
         raise
     finally:
-        if 'ui_process' in locals():
-            ui_process.terminate()
-            ui_process.join()
-        if 'config_api_process' in locals():
-            config_api_process.terminate()
-            config_api_process.join()
-        if 'comm_api_process' in locals():
-            comm_api_process.terminate()
-            comm_api_process.join()
-        if 'msg_api_process' in locals():
-            msg_api_process.terminate()
-            msg_api_process.join()
+        # Clean shutdown
+        for name, process in processes.items():
+            if process.is_alive():
+                logger.info(f"Stopping {name} service...")
+                process.terminate()
+                process.join()
         logger.info("Application shutdown complete")
         sys.exit(0)
+
+
+# Add process runner functions for new services
+def run_process_api_process():
+    """Process function to run the Process API service."""
+    uvicorn.run(
+        "micro_cold_spray.api.process.router:app",
+        host="0.0.0.0",
+        port=8003,
+        reload=True
+    )
+
+
+def run_state_api_process():
+    """Process function to run the State API service."""
+    uvicorn.run(
+        "micro_cold_spray.api.state.router:app",
+        host="0.0.0.0",
+        port=8004,
+        reload=True
+    )
+
+
+def run_data_collection_api_process():
+    """Process function to run the Data Collection API service."""
+    uvicorn.run(
+        "micro_cold_spray.api.data_collection.router:app",
+        host="0.0.0.0",
+        port=8005,
+        reload=True
+    )
+
+
+def run_validation_api_process():
+    """Process function to run the Validation API service."""
+    uvicorn.run(
+        "micro_cold_spray.api.validation.router:app",
+        host="0.0.0.0",
+        port=8006,
+        reload=True
+    )
 
 
 if __name__ == "__main__":
