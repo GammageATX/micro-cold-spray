@@ -1,6 +1,5 @@
 """Configuration service implementation."""
 
-import json
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Set
 from pathlib import Path
@@ -9,7 +8,7 @@ from loguru import logger
 
 from micro_cold_spray.api.base import BaseService
 from micro_cold_spray.api.config.models import (
-    ConfigSchema, SchemaRegistry, ConfigData, ConfigUpdate,
+    SchemaRegistry, ConfigData, ConfigUpdate,
     ConfigValidationResult, ConfigMetadata,
     ConfigFieldInfo, TagRemapRequest
 )
@@ -34,7 +33,7 @@ class ConfigService(BaseService):
         # Initialize services
         self._cache_service = ConfigCacheService()
         self._file_service = ConfigFileService(self._config_dir)
-        self._schema_service = SchemaService()
+        self._schema_service = SchemaService(self._schema_dir)
         self._registry_service = RegistryService()
         self._format_service = FormatService()
         
@@ -44,97 +43,28 @@ class ConfigService(BaseService):
         self._known_tags: Set[str] = set()
         self._schema_registry: Optional[SchemaRegistry] = None
 
-    def _load_schema_file(self, filename: str) -> Dict[str, Any]:
-        """Load schema from JSON file.
-        
-        Args:
-            filename: Name of schema file to load
-            
-        Returns:
-            Schema data dictionary
-        """
-        schema_path = self._schema_dir / filename
-        
-        try:
-            with open(schema_path, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"Failed to load schema file {filename}: {e}")
-            raise
-
-    def _build_application_schema(self) -> ConfigSchema:
-        """Build application configuration schema."""
-        try:
-            schema_data = self._load_schema_file("application.json")
-            return self._schema_service.build_schema(schema_data)
-        except Exception as e:
-            logger.error(f"Failed to build application schema: {e}")
-            raise
-
-    def _build_hardware_schema(self) -> ConfigSchema:
-        """Build hardware configuration schema."""
-        try:
-            schema_data = self._load_schema_file("hardware.json")
-            return self._schema_service.build_schema(schema_data)
-        except Exception as e:
-            logger.error(f"Failed to build hardware schema: {e}")
-            raise
-
-    def _build_process_schema(self) -> ConfigSchema:
-        """Build process configuration schema."""
-        try:
-            schema_data = self._load_schema_file("process.json")
-            return self._schema_service.build_schema(schema_data)
-        except Exception as e:
-            logger.error(f"Failed to build process schema: {e}")
-            raise
-
-    def _build_tags_schema(self) -> ConfigSchema:
-        """Build tags configuration schema."""
-        try:
-            schema_data = self._load_schema_file("tags.json")
-            return self._schema_service.build_schema(schema_data)
-        except Exception as e:
-            logger.error(f"Failed to build tags schema: {e}")
-            raise
-
-    def _build_state_schema(self) -> ConfigSchema:
-        """Build state configuration schema."""
-        try:
-            schema_data = self._load_schema_file("state.json")
-            return self._schema_service.build_schema(schema_data)
-        except Exception as e:
-            logger.error(f"Failed to build state schema: {e}")
-            raise
-
-    def _build_file_format_schema(self) -> ConfigSchema:
-        """Build file format configuration schema."""
-        try:
-            schema_data = self._load_schema_file("file_format.json")
-            return self._schema_service.build_schema(schema_data)
-        except Exception as e:
-            logger.error(f"Failed to build file format schema: {e}")
-            raise
-
     async def _start(self) -> None:
         """Start the configuration service."""
         try:
-            # Build schema registry
-            self._schema_registry = SchemaRegistry(
-                application=self._build_application_schema(),
-                hardware=self._build_hardware_schema(),
-                process=self._build_process_schema(),
-                tags=self._build_tags_schema(),
-                state=self._build_state_schema(),
-                file_format=self._build_file_format_schema()
-            )
-
-            # Initialize services
+            # Initialize services first
             await self._cache_service.start()
             await self._file_service.start()
             await self._schema_service.start()
             await self._registry_service.start()
             await self._format_service.start()
+
+            # Get schemas from schema service
+            self._schema_registry = SchemaRegistry(
+                application=self._schema_service.get_schema("application"),
+                hardware=self._schema_service.get_schema("hardware"),
+                process=self._schema_service.get_schema("process"),
+                tags=self._schema_service.get_schema("tags"),
+                state=self._schema_service.get_schema("state"),
+                file_format=self._schema_service.get_schema("file_format")
+            )
+
+            if not self._schema_registry:
+                raise ConfigurationError("Failed to load schema registry")
 
             logger.info("Configuration service started successfully")
 
@@ -242,7 +172,12 @@ class ConfigService(BaseService):
             if not schema:
                 raise ConfigurationError(f"Unknown config type: {config_type}")
 
-            return await self._schema_service.validate(schema, config_data)
+            errors = self._schema_service.validate_config(config_type, config_data)
+            return ConfigValidationResult(
+                valid=len(errors) == 0,
+                errors=errors,
+                warnings=[]
+            )
 
         except Exception as e:
             logger.error(f"Failed to validate config {config_type}: {e}")

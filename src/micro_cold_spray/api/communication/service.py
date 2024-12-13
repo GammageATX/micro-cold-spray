@@ -4,8 +4,8 @@ from typing import Dict, Any, Optional
 from loguru import logger
 
 from ..base import ConfigurableService
+from ..base.exceptions import ServiceError, ValidationError
 from ..config import ConfigService
-from .exceptions import HardwareError
 from .clients import (
     create_plc_client,
     create_ssh_client,
@@ -47,7 +47,7 @@ class CommunicationService(ConfigurableService):
             logger.debug(f"Loaded hardware config: {config_data.data.keys()}")
             
             if not config_data or not config_data.data:
-                raise HardwareError("Hardware configuration is empty", device="config")
+                raise ValidationError("Hardware configuration is empty")
             
             config = config_data.data
             logger.debug(f"Network config keys: {config.get('network', {}).keys()}")
@@ -59,48 +59,27 @@ class CommunicationService(ConfigurableService):
             ssh_config = network_config.get("ssh", {})
             
             if not plc_config:
-                raise HardwareError("PLC configuration missing", device="plc")
+                raise ValidationError("PLC configuration missing")
             
             try:
                 self._plc_client = create_plc_client(plc_config)
             except Exception as e:
-                raise HardwareError(f"Failed to create PLC client: {str(e)}", device="plc")
+                raise ServiceError(f"Failed to create PLC client: {str(e)}")
                 
             try:
                 self._ssh_client = create_ssh_client(ssh_config)
             except Exception as e:
-                raise HardwareError(f"Failed to create SSH client: {str(e)}", device="ssh")
+                raise ServiceError(f"Failed to create SSH client: {str(e)}")
             
             # Initialize services
             try:
-                self._equipment = EquipmentService(
-                    plc_client=self._plc_client,
-                    ssh_client=self._ssh_client,
-                    config=config.get("physical", {})
-                )
-                
-                self._feeder = FeederService(
-                    plc_client=self._plc_client,
-                    ssh_client=self._ssh_client,
-                    config=config.get("physical", {}).get("hardware_sets", {})
-                )
-                
-                self._motion = MotionService(
-                    plc_client=self._plc_client,
-                    config=config.get("physical", {}).get("stage", {})
-                )
-                
-                self._tag_cache = TagCacheService(
-                    plc_client=self._plc_client,
-                    config=config.get("network", {}).get("plc", {})
-                )
-                
-                self._tag_mapping = TagMappingService(
-                    plc_client=self._plc_client,
-                    config=config.get("network", {}).get("plc", {})
-                )
+                self._equipment = EquipmentService(plc_client=self._plc_client)
+                self._feeder = FeederService(ssh_client=self._ssh_client)
+                self._motion = MotionService(plc_client=self._plc_client)
+                self._tag_cache = TagCacheService(plc_client=self._plc_client)
+                self._tag_mapping = TagMappingService(plc_client=self._plc_client)
             except Exception as e:
-                raise HardwareError(f"Failed to initialize services: {str(e)}", device="services")
+                raise ServiceError(f"Failed to initialize services: {str(e)}")
             
             # Start all services
             try:
@@ -110,16 +89,16 @@ class CommunicationService(ConfigurableService):
                 await self._tag_cache.start()
                 await self._tag_mapping.start()
             except Exception as e:
-                raise HardwareError(f"Failed to start services: {str(e)}", device="services")
+                raise ServiceError(f"Failed to start services: {str(e)}")
             
             logger.info("Communication service started")
             
-        except HardwareError:
+        except (ServiceError, ValidationError):
             raise
         except Exception as e:
             error_msg = f"Failed to start communication service: {str(e)}"
             logger.error(error_msg)
-            raise HardwareError(error_msg, device="unknown")
+            raise ServiceError(error_msg)
 
     async def _stop(self) -> None:
         """Stop communication service."""
@@ -153,7 +132,7 @@ class CommunicationService(ConfigurableService):
             Health status dictionary
             
         Raises:
-            HardwareError: If health check fails
+            ServiceError: If health check fails
         """
         try:
             status = {
@@ -172,9 +151,8 @@ class CommunicationService(ConfigurableService):
             }
             
         except Exception as e:
-            raise HardwareError(
+            raise ServiceError(
                 "Failed to check communication health",
-                "communication",
                 {"error": str(e)}
             )
 

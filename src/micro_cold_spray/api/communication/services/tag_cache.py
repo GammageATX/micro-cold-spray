@@ -4,33 +4,23 @@ from typing import Dict, Any, Set
 from datetime import datetime
 from loguru import logger
 
-from .. import HardwareError
+from ...base import ConfigurableService
+from ...base.exceptions import ServiceError, ValidationError
 from .tag_mapping import TagMappingService
 from ..models.tags import TagValue, TagMetadata, TagCacheResponse
 
 
-class ValidationError(HardwareError):
-    """Raised when tag validation fails."""
-    def __init__(self, message: str, context: Dict[str, Any] = None):
-        super().__init__(message, "validation", context)
-
-
-class TagCacheService:
+class TagCacheService(ConfigurableService):
     """Service for caching and validating tag values."""
 
     def __init__(self, config_service):
         """Initialize tag cache service."""
+        super().__init__(service_name="tag_cache")
         self._config_service = config_service
         self._tag_mapping: TagMappingService = None
         self._cache: Dict[str, TagValue] = {}
-        self._is_running = False
 
-    @property
-    def is_running(self) -> bool:
-        """Check if service is running."""
-        return self._is_running
-
-    async def start(self) -> None:
+    async def _start(self) -> None:
         """Initialize service."""
         # Initialize tag mapping
         self._tag_mapping = TagMappingService(self._config_service)
@@ -39,14 +29,10 @@ class TagCacheService:
         # Load tag definitions
         tag_config = await self._config_service.get_config("tags")
         await self._build_cache(tag_config)
-        
-        self._is_running = True
         logger.info("Tag cache initialized")
 
-    async def stop(self) -> None:
+    async def _stop(self) -> None:
         """Cleanup service."""
-        self._is_running = False
-        
         if self._tag_mapping:
             await self._tag_mapping.stop()
             
@@ -81,25 +67,16 @@ class TagCacheService:
                     
             logger.info(f"Built cache with {len(self._cache)} tags")
         except Exception as e:
-            raise HardwareError(
+            raise ServiceError(
                 "Failed to build tag cache",
-                "cache",
                 {"error": str(e)}
             )
 
     def update_tag(self, tag_path: str, value: Any) -> None:
         """Update tag value in cache."""
-        if not self.is_running:
-            raise HardwareError(
-                "Tag cache not running",
-                "cache",
-                {"tag_path": tag_path}
-            )
-            
         if tag_path not in self._cache:
-            raise HardwareError(
+            raise ValidationError(
                 f"Tag not in cache: {tag_path}",
-                "cache",
                 {"tag_path": tag_path}
             )
             
@@ -113,25 +90,19 @@ class TagCacheService:
                 metadata=self._cache[tag_path].metadata,
                 timestamp=datetime.now()
             )
-        except ValidationError as e:
-            raise ValidationError(
-                f"Invalid value for {tag_path}: {str(e)}",
-                {"tag_path": tag_path, "value": value}
+        except ValidationError:
+            raise
+        except Exception as e:
+            raise ServiceError(
+                f"Failed to update tag {tag_path}",
+                {"tag_path": tag_path, "value": value, "error": str(e)}
             )
 
     def validate_value(self, tag_path: str, value: Any) -> None:
         """Validate value against tag metadata."""
-        if not self.is_running:
-            raise HardwareError(
-                "Tag cache not running",
-                "cache",
-                {"tag_path": tag_path}
-            )
-            
         if tag_path not in self._cache:
-            raise HardwareError(
+            raise ValidationError(
                 f"Tag not in cache: {tag_path}",
-                "cache",
                 {"tag_path": tag_path}
             )
             
@@ -169,7 +140,7 @@ class TagCacheService:
                         "range": metadata.range
                     }
                 )
-                
+            
         # Options validation
         if metadata.options and isinstance(value, str):
             if value not in metadata.options:
@@ -184,17 +155,9 @@ class TagCacheService:
 
     def get_tag(self, tag_path: str) -> Any:
         """Get tag value from cache."""
-        if not self.is_running:
-            raise HardwareError(
-                "Tag cache not running",
-                "cache",
-                {"tag_path": tag_path}
-            )
-            
         if tag_path not in self._cache:
-            raise HardwareError(
+            raise ValidationError(
                 f"Tag not in cache: {tag_path}",
-                "cache",
                 {"tag_path": tag_path}
             )
             
@@ -202,17 +165,9 @@ class TagCacheService:
 
     def get_tag_with_metadata(self, tag_path: str) -> TagValue:
         """Get tag value with metadata."""
-        if not self.is_running:
-            raise HardwareError(
-                "Tag cache not running",
-                "cache",
-                {"tag_path": tag_path}
-            )
-            
         if tag_path not in self._cache:
-            raise HardwareError(
+            raise ValidationError(
                 f"Tag not in cache: {tag_path}",
-                "cache",
                 {"tag_path": tag_path}
             )
             
@@ -225,12 +180,6 @@ class TagCacheService:
         access: Set[str] = None
     ) -> TagCacheResponse:
         """Get filtered tag values."""
-        if not self.is_running:
-            raise HardwareError(
-                "Tag cache not running",
-                "cache"
-            )
-            
         try:
             filtered_tags = {}
             for tag_path, tag_value in self._cache.items():
@@ -255,16 +204,7 @@ class TagCacheService:
                 groups=result_groups
             )
         except Exception as e:
-            raise HardwareError(
+            raise ServiceError(
                 "Failed to filter tags",
-                "cache",
                 {"error": str(e)}
             )
-
-    async def check_status(self) -> bool:
-        """Check if cache is healthy."""
-        try:
-            return self.is_running and bool(self._cache)
-        except Exception as e:
-            logger.error(f"Cache status check failed: {str(e)}")
-            return False

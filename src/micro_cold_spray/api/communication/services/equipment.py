@@ -3,20 +3,12 @@
 from typing import Dict, Any
 from loguru import logger
 
-from ...base import BaseService
-from ..exceptions import HardwareError
+from ...base import ConfigurableService
+from ...base.exceptions import HardwareError, ValidationError
 from ..clients import PLCClient
-from ..models.equipment import (
-    GasFlowRequest,
-    GasValveRequest,
-    PumpRequest,
-    VacuumValveRequest,
-    NozzleRequest,
-    ShutterRequest
-)
 
 
-class EquipmentService(BaseService):
+class EquipmentService(ConfigurableService):
     """Service for controlling process equipment."""
 
     def __init__(self, plc_client: PLCClient):
@@ -28,144 +20,167 @@ class EquipmentService(BaseService):
         super().__init__(service_name="equipment")
         self._plc = plc_client
 
-    async def set_gas_flow(self, request: GasFlowRequest) -> None:
+    async def set_gas_flow(self, flow_type: str, value: float) -> None:
         """Set gas flow setpoint.
         
         Args:
-            request: Gas flow request
+            flow_type: Flow type (main or feeder)
+            value: Flow setpoint in SLPM
             
         Raises:
             HardwareError: If setting flow fails
+            ValidationError: If parameters invalid
         """
+        if flow_type not in ['main', 'feeder']:
+            raise ValidationError(f"Invalid flow type: {flow_type}")
+
+        # Get tag based on type
+        tag = "AOS32-0.1.2.1" if flow_type == "main" else "AOS32-0.1.2.2"
+        
+        # Get limits from tags.yaml
+        limits = {
+            'main': (0.0, 100.0),
+            'feeder': (0.0, 10.0)
+        }[flow_type]
+        
+        if not limits[0] <= value <= limits[1]:
+            raise ValidationError(
+                f"{flow_type} flow must be between {limits[0]} and {limits[1]} SLPM",
+                {"flow_type": flow_type, "value": value, "limits": limits}
+            )
+            
         try:
-            tag = f"gas.{request.type}.flow.setpoint"
-            await self._plc.write_tag(tag, request.value)
-            logger.info(f"Set {request.type} gas flow to {request.value} SLPM")
+            await self._plc.write_tag(tag, value)
+            logger.info(f"Set {flow_type} gas flow to {value} SLPM")
         except Exception as e:
             raise HardwareError(
-                f"Failed to set {request.type} gas flow",
+                f"Failed to set {flow_type} gas flow",
                 "gas_control",
                 {
-                    "type": request.type,
-                    "value": request.value,
+                    "type": flow_type,
+                    "value": value,
                     "error": str(e)
                 }
             )
 
-    async def set_gas_valve(self, request: GasValveRequest) -> None:
+    async def set_gas_valve(self, valve: str, state: bool) -> None:
         """Control gas valve.
         
         Args:
-            request: Valve control request
+            valve: Valve to control (main, feeder)
+            state: Valve state (True=open, False=closed)
             
         Raises:
             HardwareError: If valve control fails
+            ValidationError: If valve invalid
         """
+        if valve not in ['main', 'feeder']:
+            raise ValidationError(f"Invalid valve: {valve}")
+            
         try:
-            tag = f"gas.{request.valve}.valve"
-            await self._plc.write_tag(tag, request.state)
-            state = "opened" if request.state else "closed"
-            logger.info(f"{request.valve.title()} gas valve {state}")
+            tag = "MainSwitch" if valve == "main" else "FeederSwitch"
+            await self._plc.write_tag(tag, state)
+            state_str = "opened" if state else "closed"
+            logger.info(f"{valve.title()} gas valve {state_str}")
         except Exception as e:
             raise HardwareError(
-                f"Failed to control {request.valve} gas valve",
+                f"Failed to control {valve} gas valve",
                 "gas_control",
                 {
-                    "valve": request.valve,
-                    "state": request.state,
+                    "valve": valve,
+                    "state": state,
                     "error": str(e)
                 }
             )
 
-    async def control_pump(self, request: PumpRequest) -> None:
+    async def control_vacuum_pump(self, pump: str, state: bool) -> None:
         """Control vacuum pump.
         
         Args:
-            request: Pump control request
+            pump: Pump to control (mechanical, booster)
+            state: Pump state (True=start, False=stop)
             
         Raises:
             HardwareError: If pump control fails
+            ValidationError: If pump invalid
         """
+        if pump not in ['mechanical', 'booster']:
+            raise ValidationError(f"Invalid pump: {pump}")
+            
         try:
-            await self._plc.write_tag("vacuum.pump", request.state)
-            state = "started" if request.state else "stopped"
-            logger.info(f"Vacuum pump {state}")
+            if pump == 'mechanical':
+                tag = "MechPumpStart" if state else "MechPumpStop"
+            else:
+                tag = "BoosterPumpStart" if state else "BoosterPumpStop"
+                
+            await self._plc.write_tag(tag, True)  # Pulse the start/stop tag
+            pump_state = "started" if state else "stopped"
+            logger.info(f"{pump.title()} pump {pump_state}")
         except Exception as e:
             raise HardwareError(
-                "Failed to control vacuum pump",
+                f"Failed to control {pump} pump",
                 "vacuum",
                 {
-                    "state": request.state,
+                    "pump": pump,
+                    "state": state,
                     "error": str(e)
                 }
             )
 
-    async def set_vacuum_valve(self, request: VacuumValveRequest) -> None:
-        """Control vacuum valve.
-        
-        Args:
-            request: Valve control request
-            
-        Raises:
-            HardwareError: If valve control fails
-        """
-        try:
-            tag = f"vacuum.{request.valve}"
-            await self._plc.write_tag(tag, request.state)
-            state = "opened" if request.state else "closed"
-            logger.info(f"{request.valve.title()} vacuum valve {state}")
-        except Exception as e:
-            raise HardwareError(
-                f"Failed to control {request.valve} vacuum valve",
-                "vacuum",
-                {
-                    "valve": request.valve,
-                    "state": request.state,
-                    "error": str(e)
-                }
-            )
-
-    async def control_nozzle(self, request: NozzleRequest) -> None:
-        """Control nozzle heater.
-        
-        Args:
-            request: Nozzle control request
-            
-        Raises:
-            HardwareError: If heater control fails
-        """
-        try:
-            await self._plc.write_tag("nozzle.heater", request.state)
-            state = "enabled" if request.state else "disabled"
-            logger.info(f"Nozzle heater {state}")
-        except Exception as e:
-            raise HardwareError(
-                "Failed to control nozzle heater",
-                "nozzle",
-                {
-                    "state": request.state,
-                    "error": str(e)
-                }
-            )
-
-    async def control_shutter(self, request: ShutterRequest) -> None:
+    async def control_shutter(self, state: bool) -> None:
         """Control nozzle shutter.
         
         Args:
-            request: Shutter control request
+            state: Shutter state (True=open, False=closed)
             
         Raises:
             HardwareError: If shutter control fails
         """
         try:
-            await self._plc.write_tag("nozzle.shutter", request.position)
-            logger.info(f"Nozzle shutter moved to {request.position}")
+            await self._plc.write_tag("Shutter", state)
+            state_str = "opened" if state else "closed"
+            logger.info(f"Nozzle shutter {state_str}")
         except Exception as e:
             raise HardwareError(
                 "Failed to control nozzle shutter",
                 "nozzle",
                 {
-                    "position": request.position,
+                    "state": state,
+                    "error": str(e)
+                }
+            )
+
+    async def control_gate_valve(self, position: str) -> None:
+        """Control vacuum gate valve.
+        
+        Args:
+            position: Gate valve position (open, partial, closed)
+            
+        Raises:
+            HardwareError: If gate valve control fails
+            ValidationError: If position invalid
+        """
+        if position not in ['open', 'partial', 'closed']:
+            raise ValidationError(f"Invalid gate valve position: {position}")
+            
+        try:
+            if position == 'open':
+                await self._plc.write_tag("Open", True)
+                await self._plc.write_tag("Partial", False)
+            elif position == 'partial':
+                await self._plc.write_tag("Open", False)
+                await self._plc.write_tag("Partial", True)
+            else:  # closed
+                await self._plc.write_tag("Open", False)
+                await self._plc.write_tag("Partial", False)
+                
+            logger.info(f"Gate valve moved to {position}")
+        except Exception as e:
+            raise HardwareError(
+                "Failed to control gate valve",
+                "vacuum",
+                {
+                    "position": position,
                     "error": str(e)
                 }
             )
@@ -180,42 +195,36 @@ class EquipmentService(BaseService):
             HardwareError: If reading status fails
         """
         try:
-            # Gas system status
-            main_flow = await self._plc.read_tag("gas.main.flow.value")
-            carrier_flow = await self._plc.read_tag("gas.carrier.flow.value")
-            main_valve = await self._plc.read_tag("gas.main.valve")
-            carrier_valve = await self._plc.read_tag("gas.carrier.valve")
-            
-            # Vacuum system status
-            pump_state = await self._plc.read_tag("vacuum.pump")
-            chamber_valve = await self._plc.read_tag("vacuum.chamber")
-            bypass_valve = await self._plc.read_tag("vacuum.bypass")
-            pressure = await self._plc.read_tag("vacuum.pressure")
-            
-            # Nozzle status
-            heater_state = await self._plc.read_tag("nozzle.heater")
-            temperature = await self._plc.read_tag("nozzle.temperature")
-            shutter_pos = await self._plc.read_tag("nozzle.shutter")
-            
-            return {
-                "gas": {
-                    "main_flow": main_flow,
-                    "carrier_flow": carrier_flow,
-                    "main_valve": main_valve,
-                    "carrier_valve": carrier_valve
+            status = {
+                'gas': {
+                    'main': {
+                        'flow': await self._plc.read_tag("MainFlowRate"),
+                        'setpoint': await self._plc.read_tag("AOS32-0.1.2.1"),
+                        'valve': await self._plc.read_tag("MainSwitch")
+                    },
+                    'feeder': {
+                        'flow': await self._plc.read_tag("FeederFlowRate"),
+                        'setpoint': await self._plc.read_tag("AOS32-0.1.2.2"),
+                        'valve': await self._plc.read_tag("FeederSwitch")
+                    }
                 },
-                "vacuum": {
-                    "pump": pump_state,
-                    "chamber_valve": chamber_valve,
-                    "bypass_valve": bypass_valve,
-                    "pressure": pressure
+                'pressure': {
+                    'main': await self._plc.read_tag("MainGasPressure"),
+                    'feeder': await self._plc.read_tag("FeederPressure"),
+                    'nozzle': await self._plc.read_tag("NozzlePressure"),
+                    'regulator': await self._plc.read_tag("RegulatorPressure"),
+                    'chamber': await self._plc.read_tag("ChamberPressure")
                 },
-                "nozzle": {
-                    "heater": heater_state,
-                    "temperature": temperature,
-                    "shutter": shutter_pos
+                'vacuum': {
+                    'gate_valve': {
+                        'open': await self._plc.read_tag("Open"),
+                        'partial': await self._plc.read_tag("Partial")
+                    },
+                    'shutter': await self._plc.read_tag("Shutter")
                 }
             }
+            return status
+            
         except Exception as e:
             raise HardwareError(
                 "Failed to get equipment status",

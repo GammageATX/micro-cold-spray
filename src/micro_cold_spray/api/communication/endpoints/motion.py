@@ -1,7 +1,7 @@
 """Motion control endpoints."""
 
 from typing import Dict, Any
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from ..models.motion import (
     SingleAxisMoveRequest, CoordinatedMoveRequest,
@@ -9,6 +9,7 @@ from ..models.motion import (
 )
 from ..service import CommunicationService
 from ...base import get_service
+from ...base.exceptions import ServiceError, ValidationError
 
 router = APIRouter(prefix="/motion", tags=["motion"])
 
@@ -18,7 +19,19 @@ async def get_motion_status(
     service: CommunicationService = Depends(get_service(CommunicationService))
 ) -> MotionStatus:
     """Get current motion status."""
-    return await service.motion.get_status()
+    try:
+        status = await service.motion.get_status()
+        return MotionStatus(**status)
+    except (ServiceError, ValidationError) as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": str(e), "context": e.context}
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 
 @router.post("/move")
@@ -34,8 +47,16 @@ async def move_axis(
             request.velocity
         )
         return {"status": "ok"}
+    except (ServiceError, ValidationError) as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": str(e), "context": e.context}
+        )
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 
 @router.post("/move/xy")
@@ -51,8 +72,16 @@ async def move_xy(
             request.velocity
         )
         return {"status": "ok"}
+    except (ServiceError, ValidationError) as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": str(e), "context": e.context}
+        )
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 
 @router.post("/home")
@@ -63,8 +92,16 @@ async def home_axes(
     try:
         await service.motion.home_axes()
         return {"status": "ok"}
+    except (ServiceError, ValidationError) as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": str(e), "context": e.context}
+        )
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 
 @router.post("/stop")
@@ -75,5 +112,13 @@ async def stop_motion(
     try:
         await service.motion.stop_motion()
         return {"status": "ok"}
+    except (ServiceError, ValidationError) as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": str(e), "context": e.context}
+        )
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )

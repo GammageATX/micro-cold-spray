@@ -2,7 +2,7 @@
 
 from pathlib import Path
 from typing import Dict, Any, Optional, List
-import yaml
+import json
 
 from loguru import logger
 
@@ -33,10 +33,10 @@ class SchemaService(BaseService):
     async def _load_schemas(self) -> None:
         """Load all schema files."""
         try:
-            for schema_file in self._schema_dir.glob("*.yaml"):
+            for schema_file in self._schema_dir.glob("*.json"):
                 schema_type = schema_file.stem
                 with open(schema_file, 'r') as f:
-                    schema_data = yaml.safe_load(f)
+                    schema_data = json.load(f)
                     
                 if not isinstance(schema_data, dict):
                     raise ConfigurationError(
@@ -53,6 +53,17 @@ class SchemaService(BaseService):
     def get_schema(self, schema_type: str) -> Optional[ConfigSchema]:
         """Get schema by type."""
         return self._schemas.get(schema_type)
+
+    def build_schema(self, schema_data: Dict[str, Any]) -> ConfigSchema:
+        """Build a schema from raw data.
+        
+        Args:
+            schema_data: Raw schema data
+            
+        Returns:
+            Constructed schema
+        """
+        return ConfigSchema(**schema_data)
 
     def validate_config(
             self,
