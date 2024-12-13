@@ -28,7 +28,7 @@ class TagMetadata(BaseModel):
         None,
         description="Valid range [min, max] in engineering units"
     )
-    states: Optional[Dict[str, str]] = Field(
+    states: Optional[Dict[str, Any]] = Field(
         None,
         description="Valid states for enumerated values"
     )
@@ -36,13 +36,9 @@ class TagMetadata(BaseModel):
         None,
         description="Valid options for choice fields"
     )
-    mapped: bool = Field(
+    internal: bool = Field(
         False,
-        description="Whether this tag is mapped to hardware"
-    )
-    writable: bool = Field(
-        False,
-        description="Whether this tag can be written to"
+        description="Whether this is an internal tag not mapped to hardware"
     )
     group: str = Field(
         description="Top-level group this tag belongs to"

@@ -1,9 +1,8 @@
 """Communication data models."""
 
 from .equipment import (
-    GasFlowRequest, GasValveRequest, PumpRequest,
-    VacuumValveRequest, FeederRequest, DeagglomeratorRequest,
-    NozzleRequest, ShutterRequest
+    GasFlowRequest, GasValveRequest, VacuumPumpRequest,
+    GateValveRequest, ShutterRequest, FeederRequest
 )
 from .motion import (
     SingleAxisMoveRequest,
@@ -24,12 +23,10 @@ __all__ = [
     # Equipment models
     'GasFlowRequest',
     'GasValveRequest',
-    'PumpRequest',
-    'VacuumValveRequest',
-    'FeederRequest',
-    'DeagglomeratorRequest',
-    'NozzleRequest',
+    'VacuumPumpRequest',
+    'GateValveRequest',
     'ShutterRequest',
+    'FeederRequest',
     # Motion models
     'SingleAxisMoveRequest',
     'CoordinatedMoveRequest',

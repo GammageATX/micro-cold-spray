@@ -66,7 +66,7 @@ class ConfigMetadata(BaseModel):
     last_modified: datetime
     version: str = "1.0.0"
     description: Optional[str] = None
-    schema: Optional[ConfigSchema] = None
+    json_schema: Optional[ConfigSchema] = None
 
 
 class ConfigData(BaseModel):
@@ -97,7 +97,7 @@ class ConfigUpdate(BaseModel):
     config_type: str
     data: Dict[str, Any]
     backup: bool = True
-    validate: bool = True
+    should_validate: bool = True
 
 
 class ConfigStatus(BaseModel):
@@ -112,7 +112,7 @@ class TagRemapRequest(BaseModel):
     """Request to remap a tag."""
     old_tag: str
     new_tag: str
-    validate: bool = True
+    should_validate: bool = True
 
 
 class ConfigFieldInfo(BaseModel):
