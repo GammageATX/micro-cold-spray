@@ -33,3 +33,73 @@
 2024-12-12 23:00:04.496 | INFO     | __main__:main:106 - Starting Communication API service
 2024-12-12 23:00:04.499 | INFO     | __main__:main:111 - Starting UI service
 2024-12-12 23:00:52.106 | INFO     | __main__:main:139 - Application shutdown complete
+2024-12-13 09:08:32.942 | INFO     | __main__:main:113 - Starting Micro Cold Spray application
+2024-12-13 09:08:32.942 | INFO     | __main__:main:116 - Starting Config API service
+2024-12-13 09:08:34.963 | INFO     | __main__:main:122 - Starting Messaging API service
+2024-12-13 09:08:35.974 | INFO     | __main__:main:128 - Starting Communication API service
+2024-12-13 09:08:36.988 | INFO     | __main__:main:134 - Starting UI service
+2024-12-13 09:09:40.266 | INFO     | __main__:shutdown_handler:140 - Shutdown requested...
+2024-12-13 09:09:40.277 | INFO     | __main__:main:180 - Application shutdown complete
+2024-12-13 09:11:02.088 | INFO     | __main__:main:113 - Starting Micro Cold Spray application
+2024-12-13 09:11:02.088 | INFO     | __main__:main:116 - Starting Config API service
+2024-12-13 09:11:04.093 | INFO     | __main__:main:122 - Starting Messaging API service
+2024-12-13 09:11:05.106 | INFO     | __main__:main:128 - Starting Communication API service
+2024-12-13 09:11:06.120 | INFO     | __main__:main:134 - Starting UI service
+2024-12-13 09:11:30.131 | INFO     | __main__:shutdown_handler:140 - Shutdown requested...
+2024-12-13 09:11:30.142 | INFO     | __main__:main:180 - Application shutdown complete
+2024-12-13 09:13:43.432 | INFO     | __main__:main:113 - Starting Micro Cold Spray application
+2024-12-13 09:13:43.432 | INFO     | __main__:main:116 - Starting Config API service
+2024-12-13 09:13:45.449 | INFO     | __main__:main:122 - Starting Messaging API service
+2024-12-13 09:13:46.463 | INFO     | __main__:main:128 - Starting Communication API service
+2024-12-13 09:13:47.471 | INFO     | __main__:main:134 - Starting UI service
+2024-12-13 09:17:53.102 | INFO     | __main__:shutdown_handler:140 - Shutdown requested...
+2024-12-13 09:17:53.113 | INFO     | __main__:main:180 - Application shutdown complete
+2024-12-13 09:17:59.552 | INFO     | __main__:main:113 - Starting Micro Cold Spray application
+2024-12-13 09:17:59.553 | INFO     | __main__:main:116 - Starting Config API service
+2024-12-13 09:18:01.557 | INFO     | __main__:main:122 - Starting Messaging API service
+2024-12-13 09:18:02.570 | INFO     | __main__:main:128 - Starting Communication API service
+2024-12-13 09:18:03.580 | INFO     | __main__:main:134 - Starting UI service
+2024-12-13 09:20:20.917 | INFO     | __main__:shutdown_handler:140 - Shutdown requested...
+2024-12-13 09:20:20.929 | INFO     | __main__:main:180 - Application shutdown complete
+2024-12-13 09:20:27.232 | INFO     | __main__:main:113 - Starting Micro Cold Spray application
+2024-12-13 09:20:27.232 | INFO     | __main__:main:116 - Starting Config API service
+2024-12-13 09:20:29.249 | INFO     | __main__:main:122 - Starting Messaging API service
+2024-12-13 09:20:30.264 | INFO     | __main__:main:128 - Starting Communication API service
+2024-12-13 09:20:31.278 | INFO     | __main__:main:134 - Starting UI service
+2024-12-13 09:22:26.263 | INFO     | __main__:shutdown_handler:140 - Shutdown requested...
+2024-12-13 09:22:26.276 | INFO     | __main__:main:180 - Application shutdown complete
+2024-12-13 09:23:07.952 | INFO     | __main__:main:113 - Starting Micro Cold Spray application
+2024-12-13 09:23:07.952 | INFO     | __main__:main:116 - Starting Config API service
+2024-12-13 09:23:09.971 | INFO     | __main__:main:122 - Starting Messaging API service
+2024-12-13 09:23:10.984 | INFO     | __main__:main:128 - Starting Communication API service
+2024-12-13 09:23:11.995 | INFO     | __main__:main:134 - Starting UI service
+2024-12-13 09:25:02.530 | INFO     | __main__:shutdown_handler:140 - Shutdown requested...
+2024-12-13 09:25:02.542 | INFO     | __main__:main:180 - Application shutdown complete
+2024-12-13 09:25:05.694 | INFO     | __main__:main:113 - Starting Micro Cold Spray application
+2024-12-13 09:25:05.694 | INFO     | __main__:main:116 - Starting Config API service
+2024-12-13 09:25:07.708 | INFO     | __main__:main:122 - Starting Messaging API service
+2024-12-13 09:25:08.714 | INFO     | __main__:main:128 - Starting Communication API service
+2024-12-13 09:25:09.722 | INFO     | __main__:main:134 - Starting UI service
+2024-12-13 09:26:23.910 | INFO     | __main__:shutdown_handler:140 - Shutdown requested...
+2024-12-13 09:26:23.921 | INFO     | __main__:main:180 - Application shutdown complete
+2024-12-13 09:27:08.636 | INFO     | __main__:main:109 - Starting Micro Cold Spray application
+2024-12-13 09:27:08.636 | INFO     | __main__:main:112 - Starting Config API service
+2024-12-13 09:27:10.642 | INFO     | __main__:main:118 - Starting Messaging API service
+2024-12-13 09:27:11.653 | INFO     | __main__:main:124 - Starting Communication API service
+2024-12-13 09:27:12.667 | INFO     | __main__:main:130 - Starting UI service
+2024-12-13 09:28:28.747 | INFO     | __main__:shutdown_handler:136 - Shutdown requested...
+2024-12-13 09:28:28.763 | INFO     | __main__:main:176 - Application shutdown complete
+2024-12-13 09:28:48.098 | INFO     | __main__:main:110 - Starting Micro Cold Spray application
+2024-12-13 09:28:48.099 | INFO     | __main__:main:113 - Starting Config API service
+2024-12-13 09:28:50.112 | INFO     | __main__:main:119 - Starting Messaging API service
+2024-12-13 09:28:51.126 | INFO     | __main__:main:125 - Starting Communication API service
+2024-12-13 09:28:52.142 | INFO     | __main__:main:131 - Starting UI service
+2024-12-13 09:29:21.793 | INFO     | __main__:shutdown_handler:137 - Shutdown requested...
+2024-12-13 09:29:21.808 | INFO     | __main__:main:177 - Application shutdown complete
+2024-12-13 09:32:25.955 | INFO     | __main__:main:110 - Starting Micro Cold Spray application
+2024-12-13 09:32:25.956 | INFO     | __main__:main:113 - Starting Config API service
+2024-12-13 09:32:27.967 | INFO     | __main__:main:119 - Starting Messaging API service
+2024-12-13 09:32:28.982 | INFO     | __main__:main:125 - Starting Communication API service
+2024-12-13 09:32:29.996 | INFO     | __main__:main:131 - Starting UI service
+2024-12-13 09:35:07.440 | INFO     | __main__:shutdown_handler:137 - Shutdown requested...
+2024-12-13 09:35:07.455 | INFO     | __main__:main:177 - Application shutdown complete

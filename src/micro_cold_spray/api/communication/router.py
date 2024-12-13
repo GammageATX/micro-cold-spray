@@ -3,9 +3,14 @@
 from fastapi import APIRouter, HTTPException, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, Any, Optional
+import psutil
+from datetime import datetime
+import os
+from loguru import logger
 
 from .service import CommunicationService
 from ..base.exceptions import ServiceError, ValidationError
+from ..base.router import add_health_endpoints
 
 # Create FastAPI app
 app = FastAPI(title="Communication API")
@@ -35,6 +40,7 @@ def init_router(service: CommunicationService) -> None:
     """Initialize router with service instance."""
     global _service
     _service = service
+    add_health_endpoints(router, service)
 
 
 def get_service() -> CommunicationService:
@@ -50,10 +56,31 @@ async def health_check(
 ) -> Dict[str, Any]:
     """Check API health status."""
     try:
-        status = await service.check_health()
-        return status
+        # Get base service health info
+        process = psutil.Process(os.getpid())
+        uptime = (datetime.now() - service.start_time).total_seconds()
+        memory = process.memory_info().rss
+
+        # Get communication-specific health status
+        comm_status = await service.check_health()
+
+        # Combine the information
+        return {
+            "status": "ok" if service.is_running and comm_status.get("status") == "ok" else "error",
+            "uptime": uptime,
+            "memory_usage": memory,
+            "service_info": {
+                "name": service._service_name,
+                "version": getattr(service, "version", "1.0.0")
+            },
+            "communication": comm_status  # Include communication-specific status
+        }
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        logger.error(f"Health check failed: {e}")
+        return {
+            "status": "error",
+            "message": str(e)
+        }
 
 
 @router.get("/clients")

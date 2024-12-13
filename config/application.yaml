@@ -106,6 +106,15 @@ application:
         validation_operations:
         - validation/request
         - validation/response
+        system:
+          - "state/change"
+          - "error/report"
+        communication:
+          - "tags/update"
+          - "motion/status"
+        process:
+          - "sequence/status"
+          - "pattern/update"
     state_manager:
       history_enabled: true
       history_length: 1000

@@ -4,6 +4,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from multiprocessing import Process
+import signal
 
 from loguru import logger
 import uvicorn
@@ -90,6 +91,17 @@ def run_communication_api_process():
     asyncio.run(run_communication_api())
 
 
+def run_messaging_api_process():
+    """Process function to run the Messaging API service."""
+    uvicorn.run(
+        "micro_cold_spray.api.messaging.router:app",
+        host="0.0.0.0",
+        port=8007,
+        reload=True,
+        log_level="info"
+    )
+
+
 async def main():
     """Application entry point."""
     try:
@@ -97,20 +109,43 @@ async def main():
         ensure_directories()
         logger.info("Starting Micro Cold Spray application")
 
-        # Start Config API in a separate process
+        # Start Config API first since other services depend on it
         logger.info("Starting Config API service")
         config_api_process = Process(target=run_config_api_process)
         config_api_process.start()
+        await asyncio.sleep(2)  # Give config service time to start
 
-        # Start Communication API in a separate process
+        # Start Messaging API next as communication depends on it
+        logger.info("Starting Messaging API service")
+        msg_api_process = Process(target=run_messaging_api_process)
+        msg_api_process.start()
+        await asyncio.sleep(1)  # Give messaging service time to start
+
+        # Start Communication API after messaging is ready
         logger.info("Starting Communication API service")
         comm_api_process = Process(target=run_communication_api_process)
         comm_api_process.start()
+        await asyncio.sleep(1)
 
-        # Start UI in a separate process
+        # Start UI last after all APIs are running
         logger.info("Starting UI service")
         ui_process = Process(target=run_ui_process)
         ui_process.start()
+
+        # Create shutdown handler
+        def shutdown_handler(sig, frame):
+            logger.info("Shutdown requested...")
+            for process in [ui_process, config_api_process,
+                            comm_api_process, msg_api_process]:
+                if process.is_alive():
+                    process.terminate()
+                    process.join(timeout=5.0)
+                    if process.is_alive():
+                        process.kill()
+            sys.exit(0)
+
+        signal.signal(signal.SIGINT, shutdown_handler)
+        signal.signal(signal.SIGTERM, shutdown_handler)
 
         # Keep running until interrupted
         while True:
@@ -136,6 +171,9 @@ async def main():
         if 'comm_api_process' in locals():
             comm_api_process.terminate()
             comm_api_process.join()
+        if 'msg_api_process' in locals():
+            msg_api_process.terminate()
+            msg_api_process.join()
         logger.info("Application shutdown complete")
         sys.exit(0)
 

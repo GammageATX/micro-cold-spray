@@ -4,15 +4,46 @@
 <head>
     <title>MicroColdSpray Control System</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <script>
         // API URLs injected from backend
         const API_URLS = {{ api_urls | tojson | safe }};
+        const WS_URLS = {{ ws_urls | tojson | safe }};
 
-        // Common WebSocket connection function
+        // Improved WebSocket connection function with reconnection
         function connectWebSocket(url, onMessage) {
-            const ws = new WebSocket(url.replace('http', 'ws'));
-            ws.onmessage = onMessage;
-            ws.onclose = () => setTimeout(() => connectWebSocket(url, onMessage), 1000);
+            let ws = null;
+            let reconnectAttempts = 0;
+            const MAX_RECONNECT_ATTEMPTS = 5;
+            const RECONNECT_DELAY = 1000;
+
+            function connect() {
+                ws = new WebSocket(url);
+                
+                ws.onopen = () => {
+                    console.log(`Connected to ${url}`);
+                    reconnectAttempts = 0;
+                };
+
+                ws.onmessage = onMessage;
+                
+                ws.onclose = () => {
+                    console.log(`Disconnected from ${url}`);
+                    if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                        reconnectAttempts++;
+                        setTimeout(connect, RECONNECT_DELAY * reconnectAttempts);
+                    } else {
+                        showError(`Failed to connect to ${url} after ${MAX_RECONNECT_ATTEMPTS} attempts`);
+                    }
+                };
+
+                ws.onerror = (error) => {
+                    console.error(`WebSocket error: ${error}`);
+                    ws.close();
+                };
+            }
+
+            connect();
             return ws;
         }
 
@@ -66,6 +97,7 @@
                 <h3>Monitoring</h3>
                 <ul>
                     <li><a href="/state/monitor">System State</a></li>
+                    <li><a href="/monitoring/services">Services</a></li>
                 </ul>
             </li>
         </ul>

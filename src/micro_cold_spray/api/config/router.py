@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, Any, Optional, List
 
 from .service import ConfigService, ConfigurationError
+from ..base.router import add_health_endpoints
 
 # Create FastAPI app
 app = FastAPI(title="Config API")
@@ -34,6 +35,8 @@ def init_router(service: ConfigService) -> None:
     """Initialize router with service instance."""
     global _service
     _service = service
+    # Add health endpoints
+    add_health_endpoints(router, service)
 
 
 def get_service() -> ConfigService:
