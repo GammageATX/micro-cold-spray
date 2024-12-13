@@ -44,26 +44,42 @@ class TagCacheService(ConfigurableService):
         try:
             self._cache.clear()
             
-            for group_name, group in config.get("tag_groups", {}).items():
-                for tag_path, tag_def in group.items():
-                    metadata = TagMetadata(
-                        type=tag_def["type"],
-                        access=tag_def["access"],
-                        description=tag_def.get("description", ""),
-                        unit=tag_def.get("unit"),
-                        range=tag_def.get("range"),
-                        states=tag_def.get("states"),
-                        options=tag_def.get("options"),
-                        internal=not tag_def.get("mapped", False),
-                        group=group_name
-                    )
+            def process_tag_group(group_name: str, group_data: Dict[str, Any], parent_path: str = "") -> None:
+                """Process a group of tags recursively."""
+                for tag_name, tag_data in group_data.items():
+                    # Skip non-dict entries
+                    if not isinstance(tag_data, dict):
+                        continue
+                        
+                    # Build the full path
+                    current_path = f"{parent_path}.{tag_name}" if parent_path else f"{group_name}.{tag_name}"
                     
-                    full_path = f"{group_name}.{tag_path}"
-                    self._cache[full_path] = TagValue(
-                        value=None,
-                        metadata=metadata,
-                        timestamp=datetime.now()
-                    )
+                    # If this is a tag definition (has type field)
+                    if "type" in tag_data:
+                        metadata = TagMetadata(
+                            type=tag_data["type"],
+                            access=tag_data["access"],
+                            description=tag_data.get("description", ""),
+                            unit=tag_data.get("unit"),
+                            range=tag_data.get("range"),
+                            states=tag_data.get("states"),
+                            options=tag_data.get("options"),
+                            internal=not tag_data.get("mapped", False),
+                            group=group_name
+                        )
+                        
+                        self._cache[current_path] = TagValue(
+                            value=None,
+                            metadata=metadata,
+                            timestamp=datetime.now()
+                        )
+                    # If this is a nested group, process recursively
+                    else:
+                        process_tag_group(group_name, tag_data, current_path)
+            
+            # Process all tag groups
+            for group_name, group_data in config.get("tag_groups", {}).items():
+                process_tag_group(group_name, group_data)
                     
             logger.info(f"Built cache with {len(self._cache)} tags")
         except Exception as e:

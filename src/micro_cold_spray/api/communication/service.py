@@ -58,26 +58,28 @@ class CommunicationService(ConfigurableService):
             plc_config = network_config.get("plc", {})
             ssh_config = network_config.get("ssh", {})
             
-            if not plc_config:
-                raise ValidationError("PLC configuration missing")
-            
+            # Try to create real clients first
             try:
                 self._plc_client = create_plc_client(plc_config)
+                await self._plc_client.connect()
             except Exception as e:
-                raise ServiceError(f"Failed to create PLC client: {str(e)}")
+                logger.warning(f"Failed to connect to PLC, using mock client: {e}")
+                self._plc_client = create_plc_client({}, use_mock=True)
                 
             try:
                 self._ssh_client = create_ssh_client(ssh_config)
+                await self._ssh_client.connect()
             except Exception as e:
-                raise ServiceError(f"Failed to create SSH client: {str(e)}")
+                logger.warning(f"Failed to connect to SSH, using mock client: {e}")
+                self._ssh_client = create_ssh_client({}, use_mock=True)
             
             # Initialize services
             try:
                 self._equipment = EquipmentService(plc_client=self._plc_client)
                 self._feeder = FeederService(ssh_client=self._ssh_client)
                 self._motion = MotionService(plc_client=self._plc_client)
-                self._tag_cache = TagCacheService(plc_client=self._plc_client)
-                self._tag_mapping = TagMappingService(plc_client=self._plc_client)
+                self._tag_cache = TagCacheService(self._config_service)
+                self._tag_mapping = TagMappingService(self._config_service)
             except Exception as e:
                 raise ServiceError(f"Failed to initialize services: {str(e)}")
             

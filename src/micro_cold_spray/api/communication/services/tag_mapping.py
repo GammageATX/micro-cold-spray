@@ -48,15 +48,25 @@ class TagMappingService(ConfigurableService):
                         continue
                         
                     mapped_name = f"{group_name}.{tag_path}"
-                    hw_tag = tag_def["hardware_tag"]
                     
-                    self._hw_to_mapped[hw_tag] = mapped_name
-                    self._mapped_to_hw[mapped_name] = hw_tag
-                    
-                    # Track tag type
-                    if tag_def.get("device") == "plc":
+                    # Handle PLC tags
+                    if "plc_tag" in tag_def:
+                        hw_tag = tag_def["plc_tag"]
+                        self._hw_to_mapped[hw_tag] = mapped_name
+                        self._mapped_to_hw[mapped_name] = hw_tag
                         self._plc_tags.add(mapped_name)
-                    elif tag_def.get("device") == "feeder":
+                    
+                    # Handle SSH/feeder tags
+                    elif "ssh" in tag_def:
+                        # For SSH tags, we use the variable names as hardware tags
+                        freq_var = tag_def["ssh"]["freq_var"]
+                        start_var = tag_def["ssh"]["start_var"]
+                        time_var = tag_def["ssh"]["time_var"]
+                        
+                        # Map all SSH variables for this tag
+                        for var in [freq_var, start_var, time_var]:
+                            self._hw_to_mapped[var] = mapped_name
+                            self._mapped_to_hw[mapped_name] = var
                         self._feeder_tags.add(mapped_name)
                         
             logger.info(f"Built mappings for {len(self._mapped_to_hw)} tags")
