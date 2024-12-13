@@ -14,6 +14,12 @@ class ConfigurableService(BaseService):
         super().__init__(service_name)
         self._config: Dict[str, Any] = {}
 
+    async def _start(self) -> None:
+        """Start configurable service."""
+        if not self._config:
+            logger.warning(f"{self._service_name} starting without configuration")
+        await super()._start()
+
     async def configure(self, config: Dict[str, Any]) -> None:
         """Configure the service.
         

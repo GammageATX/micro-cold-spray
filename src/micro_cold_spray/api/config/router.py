@@ -3,6 +3,10 @@
 from fastapi import APIRouter, HTTPException, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, Any, Optional, List
+import psutil
+from datetime import datetime
+import os
+from loguru import logger
 
 from .service import ConfigService, ConfigurationError
 from ..base.router import add_health_endpoints
@@ -29,6 +33,8 @@ async def startup_event():
     global _service
     _service = ConfigService()  # Uses default config directory
     await _service.start()
+    # Add health endpoint directly to app
+    add_health_endpoints(app, _service)  # Mount to app instead of router
 
 
 def init_router(service: ConfigService) -> None:
@@ -65,10 +71,34 @@ async def health_check(
 ) -> Dict[str, Any]:
     """Check API health status."""
     try:
+        # Get base service health info
+        process = psutil.Process(os.getpid())
+        uptime = (datetime.now() - service.start_time).total_seconds()
+        memory = process.memory_info().rss
+
+        # Get config-specific health status
         config_ok = await service.check_config_access()
-        return {"status": "ok" if config_ok else "error"}
+
+        return {
+            "status": "ok" if service.is_running and config_ok else "error",
+            "uptime": uptime,
+            "memory_usage": memory,
+            "service_info": {
+                "name": service._service_name,
+                "version": getattr(service, "version", "1.0.0"),
+                "running": service.is_running
+            }
+        }
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        logger.error(f"Health check failed: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "service_info": {
+                "name": service._service_name,
+                "running": False
+            }
+        }
 
 
 @router.get("/{config_type}")

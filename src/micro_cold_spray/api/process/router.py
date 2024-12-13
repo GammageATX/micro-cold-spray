@@ -2,7 +2,7 @@
 
 from typing import Dict, Any, Optional, List
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, FastAPI
 from fastapi.responses import JSONResponse
 from loguru import logger
 
@@ -17,6 +17,10 @@ from .models import (
     ProcessPattern,
     ParameterSet
 )
+from ..base.router import add_health_endpoints
+
+# Create FastAPI app
+app = FastAPI(title="Process API")
 
 router = APIRouter(prefix="/process", tags=["process"])
 _service: Optional[ProcessService] = None
@@ -30,6 +34,8 @@ def init_router(service: ProcessService) -> None:
     """
     global _service
     _service = service
+    # Add health endpoints
+    add_health_endpoints(app, service)
 
 
 def get_service() -> ProcessService:
@@ -334,3 +340,6 @@ async def health_check() -> JSONResponse:
                 "timestamp": datetime.now().isoformat()
             }
         )
+
+# Add router to app
+app.include_router(router)

@@ -2,12 +2,16 @@
 
 from typing import Dict, Any, Optional
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, FastAPI
 from fastapi.responses import JSONResponse
 from loguru import logger
 
 from .service import ValidationService
 from .exceptions import ValidationError
+from ..base.router import add_health_endpoints
+
+# Create FastAPI app
+app = FastAPI(title="Validation API")
 
 router = APIRouter(prefix="/validation", tags=["validation"])
 _service: Optional[ValidationService] = None
@@ -21,6 +25,8 @@ def init_router(service: ValidationService) -> None:
     """
     global _service
     _service = service
+    # Add health endpoints
+    add_health_endpoints(app, service)
 
 
 def get_service() -> ValidationService:
@@ -187,3 +193,6 @@ async def health_check() -> JSONResponse:
                 "timestamp": datetime.now().isoformat()
             }
         )
+
+# Add router to app
+app.include_router(router)

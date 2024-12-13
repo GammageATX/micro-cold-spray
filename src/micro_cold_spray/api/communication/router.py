@@ -34,6 +34,8 @@ async def startup_event():
     global _service
     _service = CommunicationService()
     await _service.start()
+    # Add health endpoint directly to app
+    add_health_endpoints(app, _service)  # Mount to app instead of router
 
 
 def init_router(service: CommunicationService) -> None:
@@ -64,22 +66,26 @@ async def health_check(
         # Get communication-specific health status
         comm_status = await service.check_health()
 
-        # Combine the information
         return {
             "status": "ok" if service.is_running and comm_status.get("status") == "ok" else "error",
             "uptime": uptime,
             "memory_usage": memory,
             "service_info": {
                 "name": service._service_name,
-                "version": getattr(service, "version", "1.0.0")
+                "version": getattr(service, "version", "1.0.0"),
+                "running": service.is_running
             },
-            "communication": comm_status  # Include communication-specific status
+            "communication": comm_status
         }
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         return {
             "status": "error",
-            "message": str(e)
+            "error": str(e),
+            "service_info": {
+                "name": service._service_name,
+                "running": False
+            }
         }
 
 

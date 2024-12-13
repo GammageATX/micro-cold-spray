@@ -46,6 +46,16 @@ class MessageHandler:
                 "Message handler callback must be callable",
                 {"callback_type": type(self.callback)}
             )
+            
+    def __hash__(self) -> int:
+        """Hash based on callback function."""
+        return hash(self.callback)
+        
+    def __eq__(self, other: object) -> bool:
+        """Compare based on callback function."""
+        if not isinstance(other, MessageHandler):
+            return NotImplemented
+        return self.callback == other.callback
 
     async def process_message(self, data: Dict[str, Any]) -> None:
         """Process a message through the handler."""

@@ -3,7 +3,6 @@
 from typing import Dict, Any, Optional, Set
 from datetime import datetime
 from fastapi import FastAPI, APIRouter, HTTPException, WebSocket, BackgroundTasks, Request
-from fastapi.responses import JSONResponse
 from loguru import logger
 import asyncio
 
@@ -34,9 +33,6 @@ def init_router(service: MessagingService) -> None:
         logger.warning("Reinitializing existing messaging service")
         
     _service = service
-    # Add health endpoints to router
-    add_health_endpoints(router, service)
-    
     # Start the service
     asyncio.create_task(_service.start())
     logger.info("Messaging router initialized")
@@ -46,10 +42,24 @@ def init_router(service: MessagingService) -> None:
 async def startup_event():
     """Handle startup tasks."""
     logger.info("Messaging API starting up")
-    # Initialize service if not already done
+    global _service
     if _service is None:
-        service = MessagingService()
-        init_router(service)
+        try:
+            # Get config service instance
+            from ..config.service import ConfigService
+            config_service = ConfigService()
+            await config_service.start()
+            
+            # Create messaging service with config
+            _service = MessagingService(config_service=config_service)
+            await _service.start()
+            
+            # Add health endpoint directly to app
+            add_health_endpoints(app, _service)
+            logger.info("Messaging service started successfully")
+        except Exception as e:
+            logger.error(f"Failed to start messaging service: {e}")
+            raise
 
 
 @app.on_event("shutdown")
@@ -57,7 +67,11 @@ async def shutdown_event():
     """Handle shutdown tasks."""
     logger.info("Messaging API shutting down")
     if _service:
-        await _service.stop()
+        try:
+            await _service.stop()
+            logger.info("Messaging service stopped successfully")
+        except Exception as e:
+            logger.error(f"Error stopping messaging service: {e}")
 
 
 def get_service() -> MessagingService:
@@ -346,45 +360,6 @@ async def get_subscribers(topic: str) -> Dict[str, Any]:
         )
 
 
-@router.get("/health")
-async def health_check() -> JSONResponse:
-    """Check API and service health status.
-    
-    Returns:
-        JSON response with health status
-        
-    Note:
-        Returns 503 if service unhealthy
-    """
-    service = get_service()
-    
-    try:
-        status = {
-            "service": "ok" if service.is_running else "error",
-            "topics": len(service.get_topics()),
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        if not service.is_running:
-            return JSONResponse(
-                status_code=503,
-                content=status
-            )
-            
-        return JSONResponse(status)
-        
-    except Exception as e:
-        logger.error(f"Health check failed: {str(e)}")
-        return JSONResponse(
-            status_code=503,
-            content={
-                "service": "error",
-                "error": str(e),
-                "timestamp": datetime.now().isoformat()
-            }
-        )
-
-
 @router.post("/control")
 async def control_service(request: Request):
     """Control service operation."""
@@ -397,12 +372,12 @@ async def control_service(request: Request):
             await service.stop()
             return {"status": "stopped"}
         elif action == "start":
-            await service._start()
+            await service.start()
             return {"status": "started"}
         elif action == "restart":
             await service.stop()
             await asyncio.sleep(1)
-            await service._start()
+            await service.start()
             return {"status": "restarted"}
         else:
             raise HTTPException(
