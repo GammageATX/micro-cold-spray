@@ -56,65 +56,59 @@ application:
     message_broker:
       topics:
         action_operations:
-        - action/request
-        - action/response
-        - action/state
-        - action/group/request
-        - action/group/response
-        - action/group/state
+          - action/request
+          - action/response
+          - action/state
+          - action/group/request
+          - action/group/response
+          - action/group/state
         config_operations:
-        - config/request
-        - config/response
-        - config/update
+          - config/request
+          - config/response
+          - config/update
         data_operations:
-        - data/request
-        - data/response
-        - data/state
-        error_topic:
-        - error
+          - data/request
+          - data/response
+          - data/state
+        error_operations:
+          - error/report
         hardware_operations:
-        - hardware/state
+          - hardware/state
         motion_operations:
-        - motion/request
-        - motion/response
-        - motion/state
+          - motion/request
+          - motion/response
+          - motion/state
+          - motion/status
         parameter_operations:
-        - parameter/request
-        - parameter/response
-        - parameter/state
+          - parameter/request
+          - parameter/response
+          - parameter/state
         pattern_operations:
-        - pattern/request
-        - pattern/response
-        - pattern/state
+          - pattern/request
+          - pattern/response
+          - pattern/state
+          - pattern/update
         sequence_operations:
-        - sequence/request
-        - sequence/response
-        - sequence/state
-        - sequence/step
+          - sequence/request
+          - sequence/response
+          - sequence/state
+          - sequence/step
+          - sequence/status
         state_operations:
-        - state/request
-        - state/response
-        - state/change
+          - state/request
+          - state/response
+          - state/change
         tag_operations:
-        - tag/request
-        - tag/response
-        - tag/update
+          - tag/request
+          - tag/response
+          - tag/update
         ui_operations:
-        - ui/request
-        - ui/response
-        - ui/state
+          - ui/request
+          - ui/response
+          - ui/state
         validation_operations:
-        - validation/request
-        - validation/response
-        system:
-          - "state/change"
-          - "error/report"
-        communication:
-          - "tags/update"
-          - "motion/status"
-        process:
-          - "sequence/status"
-          - "pattern/update"
+          - validation/request
+          - validation/response
     state_manager:
       history_enabled: true
       history_length: 1000

@@ -27,6 +27,7 @@ class MessagingService(ConfigurableService):
         self._message_queue: asyncio.Queue = asyncio.Queue()
         self._background_tasks: Set[asyncio.Task] = set()
         self._valid_topics: Set[str] = set()
+        self._shutdown_event = asyncio.Event()
         
     async def _start(self) -> None:
         """Start the messaging service."""
@@ -36,6 +37,7 @@ class MessagingService(ConfigurableService):
             self._subscribers = {}
             self._message_queue = asyncio.Queue()
             self._background_tasks = set()
+            self._shutdown_event.clear()
             
             # Load valid topics from application config
             config = await self._config_service.get_config("application")
@@ -69,6 +71,9 @@ class MessagingService(ConfigurableService):
     async def _stop(self) -> None:
         """Stop the messaging service."""
         try:
+            # Signal shutdown
+            self._shutdown_event.set()
+            
             # Cancel all background tasks
             for task in self._background_tasks:
                 task.cancel()
@@ -105,6 +110,12 @@ class MessagingService(ConfigurableService):
                 {"topic": topic, "type": type(topic)}
             )
             
+        # Allow response topics if their base topic is valid
+        if topic.endswith("/response"):
+            base_topic = topic[:-9]  # Remove "/response"
+            if base_topic in self._valid_topics:
+                return
+                
         if topic not in self._valid_topics:
             raise MessageError(
                 f"Unknown topic: {topic}",
@@ -143,6 +154,10 @@ class MessagingService(ConfigurableService):
             # Create handler
             handler = MessageHandler(callback=callback)
             handler.task = asyncio.create_task(self._handle_messages(handler))
+            
+            # Initialize subscriber set for topic if needed
+            if topic not in self._subscribers:
+                self._subscribers[topic] = set()
             
             # Add to subscribers
             self._subscribers[topic].add(handler)
@@ -260,6 +275,12 @@ class MessagingService(ConfigurableService):
             try:
                 # Get next message
                 topic, data = await self._message_queue.get()
+                
+                # Skip if no subscribers
+                if topic not in self._subscribers:
+                    logger.warning(f"No subscribers for topic: {topic}")
+                    self._message_queue.task_done()
+                    continue
                 
                 # Deliver to subscribers
                 for handler in self._subscribers[topic]:

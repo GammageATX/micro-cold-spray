@@ -96,82 +96,96 @@
                                 "action_operations": {
                                     "type": "array",
                                     "items": {
-                                        "type": "string"
+                                        "type": "string",
+                                        "pattern": "^action(/[a-z_]+)+$"
                                     }
                                 },
                                 "config_operations": {
                                     "type": "array",
                                     "items": {
-                                        "type": "string"
+                                        "type": "string",
+                                        "pattern": "^config(/[a-z_]+)+$"
                                     }
                                 },
                                 "data_operations": {
                                     "type": "array",
                                     "items": {
-                                        "type": "string"
+                                        "type": "string",
+                                        "pattern": "^data(/[a-z_]+)+$"
                                     }
                                 },
-                                "error_topic": {
+                                "error_operations": {
                                     "type": "array",
                                     "items": {
-                                        "type": "string"
+                                        "type": "string",
+                                        "pattern": "^error(/[a-z_]+)+$"
                                     }
                                 },
                                 "hardware_operations": {
                                     "type": "array",
                                     "items": {
-                                        "type": "string"
+                                        "type": "string",
+                                        "pattern": "^hardware(/[a-z_]+)+$"
                                     }
                                 },
                                 "motion_operations": {
                                     "type": "array",
                                     "items": {
-                                        "type": "string"
+                                        "type": "string",
+                                        "pattern": "^motion(/[a-z_]+)+$"
                                     }
                                 },
                                 "parameter_operations": {
                                     "type": "array",
                                     "items": {
-                                        "type": "string"
+                                        "type": "string",
+                                        "pattern": "^parameter(/[a-z_]+)+$"
                                     }
                                 },
                                 "pattern_operations": {
                                     "type": "array",
                                     "items": {
-                                        "type": "string"
+                                        "type": "string",
+                                        "pattern": "^pattern(/[a-z_]+)+$"
                                     }
                                 },
                                 "sequence_operations": {
                                     "type": "array",
                                     "items": {
-                                        "type": "string"
+                                        "type": "string",
+                                        "pattern": "^sequence(/[a-z_]+)+$"
                                     }
                                 },
                                 "state_operations": {
                                     "type": "array",
                                     "items": {
-                                        "type": "string"
+                                        "type": "string",
+                                        "pattern": "^state(/[a-z_]+)+$"
                                     }
                                 },
                                 "tag_operations": {
                                     "type": "array",
                                     "items": {
-                                        "type": "string"
+                                        "type": "string",
+                                        "pattern": "^tag(/[a-z_]+)+$"
                                     }
                                 },
                                 "ui_operations": {
                                     "type": "array",
                                     "items": {
-                                        "type": "string"
+                                        "type": "string",
+                                        "pattern": "^ui(/[a-z_]+)+$"
                                     }
                                 },
                                 "validation_operations": {
                                     "type": "array",
                                     "items": {
-                                        "type": "string"
+                                        "type": "string",
+                                        "pattern": "^validation(/[a-z_]+)+$"
                                     }
                                 }
-                            }
+                            },
+                            "additionalProperties": false
                         }
                     }
                 },
