@@ -139,7 +139,7 @@ class StateService(ConfigurableService):
             
         # Check conditions for target state
         conditions = await self.check_conditions(request.target_state)
-        if not all(conditions.values()):
+        if not request.force and not all(conditions.values()):
             failed = [name for name, met in conditions.items() if not met]
             raise ConditionError(
                 f"Conditions not met for {request.target_state}",
@@ -152,19 +152,25 @@ class StateService(ConfigurableService):
         
         # Record transition
         self._add_history_entry(
-            f"Transitioned from {old_state} to {request.target_state}",
-            request.metadata
+            StateTransition(
+                old_state=old_state,
+                new_state=request.target_state,
+                timestamp=datetime.now(),
+                reason=request.reason or "Manual transition",
+                conditions_met=conditions
+            )
         )
         
         # Notify via messaging
         await self._message_broker.publish(
             "state/changed",
-            StateResponse(
-                success=True,
-                old_state=old_state,
-                new_state=self._current_state,
-                timestamp=datetime.now()
-            )
+            {
+                "success": True,
+                "old_state": old_state,
+                "new_state": self._current_state,
+                "timestamp": datetime.now().isoformat(),
+                "conditions": conditions
+            }
         )
         
         return StateResponse(
@@ -345,9 +351,49 @@ class StateService(ConfigurableService):
             raise InvalidStateError(f"Invalid state: {state}")
             
         conditions = {}
-        for condition_name, condition in self._state_machine[state].conditions.items():
-            # Check condition via communication service
-            tag_value = await self._communication_service.get_tag_value(condition.tag)
-            conditions[condition_name] = bool(tag_value)
+        for condition_name, _ in self._state_machine[state].conditions.items():
+            try:
+                if condition_name == "hardware.connected":
+                    response = await self._message_broker.request(
+                        "hardware/state",
+                        {"query": "connection"}
+                    )
+                    conditions[condition_name] = response.get("connected", False)
+                    
+                elif condition_name == "hardware.enabled":
+                    response = await self._message_broker.request(
+                        "hardware/state",
+                        {"query": "enabled"}
+                    )
+                    conditions[condition_name] = response.get("enabled", False)
+                    
+                elif condition_name == "hardware.safe":
+                    response = await self._message_broker.request(
+                        "hardware/state",
+                        {"query": "safety"}
+                    )
+                    conditions[condition_name] = response.get("safe", False)
+                    
+                elif condition_name == "config.loaded":
+                    response = await self._message_broker.request(
+                        "config/request",
+                        {"query": "status"}
+                    )
+                    conditions[condition_name] = response.get("loaded", False)
+                    
+                elif condition_name == "sequence.active":
+                    response = await self._message_broker.request(
+                        "sequence/state",
+                        {}
+                    )
+                    conditions[condition_name] = response.get("active", False)
+                
+                else:
+                    logger.warning(f"Unknown condition: {condition_name}")
+                    conditions[condition_name] = False
+                    
+            except Exception as e:
+                logger.error(f"Failed to check condition {condition_name}: {e}")
+                conditions[condition_name] = False
             
         return conditions
