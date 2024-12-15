@@ -1,19 +1,29 @@
-test_service:
-  name: "test"
-  version: "1.0.0"
-  settings:
-    timeout: 30
-    retry_count: 3
+application:
+  development:
+    mock_hardware: true
+    profiling: false
+    testing:
+      coverage: false
+      enabled: false
   environment:
-    mode: "test"
-    debug: true
+    async_mode: true
+    debug: false
+    log_level: INFO
+    mode: development
+    test_value: initial
+    user: Test User
+  info:
+    description: Test description
+    name: Test App
+    version: 1.0.0
   paths:
-    data: "data/"
-    logs: "logs/"
-  features:
-    validation:
-      enabled: true
-      strict_mode: false
-    caching:
-      enabled: true
-      ttl: 3600 
+    config: config/
+    data:
+      parameters: data/parameters/
+      nozzles: data/parameters/nozzles/
+  services:
+    config_manager:
+      backup_enabled: true
+      backup_interval: 3600
+      validation_enabled: true
+version: 1.0.0

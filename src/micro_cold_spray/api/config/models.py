@@ -2,7 +2,7 @@
 
 from typing import Dict, Any, Optional, List
 from datetime import datetime
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class FormatMetadata(BaseModel):
@@ -28,8 +28,9 @@ class ConfigSchema(BaseModel):
     dependencies: Optional[List[str]] = None
     allow_unknown: bool = False
 
-    @validator('type')
-    def validate_type(cls, v):
+    @field_validator('type')
+    @classmethod
+    def validate_type(cls, v: str) -> str:
         allowed_types = {'string', 'number', 'boolean', 'object', 'array', 'state', 'tag', 'action', 'sequence'}
         if v not in allowed_types:
             raise ValueError(f'Type must be one of {allowed_types}')

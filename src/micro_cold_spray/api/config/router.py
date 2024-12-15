@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 from typing import Dict, Any, Optional, List
 import psutil
 from datetime import datetime
@@ -11,8 +12,22 @@ from loguru import logger
 from .service import ConfigService, ConfigurationError
 from ..base.router import add_health_endpoints
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan event handler for FastAPI."""
+    global _service
+    _service = ConfigService()  # Uses default config directory
+    await _service.start()
+    # Add health endpoint directly to app
+    add_health_endpoints(app, _service)  # Mount to app instead of router
+    yield
+    if _service:
+        await _service.stop()
+
+
 # Create FastAPI app
-app = FastAPI(title="Config API")
+app = FastAPI(title="Config API", lifespan=lifespan)
 
 # Add CORS middleware
 app.add_middleware(
@@ -25,16 +40,6 @@ app.add_middleware(
 
 router = APIRouter(prefix="/config", tags=["config"])
 _service: Optional[ConfigService] = None
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize services on startup."""
-    global _service
-    _service = ConfigService()  # Uses default config directory
-    await _service.start()
-    # Add health endpoint directly to app
-    add_health_endpoints(app, _service)  # Mount to app instead of router
 
 
 def init_router(service: ConfigService) -> None:
@@ -147,7 +152,14 @@ async def update_config(
         Dict containing operation status
     """
     try:
-        await service.update_config(config_type, config_data)
+        from micro_cold_spray.api.config.models import ConfigUpdate
+        update = ConfigUpdate(
+            config_type=config_type,
+            data=config_data,
+            backup=True,  # Enable backups by default
+            validate=True  # Enable validation by default
+        )
+        await service.update_config(update)
         return {"status": "updated"}
     except ConfigurationError as e:
         raise HTTPException(

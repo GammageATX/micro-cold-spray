@@ -4,11 +4,15 @@ import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
 from fastapi.testclient import TestClient
 from datetime import datetime
+from pathlib import Path
+import yaml
+import copy
 
-from micro_cold_spray.api.config.router import app, init_router, router
+from micro_cold_spray.api.config.router import app, init_router, router, get_service
 from micro_cold_spray.api.config.service import ConfigService
 from micro_cold_spray.api.base.exceptions import ConfigurationError
 from micro_cold_spray.api.base.router import add_health_endpoints
+from micro_cold_spray.api.config.models import ConfigUpdate, ConfigValidationResult
 
 
 @pytest.fixture
@@ -158,7 +162,9 @@ def test_get_config_not_found(test_client, mock_config_service):
 
 def test_update_config_success(test_client, mock_config_service):
     """Test updating configuration successfully."""
-    mock_config_service.update_config = AsyncMock(return_value=None)
+    # Mock validation result
+    mock_validation = ConfigValidationResult(valid=True, errors=[], warnings=[])
+    mock_config_service.update_config = AsyncMock(return_value=mock_validation)
     
     config_data = {"key": "value"}
     response = test_client.post("/config/test", json=config_data)
@@ -166,6 +172,15 @@ def test_update_config_success(test_client, mock_config_service):
     
     data = response.json()
     assert data["status"] == "updated"
+    
+    # Verify update was called with backup enabled
+    mock_config_service.update_config.assert_called_once()
+    call_args = mock_config_service.update_config.call_args[0][0]
+    assert isinstance(call_args, ConfigUpdate)
+    assert call_args.config_type == "test"
+    assert call_args.data == config_data
+    assert call_args.backup is True
+    assert call_args.should_validate is True
 
 
 def test_update_config_validation_error(test_client, mock_config_service):
@@ -211,7 +226,7 @@ def test_clear_cache_error(test_client, mock_config_service):
 async def test_startup_event():
     """Test startup event initialization."""
     # Create a fresh app instance
-    from micro_cold_spray.api.config.router import app, startup_event
+    from micro_cold_spray.api.config.router import app, lifespan
     
     # Reset app state
     app.dependency_overrides = {}
@@ -220,15 +235,19 @@ async def test_startup_event():
     # Mock ConfigService
     mock_service = MagicMock(spec=ConfigService)
     mock_service.start = AsyncMock()
+    mock_service.stop = AsyncMock()
     
     with patch('micro_cold_spray.api.config.router.ConfigService', return_value=mock_service):
-        await startup_event()
+        # Test lifespan context manager
+        async with lifespan(app):
+            # Verify service was started
+            mock_service.start.assert_called_once()
+            
+            # Verify health endpoints were added
+            assert any(route.path == "/health" for route in app.routes)
         
-        # Verify service was started
-        mock_service.start.assert_called_once()
-        
-        # Verify health endpoints were added
-        assert any(route.path == "/health" for route in app.routes)
+        # Verify service was stopped
+        mock_service.stop.assert_called_once()
 
 
 def test_init_router_with_service():
@@ -266,3 +285,84 @@ def test_get_service_not_initialized():
     
     with pytest.raises(RuntimeError, match="Config service not initialized"):
         get_service()
+
+
+@pytest.mark.asyncio
+async def test_update_config_with_backup(test_client, tmp_path):
+    """Test updating configuration with backup creation."""
+    # Create a real config service with temp directory
+    from micro_cold_spray.api.config.service import ConfigService
+    
+    # Set up test directories
+    test_data_dir = Path(__file__).parent / "test_data"
+    test_config_dir = tmp_path / "test_config"
+    test_config_dir.mkdir()
+    test_schema_dir = test_config_dir / "schemas"
+    test_schema_dir.mkdir()
+    test_backup_dir = test_config_dir / "backups"
+    test_backup_dir.mkdir()
+    
+    # Copy test schema and config
+    test_schema_path = test_data_dir / "schemas" / "test_config.json"
+    test_config_path = test_data_dir / "test_config.yaml"
+    
+    # Copy test schema for all required types
+    for schema_type in ["application", "hardware", "process", "tags", "state", "file_format"]:
+        schema_dest = test_schema_dir / f"{schema_type}.json"
+        schema_dest.write_text(test_schema_path.read_text())
+    
+    # Create initial test config file
+    test_config_dest = test_config_dir / "application.yaml"
+    test_config_dest.write_text(test_config_path.read_text())
+    
+    # Create and initialize service with test paths
+    service = ConfigService()
+    service._config_dir = test_config_dir
+    service._schema_dir = test_schema_dir
+    service._file_service._config_dir = test_config_dir
+    service._file_service._backup_dir = test_backup_dir
+    service._schema_service._schema_dir = test_schema_dir
+    
+    # Override app dependency
+    app.dependency_overrides[get_service] = lambda: service
+    
+    # Start service
+    await service.start()
+    
+    try:
+        # Load initial config for comparison
+        with open(test_config_dest) as f:
+            initial_config = yaml.safe_load(f)
+        
+        # Store a deep copy of initial config for backup comparison
+        backup_comparison = copy.deepcopy(initial_config)
+        
+        # Update config with valid changes that match application.yaml structure
+        updated_config = dict(initial_config)
+        updated_config["application"]["info"]["version"] = "2.0.0"
+        updated_config["application"]["environment"]["test_value"] = "updated_test"
+        
+        response = test_client.post("/config/application", json=updated_config)
+        assert response.status_code == 200
+        
+        # Verify backup was created in backup directory
+        backup_files = list(test_backup_dir.glob("application_*.bak"))
+        assert len(backup_files) == 1
+        backup_path = backup_files[0]
+        
+        # Verify backup contains original data
+        with open(backup_path) as f:
+            backup_data = yaml.safe_load(f)
+            assert backup_data == backup_comparison
+        
+        # Verify config was updated
+        with open(test_config_dest) as f:
+            updated_data = yaml.safe_load(f)
+            assert updated_data == updated_config
+            assert updated_data["application"]["info"]["version"] == "2.0.0"
+            assert updated_data["application"]["environment"]["test_value"] == "updated_test"
+            
+    finally:
+        # Clean up
+        await service.stop()
+        app.dependency_overrides.clear()
