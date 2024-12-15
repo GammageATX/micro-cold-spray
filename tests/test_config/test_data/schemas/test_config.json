@@ -1,109 +1,148 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "type": "object",
-    "title": "Test Configuration Schema",
-    "description": "Schema for validating test configuration files",
+    "title": "Application Configuration Schema",
+    "description": "Schema for validating application configuration files",
     "properties": {
-        "test_service": {
+        "application": {
             "type": "object",
-            "required": ["name", "version", "settings", "environment", "paths", "features"],
+            "required": ["development", "environment", "info", "paths", "services"],
             "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Service name"
-                },
-                "version": {
-                    "type": "string",
-                    "pattern": "^\\d+\\.\\d+\\.\\d+$",
-                    "description": "Service version in semver format"
-                },
-                "settings": {
+                "development": {
                     "type": "object",
-                    "required": ["timeout", "retry_count"],
+                    "required": ["mock_hardware", "profiling", "testing"],
                     "properties": {
-                        "timeout": {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 3600,
-                            "description": "Operation timeout in seconds"
+                        "mock_hardware": {
+                            "type": "boolean",
+                            "description": "Enable hardware mocking"
                         },
-                        "retry_count": {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 10,
-                            "description": "Number of retry attempts"
+                        "profiling": {
+                            "type": "boolean",
+                            "description": "Enable profiling"
+                        },
+                        "testing": {
+                            "type": "object",
+                            "required": ["coverage", "enabled"],
+                            "properties": {
+                                "coverage": {
+                                    "type": "boolean",
+                                    "description": "Enable test coverage"
+                                },
+                                "enabled": {
+                                    "type": "boolean",
+                                    "description": "Enable testing mode"
+                                }
+                            }
                         }
                     }
                 },
                 "environment": {
                     "type": "object",
-                    "required": ["mode", "debug"],
+                    "required": ["async_mode", "debug", "log_level", "mode", "test_value", "user"],
                     "properties": {
-                        "mode": {
-                            "type": "string",
-                            "enum": ["test", "development", "production"],
-                            "description": "Environment mode"
+                        "async_mode": {
+                            "type": "boolean",
+                            "description": "Enable async mode"
                         },
                         "debug": {
                             "type": "boolean",
-                            "description": "Debug mode flag"
+                            "description": "Enable debug mode"
+                        },
+                        "log_level": {
+                            "type": "string",
+                            "enum": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+                            "description": "Logging level"
+                        },
+                        "mode": {
+                            "type": "string",
+                            "enum": ["development", "production", "test"],
+                            "description": "Environment mode"
+                        },
+                        "test_value": {
+                            "type": "string",
+                            "description": "Test value for configuration"
+                        },
+                        "user": {
+                            "type": "string",
+                            "description": "Current user"
+                        }
+                    }
+                },
+                "info": {
+                    "type": "object",
+                    "required": ["description", "name", "version"],
+                    "properties": {
+                        "description": {
+                            "type": "string",
+                            "description": "Application description"
+                        },
+                        "name": {
+                            "type": "string",
+                            "description": "Application name"
+                        },
+                        "version": {
+                            "type": "string",
+                            "pattern": "^\\d+\\.\\d+\\.\\d+$",
+                            "description": "Application version"
                         }
                     }
                 },
                 "paths": {
                     "type": "object",
-                    "required": ["data", "logs"],
+                    "required": ["config", "data"],
                     "properties": {
-                        "data": {
+                        "config": {
                             "type": "string",
-                            "pattern": "^[\\w\\-./]+$",
-                            "description": "Data directory path"
+                            "description": "Configuration directory path"
                         },
-                        "logs": {
-                            "type": "string",
-                            "pattern": "^[\\w\\-./]+$",
-                            "description": "Logs directory path"
+                        "data": {
+                            "type": "object",
+                            "required": ["parameters", "nozzles"],
+                            "properties": {
+                                "parameters": {
+                                    "type": "string",
+                                    "description": "Parameters directory path"
+                                },
+                                "nozzles": {
+                                    "type": "string",
+                                    "description": "Nozzles directory path"
+                                }
+                            }
                         }
                     }
                 },
-                "features": {
+                "services": {
                     "type": "object",
-                    "required": ["validation", "caching"],
+                    "required": ["config_manager"],
                     "properties": {
-                        "validation": {
+                        "config_manager": {
                             "type": "object",
-                            "required": ["enabled", "strict_mode"],
+                            "required": ["backup_enabled", "backup_interval", "validation_enabled"],
                             "properties": {
-                                "enabled": {
+                                "backup_enabled": {
                                     "type": "boolean",
-                                    "description": "Enable validation"
+                                    "description": "Enable configuration backups"
                                 },
-                                "strict_mode": {
-                                    "type": "boolean",
-                                    "description": "Enable strict validation mode"
-                                }
-                            }
-                        },
-                        "caching": {
-                            "type": "object",
-                            "required": ["enabled", "ttl"],
-                            "properties": {
-                                "enabled": {
-                                    "type": "boolean",
-                                    "description": "Enable caching"
-                                },
-                                "ttl": {
-                                    "type": "integer",
+                                "backup_interval": {
+                                    "type": "number",
                                     "minimum": 0,
-                                    "maximum": 86400,
-                                    "description": "Cache TTL in seconds"
+                                    "description": "Backup interval in seconds"
+                                },
+                                "validation_enabled": {
+                                    "type": "boolean",
+                                    "description": "Enable configuration validation"
                                 }
                             }
                         }
                     }
                 }
             }
+        },
+        "version": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$",
+            "description": "Configuration version"
         }
     },
-    "required": ["test_service"]
+    "required": ["application", "version"]
 } 

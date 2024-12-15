@@ -464,6 +464,7 @@ async def test_update_config_with_backup(tmp_path):
     
     service = ConfigService()
     service._config_dir = config_dir  # Use temporary directory
+    service._file_service._config_dir = config_dir  # Set config dir for file service
     await service.start()
     
     # Create initial config file
@@ -493,7 +494,7 @@ async def test_update_config_with_backup(tmp_path):
         assert result.valid
         
         # Verify backup was created
-        backup_exists = await service._file_service.config_exists("application.yaml.bak")
+        backup_exists = await service._file_service.config_exists("application.bak")
         assert backup_exists
         
         # Verify original file still exists with new data

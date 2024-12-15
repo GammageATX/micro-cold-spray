@@ -230,7 +230,7 @@ class ConfigService(BaseService):
                     raise ConfigurationError(f"Invalid tag: {request.new_tag}")
 
             # Update all configs
-            for config_type in self._schema_registry.__fields__:
+            for config_type in self._schema_registry.model_fields:
                 config_data = await self.get_config(config_type)
                 updated = await self._registry_service.update_tag_references(
                     config_data.data, request.old_tag, request.new_tag

@@ -19,11 +19,6 @@ def get_test_schema_dir() -> Path:
     return get_test_data_dir() / "schemas"
 
 
-def get_test_backup_dir() -> Path:
-    """Get the test backup directory path."""
-    return get_test_data_dir() / "backups"
-
-
 def load_test_config(name: str) -> Dict[str, Any]:
     """Load a test YAML config file.
     
@@ -48,6 +43,17 @@ def load_yaml_file(path: Path) -> Dict[str, Any]:
     """
     with open(path) as f:
         return yaml.safe_load(f)
+
+
+def save_yaml_file(path: Path, data: Dict[str, Any]) -> None:
+    """Save data to a YAML file.
+    
+    Args:
+        path: Path to save the file
+        data: Data to save
+    """
+    with open(path, 'w') as f:
+        yaml.safe_dump(data, f)
 
 
 def load_test_schema(name: str) -> Dict[str, Any]:
@@ -85,4 +91,4 @@ def create_test_config_data(
         last_modified=datetime.now()
     )
     
-    return ConfigData(metadata=metadata, data=data) 
+    return ConfigData(metadata=metadata, data=data)

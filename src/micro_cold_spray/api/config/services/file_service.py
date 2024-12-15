@@ -17,12 +17,14 @@ class ConfigFileService(BaseService):
         """Initialize file service."""
         super().__init__(service_name="config_file")
         self._config_dir = config_dir
+        self._backup_dir = config_dir / "backups"
         self._backup_suffix = ".bak"
 
     async def _start(self) -> None:
         """Start file service."""
         try:
             self._config_dir.mkdir(exist_ok=True)
+            self._backup_dir.mkdir(exist_ok=True)
             logger.info("Config file service started")
         except Exception as e:
             logger.error(f"Failed to start file service: {e}")
@@ -56,14 +58,16 @@ class ConfigFileService(BaseService):
                 
             # Handle nested config structure
             if config_type in data:
-                data = data[config_type]
+                config_data = data[config_type]
+            else:
+                config_data = data  # For backward compatibility
                 
             metadata = ConfigMetadata(
                 config_type=config_type,
                 last_modified=datetime.fromtimestamp(config_path.stat().st_mtime)
             )
             
-            return ConfigData(metadata=metadata, data=data)
+            return ConfigData(metadata=metadata, data=config_data)
             
         except Exception as e:
             raise ConfigurationError(
@@ -90,7 +94,7 @@ class ConfigFileService(BaseService):
             
             # Write new config
             with open(config_path, 'w') as f:
-                yaml.safe_dump(config_data.data, f)
+                yaml.safe_dump(config_data.data, f, sort_keys=False)
             
         except Exception as e:
             logger.error(f"Failed to save config {config_type}: {e}")
@@ -136,9 +140,16 @@ class ConfigFileService(BaseService):
             )
             
         try:
-            # Copy the file with metadata preserved
-            import shutil
-            shutil.copy2(source_path, backup_path)
+            # Read original file
+            with open(source_path, 'r') as f:
+                data = yaml.safe_load(f)
+            
+            # Create backup directory if it doesn't exist
+            self._backup_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Write backup with original data preserved
+            with open(backup_path, 'w') as f:
+                yaml.safe_dump(data, f, sort_keys=False)
             
         except Exception as e:
             logger.error(f"Failed to create backup for {config_type}: {e}")
@@ -153,4 +164,5 @@ class ConfigFileService(BaseService):
 
     def _get_backup_path(self, config_type: str) -> Path:
         """Get the path for a config backup file."""
-        return self._config_dir / f"{config_type}.yaml{self._backup_suffix}"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return self._backup_dir / f"{config_type}_{timestamp}{self._backup_suffix}"
