@@ -2,6 +2,7 @@
 
 import pytest
 from micro_cold_spray.api.base import ConfigurableService
+from tests.test_base.helpers import load_test_config
 
 
 class TestConfigurableService:
@@ -16,7 +17,7 @@ class TestConfigurableService:
     async def test_configure(self):
         """Test configuration management."""
         service = ConfigurableService("test_config")
-        test_config = {"key": "value"}
+        test_config = load_test_config("test_config")
         
         await service.configure(test_config)
         assert service.config == test_config
