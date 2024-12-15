@@ -7,7 +7,7 @@ application:
       enabled: false
   environment:
     async_mode: true
-    debug: true
+    debug: false
     log_level: INFO
     mode: development
     test_value: updated
@@ -55,7 +55,7 @@ application:
       validation_enabled: true
     message_broker:
       topics:
-        # Hardware Control
+        # Hardware Control not implimented, using REST
         hardware_operations:
           - hardware/feeder/request
           - hardware/feeder/response
@@ -76,7 +76,7 @@ application:
           - motion/response
           - motion/status
 
-        # File Operations
+        # File Operations, should be REST
         parameter_operations:
           - parameter/request
           - parameter/response

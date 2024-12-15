@@ -3,7 +3,6 @@
 from typing import Any, Dict, Callable, Set
 import asyncio
 from loguru import logger
-from fastapi import WebSocket
 
 from ..base import ConfigurableService
 from ..config import ConfigService
@@ -22,8 +21,7 @@ class MessagingService(ConfigurableService):
         """
         super().__init__(service_name="messaging")
         self._config_service = config_service
-        self._topics: Dict[str, Set[WebSocket]] = {}
-        self._subscribers: Dict[str, Set[WebSocket]] = {}
+        self._subscribers: Dict[str, Set[MessageHandler]] = {}
         self._message_queue: asyncio.Queue = asyncio.Queue()
         self._background_tasks: Set[asyncio.Task] = set()
         self._valid_topics: Set[str] = set()
@@ -33,7 +31,6 @@ class MessagingService(ConfigurableService):
         """Start the messaging service."""
         try:
             # Initialize message handling
-            self._topics = {}
             self._subscribers = {}
             self._message_queue = asyncio.Queue()
             self._background_tasks = set()
@@ -78,8 +75,7 @@ class MessagingService(ConfigurableService):
             for task in self._background_tasks:
                 task.cancel()
             
-            # Clear all subscribers and topics
-            self._topics.clear()
+            # Clear all subscribers
             self._subscribers.clear()
             
             # Clear message queue
@@ -126,8 +122,13 @@ class MessagingService(ConfigurableService):
         """Publish message to topic."""
         try:
             self._validate_topic(topic)
-            await self._message_queue.put((topic, data))
-            logger.debug(f"Published message to {topic}")
+            
+            # Check if we have any subscribers before queueing
+            if topic in self._subscribers and self._subscribers[topic]:
+                await self._message_queue.put((topic, data))
+                logger.debug(f"Published message to {topic}")
+            else:
+                logger.debug(f"No subscribers for topic {topic}, message dropped")
             
         except Exception as e:
             error_context = {
@@ -274,7 +275,7 @@ class MessagingService(ConfigurableService):
             MessageError: If subscriber count cannot be retrieved
         """
         try:
-            return len(self._subscribers[topic])
+            return len(self._subscribers.get(topic, set()))
             
         except Exception as e:
             error_context = {
@@ -292,14 +293,17 @@ class MessagingService(ConfigurableService):
                 topic, data = await self._message_queue.get()
                 
                 # Skip if no subscribers
-                if topic not in self._subscribers:
+                if topic not in self._subscribers or not self._subscribers[topic]:
                     logger.warning(f"No subscribers for topic: {topic}")
                     self._message_queue.task_done()
                     continue
                 
                 # Deliver to subscribers
                 for handler in self._subscribers[topic]:
-                    await handler.queue.put(data)
+                    try:
+                        await handler.queue.put(data)
+                    except Exception as e:
+                        logger.error(f"Failed to deliver message to handler: {e}")
                     
                 self._message_queue.task_done()
                 

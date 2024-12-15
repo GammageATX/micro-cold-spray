@@ -24,9 +24,14 @@ from .services import (
 class CommunicationService(ConfigurableService):
     """Service for hardware communication and control."""
 
-    def __init__(self):
+    def __init__(self, config_service: ConfigService):
+        """Initialize communication service.
+        
+        Args:
+            config_service: Configuration service instance
+        """
         super().__init__(service_name="communication")
-        self._config_service = ConfigService()
+        self._config_service = config_service
         
         # Clients
         self._plc_client: Optional[PLCClient] = None
@@ -42,57 +47,8 @@ class CommunicationService(ConfigurableService):
     async def _start(self) -> None:
         """Start communication service."""
         try:
-            # Load hardware config
-            config_data = await self._config_service.get_config("hardware")
-            logger.debug(f"Loaded hardware config: {config_data.data.keys()}")
-            
-            if not config_data or not config_data.data:
-                raise ValidationError("Hardware configuration is empty")
-            
-            config = config_data.data
-            logger.debug(f"Network config keys: {config.get('network', {}).keys()}")
-            logger.debug(f"PLC config: {config.get('network', {}).get('plc', {})}")
-            
-            # Initialize with config
-            network_config = config.get("network", {})
-            plc_config = network_config.get("plc", {})
-            ssh_config = network_config.get("ssh", {})
-            
-            # Try to create real clients first
-            try:
-                self._plc_client = create_plc_client(plc_config)
-                await self._plc_client.connect()
-            except Exception as e:
-                logger.warning(f"Failed to connect to PLC, using mock client: {e}")
-                self._plc_client = create_plc_client({}, use_mock=True)
-                
-            try:
-                self._ssh_client = create_ssh_client(ssh_config)
-                await self._ssh_client.connect()
-            except Exception as e:
-                logger.warning(f"Failed to connect to SSH, using mock client: {e}")
-                self._ssh_client = create_ssh_client({}, use_mock=True)
-            
-            # Initialize services
-            try:
-                self._equipment = EquipmentService(plc_client=self._plc_client)
-                self._feeder = FeederService(ssh_client=self._ssh_client)
-                self._motion = MotionService(plc_client=self._plc_client)
-                self._tag_cache = TagCacheService(self._config_service)
-                self._tag_mapping = TagMappingService(self._config_service)
-            except Exception as e:
-                raise ServiceError(f"Failed to initialize services: {str(e)}")
-            
-            # Start all services
-            try:
-                await self._equipment.start()
-                await self._feeder.start()
-                await self._motion.start()
-                await self._tag_cache.start()
-                await self._tag_mapping.start()
-            except Exception as e:
-                raise ServiceError(f"Failed to start services: {str(e)}")
-            
+            await self._load_config_and_init_clients()
+            await self._init_and_start_services()
             logger.info("Communication service started")
             
         except (ServiceError, ValidationError):
@@ -101,6 +57,60 @@ class CommunicationService(ConfigurableService):
             error_msg = f"Failed to start communication service: {str(e)}"
             logger.error(error_msg)
             raise ServiceError(error_msg)
+
+    async def _load_config_and_init_clients(self) -> None:
+        """Load config and initialize hardware clients."""
+        # Load hardware config
+        config_data = await self._config_service.get_config("hardware")
+        if not config_data or not config_data.data:
+            raise ValidationError("Hardware configuration is empty")
+        
+        config = config_data.data
+        network_config = config.get("network", {})
+        plc_config = network_config.get("plc", {})
+        ssh_config = network_config.get("ssh", {})
+        
+        # Initialize PLC client
+        self._plc_client = await self._init_plc_client(plc_config)
+        
+        # Initialize SSH client
+        self._ssh_client = await self._init_ssh_client(ssh_config)
+
+    async def _init_plc_client(self, plc_config: Dict[str, Any]) -> PLCClient:
+        """Initialize PLC client with fallback to mock."""
+        try:
+            client = create_plc_client(plc_config)
+            await client.connect()
+            return client
+        except Exception as e:
+            logger.warning(f"Failed to connect to PLC, using mock client: {e}")
+            return create_plc_client({}, use_mock=True)
+
+    async def _init_ssh_client(self, ssh_config: Dict[str, Any]) -> SSHClient:
+        """Initialize SSH client with fallback to mock."""
+        try:
+            client = create_ssh_client(ssh_config)
+            await client.connect()
+            return client
+        except Exception as e:
+            logger.warning(f"Failed to connect to SSH, using mock client: {e}")
+            return create_ssh_client({}, use_mock=True)
+
+    async def _init_and_start_services(self) -> None:
+        """Initialize and start all services."""
+        # Initialize services
+        self._equipment = EquipmentService(plc_client=self._plc_client)
+        self._feeder = FeederService(ssh_client=self._ssh_client)
+        self._motion = MotionService(plc_client=self._plc_client)
+        self._tag_cache = TagCacheService(self._config_service)
+        self._tag_mapping = TagMappingService(self._config_service)
+        
+        # Start all services
+        await self._equipment.start()
+        await self._feeder.start()
+        await self._motion.start()
+        await self._tag_cache.start()
+        await self._tag_mapping.start()
 
     async def _stop(self) -> None:
         """Stop communication service."""

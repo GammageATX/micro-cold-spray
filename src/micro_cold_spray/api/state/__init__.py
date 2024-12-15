@@ -1,7 +1,7 @@
 """State management API package."""
 
 from .service import StateService
-from .router import router, app, init_router
+from .router import router, app
 from .models import (
     StateCondition,
     StateConfig,
@@ -21,7 +21,6 @@ __all__ = [
     "StateService",
     "router",
     "app",
-    "init_router",
     # Models
     "StateCondition",
     "StateConfig",

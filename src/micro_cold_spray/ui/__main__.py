@@ -12,7 +12,8 @@ def main():
         "micro_cold_spray.ui.router:app",
         host="0.0.0.0",
         port=8000,
-        reload=True
+        reload=False,  # Default to False since we can't await in sync context
+        log_level="info"
     )
 
 

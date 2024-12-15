@@ -20,18 +20,30 @@ def add_health_endpoints(router: APIRouter, service):
 
             # Get service-specific health status if available
             service_status = "ok"
+            health_info = {}
             if hasattr(service, "check_health"):
                 health_info = await service.check_health()
                 service_status = health_info.get("status", "ok")
 
+            # Determine overall status
+            status = "ok"
+            if not service.is_running:
+                status = "stopped"
+            elif service_status == "error":
+                status = "error"
+            elif service_status == "degraded":
+                status = "degraded"
+
             return {
-                "status": service_status if service.is_running else "stopped",
+                "status": status,
                 "uptime": uptime,
                 "memory_usage": memory,
                 "service_info": {
                     "name": service._service_name,
                     "version": getattr(service, "version", "1.0.0"),
-                    "running": service.is_running
+                    "running": service.is_running,
+                    "error": health_info.get("error"),
+                    **health_info
                 }
             }
         except Exception as e:
@@ -41,7 +53,8 @@ def add_health_endpoints(router: APIRouter, service):
                 "error": str(e),
                 "service_info": {
                     "name": service._service_name,
-                    "running": False
+                    "running": False,
+                    "error": str(e)
                 }
             }
 

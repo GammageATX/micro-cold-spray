@@ -16,9 +16,13 @@
 <script>
 // Service status updates
 let updateInterval;
+let isUpdating = false;  // Add flag to prevent multiple updates
 
 // Initial load function
 async function updateServices() {
+    if (isUpdating) return;  // Prevent concurrent updates
+    isUpdating = true;
+    
     const serviceList = document.getElementById('service-list');
     try {
         // Show loading state
@@ -32,9 +36,45 @@ async function updateServices() {
         const response = await fetch('/monitoring/services/status');
         const services = await response.json();
         
-        serviceList.innerHTML = Object.values(services)
-            .map(getServiceCard)
-            .join('');
+        // Get current service IDs
+        const currentServiceIds = new Set(
+            Array.from(serviceList.children)
+                .map(card => card.id)
+                .filter(id => id && id.startsWith('service-'))
+                .map(id => id.replace('service-', ''))
+        );
+        
+        // Track which services we've updated
+        const updatedServiceIds = new Set();
+        
+        // Update or add services
+        Object.values(services).forEach(service => {
+            updatedServiceIds.add(service.name);
+            const existingCard = document.querySelector(`#service-${service.name}`);
+            if (!existingCard || 
+                existingCard.dataset.status !== service.status ||
+                existingCard.dataset.uptime !== service.uptime ||
+                existingCard.dataset.memory !== service.memory_usage) {
+                
+                // Update or create card
+                const newCard = getServiceCard(service);
+                if (existingCard) {
+                    existingCard.outerHTML = newCard;
+                } else {
+                    document.getElementById('service-list').innerHTML += newCard;
+                }
+            }
+        });
+        
+        // Remove services that no longer exist
+        currentServiceIds.forEach(serviceId => {
+            if (!updatedServiceIds.has(serviceId)) {
+                const oldCard = document.querySelector(`#service-${serviceId}`);
+                if (oldCard) {
+                    oldCard.remove();
+                }
+            }
+        });
     } catch (error) {
         serviceList.innerHTML = `
             <div class="service-card error">
@@ -47,52 +87,60 @@ async function updateServices() {
                 </div>
             </div>
         `;
+    } finally {
+        isUpdating = false;  // Reset update flag
     }
 }
 
 function startUpdates() {
+    if (updateInterval) {
+        stopUpdates();  // Clear any existing interval
+    }
     updateServices();  // Initial update
-    updateInterval = setInterval(async () => {
-        try {
-            const response = await fetch('/monitoring/services/status');
-            const services = await response.json();
-            
-            // Only update cards that have changed
-            Object.values(services).forEach(service => {
-                const existingCard = document.querySelector(`#service-${service.name}`);
-                if (!existingCard || 
-                    existingCard.dataset.status !== service.status ||
-                    existingCard.dataset.uptime !== service.uptime ||
-                    existingCard.dataset.memory !== service.memory_usage) {
-                    
-                    // Update or create card
-                    const newCard = getServiceCard(service);
-                    if (existingCard) {
-                        existingCard.outerHTML = newCard;
-                    } else {
-                        document.getElementById('service-list').innerHTML += newCard;
-                    }
-                }
-            });
-        } catch (error) {
-            console.error('Update failed:', error);
-        }
-    }, 5000);
+    updateInterval = setInterval(updateServices, 5000);
 }
 
 function stopUpdates() {
     if (updateInterval) {
         clearInterval(updateInterval);
+        updateInterval = null;
     }
 }
+
+// Clean up on page unload
+window.addEventListener('unload', () => {
+    stopUpdates();
+});
+
+// Start updates when page loads, stop when page is hidden
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        stopUpdates();
+    } else {
+        startUpdates();
+    }
+});
+
+// Initialize on page load
+const initMonitor = () => {
+    updateServices();
+    startUpdates();
+};
+
+// Clean up existing listener and add new one
+document.removeEventListener('DOMContentLoaded', initMonitor);
+document.addEventListener('DOMContentLoaded', initMonitor);
 
 // Update service card template to include data attributes
 function getServiceCard(service) {
     const info = service.service_info || {};
+    const isRunning = info.running === true;
+    const status = service.status || 'unknown';
+    
     return `
         <div id="service-${service.name}" 
-             class="service-card ${service.status}"
-             data-status="${service.status}"
+             class="service-card ${status}"
+             data-status="${status}"
              data-uptime="${service.uptime}"
              data-memory="${service.memory_usage}">
             <div class="service-header">
@@ -100,16 +148,16 @@ function getServiceCard(service) {
                     <h4>${service.name}</h4>
                     ${info.version ? `<span class="version">v${info.version}</span>` : ''}
                 </div>
-                <span class="status-badge">${service.status}</span>
+                <span class="status-badge">${status}</span>
             </div>
             <div class="service-details">
                 <p><i class="fas fa-network-wired"></i> Port: ${service.port}</p>
                 <p><i class="fas fa-clock"></i> Uptime: ${formatUptime(service.uptime)}</p>
                 <p><i class="fas fa-memory"></i> Memory: ${formatMemoryUsage(service.memory_usage)}</p>
-                ${info.name ? `<p><i class="fas fa-info-circle"></i> Type: ${info.name}</p>` : ''}
+                ${info.error ? `<p class="error"><i class="fas fa-exclamation-triangle"></i> ${info.error}</p>` : ''}
             </div>
             <div class="service-controls">
-                ${service.status === 'running' ? 
+                ${isRunning ? 
                     `<button onclick="controlService('${service.name}', 'stop')" class="stop-btn">
                         <i class="fas fa-stop"></i> Stop
                     </button>
@@ -124,21 +172,6 @@ function getServiceCard(service) {
         </div>
     `;
 }
-
-// Start updates when page loads, stop when page is hidden
-document.addEventListener('visibilitychange', () => {
-    if (document.hidden) {
-        stopUpdates();
-    } else {
-        startUpdates();
-    }
-});
-
-// Call updateServices immediately when the page loads
-document.addEventListener('DOMContentLoaded', () => {
-    updateServices();  // Initial load
-    startUpdates();    // Start periodic updates
-});
 
 // Control service
 async function controlService(serviceName, action) {
@@ -381,6 +414,24 @@ function formatUptime(seconds) {
 .service-card.loading {
     text-align: center;
     color: #666;
+}
+
+.service-card.ok { border-left: 4px solid var(--success-color); }
+.service-card.degraded { border-left: 4px solid #ff9800; }
+.service-card.error { border-left: 4px solid var(--error-color); }
+.service-card.stopped { border-left: 4px solid var(--error-color); }
+.service-card.unknown { border-left: 4px solid #6c757d; }
+
+.ok .status-badge { background: var(--success-color); color: white; }
+.degraded .status-badge { background: #ff9800; color: white; }
+.error .status-badge { background: var(--error-color); color: white; }
+.stopped .status-badge { background: var(--error-color); color: white; }
+.unknown .status-badge { background: #6c757d; color: white; }
+
+.error-message {
+    color: var(--error-color);
+    font-size: 0.9em;
+    margin-top: 5px;
 }
 </style>
 {% endblock %} 

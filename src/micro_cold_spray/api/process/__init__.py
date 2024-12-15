@@ -2,13 +2,12 @@
 
 from .service import ProcessService
 from .exceptions import ProcessError
-from .router import router, init_router
+from .router import router
 
 __all__ = [
     # Core components
     "ProcessService",
     "router",
-    "init_router",
     # Exceptions
     "ProcessError"
 ]

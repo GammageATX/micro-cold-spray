@@ -11,6 +11,7 @@ from loguru import logger
 from .service import CommunicationService
 from ..base.exceptions import ServiceError, ValidationError
 from ..base.router import add_health_endpoints
+from ..config.singleton import get_config_service
 
 # Create FastAPI app
 app = FastAPI(title="Communication API")
@@ -32,10 +33,26 @@ _service: Optional[CommunicationService] = None
 async def startup_event():
     """Initialize services on startup."""
     global _service
-    _service = CommunicationService()
+    
+    # Get shared config service instance
+    config_service = get_config_service()
+    await config_service.start()
+    
+    # Initialize communication service with config
+    _service = CommunicationService(config_service=config_service)
     await _service.start()
+    
     # Add health endpoint directly to app
     add_health_endpoints(app, _service)  # Mount to app instead of router
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown."""
+    global _service
+    
+    if _service:
+        await _service.stop()
 
 
 def init_router(service: CommunicationService) -> None:
