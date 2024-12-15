@@ -93,98 +93,199 @@
                         "topics": {
                             "type": "object",
                             "properties": {
-                                "action_operations": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string",
-                                        "pattern": "^action(/[a-z_]+)+$"
-                                    }
-                                },
-                                "config_operations": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string",
-                                        "pattern": "^config(/[a-z_]+)+$"
-                                    }
-                                },
-                                "data_operations": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string",
-                                        "pattern": "^data(/[a-z_]+)+$"
-                                    }
-                                },
-                                "error_operations": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string",
-                                        "pattern": "^error(/[a-z_]+)+$"
-                                    }
-                                },
                                 "hardware_operations": {
                                     "type": "array",
                                     "items": {
                                         "type": "string",
-                                        "pattern": "^hardware(/[a-z_]+)+$"
+                                        "enum": [
+                                            "hardware/feeder/request",
+                                            "hardware/feeder/response",
+                                            "hardware/deagglomerator/request",
+                                            "hardware/deagglomerator/response",
+                                            "hardware/gas/request",
+                                            "hardware/gas/response",
+                                            "hardware/valve/request",
+                                            "hardware/valve/response",
+                                            "hardware/vacuum/request",
+                                            "hardware/vacuum/response",
+                                            "hardware/motion/request",
+                                            "hardware/motion/response",
+                                            "hardware/nozzle/request",
+                                            "hardware/nozzle/response"
+                                        ]
                                     }
                                 },
                                 "motion_operations": {
                                     "type": "array",
                                     "items": {
                                         "type": "string",
-                                        "pattern": "^motion(/[a-z_]+)+$"
+                                        "enum": [
+                                            "motion/request",
+                                            "motion/response",
+                                            "motion/status"
+                                        ]
                                     }
                                 },
                                 "parameter_operations": {
                                     "type": "array",
                                     "items": {
                                         "type": "string",
-                                        "pattern": "^parameter(/[a-z_]+)+$"
+                                        "enum": [
+                                            "parameter/request",
+                                            "parameter/response",
+                                            "parameter/generate"
+                                        ]
+                                    }
+                                },
+                                "nozzle_file_operations": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string",
+                                        "enum": [
+                                            "nozzle_file/request",
+                                            "nozzle_file/response",
+                                            "nozzle_file/generate"
+                                        ]
+                                    }
+                                },
+                                "powder_file_operations": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string",
+                                        "enum": [
+                                            "powder_file/request",
+                                            "powder_file/response",
+                                            "powder_file/generate"
+                                        ]
                                     }
                                 },
                                 "pattern_operations": {
                                     "type": "array",
                                     "items": {
                                         "type": "string",
-                                        "pattern": "^pattern(/[a-z_]+)+$"
+                                        "enum": [
+                                            "pattern/request",
+                                            "pattern/response",
+                                            "pattern/generate"
+                                        ]
                                     }
                                 },
                                 "sequence_operations": {
                                     "type": "array",
                                     "items": {
                                         "type": "string",
-                                        "pattern": "^sequence(/[a-z_]+)+$"
+                                        "enum": [
+                                            "sequence/request",
+                                            "sequence/response",
+                                            "sequence/step",
+                                            "sequence/status",
+                                            "sequence/generate"
+                                        ]
+                                    }
+                                },
+                                "action_operations": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string",
+                                        "enum": [
+                                            "action_atomic/request",
+                                            "action_atomic/response",
+                                            "action_group/request",
+                                            "action_group/response"
+                                        ]
+                                    }
+                                },
+                                "config_operations": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string",
+                                        "enum": [
+                                            "config/request",
+                                            "config/response",
+                                            "config/update"
+                                        ]
+                                    }
+                                },
+                                "data_operations": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string",
+                                        "enum": [
+                                            "data/request",
+                                            "data/response"
+                                        ]
                                     }
                                 },
                                 "state_operations": {
                                     "type": "array",
                                     "items": {
                                         "type": "string",
-                                        "pattern": "^state(/[a-z_]+)+$"
+                                        "enum": [
+                                            "state/request",
+                                            "state/response",
+                                            "state/change"
+                                        ]
                                     }
                                 },
                                 "tag_operations": {
                                     "type": "array",
                                     "items": {
                                         "type": "string",
-                                        "pattern": "^tag(/[a-z_]+)+$"
-                                    }
-                                },
-                                "ui_operations": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string",
-                                        "pattern": "^ui(/[a-z_]+)+$"
+                                        "enum": [
+                                            "tag_cache/request",
+                                            "tag_cache/response",
+                                            "tag_cache/update"
+                                        ]
                                     }
                                 },
                                 "validation_operations": {
                                     "type": "array",
                                     "items": {
                                         "type": "string",
-                                        "pattern": "^validation(/[a-z_]+)+$"
+                                        "enum": [
+                                            "validation/request",
+                                            "validation/response"
+                                        ]
+                                    }
+                                },
+                                "ui_operations": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string",
+                                        "enum": [
+                                            "ui/request",
+                                            "ui/response",
+                                            "ui/state"
+                                        ]
+                                    }
+                                },
+                                "error_operations": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string",
+                                        "enum": [
+                                            "error/report"
+                                        ]
                                     }
                                 }
                             },
+                            "required": [
+                                "hardware_operations",
+                                "motion_operations",
+                                "parameter_operations",
+                                "nozzle_file_operations",
+                                "powder_file_operations", 
+                                "pattern_operations",
+                                "sequence_operations",
+                                "action_operations",
+                                "config_operations",
+                                "data_operations",
+                                "state_operations",
+                                "tag_operations",
+                                "validation_operations",
+                                "ui_operations",
+                                "error_operations"
+                            ],
                             "additionalProperties": false
                         }
                     }

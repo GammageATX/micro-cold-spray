@@ -5,6 +5,7 @@ from datetime import datetime
 from fastapi import FastAPI, APIRouter, HTTPException, BackgroundTasks, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
+import asyncio
 
 from .service import StateService
 from .models import StateRequest, StateResponse, StateTransition
@@ -172,40 +173,92 @@ async def startup_event():
     """Initialize services on startup."""
     logger.info("State API starting up")
     global _service
+
     if _service is None:
+        max_retries = 3
+        retry_delay = 2  # seconds
+        
+        async def init_service(service_name: str, init_func, dependencies=None) -> Any:
+            """Initialize a service with retry logic and dependency checks."""
+            for attempt in range(max_retries):
+                try:
+                    # Check dependencies first
+                    if dependencies:
+                        for dep in dependencies:
+                            if not dep.is_running:
+                                raise RuntimeError(f"Dependency {dep._service_name} not running")
+                            
+                            # If dependency has health check, verify it
+                            if hasattr(dep, "check_health"):
+                                health = await dep.check_health()
+                                if health["status"] == "error":
+                                    raise RuntimeError(f"Dependency {dep._service_name} health check failed")
+                    
+                    # Initialize service
+                    service = init_func()
+                    await service.start()
+                    logger.info(f"{service_name} started successfully")
+                    return service
+                    
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Failed to start {service_name}, attempt {attempt + 1}/{max_retries}: {e}")
+                        await asyncio.sleep(retry_delay)
+                    else:
+                        logger.error(f"Failed to start {service_name} after {max_retries} attempts: {e}")
+                        raise
+
         try:
-            # Get config service instance
+            # Import services
             from ..config.service import ConfigService
-            config_service = ConfigService()
-            await config_service.start()
-            logger.info("Config service started")
-            
-            # Get messaging service instance
             from ..messaging.service import MessagingService
-            message_broker = MessagingService(config_service=config_service)
-            await message_broker.start()
-            logger.info("Messaging service started")
-            
-            # Get communication service instance
             from ..communication.service import CommunicationService
-            communication_service = CommunicationService()
-            communication_service._config_service = config_service
-            await communication_service.start()
-            logger.info("Communication service started")
             
-            # Create and initialize state service
-            _service = StateService(
-                config_service=config_service,
-                message_broker=message_broker,
-                communication_service=communication_service
+            # Initialize config service first (no dependencies)
+            config_service = await init_service(
+                "ConfigService",
+                lambda: ConfigService()
             )
-            await _service.start()
+            
+            # Initialize message broker (depends on config)
+            message_broker = await init_service(
+                "MessagingService",
+                lambda: MessagingService(config_service=config_service),
+                dependencies=[config_service]
+            )
+            
+            # Initialize communication service (depends on config)
+            communication_service = await init_service(
+                "CommunicationService",
+                lambda: CommunicationService(),
+                dependencies=[config_service]
+            )
+            communication_service._config_service = config_service
+            
+            # Initialize state service (depends on all others)
+            _service = await init_service(
+                "StateService",
+                lambda: StateService(
+                    config_service=config_service,
+                    message_broker=message_broker,
+                    communication_service=communication_service
+                ),
+                dependencies=[config_service, message_broker, communication_service]
+            )
             
             # Initialize router with service
             init_router(_service)
             logger.info("State API initialized and ready")
+            
         except Exception as e:
-            logger.error(f"Failed to start state service: {e}")
+            logger.error(f"Failed to initialize services: {e}")
+            # Attempt cleanup of any partially initialized services
+            for service in [_service, communication_service, message_broker, config_service]:
+                if service and service.is_running:
+                    try:
+                        await service.stop()
+                    except Exception as cleanup_error:
+                        logger.error(f"Error during cleanup of {service._service_name}: {cleanup_error}")
             raise
 
 

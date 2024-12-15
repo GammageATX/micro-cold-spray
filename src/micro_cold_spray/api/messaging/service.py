@@ -191,19 +191,34 @@ class MessagingService(ConfigurableService):
             # Create response queue
             response_queue: asyncio.Queue = asyncio.Queue()
             
+            # Create response handler
+            async def response_handler(resp: Dict[str, Any]):
+                await response_queue.put(resp)
+            
             # Subscribe to response
             response_topic = f"{topic}/response"
-            await self.subscribe(response_topic, lambda resp: response_queue.put_nowait(resp))
+            handler = MessageHandler(callback=response_handler)
+            if response_topic not in self._subscribers:
+                self._subscribers[response_topic] = set()
+            self._subscribers[response_topic].add(handler)
             
-            # Send request
-            await self.publish(topic, data)
-            
-            # Wait for response
             try:
-                response = await asyncio.wait_for(response_queue.get(), timeout=5.0)
-                return response
-            except asyncio.TimeoutError:
-                raise MessageError("Request timed out")
+                # Send request
+                await self.publish(topic, data)
+                
+                # Wait for response
+                try:
+                    response = await asyncio.wait_for(response_queue.get(), timeout=5.0)
+                    return response
+                except asyncio.TimeoutError:
+                    raise MessageError("Request timed out")
+                    
+            finally:
+                # Cleanup subscription
+                if response_topic in self._subscribers:
+                    self._subscribers[response_topic].discard(handler)
+                    if not self._subscribers[response_topic]:
+                        del self._subscribers[response_topic]
                 
         except Exception as e:
             error_context = {
