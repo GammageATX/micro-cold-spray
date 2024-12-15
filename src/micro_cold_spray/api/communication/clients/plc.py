@@ -59,8 +59,14 @@ class PLCClient(CommunicationClient):
         For the real PLC client, this is a no-op since the ProductivityPLC library
         handles connections automatically per-request.
         """
-        self._connected = True
-        logger.debug("PLCClient ready")
+        try:
+            # Test connection by trying to read any tag
+            await self._plc.get()
+            self._connected = True
+            logger.debug("PLCClient ready")
+        except Exception as e:
+            logger.error(f"Failed to connect to PLC: {e}")
+            raise ServiceError(f"Failed to connect to PLC: {e}")
 
     async def disconnect(self) -> None:
         """Disconnect from PLC.

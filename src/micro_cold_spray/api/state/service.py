@@ -64,6 +64,71 @@ class StateService(ConfigurableService):
             "states_configured": len(self._state_machine)
         }
         
+    async def check_health(self) -> Dict[str, Any]:
+        """Perform deep health check of the service and its dependencies.
+        
+        Returns:
+            Dictionary containing health status and details
+        """
+        health_info = {
+            "status": "ok",
+            "dependencies": {},
+            "details": {
+                "current_state": self._current_state,
+                "states_configured": len(self._state_machine),
+                "history_entries": len(self._state_history)
+            }
+        }
+        
+        try:
+            # Check config service
+            config_health = {"status": "unknown"}
+            try:
+                await self._config_service.get_config("state")
+                config_health = {"status": "ok"}
+            except Exception as e:
+                config_health = {"status": "error", "error": str(e)}
+                health_info["status"] = "degraded"
+            health_info["dependencies"]["config"] = config_health
+
+            # Check message broker
+            broker_health = {"status": "unknown"}
+            try:
+                await self._message_broker.request("health/check", {})
+                broker_health = {"status": "ok"}
+            except Exception as e:
+                broker_health = {"status": "error", "error": str(e)}
+                health_info["status"] = "degraded"
+            health_info["dependencies"]["messaging"] = broker_health
+
+            # Check communication service
+            comm_health = {"status": "unknown"}
+            try:
+                if self._communication_service.is_running:
+                    comm_health = {"status": "ok"}
+                else:
+                    comm_health = {"status": "error", "error": "Service not running"}
+                    health_info["status"] = "degraded"
+            except Exception as e:
+                comm_health = {"status": "error", "error": str(e)}
+                health_info["status"] = "degraded"
+            health_info["dependencies"]["communication"] = comm_health
+
+            # Check state machine configuration
+            if not self._state_machine:
+                health_info["status"] = "error"
+                health_info["details"]["error"] = "No state machine configuration loaded"
+            
+            # If any dependency is down, mark as error
+            if any(dep["status"] == "error" for dep in health_info["dependencies"].values()):
+                health_info["status"] = "error"
+                
+        except Exception as e:
+            health_info["status"] = "error"
+            health_info["error"] = str(e)
+
+        return health_info
+
     async def _start(self) -> None:
         """Initialize state service."""
         try:
@@ -265,11 +330,15 @@ class StateService(ConfigurableService):
         """
         try:
             # Get current value
-            response = await self._message_broker.request(
-                "tag/request",
-                {"tag": condition.tag}
-            )
-            value = response["value"]
+            try:
+                response = await self._message_broker.request(
+                    "tag/request",
+                    {"tag": condition.tag}
+                )
+                value = response["value"]
+            except Exception as e:
+                logger.warning(f"Failed to get tag value for {condition.tag}: {e}")
+                return False
             
             # Check condition type
             if condition.type == "equals":

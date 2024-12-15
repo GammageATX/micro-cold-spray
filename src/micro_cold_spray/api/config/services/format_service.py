@@ -14,12 +14,25 @@ from micro_cold_spray.api.config.models import FormatMetadata
 class FormatService(BaseService):
     """Service for validating special data formats."""
 
+    # Singleton instance
+    _instance = None
+    _initialized = False
+
+    def __new__(cls):
+        """Ensure only one instance is created."""
+        if cls._instance is None:
+            cls._instance = super(FormatService, cls).__new__(cls)
+        return cls._instance
+
     def __init__(self):
         """Initialize format service."""
-        super().__init__(service_name="format")
-        self._format_validators: Dict[str, Callable] = {}
-        self._format_metadata: Dict[str, FormatMetadata] = {}
-        self._register_default_validators()
+        # Only initialize once
+        if not FormatService._initialized:
+            super().__init__(service_name="format")
+            self._format_validators: Dict[str, Callable] = {}
+            self._format_metadata: Dict[str, FormatMetadata] = {}
+            self._register_default_validators()
+            FormatService._initialized = True
 
     async def _start(self) -> None:
         """Start format service."""
