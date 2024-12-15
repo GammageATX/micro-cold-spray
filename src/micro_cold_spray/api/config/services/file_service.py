@@ -94,7 +94,8 @@ class ConfigFileService(BaseService):
             
             # Write new config
             with open(config_path, 'w') as f:
-                yaml.safe_dump(config_data.data, f, sort_keys=False)
+                wrapped_data = {config_type: config_data.data}
+                yaml.safe_dump(wrapped_data, f, sort_keys=False)
             
         except Exception as e:
             logger.error(f"Failed to save config {config_type}: {e}")
@@ -143,13 +144,17 @@ class ConfigFileService(BaseService):
             # Read original file
             with open(source_path, 'r') as f:
                 data = yaml.safe_load(f)
+                
+            # Extract inner config data if wrapped
+            if config_type in data:
+                data = data[config_type]
             
             # Create backup directory if it doesn't exist
             self._backup_dir.mkdir(parents=True, exist_ok=True)
             
-            # Write backup with original data preserved
+            # Write backup with complete original data structure preserved
             with open(backup_path, 'w') as f:
-                yaml.safe_dump(data, f, sort_keys=False)
+                yaml.safe_dump(data, f, sort_keys=False, default_flow_style=False)
             
         except Exception as e:
             logger.error(f"Failed to create backup for {config_type}: {e}")

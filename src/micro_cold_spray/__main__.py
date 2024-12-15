@@ -116,9 +116,20 @@ async def wait_for_service(port: int, timeout: float = 30.0) -> bool:
 class ServiceManager:
     """Manages service processes and their dependencies."""
     
-    def __init__(self):
+    def __init__(self, test_mode: bool = False):
         self.processes: Dict[str, Process] = {}
-        self.ports = {
+        # Add test ports that are different from production
+        self.test_ports = {
+            'config': 8901,
+            'messaging': 8907,
+            'communication': 8902,
+            'state': 8904,
+            'process': 8903,
+            'data_collection': 8905,
+            'validation': 8906,
+            'ui': 8900
+        }
+        self.prod_ports = {
             'config': 8001,
             'messaging': 8007,
             'communication': 8002,
@@ -128,6 +139,7 @@ class ServiceManager:
             'validation': 8006,
             'ui': 8000
         }
+        self.ports = self.test_ports if test_mode else self.prod_ports
         
     async def start_service(self, name: str, runner: callable, critical: bool = False, port: int = None) -> bool:
         """Start a service and verify it's running."""
@@ -284,6 +296,39 @@ def run_validation_api_process():
     )
     server = uvicorn.Server(config)
     asyncio.run(server.serve())
+
+
+def get_test_config(service: str) -> uvicorn.Config:
+    """Get test configuration for a service."""
+    port_map = {
+        'config': 8901,
+        'messaging': 8907,
+        'communication': 8902,
+        'state': 8904,
+        'process': 8903,
+        'data_collection': 8905,
+        'validation': 8906,
+        'ui': 8900
+    }
+    
+    service_map = {
+        'config': "micro_cold_spray.api.config.router:app",
+        'messaging': "micro_cold_spray.api.messaging.router:app",
+        'communication': "micro_cold_spray.api.communication.router:app",
+        'state': "micro_cold_spray.api.state.router:app",
+        'process': "micro_cold_spray.api.process.router:app",
+        'data_collection': "micro_cold_spray.api.data_collection.router:app",
+        'validation': "micro_cold_spray.api.validation.router:app",
+        'ui': "micro_cold_spray.ui.router:app"
+    }
+    
+    return uvicorn.Config(
+        service_map[service],
+        host="127.0.0.1",  # Use localhost for tests
+        port=port_map[service],
+        reload=False,
+        log_level="error"  # Reduce noise in tests
+    )
 
 
 async def main():

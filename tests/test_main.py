@@ -3,6 +3,7 @@
 import pytest
 import asyncio
 import requests
+import signal
 from unittest.mock import patch, MagicMock, AsyncMock
 from micro_cold_spray.__main__ import (
     ServiceManager,
@@ -628,33 +629,70 @@ class TestMain:
     @pytest.mark.asyncio
     async def test_main_shutdown_handler(self, monkeypatch):
         """Test the shutdown handler."""
-        # Mock ServiceManager
+        # Mock ServiceManager and its methods
         mock_manager = MagicMock()
+        mock_manager.start_service = AsyncMock(return_value=True)
+        mock_manager.stop_all = MagicMock()
         monkeypatch.setattr("micro_cold_spray.__main__.ServiceManager", lambda: mock_manager)
         
         # Mock sys.exit to prevent actual exit
         mock_exit = MagicMock()
         monkeypatch.setattr("sys.exit", mock_exit)
         
-        # Import and run main to register signal handlers
+        # Mock setup functions to do nothing
+        monkeypatch.setattr("micro_cold_spray.__main__.setup_logging", lambda: None)
+        monkeypatch.setattr("micro_cold_spray.__main__.ensure_directories", lambda: None)
+        
+        # Mock asyncio.sleep to do nothing
+        async def mock_sleep(seconds):
+            pass  # Don't actually sleep
+        monkeypatch.setattr("micro_cold_spray.__main__.asyncio.sleep", mock_sleep)
+        
+        # Store the signal handler for later use
+        signal_handler = None
+        signal_registered = asyncio.Event()
+        
+        def mock_signal(sig, handler):
+            nonlocal signal_handler
+            signal_handler = handler
+            signal_registered.set()
+        
+        # Mock signal registration
+        monkeypatch.setattr("micro_cold_spray.__main__.signal.signal", mock_signal)
+        
+        # Import and run main
         from micro_cold_spray.__main__ import main
         
-        # Create a task for main but don't wait for it to complete
+        # Create a task for main
         task = asyncio.create_task(main())
-        await asyncio.sleep(0.1)  # Give time for signal handlers to be registered
         
-        # Simulate SIGINT
-        import signal
-        signal.raise_signal(signal.SIGINT)
-        await asyncio.sleep(0.1)  # Give time for handler to execute
+        # Wait for signal handler to be registered
+        try:
+            await asyncio.wait_for(signal_registered.wait(), timeout=1.0)
+        except asyncio.TimeoutError:
+            task.cancel()
+            raise AssertionError("Signal handler was not registered in time")
         
-        # Verify stop_all was called
+        # Verify signal handler was registered
+        assert signal_handler is not None
+        
+        # Call the signal handler directly
+        signal_handler(signal.SIGINT, None)
+        
+        # Wait for task to complete or timeout
+        try:
+            await asyncio.wait_for(task, timeout=1.0)
+        except asyncio.TimeoutError:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        except Exception as e:
+            print(f"Error during test: {e}")
+            task.cancel()
+            raise
+        
+        # Verify stop_all and sys.exit were called
         mock_manager.stop_all.assert_called_once()
         mock_exit.assert_called_once_with(0)
-        
-        # Cancel the task
-        task.cancel()
-        try:
-            await task
-        except (asyncio.CancelledError, SystemExit):
-            pass

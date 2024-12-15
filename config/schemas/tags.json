@@ -1,8 +1,13 @@
 {
     "type": "object",
     "title": "Tags Configuration",
-    "required": ["plc", "feeder"],
+    "required": ["plc", "feeder", "version"],
     "properties": {
+        "version": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$",
+            "description": "Configuration version"
+        },
         "plc": {
             "type": "object",
             "additionalProperties": {

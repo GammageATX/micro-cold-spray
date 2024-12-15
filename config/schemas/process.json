@@ -1,8 +1,13 @@
 {
     "type": "object",
     "title": "Process Configuration",
-    "required": ["action_groups", "validation"],
+    "required": ["action_groups", "validation", "version"],
     "properties": {
+        "version": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$",
+            "description": "Configuration version"
+        },
         "action_groups": {
             "type": "object",
             "additionalProperties": {

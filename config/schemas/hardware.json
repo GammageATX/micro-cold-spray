@@ -1,8 +1,13 @@
 {
     "type": "object",
     "title": "Hardware Configuration",
-    "required": ["network", "physical", "safety"],
+    "required": ["network", "physical", "safety", "version"],
     "properties": {
+        "version": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$",
+            "description": "Configuration version"
+        },
         "network": {
             "type": "object",
             "required": ["connection", "plc", "ssh"],

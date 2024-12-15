@@ -7,6 +7,8 @@ from datetime import datetime
 from pathlib import Path
 import yaml
 import copy
+from httpx import AsyncClient
+import shutil
 
 from micro_cold_spray.api.config.router import app, init_router, router, get_service
 from micro_cold_spray.api.config.service import ConfigService
@@ -313,7 +315,7 @@ async def test_update_config_with_backup(test_client, tmp_path):
     
     # Create initial test config file
     test_config_dest = test_config_dir / "application.yaml"
-    test_config_dest.write_text(test_config_path.read_text())
+    shutil.copy2(test_config_path, test_config_dest)  # Copy the real config file
     
     # Create and initialize service with test paths
     service = ConfigService()
@@ -335,13 +337,26 @@ async def test_update_config_with_backup(test_client, tmp_path):
             initial_config = yaml.safe_load(f)
         
         # Store a deep copy of initial config for backup comparison
-        backup_comparison = copy.deepcopy(initial_config)
+        backup_comparison = copy.deepcopy(initial_config["application"])  # Unwrap the application key
         
         # Update config with valid changes that match application.yaml structure
-        updated_config = dict(initial_config)
-        updated_config["application"]["info"]["version"] = "2.0.0"
-        updated_config["application"]["environment"]["test_value"] = "updated_test"
-        
+        updated_config = {
+            "application": {
+                "development": backup_comparison["development"],
+                "environment": {
+                    **backup_comparison["environment"],
+                    "test_value": "updated_test"
+                },
+                "info": {
+                    **backup_comparison["info"],
+                    "version": "2.0.0"
+                },
+                "paths": backup_comparison["paths"],
+                "services": backup_comparison["services"]
+            },
+            "version": "1.0.0"
+        }
+
         response = test_client.post("/config/application", json=updated_config)
         assert response.status_code == 200
         
@@ -366,3 +381,81 @@ async def test_update_config_with_backup(test_client, tmp_path):
         # Clean up
         await service.stop()
         app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_config_health(config_service):
+    async with AsyncClient() as client:
+        response = await client.get(f"{config_service}/health")
+        assert response.status_code == 200
+        assert response.json()["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_config_endpoints(config_service, tmp_path):
+    """Test config endpoints."""
+    # Create and initialize service
+    from micro_cold_spray.api.config.service import ConfigService
+
+    # Create test directories
+    test_data_dir = Path(__file__).parent / "test_data"
+    test_config_dir = tmp_path / "test_config"  # Use tmp_path instead of root directory
+    test_config_dir.mkdir(exist_ok=True)
+    test_schema_dir = test_config_dir / "schemas"
+    test_schema_dir.mkdir(exist_ok=True)
+
+    # Copy test schema for application
+    test_schema_path = test_data_dir / "schemas" / "test_config.json"
+    schema_dest = test_schema_dir / "application.json"
+    schema_dest.write_text(test_schema_path.read_text())
+
+    # Create test config file
+    test_config_path = test_data_dir / "test_config.yaml"
+    config_dest = test_config_dir / "application.yaml"
+    config_dest.write_text(test_config_path.read_text())
+
+    # Create and initialize service
+    service = ConfigService()
+    service._config_dir = test_config_dir
+    service._schema_dir = test_schema_dir
+
+    # Override app dependency
+    app.dependency_overrides[get_service] = lambda: service
+
+    try:
+        # Start service
+        await service.start()
+
+        # Test endpoints
+        async with AsyncClient(app=app, base_url="http://test") as client:
+            # Test get config types
+            response = await client.get("/config/types")
+            assert response.status_code == 200
+            data = response.json()
+            assert isinstance(data, list)
+            assert len(data) > 0
+
+            # Test get config
+            response = await client.get("/config/application")
+            assert response.status_code == 200
+            data = response.json()
+            assert "config" in data
+
+            # Test update config
+            config_data = {"key": "value"}
+            response = await client.post("/config/application", json=config_data)
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "updated"
+
+            # Test clear cache
+            response = await client.post("/config/cache/clear")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "Cache cleared"
+
+    finally:
+        # Clean up
+        await service.stop()
+        app.dependency_overrides.clear()
+        # No need to manually remove test_config_dir as it's under tmp_path

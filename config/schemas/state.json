@@ -1,8 +1,13 @@
 {
     "type": "object",
     "title": "State Configuration",
-    "required": ["initial_state", "transitions"],
+    "required": ["initial_state", "transitions", "version"],
     "properties": {
+        "version": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$",
+            "description": "Configuration version"
+        },
         "initial_state": {
             "type": "string",
             "description": "Initial state of the system"

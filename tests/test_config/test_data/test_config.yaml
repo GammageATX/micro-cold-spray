@@ -1,3 +1,4 @@
+version: "1.0.0"
 application:
   development:
     mock_hardware: true
@@ -12,6 +13,8 @@ application:
     mode: development
     test_value: initial
     user: Test User
+    user_history:
+    - Test User
   info:
     description: Test description
     name: Test App
@@ -21,9 +24,151 @@ application:
     data:
       parameters: data/parameters/
       nozzles: data/parameters/nozzles/
+      patterns:
+        root: data/patterns/
+        custom: data/patterns/
+        serpentine: data/patterns/
+        spiral: data/patterns/
+      sequences: data/sequences/
+      powders: data/powders/
+      runs: data/runs/
   services:
     config_manager:
       backup_enabled: true
       backup_interval: 3600
       validation_enabled: true
-version: 1.0.0
+    data_manager:
+      cache_enabled: true
+      cache_timeout: 1000
+      formats:
+      - parameters
+      - patterns
+      - sequences
+      - nozzles
+      - powders
+      - runs
+      - spray_data
+      validation_enabled: true
+    message_broker:
+      topics:
+        hardware_operations:
+          - hardware/feeder/request
+          - hardware/feeder/response
+          - hardware/deagglomerator/request
+          - hardware/deagglomerator/response
+          - hardware/gas/request
+          - hardware/gas/response
+          - hardware/valve/request
+          - hardware/valve/response
+          - hardware/vacuum/request
+          - hardware/vacuum/response
+          - hardware/motion/request
+          - hardware/motion/response
+          - hardware/nozzle/request
+          - hardware/nozzle/response
+        motion_operations:
+          - motion/request
+          - motion/response
+          - motion/status
+        parameter_operations:
+          - parameter/request
+          - parameter/response
+          - parameter/generate
+        nozzle_file_operations:
+          - nozzle_file/request
+          - nozzle_file/response
+          - nozzle_file/generate
+        powder_file_operations:
+          - powder_file/request
+          - powder_file/response
+          - powder_file/generate
+        pattern_operations:
+          - pattern/request
+          - pattern/response
+          - pattern/generate
+        sequence_operations:
+          - sequence/request
+          - sequence/response
+          - sequence/step
+          - sequence/status
+          - sequence/generate
+        action_operations:
+          - action_atomic/request
+          - action_atomic/response
+          - action_group/request
+          - action_group/response
+        config_operations:
+          - config/request
+          - config/response
+          - config/update
+        data_operations:
+          - data/request
+          - data/response
+        state_operations:
+          - state/request
+          - state/response
+          - state/change
+        tag_operations:
+          - tag_cache/request
+          - tag_cache/response
+          - tag_cache/update
+        validation_operations:
+          - validation/request
+          - validation/response
+        ui_operations:
+          - ui/request
+          - ui/response
+          - ui/state
+        error_operations:
+          - error/report
+    state_manager:
+      history_enabled: true
+      history_length: 1000
+      transition_timeout: 5000
+    tag_manager:
+      cache_enabled: true
+      cache_timeout: 1000
+      poll_rate: 100
+    ui_manager:
+      error_display_timeout: 5000
+      update_rate: 100
+window:
+  geometry:
+    height: 720
+    width: 1280
+    x: 100
+    y: 100
+  layout:
+    main:
+    - dashboard
+    - motion
+    - process
+    - editor
+    - config
+    - diagnostics
+  style:
+    font:
+      family: Segoe UI
+      size: 10
+    theme: system
+  title: Micro Cold Spray Control System
+  widgets:
+    config:
+    - config_editor
+    - hardware_setup
+    dashboard:
+    - status_panel
+    - control_panel
+    diagnostics:
+    - tag_monitor
+    - validation_panel
+    editor:
+    - pattern_editor
+    - sequence_builder
+    - sequence_visualizer
+    motion:
+    - chamber_view
+    - motion_control
+    process:
+    - parameter_editor
+    - process_display

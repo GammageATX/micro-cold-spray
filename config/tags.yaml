@@ -1,3 +1,4 @@
+version: "1.0.0"
 tag_groups:
   gas_control:
     feeder_flow:
