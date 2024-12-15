@@ -153,12 +153,21 @@ async def update_config(
     """
     try:
         from micro_cold_spray.api.config.models import ConfigUpdate
+        
+        # Extract backup and validation flags from request data if present
+        backup = config_data.get("backup", True)  # Default to True
+        should_validate = config_data.get("should_validate", True)  # Default to True
+        data = config_data.get("data", config_data)  # Get data field or use entire payload
+        
+        # Create update request
         update = ConfigUpdate(
             config_type=config_type,
-            data=config_data,
-            backup=True,  # Enable backups by default
-            validate=True  # Enable validation by default
+            data=data,
+            backup=backup,
+            should_validate=should_validate
         )
+        
+        logger.debug(f"Creating config update: {update}")
         await service.update_config(update)
         return {"status": "updated"}
     except ConfigurationError as e:
