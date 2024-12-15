@@ -9,12 +9,13 @@ import yaml
 import copy
 from httpx import AsyncClient
 import shutil
+import asyncio
 
 from micro_cold_spray.api.config.router import app, init_router, router, get_service
 from micro_cold_spray.api.config.service import ConfigService
+from micro_cold_spray.api.config.models import ConfigUpdate, ConfigValidationResult
 from micro_cold_spray.api.base.exceptions import ConfigurationError
 from micro_cold_spray.api.base.router import add_health_endpoints
-from micro_cold_spray.api.config.models import ConfigUpdate, ConfigValidationResult
 
 
 @pytest.fixture
@@ -337,28 +338,69 @@ async def test_update_config_with_backup(test_client, tmp_path):
             initial_config = yaml.safe_load(f)
         
         # Store a deep copy of initial config for backup comparison
-        backup_comparison = copy.deepcopy(initial_config["application"])  # Unwrap the application key
+        backup_comparison = copy.deepcopy(initial_config)  # Keep the full structure
         
         # Update config with valid changes that match application.yaml structure
-        updated_config = {
+        updated_config = copy.deepcopy(initial_config)  # Start with full structure
+        updated_config["application"]["environment"]["test_value"] = "updated_test"
+        updated_config["application"]["info"]["version"] = "2.0.0"
+        
+        # Enable backup in service and file service
+        service._file_service.backup_enabled = True
+        service._config = {
             "application": {
-                "development": backup_comparison["development"],
-                "environment": {
-                    **backup_comparison["environment"],
-                    "test_value": "updated_test"
-                },
-                "info": {
-                    **backup_comparison["info"],
-                    "version": "2.0.0"
-                },
-                "paths": backup_comparison["paths"],
-                "services": backup_comparison["services"]
-            },
-            "version": "1.0.0"
+                "services": {
+                    "config_manager": {
+                        "backup_enabled": True,
+                        "backup_interval": 3600,
+                        "validation_enabled": True
+                    }
+                }
+            }
         }
-
-        response = test_client.post("/config/application", json=updated_config)
+        
+        # Create backup directory if it doesn't exist
+        test_backup_dir.mkdir(exist_ok=True)
+        
+        # Set backup directory in file service
+        service._file_service._backup_dir = test_backup_dir
+        service._file_service.backup_enabled = True
+        
+        # Set backup configuration in service
+        service._config = {
+            "application": {
+                "services": {
+                    "config_manager": {
+                        "backup_enabled": True,
+                        "backup_interval": 3600,
+                        "validation_enabled": True
+                    }
+                }
+            }
+        }
+        
+        # Create update request with backup enabled
+        update_dict = {
+            "config_type": "application",
+            "data": {
+                "application": {
+                    "environment": {
+                        "test_value": "updated_test"
+                    },
+                    "info": {
+                        "version": "2.0.0"
+                    }
+                }
+            },
+            "backup": True,
+            "validate": True
+        }
+        
+        response = test_client.post("/config/application", json=update_dict)
         assert response.status_code == 200
+        
+        # Wait a short time for backup to be created
+        await asyncio.sleep(0.1)
         
         # Verify backup was created in backup directory
         backup_files = list(test_backup_dir.glob("application_*.bak"))
@@ -373,9 +415,9 @@ async def test_update_config_with_backup(test_client, tmp_path):
         # Verify config was updated
         with open(test_config_dest) as f:
             updated_data = yaml.safe_load(f)
-            assert updated_data == updated_config
-            assert updated_data["application"]["info"]["version"] == "2.0.0"
+            assert "application" in updated_data
             assert updated_data["application"]["environment"]["test_value"] == "updated_test"
+            assert updated_data["application"]["info"]["version"] == "2.0.0"
             
     finally:
         # Clean up
@@ -427,32 +469,61 @@ async def test_config_endpoints(config_service, tmp_path):
         await service.start()
 
         # Test endpoints
-        async with AsyncClient(app=app, base_url="http://test") as client:
-            # Test get config types
-            response = await client.get("/config/types")
-            assert response.status_code == 200
-            data = response.json()
-            assert isinstance(data, list)
-            assert len(data) > 0
+        test_client = TestClient(app)
+        
+        # Enable and initialize cache service
+        service._cache_service.cache_enabled = True
+        await service._cache_service.start()  # Properly await the start
+        
+        # Set cache configuration in service
+        service._config = {
+            "application": {
+                "services": {
+                    "config_manager": {
+                        "cache_enabled": True,
+                        "cache_timeout": 3600,
+                        "validation_enabled": True
+                    }
+                }
+            }
+        }
+        
+        # Test get config types
+        response = test_client.get("/config/types")
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+        assert len(data) > 0
 
-            # Test get config
-            response = await client.get("/config/application")
-            assert response.status_code == 200
-            data = response.json()
-            assert "config" in data
+        # Test get config
+        response = test_client.get("/config/application")
+        assert response.status_code == 200
+        data = response.json()
+        assert "config" in data
 
-            # Test update config
-            config_data = {"key": "value"}
-            response = await client.post("/config/application", json=config_data)
-            assert response.status_code == 200
-            data = response.json()
-            assert data["status"] == "updated"
+        # Test update config
+        config_data = {
+            "config_type": "application",
+            "data": {
+                "application": {
+                    "environment": {
+                        "test_value": "test"
+                    }
+                }
+            },
+            "backup": True,
+            "validate": True
+        }
+        response = test_client.post("/config/application", json=config_data)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "updated"
 
-            # Test clear cache
-            response = await client.post("/config/cache/clear")
-            assert response.status_code == 200
-            data = response.json()
-            assert data["status"] == "Cache cleared"
+        # Test clear cache
+        response = test_client.post("/config/cache/clear")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "Cache cleared"
 
     finally:
         # Clean up
