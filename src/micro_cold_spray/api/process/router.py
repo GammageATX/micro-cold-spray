@@ -18,6 +18,7 @@ from .models import (
     ParameterSet
 )
 from ..base.router import add_health_endpoints
+from ..config.singleton import get_config_service
 
 # Create FastAPI app
 app = FastAPI(title="Process API")
@@ -26,31 +27,97 @@ router = APIRouter(prefix="/process", tags=["process"])
 _service: Optional[ProcessService] = None
 
 
-def init_router(service: ProcessService) -> None:
-    """Initialize router with service instance.
-    
-    Args:
-        service: Process service instance
-    """
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on startup."""
     global _service
-    _service = service
-    # Add health endpoints
-    add_health_endpoints(app, service)
+    
+    try:
+        # Get shared config service instance
+        config_service = get_config_service()
+        await config_service.start()
+        logger.info("ConfigService started successfully")
+        
+        # Initialize process service
+        _service = ProcessService(config_service=config_service)
+        await _service.start()
+        logger.info("ProcessService started successfully")
+        
+        # Add health endpoints
+        add_health_endpoints(app, _service)
+        # Mount router to app
+        app.include_router(router)
+        logger.info("Process router initialized")
+        
+    except Exception as e:
+        logger.error(f"Failed to initialize services: {e}")
+        # Attempt cleanup
+        if _service and _service.is_running:
+            await _service.stop()
+        raise
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Handle shutdown tasks."""
+    logger.info("Process API shutting down")
+    if _service:
+        try:
+            await _service.stop()
+            logger.info("Process service stopped successfully")
+        except Exception as e:
+            logger.error(f"Error stopping process service: {e}")
 
 
 def get_service() -> ProcessService:
-    """Get process service instance.
-    
-    Returns:
-        ProcessService instance
-        
-    Raises:
-        RuntimeError: If service not initialized
-    """
+    """Get process service instance."""
     if _service is None:
         logger.error("Process service not initialized")
         raise RuntimeError("Process service not initialized")
     return _service
+
+
+@router.get("/health")
+async def health_check() -> JSONResponse:
+    """Check API and service health status."""
+    service = get_service()
+    
+    try:
+        status = {
+            "status": "ok" if service.is_running else "error",
+            "service_info": {
+                "name": service._service_name,
+                "version": getattr(service, "version", "1.0.0"),
+                "running": service.is_running
+            },
+            "sequence": await service.get_current_sequence(),
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        if not service.is_running:
+            status["status"] = "error"
+            status["error"] = "Service not running"
+            return JSONResponse(
+                status_code=503,
+                content=status
+            )
+            
+        return JSONResponse(status)
+        
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "error",
+                "error": str(e),
+                "service_info": {
+                    "name": service._service_name,
+                    "running": False
+                },
+                "timestamp": datetime.now().isoformat()
+            }
+        )
 
 
 @router.post("/sequence/start/{sequence_id}", response_model=Dict[str, Any])
@@ -301,45 +368,3 @@ async def get_action_status() -> Optional[ActionStatus]:
             status_code=500,
             detail={"error": "Internal server error", "message": str(e)}
         )
-
-
-@router.get("/health")
-async def health_check() -> JSONResponse:
-    """Check API and service health status.
-    
-    Returns:
-        JSON response with health status
-        
-    Note:
-        Returns 503 if service unhealthy
-    """
-    service = get_service()
-    
-    try:
-        status = {
-            "service": "ok" if service.is_running else "error",
-            "sequence": await service.get_current_sequence(),
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        if not service.is_running:
-            return JSONResponse(
-                status_code=503,
-                content=status
-            )
-            
-        return JSONResponse(status)
-        
-    except Exception as e:
-        logger.error(f"Health check failed: {str(e)}")
-        return JSONResponse(
-            status_code=503,
-            content={
-                "service": "error",
-                "error": str(e),
-                "timestamp": datetime.now().isoformat()
-            }
-        )
-
-# Add router to app
-app.include_router(router)

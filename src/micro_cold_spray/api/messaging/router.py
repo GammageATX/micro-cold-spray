@@ -9,6 +9,7 @@ import asyncio
 from .service import MessagingService
 from micro_cold_spray.api.base.exceptions import MessageError
 from micro_cold_spray.api.base.router import add_health_endpoints
+from ..config.singleton import get_config_service
 
 # Create FastAPI app
 app = FastAPI(title="Messaging API")
@@ -20,24 +21,6 @@ app.include_router(router)
 _service: Optional[MessagingService] = None
 
 
-def init_router(service: MessagingService) -> None:
-    """Initialize router with service instance."""
-    global _service
-    
-    if not isinstance(service, MessagingService):
-        error_msg = f"Expected MessagingService instance, got {type(service)}"
-        logger.error(error_msg)
-        raise TypeError(error_msg)
-        
-    if _service is not None:
-        logger.warning("Reinitializing existing messaging service")
-        
-    _service = service
-    # Start the service
-    asyncio.create_task(_service.start())
-    logger.info("Messaging router initialized")
-
-
 @app.on_event("startup")
 async def startup_event():
     """Handle startup tasks."""
@@ -45,10 +28,10 @@ async def startup_event():
     global _service
     if _service is None:
         try:
-            # Get config service instance
-            from ..config.service import ConfigService
-            config_service = ConfigService()
+            # Get shared config service instance
+            config_service = get_config_service()
             await config_service.start()
+            logger.info("ConfigService started successfully")
             
             # Create messaging service with config
             _service = MessagingService(config_service=config_service)

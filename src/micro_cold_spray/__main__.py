@@ -1,10 +1,12 @@
 # src/micro_cold_spray/__main__.py
 import asyncio
 import sys
-from datetime import datetime
 from pathlib import Path
 from multiprocessing import Process
 import signal
+import requests
+from typing import Dict
+import time
 
 from loguru import logger
 import uvicorn
@@ -27,8 +29,8 @@ def setup_logging() -> None:
     logger.add(
         sys.stderr,
         format=log_format,
-        level="WARNING",
-        enqueue=True  # Enable async logging
+        level="INFO",  # Changed to INFO for better visibility
+        enqueue=True
     )
 
     # Add file logging
@@ -48,203 +50,282 @@ def ensure_directories() -> None:
         "logs",
         "config",
         "config/schemas",
-        "data"
+        "data",
+        "data/parameters",
+        "data/patterns",
+        "data/sequences",
+        "data/powders",
+        "data/runs"
     ]
     for dir_name in dirs:
-        Path(dir_name).mkdir(exist_ok=True)
+        Path(dir_name).mkdir(parents=True, exist_ok=True)
+
+
+async def check_service_health(port: int, retries: int = 5, delay: float = 2.0) -> bool:
+    """Check if a service is healthy by polling its health endpoint."""
+    url = f"http://localhost:{port}/health"
+    for attempt in range(retries):
+        try:
+            response = requests.get(url, timeout=5)
+            # Consider 404 as service starting up
+            if response.status_code == 404:
+                logger.warning(f"Service on port {port} starting up (health endpoint not ready)")
+                if attempt < retries - 1:
+                    await asyncio.sleep(delay)
+                continue
+                
+            if response.status_code == 200:
+                health_data = response.json()
+                status = health_data.get("status")
+                if status in ["ok", "degraded"]:
+                    logger.info(f"Service on port {port} is healthy (status: {status})")
+                    return True
+                else:
+                    logger.warning(f"Service on port {port} reported unhealthy status: {status}")
+            else:
+                logger.warning(f"Service on port {port} returned status code: {response.status_code}")
+        except requests.ConnectionError:
+            logger.warning(f"Service on port {port} not responding (attempt {attempt + 1}/{retries})")
+        except Exception as e:
+            logger.warning(f"Error checking service health on port {port}: {str(e)}")
+        
+        if attempt < retries - 1:
+            await asyncio.sleep(delay)
+    
+    return False
+
+
+async def wait_for_service(port: int, timeout: float = 30.0) -> bool:
+    """Wait for a service to start accepting connections."""
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        try:
+            requests.get(f"http://localhost:{port}/", timeout=1)
+            return True
+        except requests.exceptions.RequestException:
+            await asyncio.sleep(0.5)
+    return False
+
+
+class ServiceManager:
+    """Manages service processes and their dependencies."""
+    
+    def __init__(self):
+        self.processes: Dict[str, Process] = {}
+        self.ports = {
+            'config': 8001,
+            'messaging': 8007,
+            'communication': 8002,
+            'state': 8004,
+            'process': 8003,
+            'data_collection': 8005,
+            'validation': 8006,
+            'ui': 8000
+        }
+        
+    async def start_service(self, name: str, runner: callable, critical: bool = False) -> bool:
+        """Start a service and verify it's running."""
+        try:
+            logger.info(f"Starting {name} service...")
+            process = Process(target=runner)
+            process.start()
+            self.processes[name] = process
+            
+            # First wait for the service to start accepting connections
+            if not await wait_for_service(self.ports[name]):
+                logger.error(f"Service {name} failed to start accepting connections")
+                return False
+                
+            # Then check its health
+            retries = 5 if critical else 3
+            is_healthy = await check_service_health(self.ports[name], retries=retries)
+            
+            if not is_healthy:
+                if critical:
+                    logger.error(f"Critical service {name} failed health check")
+                    return False
+                else:
+                    logger.warning(f"Non-critical service {name} failed health check but continuing")
+                    return True  # Allow non-critical services to continue even if health check fails
+                    
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error starting {name} service: {e}")
+            return False
+
+    def stop_service(self, name: str) -> None:
+        """Stop a service gracefully."""
+        process = self.processes.get(name)
+        if process and process.is_alive():
+            logger.info(f"Stopping {name} service...")
+            process.terminate()
+            process.join(timeout=5.0)
+            if process.is_alive():
+                logger.warning(f"Force killing {name} service...")
+                process.kill()
+                process.join()
+
+    def stop_all(self) -> None:
+        """Stop all services in reverse order."""
+        for name in reversed(list(self.processes.keys())):
+            self.stop_service(name)
 
 
 def run_ui_process():
     """Process function to run the UI service."""
-    async def run_ui():
-        config = uvicorn.Config(ui_app, host="0.0.0.0", port=8000, reload=True)
-        server = uvicorn.Server(config)
-        await server.serve()
-    asyncio.run(run_ui())
+    config = uvicorn.Config(
+        ui_app,
+        host="0.0.0.0",
+        port=8000,
+        reload=False,
+        log_level="info"
+    )
+    server = uvicorn.Server(config)
+    asyncio.run(server.serve())
 
 
 def run_config_api_process():
     """Process function to run the Config API service."""
-    async def run_config_api():
-        config = uvicorn.Config(
-            "micro_cold_spray.api.config.router:app",
-            host="0.0.0.0",
-            port=8001,
-            reload=True
-        )
-        server = uvicorn.Server(config)
-        await server.serve()
-    asyncio.run(run_config_api())
+    config = uvicorn.Config(
+        "micro_cold_spray.api.config.router:app",
+        host="0.0.0.0",
+        port=8001,
+        reload=False
+    )
+    server = uvicorn.Server(config)
+    asyncio.run(server.serve())
 
 
 def run_communication_api_process():
     """Process function to run the Communication API service."""
-    async def run_communication_api():
-        config = uvicorn.Config(
-            "micro_cold_spray.api.communication.router:app",
-            host="0.0.0.0",
-            port=8002,
-            reload=True
-        )
-        server = uvicorn.Server(config)
-        await server.serve()
-    asyncio.run(run_communication_api())
+    config = uvicorn.Config(
+        "micro_cold_spray.api.communication.router:app",
+        host="0.0.0.0",
+        port=8002,
+        reload=False
+    )
+    server = uvicorn.Server(config)
+    asyncio.run(server.serve())
 
 
 def run_messaging_api_process():
     """Process function to run the Messaging API service."""
-    uvicorn.run(
+    config = uvicorn.Config(
         "micro_cold_spray.api.messaging.router:app",
         host="0.0.0.0",
         port=8007,
-        reload=True,
-        log_level="info"
+        reload=False
     )
+    server = uvicorn.Server(config)
+    asyncio.run(server.serve())
 
 
-# Define critical and non-critical services
-CRITICAL_SERVICES = {
-    'config',          # Configuration must be available
-    'messaging',       # Required for inter-service communication
-    'communication'    # Required for hardware interface
-}
+def run_process_api_process():
+    """Process function to run the Process API service."""
+    config = uvicorn.Config(
+        "micro_cold_spray.api.process.router:app",
+        host="0.0.0.0",
+        port=8003,
+        reload=False
+    )
+    server = uvicorn.Server(config)
+    asyncio.run(server.serve())
 
-NON_CRITICAL_SERVICES = {
-    'state',            # State tracking can recover
-    'process',          # Process control can be restarted
-    'data_collection',  # Data collection can be interrupted
-    'validation',       # Validation can be restarted
-    'ui'                # UI can be refreshed
-}
+
+def run_state_api_process():
+    """Process function to run the State API service."""
+    config = uvicorn.Config(
+        "micro_cold_spray.api.state.router:app",
+        host="0.0.0.0",
+        port=8004,
+        reload=False
+    )
+    server = uvicorn.Server(config)
+    asyncio.run(server.serve())
+
+
+def run_data_collection_api_process():
+    """Process function to run the Data Collection API service."""
+    config = uvicorn.Config(
+        "micro_cold_spray.api.data_collection.router:app",
+        host="0.0.0.0",
+        port=8005,
+        reload=False
+    )
+    server = uvicorn.Server(config)
+    asyncio.run(server.serve())
+
+
+def run_validation_api_process():
+    """Process function to run the Validation API service."""
+    config = uvicorn.Config(
+        "micro_cold_spray.api.validation.router:app",
+        host="0.0.0.0",
+        port=8006,
+        reload=False
+    )
+    server = uvicorn.Server(config)
+    asyncio.run(server.serve())
 
 
 async def main():
-    """Application entry point."""
+    """Application entry point with improved service management."""
+    service_manager = ServiceManager()
+    
     try:
         setup_logging()
         ensure_directories()
         logger.info("Starting Micro Cold Spray application")
 
-        # Dictionary to track all processes
-        processes = {}
+        # Define service startup sequence with dependencies
+        startup_sequence = [
+            # Critical services first
+            ('config', run_config_api_process, True),
+            ('messaging', run_messaging_api_process, True),
+            ('communication', run_communication_api_process, True),
+            
+            # Non-critical services
+            ('state', run_state_api_process, False),
+            ('ui', run_ui_process, False)
+        ]
 
-        # Start critical services first
-        logger.info("Starting critical services...")
-        
-        # Config API must start first
-        processes['config'] = Process(target=run_config_api_process)
-        processes['config'].start()
-        await asyncio.sleep(2)
-
-        # Messaging API next
-        processes['messaging'] = Process(target=run_messaging_api_process)
-        processes['messaging'].start()
-        await asyncio.sleep(1)
-
-        # Communication API
-        processes['communication'] = Process(target=run_communication_api_process)
-        processes['communication'].start()
-        await asyncio.sleep(1)
-
-        # Start non-critical services
-        logger.info("Starting non-critical services...")
-        
-        for service, runner in [
-            ('process', run_process_api_process),
-            ('state', run_state_api_process),
-            ('data_collection', run_data_collection_api_process),
-            ('validation', run_validation_api_process),
-            ('ui', run_ui_process)
-        ]:
-            processes[service] = Process(target=runner)
-            processes[service].start()
-            await asyncio.sleep(1)
+        # Start services in sequence
+        for name, runner, critical in startup_sequence:
+            success = await service_manager.start_service(name, runner, critical)
+            if not success and critical:
+                logger.critical(f"Failed to start critical service {name}")
+                raise RuntimeError(f"Critical service {name} failed to start")
+            await asyncio.sleep(2)  # Give services time to stabilize
 
         def shutdown_handler(sig, frame):
             logger.info("Shutdown requested...")
-            for name, process in processes.items():
-                if process.is_alive():
-                    logger.info(f"Stopping {name} service...")
-                    process.terminate()
-                    process.join(timeout=5.0)
-                    if process.is_alive():
-                        process.kill()
+            service_manager.stop_all()
             sys.exit(0)
 
         signal.signal(signal.SIGINT, shutdown_handler)
         signal.signal(signal.SIGTERM, shutdown_handler)
 
-        # Monitor processes
+        # Monitor services
         while True:
-            for name, process in processes.items():
+            for name, process in service_manager.processes.items():
                 if not process.is_alive():
-                    if name in CRITICAL_SERVICES:
+                    if name in ['config', 'messaging', 'communication']:
                         logger.critical(f"Critical service {name} died - shutting down system")
                         shutdown_handler(None, None)
                     else:
-                        logger.warning(f"Non-critical service {name} died - system continuing")
-            await asyncio.sleep(1)
+                        logger.warning(f"Non-critical service {name} died - attempting restart")
+                        await service_manager.start_service(name, startup_sequence[name][1], False)
+            await asyncio.sleep(5)
 
     except KeyboardInterrupt:
-        logger.info("Shutdown requested...")
+        logger.info("Shutdown requested by user...")
     except Exception as e:
-        error_msg = {
-            "error": str(e),
-            "context": "main_execution",
-            "timestamp": datetime.now().isoformat()
-        }
-        logger.exception(f"Critical application error: {error_msg}")
-        raise
+        logger.exception(f"Critical application error: {e}")
     finally:
-        # Clean shutdown
-        for name, process in processes.items():
-            if process.is_alive():
-                logger.info(f"Stopping {name} service...")
-                process.terminate()
-                process.join()
+        service_manager.stop_all()
         logger.info("Application shutdown complete")
-        sys.exit(0)
-
-
-# Add process runner functions for new services
-def run_process_api_process():
-    """Process function to run the Process API service."""
-    uvicorn.run(
-        "micro_cold_spray.api.process.router:app",
-        host="0.0.0.0",
-        port=8003,
-        reload=True
-    )
-
-
-def run_state_api_process():
-    """Process function to run the State API service."""
-    uvicorn.run(
-        "micro_cold_spray.api.state.router:app",
-        host="0.0.0.0",
-        port=8004,
-        reload=True
-    )
-
-
-def run_data_collection_api_process():
-    """Process function to run the Data Collection API service."""
-    uvicorn.run(
-        "micro_cold_spray.api.data_collection.router:app",
-        host="0.0.0.0",
-        port=8005,
-        reload=True
-    )
-
-
-def run_validation_api_process():
-    """Process function to run the Validation API service."""
-    uvicorn.run(
-        "micro_cold_spray.api.validation.router:app",
-        host="0.0.0.0",
-        port=8006,
-        reload=True
-    )
+        sys.exit(1)
 
 
 if __name__ == "__main__":

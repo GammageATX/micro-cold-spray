@@ -3,6 +3,7 @@
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 from loguru import logger
+import asyncio
 
 from ..base import ConfigurableService
 from ..config import ConfigService
@@ -166,11 +167,25 @@ class StateService(ConfigurableService):
             # Set initial state
             self._current_state = state_config.get("initial_state", "INITIALIZING")
             
-            # Subscribe to state change requests
-            await self._message_broker.subscribe(
-                "state/request",
-                self._handle_state_request
-            )
+            # Wait for message broker to be ready
+            retries = 3
+            while retries > 0:
+                try:
+                    # Subscribe to state change requests
+                    await self._message_broker.subscribe(
+                        "state/request",
+                        self._handle_state_request
+                    )
+                    break
+                except Exception as e:
+                    retries -= 1
+                    if retries == 0:
+                        raise StateError(
+                            "Failed to initialize messaging",
+                            {"error": str(e)}
+                        )
+                    logger.warning(f"Retrying message subscription: {e}")
+                    await asyncio.sleep(1)
             
             self._add_history_entry("System initialized")
             
