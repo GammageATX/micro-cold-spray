@@ -132,12 +132,13 @@ class ConfigService(BaseService):
                 await self._file_service.create_backup(update.config_type)
 
             # Create config data object
+            # Handle both wrapped and unwrapped data
             config_data = ConfigData(
                 metadata=ConfigMetadata(
                     config_type=update.config_type,
                     last_modified=datetime.now()
                 ),
-                data=update.data
+                data=update.data.get(update.config_type, update.data)  # Try to unwrap, fallback to raw data
             )
 
             # Save config

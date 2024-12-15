@@ -1,335 +1,226 @@
 {
     "type": "object",
     "title": "Application Configuration",
-    "required": ["environment"],
+    "required": ["application", "version"],
     "properties": {
-        "development": {
+        "application": {
             "type": "object",
+            "required": ["development", "environment", "info", "paths", "services"],
             "properties": {
-                "mock_hardware": {
-                    "type": "boolean",
-                    "description": "Enable mock hardware for development"
-                },
-                "profiling": {
-                    "type": "boolean",
-                    "description": "Enable performance profiling"
-                },
-                "testing": {
+                "development": {
                     "type": "object",
+                    "required": ["mock_hardware", "profiling", "testing"],
                     "properties": {
-                        "coverage": {
-                            "type": "boolean"
+                        "mock_hardware": {
+                            "type": "boolean",
+                            "description": "Enable mock hardware for development"
                         },
-                        "enabled": {
-                            "type": "boolean"
-                        }
-                    }
-                }
-            }
-        },
-        "environment": {
-            "type": "object",
-            "required": ["async_mode", "debug", "log_level", "mode"],
-            "properties": {
-                "async_mode": {
-                    "type": "boolean"
-                },
-                "debug": {
-                    "type": "boolean"
-                },
-                "log_level": {
-                    "type": "string",
-                    "enum": ["DEBUG", "INFO", "WARNING", "ERROR"]
-                },
-                "mode": {
-                    "type": "string",
-                    "enum": ["development", "production"]
-                },
-                "user": {
-                    "type": "string"
-                }
-            }
-        },
-        "services": {
-            "type": "object",
-            "properties": {
-                "config_manager": {
-                    "type": "object",
-                    "properties": {
-                        "backup_enabled": {
-                            "type": "boolean"
+                        "profiling": {
+                            "type": "boolean",
+                            "description": "Enable performance profiling"
                         },
-                        "backup_interval": {
-                            "type": "number"
-                        },
-                        "validation_enabled": {
-                            "type": "boolean"
+                        "testing": {
+                            "type": "object",
+                            "required": ["coverage", "enabled"],
+                            "properties": {
+                                "coverage": {
+                                    "type": "boolean"
+                                },
+                                "enabled": {
+                                    "type": "boolean"
+                                }
+                            }
                         }
                     }
                 },
-                "data_manager": {
+                "environment": {
                     "type": "object",
+                    "required": ["async_mode", "debug", "log_level", "mode"],
                     "properties": {
-                        "cache_enabled": {
+                        "async_mode": {
                             "type": "boolean"
                         },
-                        "cache_timeout": {
-                            "type": "number"
+                        "debug": {
+                            "type": "boolean"
                         },
-                        "formats": {
+                        "log_level": {
+                            "type": "string",
+                            "enum": ["DEBUG", "INFO", "WARNING", "ERROR"]
+                        },
+                        "mode": {
+                            "type": "string",
+                            "enum": ["development", "production"]
+                        },
+                        "test_value": {
+                            "type": "string"
+                        },
+                        "user": {
+                            "type": "string"
+                        },
+                        "user_history": {
                             "type": "array",
                             "items": {
                                 "type": "string"
                             }
-                        },
-                        "validation_enabled": {
-                            "type": "boolean"
                         }
                     }
                 },
-                "message_broker": {
+                "info": {
                     "type": "object",
+                    "required": ["description", "name", "version"],
                     "properties": {
-                        "topics": {
+                        "description": {
+                            "type": "string"
+                        },
+                        "name": {
+                            "type": "string"
+                        },
+                        "version": {
+                            "type": "string",
+                            "pattern": "^\\d+\\.\\d+\\.\\d+$"
+                        }
+                    }
+                },
+                "paths": {
+                    "type": "object",
+                    "required": ["config", "data"],
+                    "properties": {
+                        "config": {
+                            "type": "string"
+                        },
+                        "data": {
                             "type": "object",
+                            "required": ["parameters", "nozzles"],
                             "properties": {
-                                "hardware_operations": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string",
-                                        "enum": [
-                                            "hardware/feeder/request",
-                                            "hardware/feeder/response",
-                                            "hardware/deagglomerator/request",
-                                            "hardware/deagglomerator/response",
-                                            "hardware/gas/request",
-                                            "hardware/gas/response",
-                                            "hardware/valve/request",
-                                            "hardware/valve/response",
-                                            "hardware/vacuum/request",
-                                            "hardware/vacuum/response",
-                                            "hardware/motion/request",
-                                            "hardware/motion/response",
-                                            "hardware/nozzle/request",
-                                            "hardware/nozzle/response"
-                                        ]
+                                "parameters": {
+                                    "type": "string"
+                                },
+                                "nozzles": {
+                                    "type": "string"
+                                },
+                                "patterns": {
+                                    "type": "object",
+                                    "properties": {
+                                        "root": { "type": "string" },
+                                        "custom": { "type": "string" },
+                                        "serpentine": { "type": "string" },
+                                        "spiral": { "type": "string" }
                                     }
                                 },
-                                "motion_operations": {
+                                "sequences": { "type": "string" },
+                                "powders": { "type": "string" },
+                                "runs": { "type": "string" }
+                            }
+                        }
+                    }
+                },
+                "services": {
+                    "type": "object",
+                    "required": ["config_manager", "data_manager", "message_broker", "state_manager", "tag_manager", "ui_manager"],
+                    "properties": {
+                        "config_manager": {
+                            "type": "object",
+                            "required": ["backup_enabled", "backup_interval", "validation_enabled"],
+                            "properties": {
+                                "backup_enabled": {
+                                    "type": "boolean"
+                                },
+                                "backup_interval": {
+                                    "type": "number"
+                                },
+                                "validation_enabled": {
+                                    "type": "boolean"
+                                }
+                            }
+                        },
+                        "data_manager": {
+                            "type": "object",
+                            "required": ["cache_enabled", "cache_timeout", "formats", "validation_enabled"],
+                            "properties": {
+                                "cache_enabled": {
+                                    "type": "boolean"
+                                },
+                                "cache_timeout": {
+                                    "type": "number"
+                                },
+                                "formats": {
                                     "type": "array",
                                     "items": {
-                                        "type": "string",
-                                        "enum": [
-                                            "motion/request",
-                                            "motion/response",
-                                            "motion/status"
-                                        ]
+                                        "type": "string"
                                     }
                                 },
-                                "parameter_operations": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string",
-                                        "enum": [
-                                            "parameter/request",
-                                            "parameter/response",
-                                            "parameter/generate"
-                                        ]
-                                    }
-                                },
-                                "nozzle_file_operations": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string",
-                                        "enum": [
-                                            "nozzle_file/request",
-                                            "nozzle_file/response",
-                                            "nozzle_file/generate"
-                                        ]
-                                    }
-                                },
-                                "powder_file_operations": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string",
-                                        "enum": [
-                                            "powder_file/request",
-                                            "powder_file/response",
-                                            "powder_file/generate"
-                                        ]
-                                    }
-                                },
-                                "pattern_operations": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string",
-                                        "enum": [
-                                            "pattern/request",
-                                            "pattern/response",
-                                            "pattern/generate"
-                                        ]
-                                    }
-                                },
-                                "sequence_operations": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string",
-                                        "enum": [
-                                            "sequence/request",
-                                            "sequence/response",
-                                            "sequence/step",
-                                            "sequence/status",
-                                            "sequence/generate"
-                                        ]
-                                    }
-                                },
-                                "action_operations": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string",
-                                        "enum": [
-                                            "action_atomic/request",
-                                            "action_atomic/response",
-                                            "action_group/request",
-                                            "action_group/response"
-                                        ]
-                                    }
-                                },
-                                "config_operations": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string",
-                                        "enum": [
-                                            "config/request",
-                                            "config/response",
-                                            "config/update"
-                                        ]
-                                    }
-                                },
-                                "data_operations": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string",
-                                        "enum": [
-                                            "data/request",
-                                            "data/response"
-                                        ]
-                                    }
-                                },
-                                "state_operations": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string",
-                                        "enum": [
-                                            "state/request",
-                                            "state/response",
-                                            "state/change"
-                                        ]
-                                    }
-                                },
-                                "tag_operations": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string",
-                                        "enum": [
-                                            "tag_cache/request",
-                                            "tag_cache/response",
-                                            "tag_cache/update"
-                                        ]
-                                    }
-                                },
-                                "validation_operations": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string",
-                                        "enum": [
-                                            "validation/request",
-                                            "validation/response"
-                                        ]
-                                    }
-                                },
-                                "ui_operations": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string",
-                                        "enum": [
-                                            "ui/request",
-                                            "ui/response",
-                                            "ui/state"
-                                        ]
-                                    }
-                                },
-                                "error_operations": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string",
-                                        "enum": [
-                                            "error/report"
-                                        ]
+                                "validation_enabled": {
+                                    "type": "boolean"
+                                }
+                            }
+                        },
+                        "message_broker": {
+                            "type": "object",
+                            "required": ["topics"],
+                            "properties": {
+                                "topics": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
                                     }
                                 }
-                            },
-                            "required": [
-                                "hardware_operations",
-                                "motion_operations",
-                                "parameter_operations",
-                                "nozzle_file_operations",
-                                "powder_file_operations", 
-                                "pattern_operations",
-                                "sequence_operations",
-                                "action_operations",
-                                "config_operations",
-                                "data_operations",
-                                "state_operations",
-                                "tag_operations",
-                                "validation_operations",
-                                "ui_operations",
-                                "error_operations"
-                            ],
-                            "additionalProperties": false
-                        }
-                    }
-                },
-                "state_manager": {
-                    "type": "object",
-                    "properties": {
-                        "history_enabled": {
-                            "type": "boolean"
+                            }
                         },
-                        "history_length": {
-                            "type": "number"
+                        "state_manager": {
+                            "type": "object",
+                            "required": ["history_enabled", "history_length", "transition_timeout"],
+                            "properties": {
+                                "history_enabled": {
+                                    "type": "boolean"
+                                },
+                                "history_length": {
+                                    "type": "number"
+                                },
+                                "transition_timeout": {
+                                    "type": "number"
+                                }
+                            }
                         },
-                        "transition_timeout": {
-                            "type": "number"
-                        }
-                    }
-                },
-                "tag_manager": {
-                    "type": "object",
-                    "properties": {
-                        "cache_enabled": {
-                            "type": "boolean"
+                        "tag_manager": {
+                            "type": "object",
+                            "required": ["cache_enabled", "cache_timeout", "poll_rate"],
+                            "properties": {
+                                "cache_enabled": {
+                                    "type": "boolean"
+                                },
+                                "cache_timeout": {
+                                    "type": "number"
+                                },
+                                "poll_rate": {
+                                    "type": "number"
+                                }
+                            }
                         },
-                        "cache_timeout": {
-                            "type": "number"
-                        },
-                        "poll_rate": {
-                            "type": "number"
-                        }
-                    }
-                },
-                "ui_manager": {
-                    "type": "object",
-                    "properties": {
-                        "error_display_timeout": {
-                            "type": "number"
-                        },
-                        "update_rate": {
-                            "type": "number"
+                        "ui_manager": {
+                            "type": "object",
+                            "required": ["error_display_timeout", "update_rate"],
+                            "properties": {
+                                "error_display_timeout": {
+                                    "type": "number"
+                                },
+                                "update_rate": {
+                                    "type": "number"
+                                }
+                            }
                         }
                     }
                 }
             }
+        },
+        "version": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$",
+            "description": "Configuration version"
         }
     }
+} 
+} 
 } 

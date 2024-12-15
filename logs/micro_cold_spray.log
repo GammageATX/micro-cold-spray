@@ -6176,3 +6176,539 @@ TypeError: object MagicMock can't be used in 'await' expression
 2024-12-15 11:58:24.983 | INFO     | __main__:stop_service:173 - Stopping config service...
 2024-12-15 11:58:24.987 | DEBUG    | __main__:stop_service:184 - Removed config service from process list
 2024-12-15 11:58:24.987 | INFO     | __main__:main:350 - Application shutdown complete
+2024-12-15 14:50:59.612 | INFO     | micro_cold_spray.__main__:main:297 - Starting Micro Cold Spray application
+2024-12-15 14:50:59.613 | INFO     | micro_cold_spray.__main__:main:344 - Shutdown requested by user...
+2024-12-15 14:50:59.613 | INFO     | micro_cold_spray.__main__:main:350 - Application shutdown complete
+2024-12-15 14:50:59.620 | INFO     | micro_cold_spray.__main__:main:297 - Starting Micro Cold Spray application
+2024-12-15 14:50:59.620 | ERROR    | micro_cold_spray.__main__:main:347 - Critical application error: object bool can't be used in 'await' expression
+Traceback (most recent call last):
+
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Scripts\pytest.exe\__main__.py", line 7, in <module>
+    sys.exit(console_main())
+
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\config\__init__.py", line 201, in console_main
+    code = main()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\config\__init__.py", line 175, in main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 330, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 283, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 337, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 362, in pytest_runtestloop
+    item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 113, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 132, in runtestprotocol
+    reports.append(call_and_report(item, "call", log))
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 241, in call_and_report
+    call = CallInfo.from_call(
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 341, in from_call
+    result: TResult | None = func()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 242, in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 174, in pytest_runtest_call
+    item.runtest()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pytest_asyncio\plugin.py", line 457, in runtest
+    super().runtest()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\python.py", line 1627, in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\python.py", line 159, in pytest_pyfunc_call
+    result = testfunction(**testargs)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pytest_asyncio\plugin.py", line 929, in inner
+    _loop.run_until_complete(task)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 708, in run_until_complete
+    self.run_forever()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 679, in run_forever
+    self._run_once()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 2027, in _run_once
+    handle._run()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\events.py", line 89, in _run
+    self._context.run(self._callback, *self._args)
+
+  File "C:\Projects\micro-cold-spray\tests\test_main.py", line 399, in test_main_critical_service_failure
+    exit_code = await main()
+
+> File "C:\Projects\micro-cold-spray\src\micro_cold_spray\__main__.py", line 316, in main
+    success = await service_manager.start_service(name, runner, critical)
+
+TypeError: object bool can't be used in 'await' expression
+2024-12-15 14:50:59.628 | INFO     | micro_cold_spray.__main__:main:350 - Application shutdown complete
+2024-12-15 14:50:59.634 | INFO     | micro_cold_spray.__main__:main:297 - Starting Micro Cold Spray application
+2024-12-15 14:50:59.635 | ERROR    | micro_cold_spray.__main__:main:347 - Critical application error: object bool can't be used in 'await' expression
+Traceback (most recent call last):
+
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Scripts\pytest.exe\__main__.py", line 7, in <module>
+    sys.exit(console_main())
+
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\config\__init__.py", line 201, in console_main
+    code = main()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\config\__init__.py", line 175, in main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 330, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 283, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 337, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 362, in pytest_runtestloop
+    item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 113, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 132, in runtestprotocol
+    reports.append(call_and_report(item, "call", log))
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 241, in call_and_report
+    call = CallInfo.from_call(
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 341, in from_call
+    result: TResult | None = func()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 242, in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 174, in pytest_runtest_call
+    item.runtest()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pytest_asyncio\plugin.py", line 457, in runtest
+    super().runtest()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\python.py", line 1627, in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\python.py", line 159, in pytest_pyfunc_call
+    result = testfunction(**testargs)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pytest_asyncio\plugin.py", line 929, in inner
+    _loop.run_until_complete(task)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 708, in run_until_complete
+    self.run_forever()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 679, in run_forever
+    self._run_once()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 2027, in _run_once
+    handle._run()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\events.py", line 89, in _run
+    self._context.run(self._callback, *self._args)
+
+  File "C:\Projects\micro-cold-spray\tests\test_main.py", line 423, in test_main_service_death
+    exit_code = await main()
+
+> File "C:\Projects\micro-cold-spray\src\micro_cold_spray\__main__.py", line 316, in main
+    success = await service_manager.start_service(name, runner, critical)
+
+TypeError: object bool can't be used in 'await' expression
+2024-12-15 14:50:59.640 | INFO     | micro_cold_spray.__main__:main:350 - Application shutdown complete
+2024-12-15 14:50:59.644 | ERROR    | micro_cold_spray.__main__:main:347 - Critical application error: Test error
+Traceback (most recent call last):
+
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Scripts\pytest.exe\__main__.py", line 7, in <module>
+    sys.exit(console_main())
+
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\config\__init__.py", line 201, in console_main
+    code = main()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\config\__init__.py", line 175, in main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 330, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 283, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 337, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 362, in pytest_runtestloop
+    item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 113, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 132, in runtestprotocol
+    reports.append(call_and_report(item, "call", log))
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 241, in call_and_report
+    call = CallInfo.from_call(
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 341, in from_call
+    result: TResult | None = func()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 242, in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 174, in pytest_runtest_call
+    item.runtest()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pytest_asyncio\plugin.py", line 457, in runtest
+    super().runtest()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\python.py", line 1627, in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\python.py", line 159, in pytest_pyfunc_call
+    result = testfunction(**testargs)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pytest_asyncio\plugin.py", line 929, in inner
+    _loop.run_until_complete(task)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 708, in run_until_complete
+    self.run_forever()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 679, in run_forever
+    self._run_once()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 2027, in _run_once
+    handle._run()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\events.py", line 89, in _run
+    self._context.run(self._callback, *self._args)
+
+  File "C:\Projects\micro-cold-spray\tests\test_main.py", line 436, in test_main_exception
+    exit_code = await main()
+
+> File "C:\Projects\micro-cold-spray\src\micro_cold_spray\__main__.py", line 295, in main
+    setup_logging()
+
+  File "C:\Projects\micro-cold-spray\tests\test_main.py", line 431, in mock_setup
+    raise RuntimeError("Test error")
+
+RuntimeError: Test error
+2024-12-15 14:50:59.649 | INFO     | micro_cold_spray.__main__:main:350 - Application shutdown complete
+2024-12-15 14:50:59.655 | INFO     | micro_cold_spray.__main__:main:297 - Starting Micro Cold Spray application
+2024-12-15 14:50:59.656 | WARNING  | micro_cold_spray.__main__:main:339 - Non-critical service state died - attempting restart
+2024-12-15 14:50:59.656 | INFO     | micro_cold_spray.__main__:main:344 - Shutdown requested by user...
+2024-12-15 14:50:59.656 | INFO     | micro_cold_spray.__main__:main:350 - Application shutdown complete
+2024-12-15 14:50:59.660 | WARNING  | micro_cold_spray.__main__:check_service_health:78 - Service on port 8000 starting up (health endpoint not ready)
+2024-12-15 14:50:59.660 | WARNING  | micro_cold_spray.__main__:check_service_health:78 - Service on port 8000 starting up (health endpoint not ready)
+2024-12-15 14:50:59.660 | INFO     | micro_cold_spray.__main__:check_service_health:87 - Service on port 8000 is healthy (status: ok)
+2024-12-15 14:50:59.667 | INFO     | micro_cold_spray.__main__:main:297 - Starting Micro Cold Spray application
+2024-12-15 14:50:59.667 | CRITICAL | micro_cold_spray.__main__:main:335 - Critical service config died - shutting down system
+2024-12-15 14:50:59.667 | INFO     | micro_cold_spray.__main__:main:350 - Application shutdown complete
+2024-12-15 14:50:59.671 | INFO     | micro_cold_spray.__main__:main:297 - Starting Micro Cold Spray application
+2024-12-15 14:50:59.672 | INFO     | micro_cold_spray.__main__:main:344 - Shutdown requested by user...
+2024-12-15 14:50:59.672 | INFO     | micro_cold_spray.__main__:main:350 - Application shutdown complete
+2024-12-15 14:50:59.678 | INFO     | micro_cold_spray.__main__:stop_service:173 - Stopping test service...
+2024-12-15 14:50:59.678 | WARNING  | micro_cold_spray.__main__:stop_service:177 - Force killing test service...
+2024-12-15 14:50:59.679 | DEBUG    | micro_cold_spray.__main__:stop_service:184 - Removed test service from process list
+2024-12-15 14:50:59.682 | INFO     | micro_cold_spray.__main__:start_service:135 - Starting test service...
+2024-12-15 14:50:59.691 | INFO     | micro_cold_spray.__main__:main:297 - Starting Micro Cold Spray application
+2024-12-15 14:50:59.692 | ERROR    | micro_cold_spray.__main__:main:347 - Critical application error: object MagicMock can't be used in 'await' expression
+Traceback (most recent call last):
+
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Scripts\pytest.exe\__main__.py", line 7, in <module>
+    sys.exit(console_main())
+
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\config\__init__.py", line 201, in console_main
+    code = main()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\config\__init__.py", line 175, in main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 330, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 283, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 337, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 362, in pytest_runtestloop
+    item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 113, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 132, in runtestprotocol
+    reports.append(call_and_report(item, "call", log))
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 241, in call_and_report
+    call = CallInfo.from_call(
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 341, in from_call
+    result: TResult | None = func()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 242, in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 174, in pytest_runtest_call
+    item.runtest()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pytest_asyncio\plugin.py", line 457, in runtest
+    super().runtest()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\python.py", line 1627, in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\python.py", line 159, in pytest_pyfunc_call
+    result = testfunction(**testargs)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pytest_asyncio\plugin.py", line 929, in inner
+    _loop.run_until_complete(task)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 708, in run_until_complete
+    self.run_forever()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 679, in run_forever
+    self._run_once()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 2027, in _run_once
+    handle._run()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\events.py", line 89, in _run
+    self._context.run(self._callback, *self._args)
+
+> File "C:\Projects\micro-cold-spray\src\micro_cold_spray\__main__.py", line 316, in main
+    success = await service_manager.start_service(name, runner, critical)
+
+TypeError: object MagicMock can't be used in 'await' expression
+2024-12-15 14:50:59.698 | INFO     | micro_cold_spray.__main__:main:350 - Application shutdown complete
+2024-12-15 14:50:59.803 | INFO     | micro_cold_spray.__main__:shutdown_handler:323 - Shutdown requested...
+2024-12-15 14:50:59.977 | ERROR    | micro_cold_spray.ui.utils:monitor_service_logs:89 - Failed to parse log entry: Invalid log format
+2024-12-15 14:50:59.985 | ERROR    | micro_cold_spray.ui.utils:get_log_entries:131 - Permission denied accessing log file
+2024-12-15 14:50:59.989 | ERROR    | micro_cold_spray.ui.utils:monitor_service_logs:108 - Error monitoring logs: Stat error
+2024-12-15 14:51:01.008 | ERROR    | micro_cold_spray.ui.utils:monitor_service_logs:89 - Failed to parse log entry: Invalid message format
+2024-12-15 14:51:01.014 | ERROR    | micro_cold_spray.ui.utils:monitor_service_logs:108 - Error monitoring logs: Permission denied
+2024-12-15 14:51:01.021 | ERROR    | micro_cold_spray.ui.utils:monitor_service_logs:108 - Error monitoring logs: Unexpected error
+2024-12-15 14:51:01.029 | ERROR    | micro_cold_spray.ui.utils:get_log_entries:139 - Permission denied accessing log file
+2024-12-15 14:52:22.687 | INFO     | micro_cold_spray.__main__:main:297 - Starting Micro Cold Spray application
+2024-12-15 14:52:22.687 | ERROR    | micro_cold_spray.__main__:main:347 - Critical application error: object MagicMock can't be used in 'await' expression
+Traceback (most recent call last):
+
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Scripts\pytest.exe\__main__.py", line 7, in <module>
+    sys.exit(console_main())
+
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\config\__init__.py", line 201, in console_main
+    code = main()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\config\__init__.py", line 175, in main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 330, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 283, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 337, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\main.py", line 362, in pytest_runtestloop
+    item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 113, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 132, in runtestprotocol
+    reports.append(call_and_report(item, "call", log))
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 241, in call_and_report
+    call = CallInfo.from_call(
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 341, in from_call
+    result: TResult | None = func()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 242, in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\runner.py", line 174, in pytest_runtest_call
+    item.runtest()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pytest_asyncio\plugin.py", line 457, in runtest
+    super().runtest()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\python.py", line 1627, in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pluggy\_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\python.py", line 159, in pytest_pyfunc_call
+    result = testfunction(**testargs)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\site-packages\pytest_asyncio\plugin.py", line 929, in inner
+    _loop.run_until_complete(task)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 708, in run_until_complete
+    self.run_forever()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 679, in run_forever
+    self._run_once()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 2027, in _run_once
+    handle._run()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\events.py", line 89, in _run
+    self._context.run(self._callback, *self._args)
+
+> File "C:\Projects\micro-cold-spray\src\micro_cold_spray\__main__.py", line 316, in main
+    success = await service_manager.start_service(name, runner, critical)
+
+TypeError: object MagicMock can't be used in 'await' expression
+2024-12-15 14:52:22.692 | INFO     | micro_cold_spray.__main__:main:350 - Application shutdown complete
+2024-12-15 15:03:18.935 | INFO     | __main__:main:297 - Starting Micro Cold Spray application
+2024-12-15 15:03:18.935 | INFO     | __main__:start_service:135 - Starting config service...
+2024-12-15 15:03:22.010 | INFO     | __main__:check_service_health:87 - Service on port 8001 is healthy (status: ok)
+2024-12-15 15:03:24.013 | INFO     | __main__:start_service:135 - Starting messaging service...
+2024-12-15 15:03:27.095 | INFO     | __main__:check_service_health:87 - Service on port 8007 is healthy (status: ok)
+2024-12-15 15:03:29.104 | INFO     | __main__:start_service:135 - Starting communication service...
+2024-12-15 15:03:34.695 | INFO     | __main__:check_service_health:87 - Service on port 8002 is healthy (status: degraded)
+2024-12-15 15:03:36.702 | INFO     | __main__:start_service:135 - Starting state service...
+2024-12-15 15:03:42.277 | WARNING  | __main__:check_service_health:90 - Service on port 8004 reported unhealthy status: error
+2024-12-15 15:03:46.339 | WARNING  | __main__:check_service_health:90 - Service on port 8004 reported unhealthy status: error
+2024-12-15 15:03:50.394 | WARNING  | __main__:check_service_health:90 - Service on port 8004 reported unhealthy status: error
+2024-12-15 15:03:50.394 | WARNING  | __main__:start_service:160 - Non-critical service state failed health check but continuing
+2024-12-15 15:03:52.406 | INFO     | __main__:start_service:135 - Starting ui service...
+2024-12-15 15:03:55.481 | WARNING  | __main__:check_service_health:90 - Service on port 8000 reported unhealthy status: healthy
+2024-12-15 15:03:59.520 | WARNING  | __main__:check_service_health:90 - Service on port 8000 reported unhealthy status: healthy
+2024-12-15 15:04:03.557 | WARNING  | __main__:check_service_health:90 - Service on port 8000 reported unhealthy status: healthy
+2024-12-15 15:04:03.558 | WARNING  | __main__:start_service:160 - Non-critical service ui failed health check but continuing
+2024-12-15 15:04:08.693 | INFO     | __main__:shutdown_handler:323 - Shutdown requested...
+2024-12-15 15:04:08.694 | INFO     | __main__:stop_service:173 - Stopping ui service...
+2024-12-15 15:04:08.699 | DEBUG    | __main__:stop_service:184 - Removed ui service from process list
+2024-12-15 15:04:08.700 | INFO     | __main__:stop_service:173 - Stopping state service...
+2024-12-15 15:04:08.705 | DEBUG    | __main__:stop_service:184 - Removed state service from process list
+2024-12-15 15:04:08.705 | INFO     | __main__:stop_service:173 - Stopping communication service...
+2024-12-15 15:04:08.708 | DEBUG    | __main__:stop_service:184 - Removed communication service from process list
+2024-12-15 15:04:08.708 | INFO     | __main__:stop_service:173 - Stopping messaging service...
+2024-12-15 15:04:08.712 | DEBUG    | __main__:stop_service:184 - Removed messaging service from process list
+2024-12-15 15:04:08.713 | INFO     | __main__:stop_service:173 - Stopping config service...
+2024-12-15 15:04:08.716 | DEBUG    | __main__:stop_service:184 - Removed config service from process list
+2024-12-15 15:04:08.719 | INFO     | __main__:main:350 - Application shutdown complete
+2024-12-15 16:24:11.116 | INFO     | __main__:main:342 - Starting Micro Cold Spray application
+2024-12-15 16:24:11.116 | INFO     | __main__:start_service:147 - Starting config service...
+2024-12-15 16:24:28.699 | DEBUG    | __main__:stop_service:196 - Removed config service from process list
+2024-12-15 16:24:28.699 | INFO     | __main__:main:395 - Application shutdown complete
+2024-12-15 16:26:03.447 | INFO     | __main__:main:342 - Starting Micro Cold Spray application
+2024-12-15 16:26:03.447 | INFO     | __main__:start_service:147 - Starting config service...
+2024-12-15 16:26:06.487 | INFO     | __main__:check_service_health:87 - Service on port 8001 is healthy (status: ok)
+2024-12-15 16:26:08.495 | INFO     | __main__:start_service:147 - Starting messaging service...
+2024-12-15 16:26:11.582 | INFO     | __main__:check_service_health:87 - Service on port 8007 is healthy (status: ok)
+2024-12-15 16:26:13.583 | INFO     | __main__:start_service:147 - Starting communication service...
+2024-12-15 16:26:19.181 | INFO     | __main__:check_service_health:87 - Service on port 8002 is healthy (status: degraded)
+2024-12-15 16:26:21.192 | INFO     | __main__:start_service:147 - Starting state service...
+2024-12-15 16:26:26.792 | WARNING  | __main__:check_service_health:90 - Service on port 8004 reported unhealthy status: error
+2024-12-15 16:26:30.834 | WARNING  | __main__:check_service_health:90 - Service on port 8004 reported unhealthy status: error
+2024-12-15 16:26:34.923 | WARNING  | __main__:check_service_health:90 - Service on port 8004 reported unhealthy status: error
+2024-12-15 16:26:34.923 | WARNING  | __main__:start_service:172 - Non-critical service state failed health check but continuing
+2024-12-15 16:26:36.934 | INFO     | __main__:start_service:147 - Starting ui service...
+2024-12-15 16:26:40.025 | WARNING  | __main__:check_service_health:90 - Service on port 8000 reported unhealthy status: healthy
+2024-12-15 16:26:44.048 | WARNING  | __main__:check_service_health:90 - Service on port 8000 reported unhealthy status: healthy
+2024-12-15 16:26:48.091 | WARNING  | __main__:check_service_health:90 - Service on port 8000 reported unhealthy status: healthy
+2024-12-15 16:26:48.091 | WARNING  | __main__:start_service:172 - Non-critical service ui failed health check but continuing
+2024-12-15 16:27:01.889 | INFO     | __main__:shutdown_handler:368 - Shutdown requested...
+2024-12-15 16:27:01.890 | INFO     | __main__:stop_service:185 - Stopping ui service...
+2024-12-15 16:27:01.893 | DEBUG    | __main__:stop_service:196 - Removed ui service from process list
+2024-12-15 16:27:01.894 | INFO     | __main__:stop_service:185 - Stopping state service...
+2024-12-15 16:27:01.898 | DEBUG    | __main__:stop_service:196 - Removed state service from process list
+2024-12-15 16:27:01.898 | INFO     | __main__:stop_service:185 - Stopping communication service...
+2024-12-15 16:27:01.902 | DEBUG    | __main__:stop_service:196 - Removed communication service from process list
+2024-12-15 16:27:01.902 | INFO     | __main__:stop_service:185 - Stopping messaging service...
+2024-12-15 16:27:01.905 | DEBUG    | __main__:stop_service:196 - Removed messaging service from process list
+2024-12-15 16:27:01.905 | INFO     | __main__:stop_service:185 - Stopping config service...
+2024-12-15 16:27:01.909 | DEBUG    | __main__:stop_service:196 - Removed config service from process list
+2024-12-15 16:27:01.910 | INFO     | __main__:main:395 - Application shutdown complete
+2024-12-15 16:32:53.633 | INFO     | __main__:main:342 - Starting Micro Cold Spray application
+2024-12-15 16:32:53.633 | INFO     | __main__:start_service:147 - Starting config service...
+2024-12-15 16:32:58.674 | WARNING  | __main__:check_service_health:94 - Service on port 8001 not responding (attempt 1/5)
+2024-12-15 16:32:58.674 | DEBUG    | __main__:stop_service:196 - Removed config service from process list
+2024-12-15 16:32:58.674 | INFO     | __main__:main:395 - Application shutdown complete

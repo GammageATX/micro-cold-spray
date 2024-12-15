@@ -49,6 +49,105 @@ def file_service(config_dir):
 
 
 @pytest.mark.asyncio
+async def test_create_backup(file_service):
+    """Test creating config backup."""
+    await file_service.start()
+    
+    # Create test config
+    config_data = create_test_config_data("test_backup_create")
+    
+    try:
+        await file_service.save_config(config_data)
+        await file_service.create_backup("test_backup_create")
+        
+        # Verify backup was created
+        backup_files = list(TEST_BACKUP_DIR.glob("test_backup_create_*.bak"))
+        assert len(backup_files) > 0
+        
+        # Verify backup content
+        backup_data = load_yaml_file(backup_files[-1])
+        # Unwrap the backup data
+        unwrapped_backup_data = backup_data.get(config_data.metadata.config_type, backup_data)
+        assert unwrapped_backup_data == config_data.data
+        
+    finally:
+        # Clean up test file but leave backup for inspection
+        config_path = TEST_DATA_DIR / "test_backup_create.yaml"
+        if config_path.exists():
+            os.remove(config_path)
+
+
+@pytest.mark.asyncio
+async def test_save_config_with_backup(file_service):
+    """Test saving configuration with backup."""
+    await file_service.start()
+    
+    # Create and save initial config
+    initial_data = load_test_config("test_config")
+    config_data = create_test_config_data("test_backup", initial_data)
+    
+    try:
+        # Save initial config
+        await file_service.save_config(config_data)
+        
+        # Update config with deep copy
+        updated_data = copy.deepcopy(initial_data)
+        updated_data["application"]["info"]["version"] = "2.0.0"
+        updated_config = create_test_config_data("test_backup", updated_data)
+        
+        # Save updated config
+        await file_service.save_config(updated_config)
+        
+        # Verify backup was created
+        backup_files = list(TEST_BACKUP_DIR.glob("test_backup_*.bak"))
+        assert len(backup_files) > 0
+        
+        # Verify backup content matches original
+        backup_data = load_yaml_file(backup_files[-1])
+        # Unwrap the backup data
+        unwrapped_backup_data = backup_data.get(config_data.metadata.config_type, backup_data)
+        assert unwrapped_backup_data == initial_data
+        
+    finally:
+        # Clean up test files but leave backups for inspection
+        config_path = TEST_DATA_DIR / "test_backup.yaml"
+        if config_path.exists():
+            os.remove(config_path)
+
+
+@pytest.mark.asyncio
+async def test_config_exists(file_service):
+    """Test checking config existence."""
+    await file_service.start()
+    
+    assert await file_service.config_exists("test_config")
+    assert not await file_service.config_exists("nonexistent")
+    
+    # Check backup existence after creating one
+    config_data = create_test_config_data("test_exists")
+    try:
+        await file_service.save_config(config_data)
+        await file_service.create_backup("test_exists")
+        
+        # Verify backup was created
+        backup_files = list(TEST_BACKUP_DIR.glob("test_exists_*.bak"))
+        assert len(backup_files) > 0
+    finally:
+        config_path = TEST_DATA_DIR / "test_exists.yaml"
+        if config_path.exists():
+            os.remove(config_path)
+
+
+@pytest.mark.asyncio
+async def test_create_backup_missing_config(file_service):
+    """Test creating backup for non-existent config."""
+    await file_service.start()
+    
+    with pytest.raises(ConfigurationError, match="Config file not found"):
+        await file_service.create_backup("nonexistent")
+
+
+@pytest.mark.asyncio
 async def test_service_start(file_service):
     """Test service startup."""
     await file_service.start()
@@ -116,113 +215,16 @@ async def test_save_config(file_service):
     config_data = create_test_config_data("test_save")
     
     try:
-        # Save config
         await file_service.save_config(config_data)
-        
-        # Verify file was created
         config_path = TEST_DATA_DIR / "test_save.yaml"
         assert config_path.exists()
-        
-        # Verify content
+
+        # Verify content - Update this line to expect wrapped data
         saved_data = load_yaml_file(config_path)
-        assert saved_data == config_data.data
+        # The data is wrapped in config_type, so we need to unwrap it
+        assert saved_data[config_data.metadata.config_type] == config_data.data
     finally:
         # Clean up test file
         config_path = TEST_DATA_DIR / "test_save.yaml"
         if config_path.exists():
             os.remove(config_path)
-
-
-@pytest.mark.asyncio
-async def test_save_config_with_backup(file_service):
-    """Test saving configuration with backup."""
-    await file_service.start()
-    
-    # Create and save initial config
-    initial_data = load_test_config("test_config")
-    config_data = create_test_config_data("test_backup", initial_data)
-    
-    try:
-        # Save initial config
-        await file_service.save_config(config_data)
-        
-        # Update config with deep copy
-        updated_data = copy.deepcopy(initial_data)
-        updated_data["application"]["info"]["version"] = "2.0.0"
-        updated_config = create_test_config_data("test_backup", updated_data)
-        
-        # Save updated config
-        await file_service.save_config(updated_config)
-        
-        # Verify backup was created
-        backup_files = list(TEST_BACKUP_DIR.glob("test_backup_*.bak"))
-        assert len(backup_files) > 0
-        
-        # Verify backup content matches original
-        backup_data = load_yaml_file(backup_files[-1])
-        assert backup_data == initial_data
-        
-    finally:
-        # Clean up test files but leave backups for inspection
-        config_path = TEST_DATA_DIR / "test_backup.yaml"
-        if config_path.exists():
-            os.remove(config_path)
-
-
-@pytest.mark.asyncio
-async def test_config_exists(file_service):
-    """Test checking config existence."""
-    await file_service.start()
-    
-    assert await file_service.config_exists("test_config")
-    assert not await file_service.config_exists("nonexistent")
-    
-    # Check backup existence after creating one
-    config_data = create_test_config_data("test_exists")
-    try:
-        await file_service.save_config(config_data)
-        await file_service.create_backup("test_exists")
-        
-        # Verify backup was created
-        backup_files = list(TEST_BACKUP_DIR.glob("test_exists_*.bak"))
-        assert len(backup_files) > 0
-    finally:
-        config_path = TEST_DATA_DIR / "test_exists.yaml"
-        if config_path.exists():
-            os.remove(config_path)
-
-
-@pytest.mark.asyncio
-async def test_create_backup(file_service):
-    """Test creating config backup."""
-    await file_service.start()
-    
-    # Create test config
-    config_data = create_test_config_data("test_backup_create")
-    
-    try:
-        await file_service.save_config(config_data)
-        await file_service.create_backup("test_backup_create")
-        
-        # Verify backup was created
-        backup_files = list(TEST_BACKUP_DIR.glob("test_backup_create_*.bak"))
-        assert len(backup_files) > 0
-        
-        # Verify backup content
-        backup_data = load_yaml_file(backup_files[-1])
-        assert backup_data == config_data.data
-        
-    finally:
-        # Clean up test file but leave backup for inspection
-        config_path = TEST_DATA_DIR / "test_backup_create.yaml"
-        if config_path.exists():
-            os.remove(config_path)
-
-
-@pytest.mark.asyncio
-async def test_create_backup_missing_config(file_service):
-    """Test creating backup for non-existent config."""
-    await file_service.start()
-    
-    with pytest.raises(ConfigurationError, match="Config file not found"):
-        await file_service.create_backup("nonexistent")

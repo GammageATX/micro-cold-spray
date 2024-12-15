@@ -30,3 +30,6 @@ sphinx-autodoc-typehints>=1.23.0  # Type hint support
 # Additional dependencies
 jsonschema>=4.17.3
 psutil>=5.9.0  # System monitoring
+fastapi>=0.95.0
+httpx>=0.24.0
+uvicorn>=0.22.0
