@@ -48,20 +48,18 @@ def add_health_endpoints(router: APIRouter, service):
             }
         except Exception as e:
             logger.error(f"Health check failed: {e}")
-            return {
-                "status": "error",
-                "error": str(e),
-                "service_info": {
-                    "name": service._service_name,
-                    "running": False,
-                    "error": str(e)
-                }
-            }
+            raise HTTPException(status_code=500, detail=str(e))
 
     @router.post("/control")
     async def control_service(action: str):
         """Control service operation."""
         try:
+            if action not in ["start", "stop", "restart"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid action: {action}"
+                )
+
             if action == "stop":
                 await service.stop()
                 return {"status": "stopped"}
@@ -72,12 +70,10 @@ def add_health_endpoints(router: APIRouter, service):
                 await service.stop()
                 await service.start()
                 return {"status": "restarted"}
-            else:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid action: {action}"
-                )
+        except HTTPException:
+            raise
         except Exception as e:
+            logger.error(f"Failed to {action} service: {e}")
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to {action} service: {str(e)}"

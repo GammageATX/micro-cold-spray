@@ -127,6 +127,12 @@ class MockPLCClient(CommunicationClient):
         else:
             logger.warning(f"Attempted to write to unknown tag: {tag}")
 
+    async def simulate_error(self, error_type: str):
+        """Simulate specific error conditions."""
+        if error_type == "connection_loss":
+            self._connected = False
+            raise ConnectionError("Simulated connection loss")
+
 
 class MockSSHClient(CommunicationClient):
     """Mock SSH client for testing."""
