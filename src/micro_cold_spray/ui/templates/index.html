@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Welcome to MicroColdSpray</h1>
+<div class="dashboard">
+    <div class="api-status">
+        <h2>API Status</h2>
+        <ul>
+            {% for name, url in api_urls.items() %}
+            {% if not name == "ws" %}
+            <li>{{ name }}: {{ url }}</li>
+            {% endif %}
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+{% endblock %} 

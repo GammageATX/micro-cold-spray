@@ -2,168 +2,17 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>MicroColdSpray Control System</title>
+    <title>MicroColdSpray UI</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
-    <!-- Initialize API URLs -->
-    <script type="text/javascript">
-        /* eslint-disable */
-        window.API_URLS = JSON.parse('{{ api_urls | default({}) | tojson | safe }}');
-        window.WS_URLS = JSON.parse('{{ ws_urls | default({}) | tojson | safe }}');
-        /* eslint-enable */
-    </script>
-    <!-- Main application script -->
-    <script type="text/javascript">
-        // Validate required URLs are present
-        function validateURLs() {
-            const required = ['state', 'config', 'communication'];
-            const missing = required.filter(key => !(key in window.API_URLS));
-            if (missing.length > 0) {
-                console.error(`Missing required API URLs: ${missing.join(', ')}`);
-                showError('System configuration error. Please contact administrator.');
-                return false;
-            }
-            return true;
-        }
-
-        // Improved WebSocket connection function with reconnection
-        function connectWebSocket(url, onMessage) {
-            if (!url) {
-                console.error('Invalid WebSocket URL');
-                return null;
-            }
-
-            let ws = null;
-            let reconnectAttempts = 0;
-            const MAX_RECONNECT_ATTEMPTS = 5;
-            const RECONNECT_DELAY = 1000;
-
-            function connect() {
-                try {
-                    ws = new WebSocket(url);
-                    
-                    ws.onopen = () => {
-                        console.log(`Connected to ${url}`);
-                        reconnectAttempts = 0;
-                    };
-
-                    ws.onmessage = (event) => {
-                        try {
-                            if (onMessage && event.data) {
-                                onMessage(event);
-                            }
-                        } catch (err) {
-                            console.error('Error processing message:', err);
-                        }
-                    };
-                    
-                    ws.onclose = (event) => {
-                        console.log(`Disconnected from ${url} (code: ${event.code})`);
-                        if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-                            reconnectAttempts++;
-                            setTimeout(connect, RECONNECT_DELAY * reconnectAttempts);
-                        } else {
-                            showError(`Connection lost. Reconnection failed after ${MAX_RECONNECT_ATTEMPTS} attempts.`);
-                        }
-                    };
-
-                    ws.onerror = (error) => {
-                        console.error('WebSocket error occurred');
-                        if (error.message) {
-                            console.error('Error details:', error.message);
-                        }
-                        ws.close();
-                    };
-                } catch (err) {
-                    console.error('Failed to create WebSocket:', err);
-                    showError('Failed to establish connection. Please check your network.');
-                }
-            }
-
-            connect();
-            return ws;
-        }
-
-        // Common notification functions with safety checks
-        function showSuccess(message) {
-            if (!message) return;
-            
-            try {
-                const notification = document.createElement('div');
-                notification.className = 'notification success';
-                notification.textContent = message;
-                document.body.appendChild(notification);
-                setTimeout(() => {
-                    if (notification.parentNode) {
-                        notification.remove();
-                    }
-                }, 3000);
-            } catch (err) {
-                console.error('Error showing success notification:', err);
-            }
-        }
-
-        function showError(message) {
-            if (!message) return;
-            
-            try {
-                const notification = document.createElement('div');
-                notification.className = 'notification error';
-                notification.textContent = message;
-                document.body.appendChild(notification);
-                setTimeout(() => {
-                    if (notification.parentNode) {
-                        notification.remove();
-                    }
-                }, 5000);
-            } catch (err) {
-                console.error('Error showing error notification:', err);
-            }
-        }
-
-        // Validate URLs when page loads
-        document.addEventListener('DOMContentLoaded', validateURLs);
-    </script>
 </head>
 <body>
-    <nav class="sidebar">
-        <div class="logo">
-            <h1>MicroColdSpray</h1>
-        </div>
-        <ul class="nav-links">
-            <li class="nav-section">
-                <h3>Communication</h3>
-                <ul>
-                    <li><a href="/communication/motion">Motion Control</a></li>
-                    <li><a href="/communication/equipment">Equipment Control</a></li>
-                    <li><a href="/communication/tags">Tag Monitor</a></li>
-                </ul>
-            </li>
-            <li class="nav-section">
-                <h3>Process</h3>
-                <ul>
-                    <li><a href="/process/parameters">Parameters</a></li>
-                    <li><a href="/process/patterns">Pattern Editor</a></li>
-                    <li><a href="/process/sequences">Sequence Control</a></li>
-                </ul>
-            </li>
-            <li class="nav-section">
-                <h3>Configuration</h3>
-                <ul>
-                    <li><a href="/config/editor">Config Editor</a></li>
-                </ul>
-            </li>
-            <li class="nav-section">
-                <h3>Monitoring</h3>
-                <ul>
-                    <li><a href="/state/monitor">System State</a></li>
-                    <li><a href="/monitoring/services">Services</a></li>
-                </ul>
-            </li>
-        </ul>
+    <nav>
+        <a href="/">Home</a>
+        <a href="/testing">Testing</a>
     </nav>
-    <main class="content">
+    <main>
         {% block content %}{% endblock %}
     </main>
+    <script src="{{ url_for('static', path='js/main.js') }}"></script>
 </body>
 </html>

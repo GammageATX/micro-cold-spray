@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="panel">
+    <h2>Test Scenarios</h2>
+    <div class="control-group">
+        <h3>Available Tests</h3>
+        {% for id, scenario in test_scenarios.items() %}
+        <div class="test-scenario">
+            <h4>{{ scenario.name }}</h4>
+            <p>{{ scenario.description }}</p>
+            <div class="test-steps">
+                {% for step in scenario.steps %}
+                <div class="step">{{ step }}</div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %} 

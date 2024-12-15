@@ -5,9 +5,11 @@ import asyncio
 from datetime import datetime
 import psutil
 from loguru import logger
+from pathlib import Path
 
 _start_time = datetime.now()
 _last_log_position = 0
+LOG_FILE = Path("logs/micro_cold_spray.log")
 
 
 def get_uptime() -> float:
@@ -28,10 +30,9 @@ async def monitor_service_logs() -> dict:
         Dict containing log entry data
     """
     global _last_log_position
-    log_file = "logs/micro_cold_spray.log"
     
     try:
-        if not os.path.exists(log_file):
+        if not LOG_FILE.exists():
             return {
                 "timestamp": datetime.now().isoformat(),
                 "level": "WARNING",
@@ -39,34 +40,67 @@ async def monitor_service_logs() -> dict:
                 "message": "Log file not found"
             }
 
-        file_size = os.path.getsize(log_file)
-        
+        # Check file permissions
+        if not os.access(LOG_FILE, os.R_OK):
+            return {
+                "timestamp": datetime.now().isoformat(),
+                "level": "ERROR",
+                "service": "monitor",
+                "message": "Permission denied accessing log file"
+            }
+
+        try:
+            file_size = LOG_FILE.stat().st_size
+        except PermissionError:
+            return {
+                "timestamp": datetime.now().isoformat(),
+                "level": "ERROR",
+                "service": "monitor",
+                "message": "Permission denied accessing log file"
+            }
+
         if file_size < _last_log_position:
             _last_log_position = 0
             
         if file_size > _last_log_position:
-            with open(log_file, 'r') as f:
-                f.seek(_last_log_position)
-                new_entry = f.readline().strip()
-                _last_log_position = f.tell()
-                
-                try:
-                    parts = new_entry.split('|')
-                    return {
-                        "timestamp": parts[0].strip(),
-                        "level": parts[1].strip(),
-                        "service": parts[2].split('-')[0].strip(),
-                        "message": parts[2].split('-')[1].strip()
-                    }
-                except Exception as e:
-                    logger.error(f"Failed to parse log entry: {e}")
-                    return {
-                        "timestamp": datetime.now().isoformat(),
-                        "level": "ERROR",
-                        "service": "monitor",
-                        "message": f"Failed to parse log: {new_entry}"
-                    }
-        
+            try:
+                with open(LOG_FILE, 'r') as f:
+                    f.seek(_last_log_position)
+                    new_entry = f.readline().strip()
+                    _last_log_position = f.tell()
+                    
+                    try:
+                        # Parse log entry
+                        parts = [p.strip() for p in new_entry.split('|')]
+                        if len(parts) != 3:
+                            raise ValueError("Invalid log format")
+                            
+                        message_parts = parts[2].split('-', 1)
+                        if len(message_parts) != 2:
+                            raise ValueError("Invalid message format")
+                            
+                        return {
+                            "timestamp": parts[0],
+                            "level": parts[1],
+                            "service": message_parts[0].strip(),
+                            "message": message_parts[1].strip()
+                        }
+                    except Exception as e:
+                        logger.error(f"Failed to parse log entry: {e}")
+                        return {
+                            "timestamp": datetime.now().isoformat(),
+                            "level": "ERROR",
+                            "service": "monitor",
+                            "message": f"Failed to parse log: {new_entry}"
+                        }
+            except PermissionError:
+                return {
+                    "timestamp": datetime.now().isoformat(),
+                    "level": "ERROR",
+                    "service": "monitor",
+                    "message": "Permission denied reading log file"
+                }
+                    
         await asyncio.sleep(1)
         return None
         
@@ -89,9 +123,20 @@ def get_log_entries(n: int = 100) -> list:
     Returns:
         List of log entries
     """
-    log_file = "logs/micro_cold_spray.log"
-    entries = []
-    if os.path.exists(log_file):
-        with open(log_file) as f:
+    if not LOG_FILE.exists():
+        return []
+        
+    # Check file permissions
+    if not os.access(LOG_FILE, os.R_OK):
+        logger.error("Permission denied accessing log file")
+        return []
+        
+    try:
+        with open(LOG_FILE) as f:
             entries = f.readlines()[-n:]
-    return entries
+        return entries
+    except PermissionError:
+        logger.error("Permission denied accessing log file")
+        return []
+    except Exception:
+        return []

@@ -13,6 +13,9 @@ import uvicorn
 
 from micro_cold_spray.ui.router import app as ui_app
 
+BASE_DIR = Path(__file__).parent.parent.parent
+LOG_DIR = BASE_DIR / "logs"
+
 
 def setup_logging() -> None:
     """Configure loguru for application logging."""
@@ -29,13 +32,16 @@ def setup_logging() -> None:
     logger.add(
         sys.stderr,
         format=log_format,
-        level="INFO",  # Changed to INFO for better visibility
+        level="INFO",
         enqueue=True
     )
 
-    # Add file logging
+    # Create log directory if it doesn't exist
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Add file logging with absolute path
     logger.add(
-        "logs/micro_cold_spray.log",
+        str(LOG_DIR / "micro_cold_spray.log"),
         rotation="1 day",
         retention="30 days",
         compression="zip",
@@ -58,7 +64,7 @@ def ensure_directories() -> None:
         "data/runs"
     ]
     for dir_name in dirs:
-        Path(dir_name).mkdir(parents=True, exist_ok=True)
+        (BASE_DIR / dir_name).mkdir(parents=True, exist_ok=True)
 
 
 async def check_service_health(port: int, retries: int = 5, delay: float = 2.0) -> bool:
@@ -123,7 +129,7 @@ class ServiceManager:
             'ui': 8000
         }
         
-    async def start_service(self, name: str, runner: callable, critical: bool = False) -> bool:
+    async def start_service(self, name: str, runner: callable, critical: bool = False, port: int = None) -> bool:
         """Start a service and verify it's running."""
         try:
             logger.info(f"Starting {name} service...")
@@ -131,14 +137,20 @@ class ServiceManager:
             process.start()
             self.processes[name] = process
             
+            # Skip health checks for services without ports (e.g. test services)
+            if port is None and name not in self.ports:
+                return True
+                
+            service_port = port or self.ports[name]
+            
             # First wait for the service to start accepting connections
-            if not await wait_for_service(self.ports[name]):
+            if not await wait_for_service(service_port):
                 logger.error(f"Service {name} failed to start accepting connections")
                 return False
                 
             # Then check its health
             retries = 5 if critical else 3
-            is_healthy = await check_service_health(self.ports[name], retries=retries)
+            is_healthy = await check_service_health(service_port, retries=retries)
             
             if not is_healthy:
                 if critical:
@@ -165,6 +177,11 @@ class ServiceManager:
                 logger.warning(f"Force killing {name} service...")
                 process.kill()
                 process.join()
+        
+        # Remove the process from the dictionary
+        if name in self.processes:
+            del self.processes[name]
+            logger.debug(f"Removed {name} service from process list")
 
     def stop_all(self) -> None:
         """Stop all services in reverse order."""
@@ -272,7 +289,8 @@ def run_validation_api_process():
 async def main():
     """Application entry point with improved service management."""
     service_manager = ServiceManager()
-    
+    exit_code = 1  # Default to error exit code
+
     try:
         setup_logging()
         ensure_directories()
@@ -284,11 +302,14 @@ async def main():
             ('config', run_config_api_process, True),
             ('messaging', run_messaging_api_process, True),
             ('communication', run_communication_api_process, True),
-            
+
             # Non-critical services
             ('state', run_state_api_process, False),
             ('ui', run_ui_process, False)
         ]
+
+        # Create a map of service names to their runners
+        startup_map = {name: runner for name, runner, _ in startup_sequence}
 
         # Start services in sequence
         for name, runner, critical in startup_sequence:
@@ -312,21 +333,23 @@ async def main():
                 if not process.is_alive():
                     if name in ['config', 'messaging', 'communication']:
                         logger.critical(f"Critical service {name} died - shutting down system")
-                        shutdown_handler(None, None)
+                        service_manager.stop_all()
+                        return 1
                     else:
                         logger.warning(f"Non-critical service {name} died - attempting restart")
-                        await service_manager.start_service(name, startup_sequence[name][1], False)
+                        await service_manager.start_service(name, startup_map[name], False)
             await asyncio.sleep(5)
 
     except KeyboardInterrupt:
         logger.info("Shutdown requested by user...")
+        exit_code = 0
     except Exception as e:
         logger.exception(f"Critical application error: {e}")
     finally:
         service_manager.stop_all()
         logger.info("Application shutdown complete")
-        sys.exit(1)
+        return exit_code
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    sys.exit(asyncio.run(main()))
