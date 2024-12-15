@@ -1,0 +1,18 @@
+[run]
+source = src/micro_cold_spray
+omit =
+    */tests/*
+    */__pycache__/*
+    */__init__.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    pass
+    raise NotImplementedError
+
+[html]
+directory = coverage_html_report 

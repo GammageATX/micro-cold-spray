@@ -28,7 +28,7 @@ def load_test_config(name: str, format: str = "yaml") -> Dict[str, Any]:
     else:
         config_path = test_config_dir / f"{name}.yaml"
         with open(config_path) as f:
-            return yaml.safe_load(f)
+            return yaml.load(f)
 
 
 def create_test_service(name: str) -> "BaseService":

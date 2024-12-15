@@ -221,7 +221,7 @@ class SequenceService(BaseService):
             for file_path in sequence_path.glob("*.yaml"):
                 try:
                     with open(file_path) as f:
-                        data = yaml.safe_load(f)
+                        data = yaml.load(f)
                         sequence = data.get("sequence", {})
                         metadata = sequence.get("metadata", {})
                         
@@ -306,7 +306,7 @@ class SequenceService(BaseService):
             
             # Save file
             with open(file_path, 'w') as f:
-                yaml.safe_dump(sequence_data, f, sort_keys=False)
+                yaml.dump(sequence_data, f, sort_keys=False)
                 
         except Exception as e:
             raise ProcessError(f"Failed to save sequence file: {e}")
@@ -351,7 +351,7 @@ class SequenceService(BaseService):
                 raise ProcessError(f"Sequence not found: {sequence_id}")
             
             with open(file_path) as f:
-                data = yaml.safe_load(f)
+                data = yaml.load(f)
                 
             # Validate sequence before returning
             await self._validate_sequence_structure(data)

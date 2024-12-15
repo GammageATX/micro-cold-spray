@@ -136,7 +136,7 @@ class ParameterService(BaseService):
             for file_path in param_path.glob("*.yaml"):
                 try:
                     with open(file_path) as f:
-                        data = yaml.safe_load(f)
+                        data = yaml.load(f)
                         self._parameter_sets[file_path.stem] = data
                 except Exception as e:
                     logger.warning(f"Error loading parameter file {file_path}: {e}")

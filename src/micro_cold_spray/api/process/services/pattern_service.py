@@ -139,7 +139,7 @@ class PatternService(BaseService):
             for file_path in pattern_path.glob("*.yaml"):
                 try:
                     with open(file_path) as f:
-                        data = yaml.safe_load(f)
+                        data = yaml.load(f)
                         files.append({
                             "name": file_path.stem,
                             "path": str(file_path),
@@ -174,7 +174,7 @@ class PatternService(BaseService):
                 raise ProcessError(f"Pattern file not found: {pattern_id}")
             
             with open(file_path) as f:
-                return yaml.safe_load(f)
+                return yaml.load(f)
                 
         except Exception as e:
             raise ProcessError(f"Failed to load pattern file: {e}")

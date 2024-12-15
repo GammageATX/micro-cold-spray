@@ -42,7 +42,7 @@ def load_yaml_file(path: Path) -> Dict[str, Any]:
         Loaded YAML data
     """
     with open(path) as f:
-        return yaml.safe_load(f)
+        return yaml.load(f)
 
 
 def save_yaml_file(path: Path, data: Dict[str, Any]) -> None:
@@ -53,7 +53,7 @@ def save_yaml_file(path: Path, data: Dict[str, Any]) -> None:
         data: Data to save
     """
     with open(path, 'w') as f:
-        yaml.safe_dump(data, f)
+        yaml.dump(data, f)
 
 
 def load_test_schema(name: str) -> Dict[str, Any]:
