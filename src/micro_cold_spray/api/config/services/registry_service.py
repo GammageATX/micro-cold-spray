@@ -249,3 +249,57 @@ class RegistryService(BaseService):
                 "Failed to load validation registry",
                 {"error": str(e)}
             )
+
+    async def validate_tag(self, tag: str) -> bool:
+        """Validate a tag exists in the registry.
+        
+        Args:
+            tag: Tag to validate
+            
+        Returns:
+            True if tag is valid, False otherwise
+        """
+        try:
+            return tag in self._tag_registry
+        except Exception as e:
+            logger.error(f"Failed to validate tag {tag}: {e}")
+            return False
+
+    async def update_tag_references(
+        self, config_data: Dict[str, Any], old_tag: str, new_tag: str
+    ) -> bool:
+        """Update tag references in config data.
+        
+        Args:
+            config_data: Configuration data to update
+            old_tag: Old tag to replace
+            new_tag: New tag to use
+            
+        Returns:
+            True if any references were updated, False otherwise
+        """
+        try:
+            updated = False
+            
+            def update_dict(d: Dict[str, Any]) -> None:
+                nonlocal updated
+                for key, value in d.items():
+                    if isinstance(value, str) and value == old_tag:
+                        d[key] = new_tag
+                        updated = True
+                    elif isinstance(value, dict):
+                        update_dict(value)
+                    elif isinstance(value, list):
+                        for i, item in enumerate(value):
+                            if isinstance(item, str) and item == old_tag:
+                                value[i] = new_tag
+                                updated = True
+                            elif isinstance(item, dict):
+                                update_dict(item)
+            
+            update_dict(config_data)
+            return updated
+            
+        except Exception as e:
+            logger.error(f"Failed to update tag references from {old_tag} to {new_tag}: {e}")
+            return False

@@ -12,6 +12,10 @@ from micro_cold_spray.api.config.models import ConfigData
 
 class CacheEntry:
     def __init__(self, data: ConfigData, ttl: int = 3600):
+        if not data:
+            raise ValueError("Config data cannot be None")
+        if not data.metadata or not data.data:
+            raise ValueError("Invalid config data")
         self.data = data
         self.timestamp = datetime.now()
         self.ttl = ttl
@@ -48,6 +52,8 @@ class ConfigCacheService(BaseService):
 
     async def get_cached_config(self, config_type: str) -> Optional[ConfigData]:
         """Get cached config with TTL check."""
+        if config_type is None:
+            raise ConfigurationError("Config type cannot be None")
         self._cleanup_expired()
         entry = self._cache.get(config_type)
         if entry and not self._is_expired(entry):
@@ -75,6 +81,10 @@ class ConfigCacheService(BaseService):
             config_type: Type of configuration to cache
             config_data: Configuration data to cache
         """
+        if config_type is None:
+            raise ConfigurationError("Config type cannot be None")
+        if config_data is None:
+            raise ConfigurationError("Config data cannot be None")
         try:
             self._cache[config_type] = CacheEntry(config_data)
         except Exception as e:

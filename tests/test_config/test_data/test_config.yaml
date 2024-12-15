@@ -1,0 +1,19 @@
+test_service:
+  name: "test"
+  version: "1.0.0"
+  settings:
+    timeout: 30
+    retry_count: 3
+  environment:
+    mode: "test"
+    debug: true
+  paths:
+    data: "data/"
+    logs: "logs/"
+  features:
+    validation:
+      enabled: true
+      strict_mode: false
+    caching:
+      enabled: true
+      ttl: 3600 

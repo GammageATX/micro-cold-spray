@@ -52,18 +52,19 @@ class FormatService(BaseService):
         examples: List[str]
     ) -> None:
         """Register a new format validator."""
+        if format_type in self._format_validators:
+            raise ConfigurationError(
+                "Format already registered",
+                {"format": format_type}
+            )
+        
         try:
-            if format_type in self._format_validators:
-                raise ConfigurationError(
-                    "Format already registered",
-                    {"format": format_type}
-                )
-            
-            self._format_validators[format_type] = validator
-            self._format_metadata[format_type] = FormatMetadata(
+            metadata = FormatMetadata(
                 description=description,
                 examples=examples
             )
+            self._format_validators[format_type] = validator
+            self._format_metadata[format_type] = metadata
             logger.debug("Registered format validator: {}", format_type)
             
         except Exception as e:
@@ -73,7 +74,7 @@ class FormatService(BaseService):
                     "format": format_type,
                     "error": str(e)
                 }
-            )
+            ) from e
 
     def validate_format(self, format_type: str, value: Any) -> Optional[str]:
         """Validate value against format type."""
@@ -164,7 +165,7 @@ class FormatService(BaseService):
             return "Invalid IP address format - octets must be numbers"
         except Exception as e:
             logger.error("Unexpected error in IP validation: {}", e)
-            return f"Validation failed: {str(e)}"
+            return "Invalid IP address format"
                 
         return None
 
@@ -174,17 +175,35 @@ class FormatService(BaseService):
             return "Value must be string"
             
         try:
-            pattern = r"^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$"
-            if not re.match(pattern, value):
-                return "Invalid hostname format"
-                
+            # Check total length
             if len(value) > 255:
                 return "Hostname too long (max 255 characters)"
-        except Exception as e:
-            logger.error("Unexpected error in hostname validation: {}", e)
-            return f"Validation failed: {str(e)}"
+                
+            # Split hostname into labels
+            labels = value.split('.')
             
-        return None
+            # Special case: single label hostname
+            if len(labels) == 1:
+                if all(c.isalnum() or c == '-' for c in value):
+                    if not value.startswith('-') and not value.endswith('-'):
+                        return None
+                return "Invalid hostname format"
+                
+            # Check each label
+            for label in labels:
+                if not label:
+                    return "Invalid hostname format"
+                if len(label) > 63:
+                    return "Label too long (max 63 characters)"
+                if label[0] == '-' or label[-1] == '-':
+                    return "Invalid hostname format"
+                if not all(c.isalnum() or c == '-' for c in label):
+                    return "Invalid hostname format"
+                
+            return None
+                
+        except Exception as e:
+            return f"Validation failed: {str(e)}"
 
     def _validate_port(self, value: Any) -> Optional[str]:
         """Validate port number."""
@@ -193,10 +212,7 @@ class FormatService(BaseService):
                 return "Port must be integer"
             if not 1 <= value <= 65535:
                 return "Port must be between 1 and 65535"
-        except ValueError:
-            return "Invalid port number format"
         except Exception as e:
-            logger.error("Unexpected error in port validation: {}", e)
             return f"Validation failed: {str(e)}"
         return None
 
@@ -205,27 +221,24 @@ class FormatService(BaseService):
         if not isinstance(value, str):
             return "Path must be string"
             
+        # Basic path validation
+        if not value or value.isspace():
+            return "Path cannot be empty"
+            
+        invalid_chars = '<>"|?*'
+        if any(c in value for c in invalid_chars):
+            return f"Path contains invalid characters: {invalid_chars}"
+            
+        # Check path length
+        if len(value) > 260:  # Windows MAX_PATH
+            return "Path too long (max 260 characters)"
+            
+        # Additional path validation
         try:
             path = Path(value)
-            
-            # Basic path validation
-            if not value or value.isspace():
-                return "Path cannot be empty"
-                
-            invalid_chars = '<>"|?*'
-            if any(c in value for c in invalid_chars):
-                return f"Path contains invalid characters: {invalid_chars}"
-                
-            # Check path length
-            if len(str(path)) > 260:  # Windows MAX_PATH
-                return "Path too long (max 260 characters)"
-                
-            # Additional path validation
             if not path.is_absolute() and '..' in str(path):
                 return "Relative paths cannot contain parent directory references (..)"
-                
         except Exception as e:
-            logger.error("Unexpected error in path validation: {}", e)
             return f"Invalid path format: {str(e)}"
             
         return None

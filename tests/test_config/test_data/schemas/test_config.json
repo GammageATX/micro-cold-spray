@@ -1,0 +1,109 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "title": "Test Configuration Schema",
+    "description": "Schema for validating test configuration files",
+    "properties": {
+        "test_service": {
+            "type": "object",
+            "required": ["name", "version", "settings", "environment", "paths", "features"],
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Service name"
+                },
+                "version": {
+                    "type": "string",
+                    "pattern": "^\\d+\\.\\d+\\.\\d+$",
+                    "description": "Service version in semver format"
+                },
+                "settings": {
+                    "type": "object",
+                    "required": ["timeout", "retry_count"],
+                    "properties": {
+                        "timeout": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 3600,
+                            "description": "Operation timeout in seconds"
+                        },
+                        "retry_count": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 10,
+                            "description": "Number of retry attempts"
+                        }
+                    }
+                },
+                "environment": {
+                    "type": "object",
+                    "required": ["mode", "debug"],
+                    "properties": {
+                        "mode": {
+                            "type": "string",
+                            "enum": ["test", "development", "production"],
+                            "description": "Environment mode"
+                        },
+                        "debug": {
+                            "type": "boolean",
+                            "description": "Debug mode flag"
+                        }
+                    }
+                },
+                "paths": {
+                    "type": "object",
+                    "required": ["data", "logs"],
+                    "properties": {
+                        "data": {
+                            "type": "string",
+                            "pattern": "^[\\w\\-./]+$",
+                            "description": "Data directory path"
+                        },
+                        "logs": {
+                            "type": "string",
+                            "pattern": "^[\\w\\-./]+$",
+                            "description": "Logs directory path"
+                        }
+                    }
+                },
+                "features": {
+                    "type": "object",
+                    "required": ["validation", "caching"],
+                    "properties": {
+                        "validation": {
+                            "type": "object",
+                            "required": ["enabled", "strict_mode"],
+                            "properties": {
+                                "enabled": {
+                                    "type": "boolean",
+                                    "description": "Enable validation"
+                                },
+                                "strict_mode": {
+                                    "type": "boolean",
+                                    "description": "Enable strict validation mode"
+                                }
+                            }
+                        },
+                        "caching": {
+                            "type": "object",
+                            "required": ["enabled", "ttl"],
+                            "properties": {
+                                "enabled": {
+                                    "type": "boolean",
+                                    "description": "Enable caching"
+                                },
+                                "ttl": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 86400,
+                                    "description": "Cache TTL in seconds"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "required": ["test_service"]
+} 

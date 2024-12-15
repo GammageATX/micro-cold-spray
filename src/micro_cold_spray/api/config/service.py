@@ -127,6 +127,10 @@ class ConfigService(BaseService):
                 if not validation_result.valid:
                     return validation_result
 
+            # Create backup if requested
+            if update.backup:
+                await self._file_service.create_backup(update.config_type)
+
             # Create config data object
             config_data = ConfigData(
                 metadata=ConfigMetadata(
@@ -141,10 +145,6 @@ class ConfigService(BaseService):
             
             # Update cache
             await self._cache_service.cache_config(update.config_type, config_data)
-            
-            # Create backup if requested
-            if update.backup:
-                await self._file_service.create_backup(update.config_type)
 
             return ConfigValidationResult(valid=True, errors=[], warnings=[])
 
@@ -179,6 +179,9 @@ class ConfigService(BaseService):
                 warnings=[]
             )
 
+        except ConfigurationError as e:
+            logger.error(f"Failed to validate config {config_type}: {e}")
+            raise  # Re-raise the original error
         except Exception as e:
             logger.error(f"Failed to validate config {config_type}: {e}")
             raise ConfigurationError(f"Failed to validate config {config_type}") from e
@@ -239,6 +242,9 @@ class ConfigService(BaseService):
                         validate=request.validate
                     ))
 
+        except ConfigurationError as e:
+            logger.error(f"Failed to remap tag {request.old_tag}: {e}")
+            raise  # Re-raise the original error
         except Exception as e:
             logger.error(f"Failed to remap tag {request.old_tag}: {e}")
             raise ConfigurationError(f"Failed to remap tag {request.old_tag}") from e
