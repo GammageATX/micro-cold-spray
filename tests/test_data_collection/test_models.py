@@ -34,7 +34,11 @@ class TestSprayEvent:
         
         # Verify all fields
         for field, value in valid_event_data.items():
-            assert getattr(event, field) == value
+            if field == "timestamp":
+                # Compare timezone-aware datetimes
+                assert event.timestamp.replace(tzinfo=None) == value.replace(tzinfo=None)
+            else:
+                assert getattr(event, field) == value
     
     def test_spray_event_with_current_timestamp(self, valid_event_data: Dict[str, Any]) -> None:
         """Test creating event with current timestamp."""

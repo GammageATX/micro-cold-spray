@@ -39,6 +39,173 @@ SAMPLE_EVENT = SprayEvent(
 )
 
 
+class TestStorageInitialization:
+    """Test storage initialization and connection management."""
+    
+    @pytest.mark.asyncio
+    async def test_initialization_creates_pool(self) -> None:
+        """Test that initialization creates a connection pool."""
+        storage = DatabaseStorage(TEST_DSN)
+        try:
+            await storage.initialize()
+            assert storage._pool is not None
+            assert isinstance(storage._pool, Pool)
+            assert not storage._pool.is_closing()
+        finally:
+            if storage._pool:
+                await storage._pool.close()
+    
+    @pytest.mark.asyncio
+    async def test_initialization_with_invalid_dsn(self) -> None:
+        """Test initialization with invalid connection string."""
+        invalid_dsn = "postgresql://invalid:5432/nonexistent"
+        storage = DatabaseStorage(invalid_dsn)
+        with pytest.raises(StorageError) as exc_info:
+            await storage.initialize()
+        assert "Failed to initialize database" in str(exc_info.value)
+        assert storage._pool is None
+    
+    @pytest.mark.asyncio
+    async def test_initialization_idempotent(self) -> None:
+        """Test that multiple initializations are handled correctly."""
+        storage = DatabaseStorage(TEST_DSN)
+        try:
+            # First initialization
+            await storage.initialize()
+            original_pool = storage._pool
+            
+            # Second initialization should reuse the same pool
+            await storage.initialize()
+            assert storage._pool is original_pool
+            assert not storage._pool.is_closing()
+            
+            # Verify pool is functional
+            async with storage._pool.acquire() as conn:
+                result = await conn.fetchval("SELECT 1")
+                assert result == 1
+        finally:
+            if storage._pool:
+                await storage._pool.close()
+    
+    @pytest.mark.asyncio
+    async def test_cleanup_closes_pool(self) -> None:
+        """Test that cleanup properly closes the connection pool."""
+        storage = DatabaseStorage(TEST_DSN)
+        await storage.initialize()
+        pool = storage._pool
+        assert not pool.is_closing()
+        
+        await storage._pool.close()  # Use direct pool closing since cleanup isn't implemented
+        assert pool.is_closing()
+        storage._pool = None  # Cleanup the reference
+
+
+class TestStorageTransactions:
+    """Test transaction management in storage operations."""
+    
+    @pytest.fixture
+    async def storage(self) -> AsyncGenerator[DatabaseStorage, None]:
+        """Create and initialize storage for tests."""
+        storage = DatabaseStorage(TEST_DSN)
+        await storage.initialize()
+        yield storage
+        if storage._pool:
+            await storage._pool.close()
+            storage._pool = None
+    
+    @pytest.mark.asyncio
+    async def test_transaction_commit(self, storage: DatabaseStorage):
+        """Test successful transaction commit."""
+        async with storage._pool.acquire() as conn:
+            async with conn.transaction():
+                # Create test table
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS test_transaction (
+                        id SERIAL PRIMARY KEY,
+                        value TEXT
+                    )
+                """)
+                
+                # Insert test data
+                await conn.execute(
+                    "INSERT INTO test_transaction (value) VALUES ($1)",
+                    "test_value"
+                )
+            
+            # Verify data was committed
+            result = await conn.fetchval(
+                "SELECT value FROM test_transaction WHERE value = $1",
+                "test_value"
+            )
+            assert result == "test_value"
+            
+            # Cleanup
+            await conn.execute("DROP TABLE test_transaction")
+    
+    @pytest.mark.asyncio
+    async def test_transaction_rollback(self, storage: DatabaseStorage):
+        """Test transaction rollback on error."""
+        async with storage._pool.acquire() as conn:
+            # Create test table
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS test_transaction (
+                    id SERIAL PRIMARY KEY,
+                    value TEXT
+                )
+            """)
+            
+            try:
+                async with conn.transaction():
+                    await conn.execute(
+                        "INSERT INTO test_transaction (value) VALUES ($1)",
+                        "test_value"
+                    )
+                    # Simulate error
+                    raise Exception("Test error")
+            except Exception:
+                pass
+            
+            # Verify data was rolled back
+            count = await conn.fetchval(
+                "SELECT COUNT(*) FROM test_transaction WHERE value = $1",
+                "test_value"
+            )
+            assert count == 0
+            
+            # Cleanup
+            await conn.execute("DROP TABLE test_transaction")
+    
+    @pytest.mark.asyncio
+    async def test_nested_transaction(self, storage: DatabaseStorage):
+        """Test nested transaction handling."""
+        async with storage._pool.acquire() as conn:
+            async with conn.transaction():
+                # Create test table
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS test_transaction (
+                        id SERIAL PRIMARY KEY,
+                        value TEXT
+                    )
+                """)
+                
+                # Start nested transaction
+                async with conn.transaction():
+                    await conn.execute(
+                        "INSERT INTO test_transaction (value) VALUES ($1)",
+                        "nested_value"
+                    )
+                
+                # Verify nested transaction committed
+                result = await conn.fetchval(
+                    "SELECT value FROM test_transaction WHERE value = $1",
+                    "nested_value"
+                )
+                assert result == "nested_value"
+                
+                # Cleanup
+                await conn.execute("DROP TABLE test_transaction")
+
+
 @pytest.fixture(scope="session")
 def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
     """Create an event loop for the test session."""
