@@ -1,7 +1,6 @@
 """Messaging service implementation."""
 
-from typing import Dict, Any, Set, Optional, Callable, Awaitable
-from datetime import datetime
+from typing import Dict, Any, Set, Callable, Awaitable
 import asyncio
 from loguru import logger
 
@@ -31,7 +30,7 @@ class MessagingService(BaseService):
         """Start messaging service."""
         try:
             # Get valid topics from config
-            config = await self._config_service.get_config("messaging")
+            config = await self._config_service.get_config()
             topics = config.data.get("services", {}).get("message_broker", {}).get("topics", {})
             
             # Flatten topic groups into set

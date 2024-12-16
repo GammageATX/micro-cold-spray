@@ -72,13 +72,14 @@ async def test_health_check_error(test_router):
     """Test health check error handling."""
     router, service = test_router
     
-    # Force error in health check
-    async def check_health():
+    # Force error in _start to simulate health check error
+    async def _start():
         raise ValueError("Test error")
-    service.check_health = check_health
+    service._start = _start
     
     health_route = next(r for r in router.routes if r.path == "/health")
     with pytest.raises(HTTPException) as exc:
+        await service.start()
         await health_route.endpoint()
     assert exc.value.status_code == 500
     assert "Test error" in str(exc.value.detail)
@@ -117,18 +118,54 @@ async def test_health_check_stopped(test_router):
     assert response["service_info"]["running"] is False
 
 
+class TestServiceWithHealth(BaseService):
+    """Test service with health check capability."""
+    
+    def __init__(self):
+        """Initialize test service."""
+        super().__init__("test_service")
+        self._health_status = "ok"
+        self._health_message = None
+        self._health_error = None
+
+    async def check_health(self):
+        """Implement health check."""
+        if self._health_error:
+            raise ValueError(self._health_error)
+        return {
+            "status": self._health_status,
+            "message": self._health_message,
+            "error": None
+        }
+
+    def set_health_status(self, status: str, message: str = None, error: str = None):
+        """Set health check response."""
+        self._health_status = status
+        self._health_message = message
+        self._health_error = error
+
+
+@pytest.fixture
+def test_router_with_health():
+    """Create test router with service that has health check."""
+    app = FastAPI()
+    router = APIRouter()
+    service = TestServiceWithHealth()
+    add_health_endpoints(router, service)
+    app.include_router(router)
+    return router, service
+
+
 @pytest.mark.asyncio
-async def test_health_check_error_status(test_router):
+async def test_health_check_error_status(test_router_with_health):
     """Test health check with error status."""
-    router, service = test_router
+    router, service = test_router_with_health
     
     # Start service
     await service.start()
     
-    # Mock health check to return error status
-    async def check_health():
-        return {"status": "error", "error": "Test error"}
-    service.check_health = check_health
+    # Set error status
+    service.set_health_status("error", error="Test error")
     
     # Get route handler
     health_route = next(r for r in router.routes if r.path == "/health")
@@ -139,17 +176,15 @@ async def test_health_check_error_status(test_router):
 
 
 @pytest.mark.asyncio
-async def test_health_check_degraded(test_router):
+async def test_health_check_degraded(test_router_with_health):
     """Test health check with degraded status."""
-    router, service = test_router
+    router, service = test_router_with_health
     
     # Start service
     await service.start()
     
-    # Mock health check to return degraded status
-    async def check_health():
-        return {"status": "degraded", "message": "Performance degraded"}
-    service.check_health = check_health
+    # Set degraded status
+    service.set_health_status("degraded", message="Performance degraded")
     
     # Get route handler
     health_route = next(r for r in router.routes if r.path == "/health")

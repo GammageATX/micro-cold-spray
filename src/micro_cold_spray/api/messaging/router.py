@@ -2,12 +2,21 @@
 
 from typing import Dict, Any, Optional, Set
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, WebSocket, BackgroundTasks, Request
+from fastapi import APIRouter, HTTPException, WebSocket, BackgroundTasks, Body
+from starlette.websockets import WebSocketDisconnect
 from loguru import logger
+from pydantic import BaseModel
 
 from .service import MessagingService
 from micro_cold_spray.api.base.exceptions import MessageError
 from ..config.singleton import get_config_service
+
+
+class MessageData(BaseModel):
+    """Message data model."""
+    key: str
+    value: Any
+
 
 # Create router with prefix
 router = APIRouter(prefix="/messaging", tags=["messaging"])
@@ -86,16 +95,15 @@ async def get_topics():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/subscribers/{topic}")
+@router.get("/subscribers/{topic:path}")
 async def get_subscriber_count(topic: str):
-    """Get subscriber count for topic."""
+    """Get subscriber count for a topic."""
+    service = get_service()
     try:
-        service = get_service()
         count = await service.get_subscriber_count(topic)
         return {"count": count}
-    except Exception as e:
-        logger.error(f"Failed to get subscriber count: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except MessageError as e:
+        raise HTTPException(status_code=400, detail={"error": str(e), **e.details})
 
 
 async def validate_topic(topic: str) -> None:
@@ -107,137 +115,119 @@ async def validate_topic(topic: str) -> None:
     Raises:
         HTTPException: If topic is invalid
     """
-    if not topic or not topic.strip():
+    if topic.isspace():  # Whitespace-only topics are invalid
         raise HTTPException(
             status_code=400,
             detail={"error": "Invalid topic name", "topic": topic}
         )
 
 
-@router.post("/publish/{topic}")
-async def publish_message(
-    topic: str,
-    data: Dict[str, Any],
-    background_tasks: BackgroundTasks
-):
-    """Publish message to topic."""
-    await validate_topic(topic)
-    service = get_service()
+@router.post("/publish/")
+async def publish_message_empty():
+    """Handle empty topic publish attempts."""
+    raise HTTPException(
+        status_code=404,
+        detail={"error": "Topic not found", "topic": ""}
+    )
+
+
+@router.post("/publish/{topic:path}")
+async def publish_message(topic: str, message: Dict[str, Any] = Body(...)):
+    """Publish a message to a topic."""
+    if not topic:  # Empty path should be handled by publish_message_empty
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "Topic not found", "topic": topic}
+        )
     
+    await validate_topic(topic)  # Validate non-empty topics
+    
+    service = get_service()
     try:
-        await service.publish(topic, data)
-        background_tasks.add_task(logger.info, f"Published message to {topic}")
-        
+        await service.publish(topic, message)
         return {
             "status": "published",
             "topic": topic,
             "timestamp": datetime.now().isoformat()
         }
     except MessageError as e:
-        logger.error(f"Failed to publish message: {str(e)}")
-        raise HTTPException(
-            status_code=400,
-            detail={"error": str(e), "context": e.context}
-        )
-    except Exception as e:
-        logger.error(f"Failed to publish message: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail={"error": "Internal server error", "message": str(e)}
-        )
+        raise HTTPException(status_code=400, detail={"error": str(e), **e.details})
 
 
-@router.post("/request/{topic}")
-async def request_message(
-    topic: str,
-    data: Dict[str, Any],
-    background_tasks: BackgroundTasks
-):
-    """Send request and get response."""
-    await validate_topic(topic)
+@router.post("/request/{topic:path}")
+async def request_message(topic: str, message: Dict[str, Any] = Body(...)):
+    """Send a request-response message."""
     service = get_service()
-    
     try:
-        response = await service.request(topic, data)
-        background_tasks.add_task(logger.info, f"Sent request to {topic}")
-        
+        response = await service.request(topic, message)
         return {
             "status": "success",
-            "topic": topic,
             "response": response,
             "timestamp": datetime.now().isoformat()
         }
     except MessageError as e:
-        logger.error(f"Failed to send request: {str(e)}")
-        raise HTTPException(
-            status_code=400,
-            detail={"error": str(e), "context": e.context}
-        )
-    except Exception as e:
-        logger.error(f"Failed to send request: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail={"error": "Internal server error", "message": str(e)}
-        )
+        raise HTTPException(status_code=400, detail={"error": str(e), **e.details})
 
 
-@router.websocket("/subscribe/{topic}")
-async def websocket_endpoint(websocket: WebSocket, topic: str):
-    """Subscribe to topic via WebSocket."""
+@router.websocket("/subscribe/{topic:path}")
+async def websocket_subscribe(websocket: WebSocket, topic: str):
+    """Subscribe to a topic via WebSocket."""
+    service = get_service()
+    handler = None
+    
     try:
-        await validate_topic(topic)
-        service = get_service()
-        
-        # Accept connection
         await websocket.accept()
-        logger.info(f"WebSocket connection accepted for {topic}")
-        
-        # Setup message callback
-        async def callback(data: Dict[str, Any]):
-            try:
-                await websocket.send_json({
-                    "topic": topic,
-                    "data": data,
-                    "timestamp": datetime.now().isoformat()
-                })
-            except Exception as e:
-                logger.error(f"Failed to send WebSocket message: {str(e)}")
-                await websocket.close()
         
         # Subscribe to topic
-        await service.subscribe(topic, callback)
-        logger.info(f"Subscribed to {topic} via WebSocket")
-        
+        try:
+            handler = await service.subscribe(topic, lambda msg: websocket.send_json(msg))
+        except MessageError as e:
+            logger.error(f"WebSocket subscription error: {e}")
+            await websocket.close(code=1000, reason=str(e))
+            raise WebSocketDisconnect(code=1000)
+            
+        # Main message loop
         try:
             while True:
-                # Keep connection alive and handle client messages
                 data = await websocket.receive_json()
-                logger.debug(f"Received WebSocket message: {data}")
-                
+                if data.get("type") == "subscribe":
+                    await websocket.send_json({
+                        "type": "subscribed",
+                        "topic": topic,
+                        "timestamp": datetime.now().isoformat()
+                    })
+                elif data.get("type") == "ping":
+                    await websocket.send_json({"type": "pong"})
+        except WebSocketDisconnect:
+            logger.info(f"WebSocket disconnected for topic: {topic}")
         except Exception as e:
-            logger.error(f"WebSocket error: {str(e)}")
-            
+            logger.error(f"WebSocket error in message loop: {e}")
         finally:
-            await websocket.close()
-            logger.info(f"WebSocket connection closed for {topic}")
-            
+            if handler:
+                await handler.stop()
+    except WebSocketDisconnect:
+        raise
     except Exception as e:
-        logger.error(f"WebSocket setup failed: {str(e)}")
-        if websocket.client_state.connected:
-            await websocket.close()
+        logger.error(f"WebSocket error: {e}")
+        try:
+            await websocket.close(code=1000)
+        except Exception:
+            pass  # Ignore errors during close
+        raise WebSocketDisconnect(code=1000)
 
 
 @router.post("/topics")
 async def set_topics(
-    topics: Set[str],
-    background_tasks: BackgroundTasks
+    topics: Set[str] = Body(...),
+    background_tasks: BackgroundTasks = None
 ):
     """Set valid topics."""
     service = get_service()
     
     try:
         await service.set_valid_topics(topics)
-        background_tasks.add_task(logger.info, f"Updated valid topics: {topics}")
+        if background_tasks:
+            background_tasks.add_task(logger.info, f"Updated valid topics: {topics}")
         
         return {
             "status": "updated",
@@ -260,30 +250,49 @@ async def set_topics(
 
 
 @router.post("/control")
-async def control_service(request: Request):
-    """Control service operation."""
-    data = await request.json()
-    action = data.get("action")
+async def control_service(
+    data: Dict[str, Any] = Body(...),
+    background_tasks: BackgroundTasks = None
+):
+    """Control messaging service."""
     service = get_service()
+    action = data.get("action")
+    
+    if not action:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "Missing action", "valid_actions": ["start", "stop", "restart"]}
+        )
+    
+    valid_actions = ["start", "stop", "restart"]
+    if action not in valid_actions:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "Invalid action", "valid_actions": valid_actions}
+        )
     
     try:
         if action == "stop":
             await service.stop()
-            return {"status": "stopped"}
+            status = "stopped"
         elif action == "start":
             await service.start()
-            return {"status": "started"}
+            status = "started"
         elif action == "restart":
             await service.stop()
             await service.start()
-            return {"status": "restarted"}
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid action: {action}"
-            )
+            status = "restarted"
+        
+        if background_tasks:
+            background_tasks.add_task(logger.info, f"Service {status}")
+        
+        return {
+            "status": status,
+            "timestamp": datetime.now().isoformat()
+        }
     except Exception as e:
+        logger.error(f"Service control failed: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to {action} service: {str(e)}"
+            detail={"error": "Internal server error", "message": str(e)}
         )
