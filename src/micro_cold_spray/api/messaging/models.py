@@ -4,6 +4,7 @@ from typing import Any, Dict, Callable, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 import asyncio
+import inspect
 from micro_cold_spray.api.base.exceptions import ValidationError, MessageError
 from loguru import logger
 
@@ -58,11 +59,25 @@ class MessageHandler:
         return self.callback == other.callback
 
     async def process_message(self, data: Dict[str, Any]) -> None:
-        """Process a message through the handler."""
+        """Process a message through the handler.
+        
+        Args:
+            data: Message data to process
+            
+        Raises:
+            MessageError: If processing fails
+        """
         try:
             self.stats.record_message()
-            await self.callback(data)
+            
+            # Handle both async and sync callbacks
+            if inspect.iscoroutinefunction(self.callback):
+                await self.callback(data)
+            else:
+                self.callback(data)
+                
             self.stats.record_processed()
+            
         except Exception as e:
             self.stats.record_error()
             error_context = {

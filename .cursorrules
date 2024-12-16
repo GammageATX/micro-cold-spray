@@ -1,0 +1,48 @@
+{
+    "version": 1,
+    "rules": {
+        "python": {
+            "max_line_length": 100,
+            "indent_size": 4,
+            "quotes": "double",
+            "allow_unused_variables": false,
+            "require_type_hints": true,
+            "require_docstrings": {
+                "functions": true,
+                "classes": true,
+                "methods": true
+            }
+        },
+        "imports": {
+            "order": [
+                "stdlib",
+                "third_party",
+                "first_party"
+            ],
+            "group_by_package": true,
+            "alphabetize": true
+        },
+        "testing": {
+            "require_tests": true,
+            "test_naming": "^test_.*",
+            "assert_style": "pytest",
+            "mock_naming": "^mock_.*",
+            "require_assertions": true
+        },
+        "documentation": {
+            "require_module_docstring": true,
+            "docstring_style": "google",
+            "require_return_type": true,
+            "require_param_type": true
+        },
+        "security": {
+            "detect_hardcoded_secrets": true,
+            "detect_sql_injection": true,
+            "detect_unsafe_yaml": true
+        },
+        "git": {
+            "require_linear_history": true,
+            "max_commit_size": 500
+        }
+    }
+} 
