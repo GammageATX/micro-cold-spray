@@ -4,12 +4,11 @@ import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
 from fastapi.testclient import TestClient
 from datetime import datetime
-from pathlib import Path
 import yaml
 import copy
 from httpx import AsyncClient
-import shutil
 import asyncio
+import json
 
 from micro_cold_spray.api.config.router import app, init_router, router, get_service
 from micro_cold_spray.api.config.service import ConfigService
@@ -297,7 +296,6 @@ async def test_update_config_with_backup(test_client, tmp_path):
     from micro_cold_spray.api.config.service import ConfigService
     
     # Set up test directories
-    test_data_dir = Path(__file__).parent / "test_data"
     test_config_dir = tmp_path / "test_config"
     test_config_dir.mkdir()
     test_schema_dir = test_config_dir / "schemas"
@@ -305,18 +303,53 @@ async def test_update_config_with_backup(test_client, tmp_path):
     test_backup_dir = test_config_dir / "backups"
     test_backup_dir.mkdir()
     
-    # Copy test schema and config
-    test_schema_path = test_data_dir / "schemas" / "test_config.json"
-    test_config_path = test_data_dir / "test_config.yaml"
+    # Create test schema for all required types
+    test_schema = {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "application": {
+                "type": "object",
+                "properties": {
+                    "environment": {
+                        "type": "object",
+                        "properties": {
+                            "mode": {"type": "string", "enum": ["test", "development", "production"]},
+                            "version": {"type": "string"}
+                        }
+                    },
+                    "info": {
+                        "type": "object",
+                        "properties": {
+                            "version": {"type": "string"}
+                        }
+                    }
+                }
+            }
+        }
+    }
     
-    # Copy test schema for all required types
+    # Write schema for all required types
     for schema_type in ["application", "hardware", "process", "tags", "state", "file_format"]:
         schema_dest = test_schema_dir / f"{schema_type}.json"
-        schema_dest.write_text(test_schema_path.read_text())
+        with open(schema_dest, "w") as f:
+            json.dump(test_schema, f)
     
-    # Create initial test config file
+    # Create test config file
+    test_config = {
+        "application": {
+            "environment": {
+                "mode": "development",
+                "version": "1.0.0"
+            },
+            "info": {
+                "version": "1.0.0"
+            }
+        }
+    }
     test_config_dest = test_config_dir / "application.yaml"
-    shutil.copy2(test_config_path, test_config_dest)  # Copy the real config file
+    with open(test_config_dest, "w") as f:
+        yaml.dump(test_config, f)
     
     # Create and initialize service with test paths
     service = ConfigService()
@@ -335,57 +368,18 @@ async def test_update_config_with_backup(test_client, tmp_path):
     try:
         # Load initial config for comparison
         with open(test_config_dest) as f:
-            initial_config = yaml.safe_load(f)
+            initial_config = yaml.load(f, Loader=yaml.Loader)
         
         # Store a deep copy of initial config for backup comparison
-        backup_comparison = copy.deepcopy(initial_config)  # Keep the full structure
+        backup_comparison = copy.deepcopy(initial_config)
         
-        # Update config with valid changes that match application.yaml structure
-        updated_config = copy.deepcopy(initial_config)  # Start with full structure
-        updated_config["application"]["environment"]["test_value"] = "updated_test"
-        updated_config["application"]["info"]["version"] = "2.0.0"
-        
-        # Enable backup in service and file service
-        service._file_service.backup_enabled = True
-        service._config = {
-            "application": {
-                "services": {
-                    "config_manager": {
-                        "backup_enabled": True,
-                        "backup_interval": 3600,
-                        "validation_enabled": True
-                    }
-                }
-            }
-        }
-        
-        # Create backup directory if it doesn't exist
-        test_backup_dir.mkdir(exist_ok=True)
-        
-        # Set backup directory in file service
-        service._file_service._backup_dir = test_backup_dir
-        service._file_service.backup_enabled = True
-        
-        # Set backup configuration in service
-        service._config = {
-            "application": {
-                "services": {
-                    "config_manager": {
-                        "backup_enabled": True,
-                        "backup_interval": 3600,
-                        "validation_enabled": True
-                    }
-                }
-            }
-        }
-        
-        # Create update request with backup enabled
+        # Update config with valid changes
         update_dict = {
             "config_type": "application",
             "data": {
                 "application": {
                     "environment": {
-                        "test_value": "updated_test"
+                        "mode": "test"
                     },
                     "info": {
                         "version": "2.0.0"
@@ -409,14 +403,14 @@ async def test_update_config_with_backup(test_client, tmp_path):
         
         # Verify backup contains original data
         with open(backup_path) as f:
-            backup_data = yaml.safe_load(f)
+            backup_data = yaml.load(f, Loader=yaml.Loader)
             assert backup_data == backup_comparison
         
         # Verify config was updated
         with open(test_config_dest) as f:
-            updated_data = yaml.safe_load(f)
+            updated_data = yaml.load(f, Loader=yaml.Loader)
             assert "application" in updated_data
-            assert updated_data["application"]["environment"]["test_value"] == "updated_test"
+            assert updated_data["application"]["environment"]["mode"] == "test"
             assert updated_data["application"]["info"]["version"] == "2.0.0"
             
     finally:
@@ -440,21 +434,48 @@ async def test_config_endpoints(config_service, tmp_path):
     from micro_cold_spray.api.config.service import ConfigService
 
     # Create test directories
-    test_data_dir = Path(__file__).parent / "test_data"
-    test_config_dir = tmp_path / "test_config"  # Use tmp_path instead of root directory
+    test_config_dir = tmp_path / "test_config"
     test_config_dir.mkdir(exist_ok=True)
     test_schema_dir = test_config_dir / "schemas"
     test_schema_dir.mkdir(exist_ok=True)
 
-    # Copy test schema for application
-    test_schema_path = test_data_dir / "schemas" / "test_config.json"
+    # Create test schema
+    test_schema = {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "application": {
+                "type": "object",
+                "properties": {
+                    "environment": {
+                        "type": "object",
+                        "properties": {
+                            "mode": {"type": "string", "enum": ["test", "development", "production"]},
+                            "version": {"type": "string"}
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    # Write schema
     schema_dest = test_schema_dir / "application.json"
-    schema_dest.write_text(test_schema_path.read_text())
+    with open(schema_dest, "w") as f:
+        json.dump(test_schema, f)
 
     # Create test config file
-    test_config_path = test_data_dir / "test_config.yaml"
+    test_config = {
+        "application": {
+            "environment": {
+                "mode": "development",
+                "version": "1.0.0"
+            }
+        }
+    }
     config_dest = test_config_dir / "application.yaml"
-    config_dest.write_text(test_config_path.read_text())
+    with open(config_dest, "w") as f:
+        yaml.dump(test_config, f)
 
     # Create and initialize service
     service = ConfigService()
@@ -473,7 +494,7 @@ async def test_config_endpoints(config_service, tmp_path):
         
         # Enable and initialize cache service
         service._cache_service.cache_enabled = True
-        await service._cache_service.start()  # Properly await the start
+        await service._cache_service.start()
         
         # Set cache configuration in service
         service._config = {
@@ -507,7 +528,7 @@ async def test_config_endpoints(config_service, tmp_path):
             "data": {
                 "application": {
                     "environment": {
-                        "test_value": "test"
+                        "mode": "test"
                     }
                 }
             },
@@ -529,4 +550,3 @@ async def test_config_endpoints(config_service, tmp_path):
         # Clean up
         await service.stop()
         app.dependency_overrides.clear()
-        # No need to manually remove test_config_dir as it's under tmp_path

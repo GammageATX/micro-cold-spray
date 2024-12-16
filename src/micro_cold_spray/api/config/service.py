@@ -29,6 +29,7 @@ class ConfigService(BaseService):
         # Use simple hardcoded paths relative to current directory
         self._config_dir = Path("config")
         self._schema_dir = self._config_dir / "schemas"
+        self._backup_dir = self._config_dir / "backups"
         
         # Initialize services
         self._cache_service = ConfigCacheService()
@@ -36,6 +37,9 @@ class ConfigService(BaseService):
         self._schema_service = SchemaService(self._schema_dir)
         self._registry_service = RegistryService()
         self._format_service = FormatService()
+        
+        # Set backup directory in file service
+        self._file_service._backup_dir = self._backup_dir
         
         # State tracking
         self._last_error: Optional[str] = None
@@ -131,8 +135,14 @@ class ConfigService(BaseService):
             if update.backup:
                 await self._file_service.create_backup(update.config_type)
 
-            # Create config data object
-            # Handle both wrapped and unwrapped data
+            # Save config with the correct parameters
+            await self._file_service.save_config(
+                config_type=update.config_type,
+                data=update.data,
+                create_backup=False  # We already created the backup if needed
+            )
+            
+            # Create config data object for cache
             config_data = ConfigData(
                 metadata=ConfigMetadata(
                     config_type=update.config_type,
@@ -140,9 +150,6 @@ class ConfigService(BaseService):
                 ),
                 data=update.data.get(update.config_type, update.data)  # Try to unwrap, fallback to raw data
             )
-
-            # Save config
-            await self._file_service.save_config(config_data)
             
             # Update cache
             await self._cache_service.cache_config(update.config_type, config_data)
@@ -249,3 +256,11 @@ class ConfigService(BaseService):
         except Exception as e:
             logger.error(f"Failed to remap tag {request.old_tag}: {e}")
             raise ConfigurationError(f"Failed to remap tag {request.old_tag}") from e
+
+    async def clear_cache(self) -> None:
+        """Clear the configuration cache."""
+        try:
+            await self._cache_service.clear_cache()
+        except Exception as e:
+            logger.error(f"Failed to clear cache: {e}")
+            raise ConfigurationError("Failed to clear cache") from e

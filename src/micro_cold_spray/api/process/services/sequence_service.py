@@ -221,7 +221,7 @@ class SequenceService(BaseService):
             for file_path in sequence_path.glob("*.yaml"):
                 try:
                     with open(file_path) as f:
-                        data = yaml.load(f)
+                        data = yaml.load(f, Loader=yaml.Loader)(f)
                         sequence = data.get("sequence", {})
                         metadata = sequence.get("metadata", {})
                         
@@ -351,7 +351,7 @@ class SequenceService(BaseService):
                 raise ProcessError(f"Sequence not found: {sequence_id}")
             
             with open(file_path) as f:
-                data = yaml.load(f)
+                data = yaml.load(f, Loader=yaml.Loader)(f)
                 
             # Validate sequence before returning
             await self._validate_sequence_structure(data)

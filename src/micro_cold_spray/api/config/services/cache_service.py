@@ -94,9 +94,14 @@ class ConfigCacheService(BaseService):
             )
 
     async def clear_cache(self) -> None:
-        """Clear all cached data."""
-        self._cache = {}
-        self._last_cleanup = datetime.now()
+        """Clear all cached configurations."""
+        try:
+            self._cache.clear()
+            self._last_cleanup = datetime.now()
+            logger.info("Cache cleared successfully")
+        except Exception as e:
+            logger.error(f"Failed to clear cache: {e}")
+            raise ConfigurationError("Failed to clear cache") from e
 
     async def remove_from_cache(self, config_type: str) -> None:
         """Remove configuration from cache.

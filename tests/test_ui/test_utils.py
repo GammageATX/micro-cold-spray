@@ -9,6 +9,7 @@ from micro_cold_spray.ui.utils import (
     monitor_service_logs,
     get_log_entries
 )
+from unittest.mock import patch
 
 
 @pytest.fixture
@@ -60,21 +61,73 @@ class TestUtils:
         assert log_entry["service"] == "test_service"
         assert log_entry["message"] == "Test message"
         
-    def test_get_log_entries(self, temp_log_dir, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_get_log_entries(self, temp_log_dir, monkeypatch):
         """Test log entry retrieval."""
         # Mock log file path
         monkeypatch.setattr('micro_cold_spray.ui.utils.LOG_FILE', temp_log_dir / "micro_cold_spray.log")
-        
+
         # Write test logs
         log_file = temp_log_dir / "micro_cold_spray.log"
         log_file.write_text("\n".join([
             "2024-01-01 12:00:00 | INFO | test_service - Message 1",
             "2024-01-01 12:00:01 | INFO | test_service - Message 2"
         ]))
-        
-        entries = get_log_entries(n=2)
+
+        entries = await get_log_entries(n=2)
         assert len(entries) == 2
-        
+        assert entries[0].endswith("Message 1")
+        assert entries[1].endswith("Message 2")
+
+    @pytest.mark.asyncio
+    async def test_get_log_entries_no_file(self, temp_log_dir, monkeypatch):
+        """Test log entry retrieval with no file."""
+        # Mock log file path
+        monkeypatch.setattr('micro_cold_spray.ui.utils.LOG_FILE', temp_log_dir / "nonexistent.log")
+        entries = await get_log_entries(n=2)
+        assert entries == []
+
+    @pytest.mark.asyncio
+    async def test_get_log_entries_error(self, temp_log_dir, monkeypatch):
+        """Test log entry retrieval with file error."""
+        # Mock log file path
+        log_file = temp_log_dir / "micro_cold_spray.log"
+        monkeypatch.setattr('micro_cold_spray.ui.utils.LOG_FILE', log_file)
+
+        # Create log file
+        log_file.write_text("Test log")
+
+        # Mock os.access to simulate permission error
+        def mock_access(path, mode):
+            return False
+        monkeypatch.setattr('os.access', mock_access)
+
+        # Mock aiofiles.open to raise PermissionError
+        async def mock_aiofiles_open(*args, **kwargs):
+            raise PermissionError("Permission denied")
+        monkeypatch.setattr('aiofiles.open', mock_aiofiles_open)
+
+        entries = await get_log_entries(n=10)
+        assert entries == ["Permission denied while reading log file"]
+
+    @pytest.mark.asyncio
+    async def test_get_log_entries_read_error(self, temp_log_dir, monkeypatch):
+        """Test log entry retrieval with read error."""
+        # Mock log file path
+        log_file = temp_log_dir / "micro_cold_spray.log"
+        monkeypatch.setattr('micro_cold_spray.ui.utils.LOG_FILE', log_file)
+
+        # Create log file
+        log_file.write_text("Test log")
+
+        # Mock aiofiles.open to raise OSError
+        async def mock_aiofiles_open(*args, **kwargs):
+            raise OSError("Read error")
+        monkeypatch.setattr('aiofiles.open', mock_aiofiles_open)
+
+        entries = await get_log_entries(n=10)
+        assert entries == ["Error reading log file: Read error"]
+
     @pytest.mark.asyncio
     async def test_monitor_service_logs_no_file(self, temp_log_dir, monkeypatch):
         """Test log monitoring with missing file."""
@@ -100,13 +153,6 @@ class TestUtils:
         assert log_entry["level"] == "ERROR"
         assert "Failed to parse log" in log_entry["message"]
         
-    def test_get_log_entries_no_file(self, temp_log_dir, monkeypatch):
-        """Test log entry retrieval with no file."""
-        # Mock log file path
-        monkeypatch.setattr('micro_cold_spray.ui.utils.LOG_FILE', temp_log_dir / "nonexistent.log")
-        entries = get_log_entries(n=2)
-        assert entries == []
-        
     @pytest.mark.asyncio
     async def test_monitor_service_logs_file_error(self, temp_log_dir, monkeypatch):
         """Test log monitoring with file read error."""
@@ -127,23 +173,6 @@ class TestUtils:
         assert log_entry["level"] == "ERROR"
         assert "Permission denied" in log_entry["message"]
         
-    def test_get_log_entries_error(self, temp_log_dir, monkeypatch):
-        """Test log entry retrieval with file error."""
-        # Mock log file path
-        log_file = temp_log_dir / "micro_cold_spray.log"
-        monkeypatch.setattr('micro_cold_spray.ui.utils.LOG_FILE', log_file)
-        
-        # Create log file
-        log_file.write_text("Test log")
-        
-        # Mock os.access to simulate permission error
-        def mock_access(path, mode):
-            return False
-        monkeypatch.setattr('os.access', mock_access)
-        
-        entries = get_log_entries(n=10)
-        assert entries == []
-
     @pytest.mark.asyncio
     async def test_monitor_service_logs_stat_error(self, temp_log_dir, monkeypatch):
         """Test log monitoring with stat error."""
@@ -209,23 +238,6 @@ class TestUtils:
         assert log_entry is not None
         assert log_entry["level"] == "ERROR"
         assert "Failed to parse log" in log_entry["message"]
-
-    def test_get_log_entries_read_error(self, temp_log_dir, monkeypatch):
-        """Test log entry retrieval with read error."""
-        # Mock log file path
-        log_file = temp_log_dir / "micro_cold_spray.log"
-        monkeypatch.setattr('micro_cold_spray.ui.utils.LOG_FILE', log_file)
-        
-        # Create log file
-        log_file.write_text("Test log")
-        
-        # Mock open to raise an error
-        def mock_open(*args, **kwargs):
-            raise OSError("Read error")
-        monkeypatch.setattr('builtins.open', mock_open)
-        
-        entries = get_log_entries(n=10)
-        assert entries == []
 
     @pytest.mark.asyncio
     async def test_monitor_service_logs_permission_error_stat(self, temp_log_dir, monkeypatch):
@@ -301,24 +313,29 @@ class TestUtils:
         assert "Permission denied" in log_entry["message"]
         assert log_entry["service"] == "monitor"
 
-    def test_get_log_entries_permission_error_specific(self, temp_log_dir, monkeypatch):
-        """Test log entry retrieval with specific PermissionError."""
-        # Mock log file path
-        log_file = temp_log_dir / "micro_cold_spray.log"
-        monkeypatch.setattr('micro_cold_spray.ui.utils.LOG_FILE', log_file)
-        
-        # Create log file
-        log_file.write_text("Test log")
-        
-        # Mock os.access to allow access
-        def mock_access(path, mode):
-            return True
-        monkeypatch.setattr('os.access', mock_access)
-        
-        # Mock open to raise PermissionError
-        def mock_open(*args, **kwargs):
+    @pytest.mark.asyncio
+    async def test_get_log_entries_permission_error_specific(self, tmp_path):
+        """Test get_log_entries with permission error."""
+        # Create a test log file
+        log_file = tmp_path / "test.log"
+        log_file.write_text("Test log entry")
+
+        # Mock os.stat to raise PermissionError
+        def mock_stat(*args, **kwargs):
             raise PermissionError("Permission denied")
-        monkeypatch.setattr('builtins.open', mock_open)
-        
-        entries = get_log_entries(n=10)
-        assert entries == []
+
+        # Mock os.path.exists to return True
+        def mock_exists(*args, **kwargs):
+            return True
+
+        # Mock aiofiles.open to raise PermissionError
+        async def mock_aiofiles_open(*args, **kwargs):
+            raise PermissionError("Permission denied")
+
+        with patch('os.stat', side_effect=mock_stat), \
+             patch('os.path.exists', side_effect=mock_exists), \
+             patch('aiofiles.open', side_effect=mock_aiofiles_open):
+
+            # Call get_log_entries and verify it handles the error
+            entries = await get_log_entries(log_file)
+            assert entries == ["Permission denied while reading log file"]
