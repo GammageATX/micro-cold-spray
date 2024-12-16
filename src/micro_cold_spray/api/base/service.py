@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from loguru import logger
+from .exceptions import ServiceError
 
 
 class BaseService:
@@ -19,8 +20,7 @@ class BaseService:
     async def start(self):
         """Start service."""
         if self._running:
-            logger.warning(f"{self._service_name} already running")
-            return
+            raise ServiceError(f"{self._service_name} already running")
 
         try:
             await self._start()
@@ -49,6 +49,21 @@ class BaseService:
             logger.error(f"Failed to stop {self._service_name}: {e}")
             raise
 
+    @property
+    def is_running(self) -> bool:
+        """Return whether service is running."""
+        return self._running
+
+    @property
+    def is_initialized(self) -> bool:
+        """Return whether service is initialized."""
+        return self._initialized
+
+    @property
+    def error(self) -> str:
+        """Return last error message."""
+        return self._error
+
     async def _start(self):
         """Start service implementation."""
         pass
@@ -56,11 +71,6 @@ class BaseService:
     async def _stop(self):
         """Stop service implementation."""
         pass
-
-    @property
-    def is_running(self) -> bool:
-        """Check if service is running."""
-        return self._running and self._initialized
 
     async def check_health(self):
         """Check service health."""

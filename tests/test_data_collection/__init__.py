@@ -8,7 +8,7 @@ TEST_TIMESTAMP = datetime.now()
 
 # Database configuration for tests
 TEST_DB_CONFIG = {
-    "dsn": "postgresql://test:test@localhost:5432/test_db"
+    "dsn": "postgresql://postgres:dbpassword@localhost:5432/test_micro_cold_spray"
 }
 
 # Common test parameters

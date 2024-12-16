@@ -1,9 +1,10 @@
 """Data models for data collection."""
 
-from datetime import datetime
-from typing import Dict, Any, Optional
+from datetime import datetime, timezone
+from typing import Dict, Any, Optional, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 import re
+import math
 
 
 class CollectionSession(BaseModel):
@@ -29,35 +30,49 @@ class SprayEvent(BaseModel):
     
     id: Optional[int] = None
     sequence_id: str
-    spray_index: int
-    timestamp: datetime = Field(default_factory=datetime.now)
+    spray_index: int = Field(ge=0)  # Must be non-negative
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     x_pos: float
     y_pos: float
     z_pos: float
-    pressure: float
-    temperature: float
-    flow_rate: float
-    status: str
+    pressure: float = Field(gt=0)  # Must be positive
+    temperature: float = Field(gt=-273.15)  # Must be above absolute zero
+    flow_rate: float = Field(ge=0)  # Must be non-negative
+    status: Literal["active", "completed", "error", "paused"] = "active"
     
     @field_validator('timestamp', mode='before')
     @classmethod
     def validate_timestamp(cls, v: Any) -> datetime:
         """Validate and convert timestamp to datetime."""
         if isinstance(v, datetime):
+            if not v.tzinfo:
+                v = v.replace(tzinfo=timezone.utc)
             return v
         if isinstance(v, str):
             try:
-                return datetime.fromisoformat(v.replace('Z', '+00:00'))
+                dt = datetime.fromisoformat(v.replace('Z', '+00:00'))
+                if not dt.tzinfo:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt
             except ValueError as e:
                 raise ValueError(f"Invalid timestamp format: {e}")
         raise ValueError("Invalid timestamp type")
     
-    @field_validator('pressure', 'temperature', 'flow_rate')
+    @field_validator('timestamp')
     @classmethod
-    def validate_positive_values(cls, v: float, info: Any) -> float:
-        """Validate that values are positive."""
-        if v < 0:
-            raise ValueError(f"{info.field_name} must be positive")
+    def validate_timestamp_not_future(cls, v: datetime) -> datetime:
+        """Validate timestamp is not in the future."""
+        now = datetime.now(timezone.utc)
+        if v > now:
+            raise ValueError("Timestamp cannot be in the future")
+        return v
+    
+    @field_validator('x_pos', 'y_pos', 'z_pos')
+    @classmethod
+    def validate_position(cls, v: float, info: Any) -> float:
+        """Validate position values are finite."""
+        if not math.isfinite(v):
+            raise ValueError(f"{info.field_name} must be a finite number")
         return v
     
     @field_validator('sequence_id')
