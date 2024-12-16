@@ -15,15 +15,23 @@ def add_health_endpoints(router: APIRouter, service):
         """Check service health."""
         try:
             process = psutil.Process(os.getpid())
-            uptime = (datetime.now() - service.start_time).total_seconds()
             memory = process.memory_info().rss
+
+            # Get uptime if service has started
+            uptime = 0
+            if service.start_time is not None:
+                uptime = (datetime.now() - service.start_time).total_seconds()
 
             # Get service-specific health status if available
             service_status = "ok"
             health_info = {}
             if hasattr(service, "check_health"):
                 health_info = await service.check_health()
-                service_status = health_info.get("status", "ok")
+                if isinstance(health_info, dict):
+                    service_status = health_info.get("status", "ok")
+                else:
+                    service_status = "error"
+                    health_info = {"error": "Invalid health check response"}
 
             # Determine overall status
             status = "ok"
@@ -43,7 +51,7 @@ def add_health_endpoints(router: APIRouter, service):
                     "version": getattr(service, "version", "1.0.0"),
                     "running": service.is_running,
                     "error": health_info.get("error"),
-                    **health_info
+                    **(health_info if isinstance(health_info, dict) else {})
                 }
             }
         except Exception as e:

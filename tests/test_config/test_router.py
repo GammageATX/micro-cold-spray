@@ -25,6 +25,24 @@ def mock_config_service():
     service.start_time = datetime.now()
     service._service_name = "config"
     service.version = "1.0.0"
+    
+    # Mock health check to return proper status
+    async def mock_health_check():
+        return {
+            "status": "ok",
+            "services": {
+                "cache": True,
+                "file": True,
+                "schema": True,
+                "registry": True,
+                "format": True
+            },
+            "schema_loaded": True,
+            "last_error": None,
+            "last_update": None
+        }
+    service.check_health = mock_health_check
+    
     return service
 
 

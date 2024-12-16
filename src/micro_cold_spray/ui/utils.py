@@ -1,13 +1,12 @@
 """UI utility functions."""
 
 import os
-import asyncio
 from datetime import datetime
 import psutil
 from loguru import logger
 from pathlib import Path
 import aiofiles
-from typing import List, Optional
+from typing import List
 
 _start_time = datetime.now()
 _last_log_position = 0
@@ -100,12 +99,17 @@ async def monitor_service_logs() -> dict:
                     "timestamp": datetime.now().isoformat(),
                     "level": "ERROR",
                     "service": "monitor",
-                    "message": "Permission denied reading log file"
+                    "message": "Permission denied accessing log file"
                 }
-                    
-        await asyncio.sleep(1)
-        return None
-        
+            except Exception as e:
+                logger.error(f"Error monitoring logs: {e}")
+                return {
+                    "timestamp": datetime.now().isoformat(),
+                    "level": "ERROR",
+                    "service": "monitor",
+                    "message": f"Monitor error: {str(e)}"
+                }
+
     except Exception as e:
         logger.error(f"Error monitoring logs: {e}")
         return {
@@ -115,28 +119,38 @@ async def monitor_service_logs() -> dict:
             "message": f"Monitor error: {str(e)}"
         }
 
+    return None
 
-async def get_log_entries(log_file: Optional[Path] = None, n: int = 100) -> List[str]:
-    """Get log entries from a log file.
+
+async def get_log_entries(n: int = 100) -> List[str]:
+    """Get the last n log entries.
     
     Args:
-        log_file: Path to the log file. If None, uses default LOG_FILE
-        n: Number of entries to return
+        n: Number of entries to retrieve
         
     Returns:
         List of log entries
     """
     try:
-        file_path = log_file or LOG_FILE
+        file_path = LOG_FILE
         if not file_path.exists():
             return []
-            
-        async with aiofiles.open(file_path, 'r') as f:
-            content = await f.read()
-            lines = content.splitlines()
-            return lines[-n:]  # Return last n lines
-            
-    except PermissionError:
-        return ["Permission denied while reading log file"]
+
+        if not os.access(file_path, os.R_OK):
+            return ["Permission denied while reading log file"]
+
+        try:
+            async with aiofiles.open(file_path, 'r') as f:
+                content = await f.read()
+                lines = content.splitlines()
+                return lines[-n:]
+        except PermissionError:
+            return ["Permission denied while reading log file"]
+        except OSError as e:
+            return [f"Error reading log file: {str(e)}"]
+        except Exception as e:
+            logger.error(f"Error reading log file: {e}")
+            return [f"Error reading log file: {str(e)}"]
     except Exception as e:
-        return [f"Error reading log file: {str(e)}"]
+        logger.error(f"Error accessing log file: {e}")
+        return [f"Error accessing log file: {str(e)}"]

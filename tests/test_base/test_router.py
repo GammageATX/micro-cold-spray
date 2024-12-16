@@ -78,11 +78,16 @@ async def test_health_check_error(test_router):
     service._start = _start
     
     health_route = next(r for r in router.routes if r.path == "/health")
-    with pytest.raises(HTTPException) as exc:
+    
+    # First verify the start() raises ValueError
+    with pytest.raises(ValueError) as exc:
         await service.start()
-        await health_route.endpoint()
-    assert exc.value.status_code == 500
-    assert "Test error" in str(exc.value.detail)
+    assert str(exc.value) == "Test error"
+    
+    # Then verify health check endpoint returns stopped status with error
+    response = await health_route.endpoint()
+    assert response["status"] == "stopped"
+    assert "Test error" in str(response["service_info"]["error"])
 
 
 @pytest.mark.asyncio
@@ -130,12 +135,10 @@ class TestServiceWithHealth(BaseService):
 
     async def check_health(self):
         """Implement health check."""
-        if self._health_error:
-            raise ValueError(self._health_error)
         return {
             "status": self._health_status,
             "message": self._health_message,
-            "error": None
+            "error": self._health_error
         }
 
     def set_health_status(self, status: str, message: str = None, error: str = None):
