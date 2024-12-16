@@ -1,8 +1,9 @@
 """Data models for data collection."""
 
 from datetime import datetime
-from typing import Dict, Any
-from pydantic import BaseModel, ConfigDict
+from typing import Dict, Any, Optional
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+import re
 
 
 class CollectionSession(BaseModel):
@@ -26,9 +27,10 @@ class SprayEvent(BaseModel):
     """Data class representing a spray event."""
     model_config = ConfigDict(strict=True)
     
+    id: Optional[int] = None
     sequence_id: str
     spray_index: int
-    timestamp: datetime
+    timestamp: datetime = Field(default_factory=datetime.now)
     x_pos: float
     y_pos: float
     z_pos: float
@@ -36,6 +38,35 @@ class SprayEvent(BaseModel):
     temperature: float
     flow_rate: float
     status: str
+    
+    @field_validator('timestamp', mode='before')
+    @classmethod
+    def validate_timestamp(cls, v: Any) -> datetime:
+        """Validate and convert timestamp to datetime."""
+        if isinstance(v, datetime):
+            return v
+        if isinstance(v, str):
+            try:
+                return datetime.fromisoformat(v.replace('Z', '+00:00'))
+            except ValueError as e:
+                raise ValueError(f"Invalid timestamp format: {e}")
+        raise ValueError("Invalid timestamp type")
+    
+    @field_validator('pressure', 'temperature', 'flow_rate')
+    @classmethod
+    def validate_positive_values(cls, v: float, info: Any) -> float:
+        """Validate that values are positive."""
+        if v < 0:
+            raise ValueError(f"{info.field_name} must be positive")
+        return v
+    
+    @field_validator('sequence_id')
+    @classmethod
+    def validate_sequence_id(cls, v: str) -> str:
+        """Validate sequence ID format."""
+        if not re.match(r'^[a-zA-Z0-9_-]+$', v):
+            raise ValueError("Sequence ID must contain only alphanumeric characters, underscores, and hyphens")
+        return v
     
     def __str__(self) -> str:
         """Return string representation."""

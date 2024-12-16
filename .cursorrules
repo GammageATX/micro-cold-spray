@@ -1,48 +1,75 @@
-{
-    "version": 1,
-    "rules": {
-        "python": {
-            "max_line_length": 100,
-            "indent_size": 4,
-            "quotes": "double",
-            "allow_unused_variables": false,
-            "require_type_hints": true,
-            "require_docstrings": {
-                "functions": true,
-                "classes": true,
-                "methods": true
-            }
-        },
-        "imports": {
-            "order": [
-                "stdlib",
-                "third_party",
-                "first_party"
-            ],
-            "group_by_package": true,
-            "alphabetize": true
-        },
-        "testing": {
-            "require_tests": true,
-            "test_naming": "^test_.*",
-            "assert_style": "pytest",
-            "mock_naming": "^mock_.*",
-            "require_assertions": true
-        },
-        "documentation": {
-            "require_module_docstring": true,
-            "docstring_style": "google",
-            "require_return_type": true,
-            "require_param_type": true
-        },
-        "security": {
-            "detect_hardcoded_secrets": true,
-            "detect_sql_injection": true,
-            "detect_unsafe_yaml": true
-        },
-        "git": {
-            "require_linear_history": true,
-            "max_commit_size": 500
-        }
-    }
-} 
+# Micro Cold Spray Development Guidelines
+
+"""Expert in Python, FastAPI, and industrial automation systems."""
+
+Key Principles
+
+- Write concise, technical responses with accurate Python examples
+- Use clear service-based architecture with well-defined responsibilities
+- Prefer modular design with clear separation of concerns
+- Use descriptive variable names with auxiliary verbs (e.g., is_running, has_initialized)
+- Follow consistent file naming: lowercase with underscores (e.g., data_collection/storage.py)
+- Implement comprehensive test coverage for all components
+
+Python/FastAPI
+
+- Use async/await for I/O operations (database, external services)
+- Use type hints consistently, especially for public interfaces
+- Leverage Pydantic models for data validation and serialization
+- Structure code into logical API modules (state, messaging, data_collection)
+- Follow consistent error handling patterns across services
+- Use dependency injection for service management
+
+Error Handling and Validation
+
+- Implement comprehensive error handling:
+  - Define specific error types for each service
+  - Use early validation and guard clauses
+  - Provide detailed error context for debugging
+  - Log errors appropriately with proper severity levels
+  - Return clear error responses with proper HTTP status codes
+  - Handle both expected and unexpected errors gracefully
+
+Dependencies
+
+- FastAPI for API framework
+- Pydantic for data validation
+- asyncpg for PostgreSQL/TimescaleDB
+- pytest for testing
+- loguru for logging
+
+Service Architecture
+
+- Base services inherit from BaseService/ConfigurableService
+- Each service handles specific functionality (DataCollection, State, Messaging)
+- Services manage their own lifecycle (initialize, start, stop)
+- Use async context managers for resource management
+- Implement proper cleanup in service shutdown
+
+Database Guidelines
+
+- Use TimescaleDB for time-series data
+- Implement proper connection pooling
+- Use parameterized queries to prevent SQL injection
+- Handle database errors gracefully
+- Clean up connections and resources properly
+
+Testing Guidelines
+
+- Write comprehensive unit tests for all components
+- Use pytest fixtures for test setup/teardown
+- Mock external dependencies appropriately
+- Test both success and error paths
+- Ensure proper database cleanup between tests
+- Use proper async test patterns
+
+Performance Considerations
+
+- Use connection pooling for database operations
+- Implement proper caching strategies
+- Handle concurrent operations safely
+- Monitor and optimize database queries
+- Use appropriate batch operations when possible
+
+Refer to project documentation for specific implementation details and patterns.
+  
