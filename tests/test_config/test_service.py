@@ -475,7 +475,7 @@ async def test_update_config_with_backup(tmp_path):
         ),
         data={"environment": "test", "log_level": "INFO"}
     )
-    await service._file_service.save_config(config_data)
+    await service._file_service.save_config("application", config_data.data)
     
     # Use valid application config data for update
     update = ConfigUpdate(
@@ -493,9 +493,9 @@ async def test_update_config_with_backup(tmp_path):
         result = await service.update_config(update)
         assert result.valid
         
-        # Verify backup was created
-        backup_exists = await service._file_service.config_exists("application.bak")
-        assert backup_exists
+        # Verify backup was created - check backup directory for any file matching the pattern
+        backup_files = list(service._file_service._backup_dir.glob("application_*.bak"))
+        assert len(backup_files) > 0, "No backup file was created"
         
         # Verify original file still exists with new data
         config_path = config_dir / "application.yaml"

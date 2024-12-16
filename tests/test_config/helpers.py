@@ -1,94 +1,51 @@
-"""Helper functions for config tests."""
+"""Test helper functions."""
 
-import json
-import yaml
 from pathlib import Path
-from typing import Dict, Any, Optional
+import yaml
+import shutil
 from datetime import datetime
 
 from micro_cold_spray.api.config.models import ConfigData, ConfigMetadata
 
 
-def get_test_data_dir() -> Path:
-    """Get the test data directory path."""
-    return Path(__file__).parent / "test_data"
+def get_config_dir() -> Path:
+    """Get the real config directory."""
+    return Path("micro_cold_spray/api/config")
 
 
-def get_test_schema_dir() -> Path:
-    """Get the test schema directory path."""
-    return get_test_data_dir() / "schemas"
+def get_schema_dir() -> Path:
+    """Get the real schema directory."""
+    return get_config_dir() / "schemas"
 
 
-def load_test_config(name: str) -> Dict[str, Any]:
-    """Load a test YAML config file.
-    
-    Args:
-        name: Name of the config file without extension
-        
-    Returns:
-        Loaded configuration data
-    """
-    config_path = get_test_data_dir() / f"{name}.yaml"
+def load_yaml_file(file_path: Path) -> dict:
+    """Load YAML file."""
+    with open(file_path) as f:
+        return yaml.load(f, Loader=yaml.Loader)
+
+
+def load_config(name: str) -> dict:
+    """Load a config file from the real config directory."""
+    config_path = get_config_dir() / f"{name}.yaml"
     return load_yaml_file(config_path)
 
 
-def load_yaml_file(path: Path) -> Dict[str, Any]:
-    """Load a YAML file from any path.
-    
-    Args:
-        path: Path to the YAML file
-        
-    Returns:
-        Loaded YAML data
-    """
-    with open(path) as f:
-        return yaml.load(f)
-
-
-def save_yaml_file(path: Path, data: Dict[str, Any]) -> None:
-    """Save data to a YAML file.
-    
-    Args:
-        path: Path to save the file
-        data: Data to save
-    """
-    with open(path, 'w') as f:
-        yaml.dump(data, f)
-
-
-def load_test_schema(name: str) -> Dict[str, Any]:
-    """Load a test JSON schema file.
-    
-    Args:
-        name: Name of the schema file without extension
-        
-    Returns:
-        Loaded schema data
-    """
-    schema_path = get_test_schema_dir() / f"{name}.json"
-    with open(schema_path) as f:
-        return json.load(f)
-
-
-def create_test_config_data(
-    config_type: str,
-    data: Optional[Dict[str, Any]] = None
-) -> ConfigData:
-    """Create a ConfigData instance for testing.
-    
-    Args:
-        config_type: Type of configuration
-        data: Configuration data (if None, loads from test_config.yaml)
-        
-    Returns:
-        ConfigData instance
-    """
+def create_config_data(name: str, data: dict = None) -> ConfigData:
+    """Create a ConfigData object for testing."""
     if data is None:
-        data = load_test_config("test_config")
-        
-    metadata = ConfigMetadata(
-        config_type=config_type,
-        last_modified=datetime.now()
-    )
+        data = load_config(name)
     
+    metadata = ConfigMetadata(
+        config_type=name,
+        last_modified=datetime.now(),
+        version="1.0.0"
+    )
     return ConfigData(metadata=metadata, data=data)
+
+
+def setup_test_config(tmp_path: Path, name: str) -> Path:
+    """Set up a test config file using real config as template."""
+    real_config = get_config_dir() / f"{name}.yaml"
+    test_config = tmp_path / f"{name}.yaml"
+    shutil.copy2(real_config, test_config)
+    return test_config

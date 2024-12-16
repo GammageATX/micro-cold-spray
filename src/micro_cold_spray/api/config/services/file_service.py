@@ -4,6 +4,8 @@ from pathlib import Path
 from datetime import datetime
 import yaml
 from loguru import logger
+from typing import Dict, Any
+import shutil
 
 from micro_cold_spray.api.base import BaseService
 from micro_cold_spray.api.base.exceptions import ConfigurationError
@@ -79,32 +81,38 @@ class ConfigFileService(BaseService):
                 }
             )
 
-    async def save_config(self, config_data: ConfigData) -> None:
-        """Save configuration to file with backup handling."""
-        config_type = config_data.metadata.config_type
+    async def save_config(self, config_type: str, data: Dict[str, Any], create_backup: bool = False) -> None:
+        """Save configuration to file.
+        
+        Args:
+            config_type: Type of configuration to save
+            data: Configuration data to save
+            create_backup: Whether to create a backup before saving
+            
+        Raises:
+            ConfigurationError: If config cannot be saved
+        """
         config_path = self._get_config_path(config_type)
         
         try:
-            # Create config directory if it doesn't exist
-            self._config_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Create backup if file exists
-            if config_path.exists():
+            # Create backup if requested
+            if create_backup:
+                # Ensure backup directory exists
+                self._backup_dir.mkdir(parents=True, exist_ok=True)
                 await self.create_backup(config_type)
             
-            # Write new config
-            with open(config_path, 'w') as f:
-                wrapped_data = {config_type: config_data.data}
-                yaml.safe_dump(wrapped_data, f, sort_keys=False)
+            # Create config directory if it doesn't exist
+            config_path.parent.mkdir(parents=True, exist_ok=True)
             
+            # Write config file
+            with open(config_path, 'w') as f:
+                yaml.dump(data, f, Dumper=yaml.Dumper, sort_keys=False, default_flow_style=False)
+                
         except Exception as e:
             logger.error(f"Failed to save config {config_type}: {e}")
             raise ConfigurationError(
-                f"Failed to save config: {e}",
-                {
-                    "config_type": config_type,
-                    "path": str(config_path)
-                }
+                f"Failed to save config {config_type}",
+                {"config_type": config_type, "error": str(e)}
             )
 
     async def config_exists(self, config_type: str) -> bool:
@@ -141,33 +149,32 @@ class ConfigFileService(BaseService):
             )
             
         try:
-            # Read original file
-            with open(source_path, 'r') as f:
-                data = yaml.safe_load(f)
-                
-            # Extract inner config data if wrapped
-            if config_type in data:
-                data = data[config_type]
-            
-            # Create backup directory if it doesn't exist
-            self._backup_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Write backup with complete original data structure preserved
-            with open(backup_path, 'w') as f:
-                yaml.safe_dump(data, f, sort_keys=False, default_flow_style=False)
-            
+            shutil.copy2(source_path, backup_path)
         except Exception as e:
-            logger.error(f"Failed to create backup for {config_type}: {e}")
             raise ConfigurationError(
                 f"Failed to create backup for {config_type}",
                 {"config_type": config_type, "error": str(e)}
             )
 
     def _get_config_path(self, config_type: str) -> Path:
-        """Get the path for a config file."""
+        """Get the path to a config file.
+        
+        Args:
+            config_type: Type of configuration
+            
+        Returns:
+            Path to the config file
+        """
         return self._config_dir / f"{config_type}.yaml"
 
     def _get_backup_path(self, config_type: str) -> Path:
-        """Get the path for a config backup file."""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        return self._backup_dir / f"{config_type}_{timestamp}{self._backup_suffix}"
+        """Get the path for a config backup file.
+        
+        Args:
+            config_type: Type of configuration
+            
+        Returns:
+            Path for the backup file
+        """
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        return self._backup_dir / f"{config_type}_{timestamp}.bak"

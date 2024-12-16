@@ -6,6 +6,8 @@ from datetime import datetime
 import psutil
 from loguru import logger
 from pathlib import Path
+import aiofiles
+from typing import List, Optional
 
 _start_time = datetime.now()
 _last_log_position = 0
@@ -114,29 +116,27 @@ async def monitor_service_logs() -> dict:
         }
 
 
-def get_log_entries(n: int = 100) -> list:
-    """Get recent log entries.
+async def get_log_entries(log_file: Optional[Path] = None, n: int = 100) -> List[str]:
+    """Get log entries from a log file.
     
     Args:
+        log_file: Path to the log file. If None, uses default LOG_FILE
         n: Number of entries to return
         
     Returns:
         List of log entries
     """
-    if not LOG_FILE.exists():
-        return []
-        
-    # Check file permissions
-    if not os.access(LOG_FILE, os.R_OK):
-        logger.error("Permission denied accessing log file")
-        return []
-        
     try:
-        with open(LOG_FILE) as f:
-            entries = f.readlines()[-n:]
-        return entries
+        file_path = log_file or LOG_FILE
+        if not file_path.exists():
+            return []
+            
+        async with aiofiles.open(file_path, 'r') as f:
+            content = await f.read()
+            lines = content.splitlines()
+            return lines[-n:]  # Return last n lines
+            
     except PermissionError:
-        logger.error("Permission denied accessing log file")
-        return []
-    except Exception:
-        return []
+        return ["Permission denied while reading log file"]
+    except Exception as e:
+        return [f"Error reading log file: {str(e)}"]
