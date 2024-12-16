@@ -1,6 +1,6 @@
 """State management service."""
 
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Callable
 from datetime import datetime
 from loguru import logger
 import asyncio
@@ -44,6 +44,8 @@ class StateService(ConfigurableService):
         self._current_state = "INIT"
         self._state_history: List[StateTransition] = []
         self._state_machine: Dict[str, StateConfig] = {}
+        self._state_conditions: Dict[str, Dict[str, Callable[[], bool]]] = {}
+        self._state_handlers: Dict[str, Callable[[], None]] = {}
         
     @property
     def status(self) -> str:
@@ -481,3 +483,8 @@ class StateService(ConfigurableService):
                 conditions[condition_name] = False
             
         return conditions
+
+    @property
+    def name(self) -> str:
+        """Get service name."""
+        return "state"

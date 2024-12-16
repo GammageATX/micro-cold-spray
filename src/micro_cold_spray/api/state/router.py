@@ -107,7 +107,7 @@ def get_state_service() -> StateService:
     if _service is None:
         raise HTTPException(
             status_code=503,
-            detail="State service not initialized"
+            detail={"error": "Service Unavailable", "message": "State service not initialized"}
         )
     return _service
 
@@ -123,10 +123,10 @@ async def get_status(
             "timestamp": datetime.now().isoformat()
         }
     except Exception as e:
-        logger.error(f"Failed to get status: {str(e)}")
+        logger.error(f"Failed to get status: {e}")
         raise HTTPException(
             status_code=500,
-            detail={"error": "Internal server error", "message": str(e)}
+            detail={"error": "Internal Server Error", "message": str(e)}
         )
 
 
@@ -137,6 +137,11 @@ async def get_conditions(
 ) -> Dict[str, Any]:
     """Get conditions for a state."""
     try:
+        if state == "":
+            raise HTTPException(
+                status_code=422,
+                detail={"error": "Validation Error", "message": "Empty state parameter"}
+            )
         conditions = await service.get_conditions(state)
         return {
             "state": state or service.current_state,
@@ -144,22 +149,22 @@ async def get_conditions(
             "timestamp": datetime.now().isoformat()
         }
     except InvalidStateError as e:
-        logger.error(f"Invalid state: {str(e)}")
+        logger.error(f"Invalid state: {e}")
         raise HTTPException(
             status_code=400,
-            detail={"error": "Invalid state", "message": str(e)}
+            detail={"error": "Invalid State", "message": str(e)}
         )
     except ConditionError as e:
-        logger.error(f"Condition check failed: {str(e)}")
+        logger.error(f"Condition check failed: {e}")
         raise HTTPException(
-            status_code=500,
-            detail={"error": "Condition check failed", "message": str(e)}
+            status_code=400,
+            detail={"error": "Condition Error", "message": str(e), "data": e.data}
         )
     except Exception as e:
-        logger.error(f"Failed to get conditions: {str(e)}")
+        logger.error(f"Failed to get conditions: {e}")
         raise HTTPException(
             status_code=500,
-            detail={"error": "Internal server error", "message": str(e)}
+            detail={"error": "Internal Server Error", "message": str(e)}
         )
 
 
@@ -171,6 +176,16 @@ async def transition_state(
 ) -> StateResponse:
     """Request state transition."""
     try:
+        if not request.target_state:
+            raise HTTPException(
+                status_code=422,
+                detail={"error": "Validation Error", "message": "Empty target state"}
+            )
+        if len(request.reason) > 500:
+            raise HTTPException(
+                status_code=422,
+                detail={"error": "Validation Error", "message": "Reason too long"}
+            )
         response = await service.transition_to(request)
         if response.success:
             background_tasks.add_task(
@@ -179,22 +194,30 @@ async def transition_state(
             )
         return response
     except InvalidStateError as e:
-        logger.error(f"Invalid state requested: {str(e)}")
+        logger.error(f"Invalid state requested: {e}")
         raise HTTPException(
             status_code=400,
-            detail={"error": "Invalid state", "message": str(e)}
+            detail={"error": "Invalid State", "message": str(e)}
         )
     except StateTransitionError as e:
-        logger.error(f"Transition failed: {str(e)}")
+        logger.error(f"Transition failed: {e}")
         raise HTTPException(
             status_code=409,
-            detail={"error": "Transition failed", "message": str(e), "context": e.context}
+            detail={"error": "State Transition Error", "message": str(e)}
         )
+    except ConditionError as e:
+        logger.error(f"Conditions not met: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "Condition Error", "message": str(e), "data": e.data}
+        )
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
+        logger.error(f"Unexpected error: {e}")
         raise HTTPException(
             status_code=500,
-            detail={"error": "Internal server error", "message": str(e)}
+            detail={"error": "Internal Server Error", "message": str(e)}
         )
 
 
@@ -205,12 +228,21 @@ async def get_history(
 ) -> List[StateTransition]:
     """Get state transition history."""
     try:
-        return service.get_state_history(limit)
+        if limit is not None:
+            if limit < 0:
+                raise HTTPException(
+                    status_code=422,
+                    detail={"error": "Validation Error", "message": "Limit must be non-negative"}
+                )
+        history = await service.get_state_history(limit)
+        return history
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Failed to get history: {str(e)}")
+        logger.error(f"Failed to get history: {e}")
         raise HTTPException(
             status_code=500,
-            detail={"error": "Internal server error", "message": str(e)}
+            detail={"error": "Internal Server Error", "message": str(e)}
         )
 
 
@@ -220,10 +252,11 @@ async def get_transitions(
 ) -> Dict[str, List[str]]:
     """Get valid state transitions."""
     try:
-        return service.get_valid_transitions()
+        transitions = await service.get_valid_transitions()
+        return transitions
     except Exception as e:
-        logger.error(f"Failed to get transitions: {str(e)}")
+        logger.error(f"Failed to get transitions: {e}")
         raise HTTPException(
             status_code=500,
-            detail={"error": "Internal server error", "message": str(e)}
+            detail={"error": "Internal Server Error", "message": str(e)}
         )
