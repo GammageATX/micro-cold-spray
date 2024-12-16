@@ -1,0 +1,2 @@
+environment: test
+log_level: INFO

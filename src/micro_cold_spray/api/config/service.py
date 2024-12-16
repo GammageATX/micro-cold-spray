@@ -89,6 +89,39 @@ class ConfigService(BaseService):
             logger.error(f"Failed to stop configuration service: {e}")
             raise
 
+    async def check_health(self) -> Dict[str, Any]:
+        """Check service health status."""
+        try:
+            # Check if all required services are running
+            services_status = {
+                "cache": self._cache_service.is_running,
+                "file": self._file_service.is_running,
+                "schema": self._schema_service.is_running,
+                "registry": self._registry_service.is_running,
+                "format": self._format_service.is_running
+            }
+            
+            # Check if schema registry is loaded
+            schema_loaded = self._schema_registry is not None
+            
+            # Determine overall status
+            all_services_running = all(services_status.values())
+            status = "ok" if all_services_running and schema_loaded else "error"
+            
+            return {
+                "status": status,
+                "services": services_status,
+                "schema_loaded": schema_loaded,
+                "last_error": self._last_error,
+                "last_update": self._last_update.isoformat() if self._last_update else None
+            }
+        except Exception as e:
+            logger.error(f"Health check failed: {e}")
+            return {
+                "status": "error",
+                "error": str(e)
+            }
+
     async def get_config(self, config_type: str) -> ConfigData:
         """Get configuration data."""
         try:
