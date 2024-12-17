@@ -12,7 +12,7 @@ from micro_cold_spray.api.data_collection.models import SprayEvent
 from micro_cold_spray.api.data_collection.exceptions import DataCollectionError, StorageError
 from micro_cold_spray.api.base.exceptions import ServiceError
 from . import TEST_SEQUENCE_ID, TEST_TIMESTAMP, TEST_DB_CONFIG, TEST_COLLECTION_PARAMS
-from .test_storage import TEST_DB_USER, TEST_DB_PASS, TEST_DB_HOST, TEST_DB_PORT, TEST_DB_NAME
+from .test_data_storage import TEST_DB_USER, TEST_DB_PASS, TEST_DB_HOST, TEST_DB_PORT, TEST_DB_NAME
 
 
 class TestDataCollectionIntegration:

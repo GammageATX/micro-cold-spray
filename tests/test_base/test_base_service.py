@@ -1,7 +1,6 @@
 """Tests for base service functionality."""
 
 import pytest
-from datetime import datetime
 from micro_cold_spray.api.base import BaseService
 
 
@@ -12,9 +11,9 @@ class TestBaseService:
         """Test service initialization."""
         service = BaseService("test_service")
         assert service._service_name == "test_service"
-        assert not service._initialized
-        assert not service._running
-        assert isinstance(service.start_time, datetime)
+        assert not service._is_initialized
+        assert not service._is_running
+        assert service._start_time is None
         assert service.version == "1.0.0"
 
     @pytest.mark.asyncio
@@ -25,7 +24,7 @@ class TestBaseService:
         # Test start
         await service.start()
         assert service.is_running
-        assert service._initialized
+        assert service._is_initialized
         
         # Test duplicate start
         await service.start()  # Should just log warning
@@ -54,7 +53,7 @@ class TestBaseService:
             await service.start()
             
         # Force service into running state to test stop error
-        service._running = True
+        service._is_running = True
         
         # Test stop error
         with pytest.raises(ValueError, match="Stop error"):

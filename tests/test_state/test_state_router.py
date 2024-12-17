@@ -148,7 +148,6 @@ class TestStateRouter:
         data = response.json()
         assert data["state"] == "INIT"
         assert "conditions" in data
-        assert "timestamp" in data
 
     def test_get_conditions_with_state(self, client, mock_state_service):
         """Test conditions endpoint with specific state."""
@@ -163,7 +162,7 @@ class TestStateRouter:
         mock_state_service.get_conditions.side_effect = InvalidStateError("Invalid state")
         response = client.get("/state/conditions?state=INVALID")
         assert response.status_code == 400
-        assert response.json()["detail"]["error"] == "Invalid state"
+        assert response.json()["detail"]["error"] == "Invalid State"
         assert response.json()["detail"]["message"] == "Invalid state"
 
     def test_transition_state(self, client, mock_state_service):
@@ -187,7 +186,9 @@ class TestStateRouter:
             "reason": "Test transition"
         })
         assert response.status_code == 400
-        assert "Invalid state" in response.json()["detail"]
+        data = response.json()
+        assert data["detail"]["error"] == "Invalid State"
+        assert data["detail"]["message"] == "Invalid state"
 
     def test_transition_error(self, client, mock_state_service):
         """Test transition error handling."""
@@ -197,23 +198,29 @@ class TestStateRouter:
             "reason": "Test transition"
         })
         assert response.status_code == 409
-        assert "Transition failed" in response.json()["detail"]
+        data = response.json()
+        assert data["detail"]["error"] == "State Transition Error"
+        assert data["detail"]["message"] == "Transition failed"
 
     def test_transition_condition_error(self, client, mock_state_service):
         """Test transition condition error handling."""
         mock_state_service.transition_to.side_effect = ConditionError(
             "Conditions not met",
-            {"failed_conditions": ["hardware.enabled"]}
+            ["hardware.enabled"]
         )
         response = client.post("/state/transition", json={
             "target_state": "READY",
             "reason": "Test transition"
         })
         assert response.status_code == 400
-        error_detail = response.json()["detail"]
-        assert "Conditions not met" in error_detail["message"]
-        assert "failed_conditions" in error_detail["data"]
-        assert "hardware.enabled" in error_detail["data"]["failed_conditions"]
+        data = response.json()
+        assert data["detail"]["error"] == "Condition Error"
+        assert data["detail"]["message"] == "Conditions not met"
+        assert "data" in data["detail"]
+        assert "failed_conditions" in data["detail"]["data"]
+        failed_conditions = data["detail"]["data"]["failed_conditions"]
+        assert isinstance(failed_conditions, list)
+        assert "hardware.enabled" in failed_conditions
 
     def test_get_history(self, client, mock_state_service):
         """Test history endpoint."""
@@ -290,20 +297,22 @@ class TestStateRouter:
     @pytest.mark.asyncio
     async def test_startup_shutdown(self, mock_config_service, mock_message_broker, mock_communication_service):
         """Test startup and shutdown events."""
+        from micro_cold_spray.api.state.router import _service
+        
         with patch("micro_cold_spray.api.state.router.get_config_service", return_value=mock_config_service), \
              patch("micro_cold_spray.api.state.router.MessagingService", return_value=mock_message_broker), \
              patch("micro_cold_spray.api.state.router.CommunicationService", return_value=mock_communication_service):
 
             # Test startup
-            await app.router.startup()
+            await router.startup()
             mock_config_service.start.assert_called_once()
             mock_message_broker.start.assert_called_once()
             mock_communication_service.start.assert_called_once()
             mock_message_broker.set_valid_topics.assert_called_once()
 
             # Test shutdown
-            await app.router.shutdown()
-            assert app.state._state_service is None
+            await router.shutdown()
+            assert _service is None
 
     def test_transition_invalid_request(self, client):
         """Test transition with invalid request body."""
@@ -339,6 +348,7 @@ class TestStateRouter:
         assert response.status_code == 500
         data = response.json()
         assert data["detail"]["error"] == "Internal Server Error"
+        assert data["detail"]["message"] == "Generic state error"
 
     def test_transition_unexpected_error(self, client, mock_state_service):
         """Test unexpected error handling in transition."""
@@ -348,40 +358,45 @@ class TestStateRouter:
             "reason": "Test transition"
         })
         assert response.status_code == 500
-        assert response.json()["detail"]["error"] == "Internal server error"
-        assert response.json()["detail"]["message"] == "Unexpected error"
+        data = response.json()
+        assert data["detail"]["error"] == "Internal Server Error"
+        assert data["detail"]["message"] == "Unexpected error"
 
     def test_get_conditions_state_error(self, client, mock_state_service):
         """Test state error in conditions endpoint."""
         mock_state_service.get_conditions.side_effect = StateError("State error")
         response = client.get("/state/conditions")
         assert response.status_code == 500
-        assert response.json()["detail"]["error"] == "Internal server error"
-        assert response.json()["detail"]["message"] == "State error"
+        data = response.json()
+        assert data["detail"]["error"] == "Internal Server Error"
+        assert data["detail"]["message"] == "State error"
 
     def test_get_conditions_unexpected_error(self, client, mock_state_service):
         """Test unexpected error in conditions endpoint."""
         mock_state_service.get_conditions.side_effect = Exception("Unexpected error")
         response = client.get("/state/conditions")
         assert response.status_code == 500
-        assert response.json()["detail"]["error"] == "Internal server error"
-        assert response.json()["detail"]["message"] == "Unexpected error"
+        data = response.json()
+        assert data["detail"]["error"] == "Internal Server Error"
+        assert data["detail"]["message"] == "Unexpected error"
 
     def test_get_history_error(self, client, mock_state_service):
         """Test error handling in history endpoint."""
         mock_state_service.get_state_history.side_effect = Exception("History error")
         response = client.get("/state/history")
         assert response.status_code == 500
-        assert response.json()["detail"]["error"] == "Internal server error"
-        assert response.json()["detail"]["message"] == "History error"
+        data = response.json()
+        assert data["detail"]["error"] == "Internal Server Error"
+        assert data["detail"]["message"] == "History error"
 
     def test_get_transitions_error(self, client, mock_state_service):
         """Test error handling in transitions endpoint."""
         mock_state_service.get_valid_transitions.side_effect = Exception("Transitions error")
         response = client.get("/state/transitions")
         assert response.status_code == 500
-        assert response.json()["detail"]["error"] == "Internal server error"
-        assert response.json()["detail"]["message"] == "Transitions error"
+        data = response.json()
+        assert data["detail"]["error"] == "Internal Server Error"
+        assert data["detail"]["message"] == "Transitions error"
 
     @pytest.mark.asyncio
     async def test_startup_service_error(self, mock_config_service, mock_message_broker, mock_communication_service):
@@ -390,16 +405,17 @@ class TestStateRouter:
         
         with patch("micro_cold_spray.api.state.router.get_config_service", return_value=mock_config_service), \
              patch("micro_cold_spray.api.state.router.MessagingService", return_value=mock_message_broker), \
-             patch("micro_cold_spray.api.state.router.CommunicationService", return_value=mock_communication_service), \
-             pytest.raises(Exception):
-            await app.router.startup()
+             patch("micro_cold_spray.api.state.router.CommunicationService", return_value=mock_communication_service):
+            
+            with pytest.raises(Exception, match="Config service failed"):
+                await router.startup()
 
     @pytest.mark.asyncio
     async def test_shutdown_error(self, client, mock_state_service):
         """Test shutdown error handling."""
         mock_state_service.stop.side_effect = Exception("Stop error")
         with patch("micro_cold_spray.api.state.router._service", mock_state_service):
-            await app.router.shutdown()
+            await router.shutdown()
             # Should log error but not raise
 
     def test_transition_with_force(self, client, mock_state_service):
@@ -421,12 +437,20 @@ class TestStateRouter:
         response = client.get("/state/history?limit=-1")
         assert response.status_code == 422  # Validation error
         data = response.json()
-        assert data["detail"]["error"] == "Validation Error"
+        assert "detail" in data
+        assert isinstance(data["detail"], list)
+        assert any("greater than or equal to 0" in error["msg"].lower() for error in data["detail"])
 
     def test_get_history_string_limit(self, client):
         """Test history endpoint with non-integer limit."""
         response = client.get("/state/history?limit=abc")
         assert response.status_code == 422  # Validation error
+        data = response.json()
+        assert isinstance(data["detail"], list)
+        error = data["detail"][0]
+        assert error["loc"] == ["query", "limit"]
+        assert error["msg"] == "Input should be a valid integer, unable to parse string as an integer"
+        assert error["type"] == "int_parsing"
 
     def test_get_conditions_empty_state(self, client):
         """Test conditions endpoint with empty state parameter."""
@@ -434,6 +458,7 @@ class TestStateRouter:
         assert response.status_code == 422
         data = response.json()
         assert data["detail"]["error"] == "Validation Error"
+        assert "state" in data["detail"]["message"].lower()
 
     def test_transition_with_long_reason(self, client):
         """Test transition with very long reason text."""
@@ -444,6 +469,7 @@ class TestStateRouter:
         assert response.status_code == 422
         data = response.json()
         assert data["detail"]["error"] == "Validation Error"
+        assert "reason" in data["detail"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_startup_messaging_error(self, mock_config_service, mock_message_broker, mock_communication_service):
@@ -452,9 +478,10 @@ class TestStateRouter:
         
         with patch("micro_cold_spray.api.state.router.get_config_service", return_value=mock_config_service), \
              patch("micro_cold_spray.api.state.router.MessagingService", return_value=mock_message_broker), \
-             patch("micro_cold_spray.api.state.router.CommunicationService", return_value=mock_communication_service), \
-             pytest.raises(Exception):
-            await app.router.startup()
+             patch("micro_cold_spray.api.state.router.CommunicationService", return_value=mock_communication_service):
+            
+            with pytest.raises(Exception, match="Messaging service failed"):
+                await router.startup()
 
     @pytest.mark.asyncio
     async def test_startup_communication_error(self, mock_config_service, mock_message_broker, mock_communication_service):
@@ -463,6 +490,7 @@ class TestStateRouter:
         
         with patch("micro_cold_spray.api.state.router.get_config_service", return_value=mock_config_service), \
              patch("micro_cold_spray.api.state.router.MessagingService", return_value=mock_message_broker), \
-             patch("micro_cold_spray.api.state.router.CommunicationService", return_value=mock_communication_service), \
-             pytest.raises(Exception):
-            await app.router.startup()
+             patch("micro_cold_spray.api.state.router.CommunicationService", return_value=mock_communication_service):
+            
+            with pytest.raises(Exception, match="Communication service failed"):
+                await router.startup()

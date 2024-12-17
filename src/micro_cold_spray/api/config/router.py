@@ -11,6 +11,7 @@ from loguru import logger
 
 from .service import ConfigService, ConfigurationError
 from ..base.router import add_health_endpoints
+from ..base.errors import ErrorCode, format_error
 
 
 @asynccontextmanager
@@ -53,7 +54,11 @@ def init_router(service: ConfigService) -> None:
 def get_service() -> ConfigService:
     """Get config service instance."""
     if _service is None:
-        raise RuntimeError("Config service not initialized")
+        error = ErrorCode.SERVICE_UNAVAILABLE
+        raise HTTPException(
+            status_code=error.get_status_code(),
+            detail=format_error(error, "Config service not initialized")["detail"]
+        )
     return _service
 
 
@@ -78,14 +83,20 @@ async def health_check(
     try:
         # Get base service health info
         process = psutil.Process(os.getpid())
-        uptime = (datetime.now() - service.start_time).total_seconds()
+        uptime = (datetime.now() - service.start_time).total_seconds() if service.is_running else None
         memory = process.memory_info().rss
 
         # Get config-specific health status
-        config_ok = await service.check_config_access()
+        config_ok = await service.check_config_access() if service.is_running else False
+
+        # Determine status
+        if not service.is_running:
+            status = "stopped"
+        else:
+            status = "ok" if config_ok else "error"
 
         return {
-            "status": "ok" if service.is_running and config_ok else "error",
+            "status": status,
             "uptime": uptime,
             "memory_usage": memory,
             "service_info": {
@@ -96,14 +107,11 @@ async def health_check(
         }
     except Exception as e:
         logger.error(f"Health check failed: {e}")
-        return {
-            "status": "error",
-            "error": str(e),
-            "service_info": {
-                "name": service._service_name,
-                "running": False
-            }
-        }
+        error = ErrorCode.INTERNAL_ERROR
+        raise HTTPException(
+            status_code=error.get_status_code(),
+            detail=format_error(error, str(e))["detail"]
+        )
 
 
 @router.get("/{config_type}")
@@ -111,27 +119,21 @@ async def get_config(
     config_type: str,
     service: ConfigService = Depends(get_service)
 ) -> Dict[str, Any]:
-    """
-    Get configuration by type.
-    
-    Args:
-        config_type: Type of configuration to retrieve
-        
-    Returns:
-        Dict containing configuration data
-    """
+    """Get configuration by type."""
     try:
         config = await service.get_config(config_type)
         return {"config": config}
     except ConfigurationError as e:
+        error = ErrorCode.CONFIGURATION_ERROR
         raise HTTPException(
-            status_code=400,
-            detail={"error": str(e), "context": e.context}
+            status_code=error.get_status_code(),
+            detail=format_error(error, str(e), e.context)["detail"]
         )
     except Exception as e:
+        error = ErrorCode.INTERNAL_ERROR
         raise HTTPException(
-            status_code=500,
-            detail=str(e)
+            status_code=error.get_status_code(),
+            detail=format_error(error, str(e))["detail"]
         )
 
 
@@ -141,25 +143,14 @@ async def update_config(
     config_data: Dict[str, Any],
     service: ConfigService = Depends(get_service)
 ) -> Dict[str, str]:
-    """
-    Update configuration.
-    
-    Args:
-        config_type: Type of configuration to update
-        config_data: New configuration data
-        
-    Returns:
-        Dict containing operation status
-    """
+    """Update configuration."""
     try:
         from micro_cold_spray.api.config.models import ConfigUpdate
         
-        # Extract backup and validation flags from request data if present
-        backup = config_data.get("backup", True)  # Default to True
-        should_validate = config_data.get("should_validate", True)  # Default to True
-        data = config_data.get("data", config_data)  # Get data field or use entire payload
+        backup = config_data.get("backup", True)
+        should_validate = config_data.get("should_validate", True)
+        data = config_data.get("data", config_data)
         
-        # Create update request
         update = ConfigUpdate(
             config_type=config_type,
             data=data,
@@ -171,14 +162,16 @@ async def update_config(
         await service.update_config(update)
         return {"status": "updated"}
     except ConfigurationError as e:
+        error = ErrorCode.CONFIGURATION_ERROR
         raise HTTPException(
-            status_code=400,
-            detail={"error": str(e), "context": e.context}
+            status_code=error.get_status_code(),
+            detail=format_error(error, str(e), e.context)["detail"]
         )
     except Exception as e:
+        error = ErrorCode.INTERNAL_ERROR
         raise HTTPException(
-            status_code=500,
-            detail=str(e)
+            status_code=error.get_status_code(),
+            detail=format_error(error, str(e))["detail"]
         )
 
 
@@ -191,9 +184,10 @@ async def clear_cache(
         await service.clear_cache()
         return {"status": "Cache cleared"}
     except Exception as e:
+        error = ErrorCode.INTERNAL_ERROR
         raise HTTPException(
-            status_code=500,
-            detail={"error": str(e)}
+            status_code=error.get_status_code(),
+            detail=format_error(error, str(e))["detail"]
         )
 
 

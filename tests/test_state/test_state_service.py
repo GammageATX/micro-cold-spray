@@ -6,8 +6,6 @@ from datetime import datetime
 from micro_cold_spray.api.state.service import StateService
 from micro_cold_spray.api.state.models import (
     StateRequest,
-    StateConfig,
-    StateCondition,
     StateResponse
 )
 from micro_cold_spray.api.state.exceptions import (

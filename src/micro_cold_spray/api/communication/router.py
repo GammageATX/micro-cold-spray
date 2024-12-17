@@ -1,20 +1,65 @@
-"""FastAPI router for hardware communication."""
+"""Communication router."""
 
-from fastapi import APIRouter, HTTPException, Depends, FastAPI
+from typing import Optional
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, APIRouter, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Dict, Any, Optional
-import psutil
-from datetime import datetime
-import os
 from loguru import logger
 
 from .service import CommunicationService
-from ..base.exceptions import ServiceError, ValidationError
 from ..base.router import add_health_endpoints
+from ..base.errors import ErrorCode, format_error
 from ..config.singleton import get_config_service
 
-# Create FastAPI app
-app = FastAPI(title="Communication API")
+# Create router without prefix (app already handles the /communication prefix)
+router = APIRouter(tags=["communication"])
+
+_service: Optional[CommunicationService] = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for FastAPI app."""
+    global _service
+    
+    try:
+        # Get shared config service instance
+        config_service = get_config_service()
+        await config_service.start()
+        logger.info("ConfigService started successfully")
+        
+        # Initialize communication service
+        _service = CommunicationService(config_service=config_service)
+        await _service.start()
+        logger.info("CommunicationService started successfully")
+        
+        # Add health endpoints
+        add_health_endpoints(app, _service)
+        # Mount router to app with prefix
+        app.include_router(router, prefix="/communication")
+        logger.info("Communication router initialized")
+        
+        yield  # Application runs here
+        
+        # Cleanup on shutdown
+        logger.info("Communication API shutting down")
+        if _service:
+            try:
+                await _service.stop()
+                logger.info("Communication service stopped successfully")
+                _service = None
+            except Exception as e:
+                logger.error(f"Error stopping communication service: {e}")
+                
+    except Exception as e:
+        logger.error(f"Failed to initialize services: {e}")
+        # Attempt cleanup of any partially initialized services
+        if _service and _service.is_running:
+            await _service.stop()
+        raise
+
+# Create FastAPI app with lifespan
+app = FastAPI(title="Communication API", lifespan=lifespan)
 
 # Add CORS middleware
 app.add_middleware(
@@ -25,191 +70,59 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-router = APIRouter(prefix="/communication", tags=["communication"])
-_service: Optional[CommunicationService] = None
 
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize services on startup."""
-    global _service
-    
-    # Get shared config service instance
-    config_service = get_config_service()
-    await config_service.start()
-    
-    # Initialize communication service with config
-    _service = CommunicationService(config_service=config_service)
-    await _service.start()
-    
-    # Add health endpoint directly to app
-    add_health_endpoints(app, _service)  # Mount to app instead of router
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on shutdown."""
-    global _service
-    
-    if _service:
-        await _service.stop()
+def get_communication_service() -> CommunicationService:
+    """Get communication service instance."""
+    if _service is None:
+        error = ErrorCode.SERVICE_UNAVAILABLE
+        raise HTTPException(
+            status_code=503,  # Service Unavailable
+            detail=format_error(error, "Communication service not initialized")["detail"]
+        )
+    return _service
 
 
 def init_router(service: CommunicationService) -> None:
     """Initialize router with service instance."""
     global _service
     _service = service
+    # Add health endpoints
     add_health_endpoints(router, service)
 
 
-def get_service() -> CommunicationService:
-    """Get communication service instance."""
-    if _service is None:
-        raise RuntimeError("Communication service not initialized")
-    return _service
-
-
-@router.get("/health")
-async def health_check(
-    service: CommunicationService = Depends(get_service)
-) -> Dict[str, Any]:
-    """Check API health status."""
+# Add startup and shutdown events for testing
+async def startup():
+    """Initialize services on startup."""
+    global _service
+    
     try:
-        # Get base service health info
-        process = psutil.Process(os.getpid())
-        uptime = (datetime.now() - service.start_time).total_seconds()
-        memory = process.memory_info().rss
-
-        # Get communication-specific health status
-        comm_status = await service.check_health()
-
-        return {
-            "status": "ok" if service.is_running and comm_status.get("status") == "ok" else "error",
-            "uptime": uptime,
-            "memory_usage": memory,
-            "service_info": {
-                "name": service._service_name,
-                "version": getattr(service, "version", "1.0.0"),
-                "running": service.is_running
-            },
-            "communication": comm_status
-        }
+        # Get shared config service instance
+        config_service = get_config_service()
+        await config_service.start()
+        logger.info("ConfigService started successfully")
+        
+        # Initialize communication service
+        _service = CommunicationService(config_service=config_service)
+        await _service.start()
+        logger.info("CommunicationService started successfully")
+        
     except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        return {
-            "status": "error",
-            "error": str(e),
-            "service_info": {
-                "name": service._service_name,
-                "running": False
-            }
-        }
+        logger.error(f"Failed to initialize services: {e}")
+        if _service and _service.is_running:
+            await _service.stop()
+        raise e
 
 
-@router.get("/clients")
-async def get_clients(
-    service: CommunicationService = Depends(get_service)
-) -> Dict[str, Any]:
-    """Get status of all communication clients."""
-    try:
-        clients = await service.get_client_status()
-        return {"clients": clients}
-    except (ServiceError, ValidationError) as e:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": str(e), "context": e.context}
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
+async def shutdown():
+    """Handle shutdown tasks."""
+    global _service
+    if _service:
+        try:
+            await _service.stop()
+            _service = None
+        except Exception as e:
+            logger.error(f"Error stopping communication service: {e}")
 
-
-@router.post("/clients/{client_id}/connect")
-async def connect_client(
-    client_id: str,
-    service: CommunicationService = Depends(get_service)
-) -> Dict[str, str]:
-    """Connect to a specific client."""
-    try:
-        await service.connect_client(client_id)
-        return {"status": "connected"}
-    except (ServiceError, ValidationError) as e:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": str(e), "context": e.context}
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
-
-
-@router.post("/clients/{client_id}/disconnect")
-async def disconnect_client(
-    client_id: str,
-    service: CommunicationService = Depends(get_service)
-) -> Dict[str, str]:
-    """Disconnect from a specific client."""
-    try:
-        await service.disconnect_client(client_id)
-        return {"status": "disconnected"}
-    except (ServiceError, ValidationError) as e:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": str(e), "context": e.context}
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
-
-
-@router.get("/tags/{tag_path}")
-async def read_tag(
-    tag_path: str,
-    service: CommunicationService = Depends(get_service)
-) -> Dict[str, Any]:
-    """Read a tag value."""
-    try:
-        value = await service.read_tag(tag_path)
-        return {"tag": tag_path, "value": value}
-    except (ServiceError, ValidationError) as e:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": str(e), "context": e.context}
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
-
-
-@router.post("/tags/{tag_path}")
-async def write_tag(
-    tag_path: str,
-    value: Any,
-    service: CommunicationService = Depends(get_service)
-) -> Dict[str, str]:
-    """Write a tag value."""
-    try:
-        await service.write_tag(tag_path, value)
-        return {"status": "written"}
-    except (ServiceError, ValidationError) as e:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": str(e), "context": e.context}
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
-
-
-# Include router in app
-app.include_router(router)
+# Add startup and shutdown events to router for testing
+router.startup = startup
+router.shutdown = shutdown

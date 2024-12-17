@@ -37,49 +37,70 @@ class DatabaseStorage:
         self._pool = None
 
     async def initialize(self) -> None:
-        """Initialize database connection pool and tables."""
+        """Initialize database connection and schema."""
+        if self._pool and not self._pool.is_closing():
+            logger.debug("Reusing existing connection pool")
+            return
+        
         try:
-            self._pool = await asyncpg.create_pool(self._dsn)
+            # Create connection pool
+            self._pool = await asyncpg.create_pool(
+                self._dsn,
+                min_size=2,
+                max_size=10,
+                command_timeout=60.0
+            )
             
-            # Create tables if they don't exist
+            # Create TimescaleDB extension
             async with self._pool.acquire() as conn:
+                await conn.execute("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;")
+                
+                # Create tables if they don't exist
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS spray_events (
                         id SERIAL PRIMARY KEY,
                         sequence_id TEXT NOT NULL,
                         spray_index INTEGER NOT NULL,
                         timestamp TIMESTAMPTZ NOT NULL,
-                        x_pos FLOAT NOT NULL,
-                        y_pos FLOAT NOT NULL,
-                        z_pos FLOAT NOT NULL,
-                        pressure FLOAT NOT NULL,
-                        temperature FLOAT NOT NULL,
-                        flow_rate FLOAT NOT NULL,
+                        x_pos DOUBLE PRECISION NOT NULL,
+                        y_pos DOUBLE PRECISION NOT NULL,
+                        z_pos DOUBLE PRECISION NOT NULL,
+                        pressure DOUBLE PRECISION NOT NULL,
+                        temperature DOUBLE PRECISION NOT NULL,
+                        flow_rate DOUBLE PRECISION NOT NULL,
                         status TEXT NOT NULL,
-                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                         UNIQUE(sequence_id, spray_index)
                     );
-
-                    -- Create index on sequence_id for faster lookups
-                    CREATE INDEX IF NOT EXISTS idx_spray_events_sequence_id
-                        ON spray_events(sequence_id);
-
-                    -- Create index on timestamp for time-based queries
-                    CREATE INDEX IF NOT EXISTS idx_spray_events_timestamp
-                        ON spray_events(timestamp);
                 """)
-
-                # Try to create TimescaleDB extension if available
+                
+                # Create indexes
+                await conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_spray_events_sequence_id
+                    ON spray_events(sequence_id);
+                    
+                    CREATE INDEX IF NOT EXISTS idx_spray_events_timestamp
+                    ON spray_events(timestamp);
+                """)
+                
+                # Convert to hypertable if not already
                 try:
-                    await conn.execute("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;")
-                    logger.info("TimescaleDB extension created successfully")
-                except asyncpg.exceptions.FeatureNotSupportedError:
-                    logger.warning("TimescaleDB extension not available - continuing without time-series optimization")
-
+                    await conn.execute("""
+                        SELECT create_hypertable('spray_events', 'timestamp',
+                            if_not_exists => TRUE,
+                            migrate_data => TRUE
+                        );
+                    """)
+                except Exception as e:
+                    logger.warning(f"Failed to create hypertable: {e}")
+                
+                logger.info("TimescaleDB extension created successfully")
+            
             logger.info("Database initialized successfully")
         except Exception as e:
-            logger.error(f"Failed to initialize database: {str(e)}")
-            raise StorageError("Failed to initialize database", {"error": str(e)})
+            if self._pool:
+                await self._pool.close()
+                self._pool = None
+            raise StorageError(f"Failed to initialize database: {str(e)}")
 
     async def save_spray_event(self, event: SprayEvent) -> None:
         """Save spray event to database."""

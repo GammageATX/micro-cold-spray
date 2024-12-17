@@ -6,7 +6,6 @@ from fastapi.testclient import TestClient
 from datetime import datetime
 import yaml
 import copy
-from httpx import AsyncClient
 import asyncio
 import json
 
@@ -26,21 +25,45 @@ def mock_config_service():
     service._service_name = "config"
     service.version = "1.0.0"
     
+    # Define uptime property getter
+    def get_uptime(self):
+        if not self.is_running or self.start_time is None:
+            return None
+        return (datetime.now() - self.start_time).total_seconds()
+    
+    # Set uptime as a property
+    type(service).uptime = property(get_uptime)
+    
     # Mock health check to return proper status
     async def mock_health_check():
-        return {
-            "status": "ok",
-            "services": {
-                "cache": True,
-                "file": True,
-                "schema": True,
-                "registry": True,
-                "format": True
-            },
-            "schema_loaded": True,
-            "last_error": None,
-            "last_update": None
+        response = {
+            "status": "stopped" if not service.is_running else "ok",
+            "uptime": service.uptime,
+            "memory_usage": 0,
+            "service_info": {
+                "name": service._service_name,
+                "version": service.version,
+                "running": service.is_running,
+                "error": None
+            }
         }
+        
+        if service.is_running:
+            response.update({
+                "services": {
+                    "cache": True,
+                    "file": True,
+                    "schema": True,
+                    "registry": True,
+                    "format": True
+                },
+                "schema_loaded": True,
+                "last_error": None,
+                "last_update": None
+            })
+        
+        return response
+    
     service.check_health = mock_health_check
     
     return service
@@ -116,34 +139,34 @@ def test_health_check_success(test_client, mock_config_service):
 
 def test_health_check_error(test_client, mock_config_service):
     """Test health check with error."""
-    # Mock check_health to return error status
     mock_config_service.check_health = AsyncMock(return_value={
         "status": "error",
         "error": "Test error"
     })
-    mock_config_service.is_running = True
     
     response = test_client.get("/health")
-    assert response.status_code == 200  # Still returns 200 but with error status
-    
+    assert response.status_code == 200
     data = response.json()
     assert data["status"] == "error"
-    assert "error" in data["service_info"]
-    assert data["service_info"]["name"] == "config"
-    assert data["service_info"]["running"] is True
+    assert data["service_info"]["error"] == "Test error"
 
 
 def test_health_check_stopped(test_client, mock_config_service):
     """Test health check when service is stopped."""
-    mock_config_service.check_config_access = AsyncMock(return_value=True)
+    # Set service to stopped state
     mock_config_service.is_running = False
+    mock_config_service.check_config_access = AsyncMock(return_value=False)
+    mock_config_service.start_time = None  # Set start_time to None when stopped
     
     response = test_client.get("/health")
     assert response.status_code == 200
     
     data = response.json()
     assert data["status"] == "stopped"
+    assert data["uptime"] is None
+    assert "memory_usage" in data
     assert data["service_info"]["name"] == "config"
+    assert data["service_info"]["version"] == "1.0.0"
     assert data["service_info"]["running"] is False
 
 
@@ -177,7 +200,8 @@ def test_get_config_not_found(test_client, mock_config_service):
     assert response.status_code == 400
     
     data = response.json()
-    assert "error" in data["detail"]
+    assert data["detail"]["error"] == "Configuration Error"
+    assert data["detail"]["message"] == "Config not found"
 
 
 def test_update_config_success(test_client, mock_config_service):
@@ -214,8 +238,9 @@ def test_update_config_validation_error(test_client, mock_config_service):
     assert response.status_code == 400
     
     data = response.json()
-    assert "error" in data["detail"]
-    assert "context" in data["detail"]
+    assert data["detail"]["error"] == "Configuration Error"
+    assert data["detail"]["message"] == "Invalid config"
+    assert "field" in data["detail"]["data"]
 
 
 def test_clear_cache_success(test_client, mock_config_service):
@@ -239,7 +264,8 @@ def test_clear_cache_error(test_client, mock_config_service):
     assert response.status_code == 500
     
     data = response.json()
-    assert "error" in data["detail"]
+    assert data["detail"]["error"] == "Internal Server Error"
+    assert data["detail"]["message"] == "Cache error"
 
 
 @pytest.mark.asyncio
@@ -298,13 +324,17 @@ def test_init_router_with_service():
 def test_get_service_not_initialized():
     """Test getting service when not initialized."""
     from micro_cold_spray.api.config.router import get_service
-    
+    from fastapi import HTTPException
+
     # Reset service to None
     import sys
     sys.modules['micro_cold_spray.api.config.router']._service = None
-    
-    with pytest.raises(RuntimeError, match="Config service not initialized"):
+
+    with pytest.raises(HTTPException) as exc:
         get_service()
+    assert exc.value.status_code == 503
+    assert exc.value.detail["error"] == "Service Unavailable"
+    assert "Config service not initialized" in exc.value.detail["message"]
 
 
 @pytest.mark.asyncio
@@ -439,10 +469,16 @@ async def test_update_config_with_backup(test_client, tmp_path):
 
 @pytest.mark.asyncio
 async def test_config_health(config_service):
-    async with AsyncClient() as client:
-        response = await client.get(f"{config_service}/health")
-        assert response.status_code == 200
-        assert response.json()["status"] == "ok"
+    """Test config health endpoint."""
+    import aiohttp
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{config_service}/health") as response:
+            assert response.status == 200
+            data = await response.json()
+            assert data["status"] == "ok"
+            assert "uptime" in data
+            assert "memory_usage" in data
+            assert "service_info" in data
 
 
 @pytest.mark.asyncio

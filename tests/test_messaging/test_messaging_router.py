@@ -1,84 +1,14 @@
 """Tests for messaging router."""
 
 import pytest
-from unittest.mock import AsyncMock, patch
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-from httpx import AsyncClient, ASGITransport
+from fastapi import HTTPException
 from starlette.websockets import WebSocketDisconnect
-
-from micro_cold_spray.api.messaging.router import router, startup, shutdown, get_service
-from micro_cold_spray.api.config import ConfigService
+from micro_cold_spray.api.messaging.router import get_service, lifespan
 from micro_cold_spray.api.base.exceptions import MessageError
 
 
 class TestMessagingRouter:
     """Test messaging router endpoints."""
-
-    @pytest.fixture
-    def mock_messaging_service(self):
-        """Create mock messaging service."""
-        mock = AsyncMock()
-        mock.check_health.return_value = {
-            "status": "ok",
-            "topics": 4,
-            "active_subscribers": 2,
-            "background_tasks": 1,
-            "queue_size": 0
-        }
-        mock.get_topics.return_value = {"test/topic", "test/response", "control/start", "control/stop"}
-        mock.get_subscriber_count.return_value = 2
-        mock.publish = AsyncMock()
-        mock.subscribe = AsyncMock()
-        mock.request = AsyncMock(return_value={"response": "test"})
-        mock.start = AsyncMock()
-        mock.stop = AsyncMock()
-        mock.set_valid_topics = AsyncMock()
-        return mock
-
-    @pytest.fixture
-    def mock_config_service(self):
-        """Create mock config service."""
-        mock = AsyncMock(spec=ConfigService)
-        mock.get_config.return_value = AsyncMock(
-            data={
-                "services": {
-                    "message_broker": {
-                        "topics": {
-                            "test": ["test/topic", "test/response"],
-                            "control": ["control/start", "control/stop"]
-                        }
-                    }
-                }
-            }
-        )
-        return mock
-
-    @pytest.fixture
-    async def app(self, mock_messaging_service, mock_config_service):
-        """Create FastAPI app for testing."""
-        app = FastAPI()
-        app.include_router(router)
-        
-        # Initialize services
-        with patch('micro_cold_spray.api.messaging.router._service', mock_messaging_service), \
-             patch('micro_cold_spray.api.messaging.router.get_config_service', return_value=mock_config_service):
-            await startup()
-            yield app
-            await shutdown()
-
-    @pytest.fixture
-    def test_client(self, app):
-        """Create test client with mock service."""
-        with TestClient(app) as client:
-            yield client
-
-    @pytest.fixture
-    async def async_client(self, app):
-        """Create async client for testing."""
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://testserver") as client:
-            yield client
 
     def test_health_check(self, test_client, mock_messaging_service):
         """Test health check endpoint."""
@@ -98,6 +28,7 @@ class TestMessagingRouter:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "error"
+        assert data["error"] == "Test error"
 
     def test_get_topics(self, test_client, mock_messaging_service):
         """Test get topics endpoint."""
@@ -115,18 +46,38 @@ class TestMessagingRouter:
 
     def test_get_service_not_initialized(self):
         """Test get_service when not initialized."""
-        with patch('micro_cold_spray.api.messaging.router._service', None):
-            with pytest.raises(RuntimeError, match="Messaging service not initialized"):
+        # Reset service state
+        import sys
+        
+        # Store original service
+        original_service = sys.modules['micro_cold_spray.api.messaging.router']._service
+        
+        try:
+            # Reset service to None
+            sys.modules['micro_cold_spray.api.messaging.router']._service = None
+            
+            with pytest.raises(HTTPException) as exc:
                 get_service()
+            assert exc.value.status_code == 503
+            assert exc.value.detail["error"] == "Service Unavailable"
+            assert "not initialized" in exc.value.detail["message"]
+        finally:
+            # Restore service state
+            sys.modules['micro_cold_spray.api.messaging.router']._service = original_service
 
     def test_validate_topic_empty(self, test_client):
         """Test topic validation with empty topic."""
         response = test_client.post("/messaging/publish/", json={"key": "value"})
         assert response.status_code == 404
+        data = response.json()
+        assert data["detail"]["error"] == "Not Found"
+        assert "Topic not found" in data["detail"]["message"]
 
         response = test_client.post("/messaging/publish/ ", json={"key": "value"})
         assert response.status_code == 400
-        assert "Invalid topic name" in response.json()["detail"]["error"]
+        data = response.json()
+        assert data["detail"]["error"] == "Invalid Action"
+        assert "Invalid topic name" in data["detail"]["message"]
 
     @pytest.mark.asyncio
     async def test_publish_message(self, async_client, mock_messaging_service):
@@ -180,9 +131,10 @@ class TestMessagingRouter:
             {"topic": "invalid/topic", "valid_topics": []}
         )
         
-        with pytest.raises(WebSocketDisconnect):
+        with pytest.raises(WebSocketDisconnect) as exc:
             with test_client.websocket_connect("/messaging/subscribe/invalid/topic"):
                 pass
+        assert exc.value.code == 1008  # Policy violation
 
     @pytest.mark.asyncio
     async def test_service_control(self, async_client, mock_messaging_service):
@@ -220,15 +172,35 @@ class TestMessagingRouter:
         mock_messaging_service.set_valid_topics.assert_called_once_with(new_topics)
 
     @pytest.mark.asyncio
-    async def test_service_startup_failure(self):
+    async def test_service_startup_failure(self, mocker):
         """Test service startup failure handling."""
-        with patch('micro_cold_spray.api.messaging.router.get_config_service') as mock_get_config:
-            mock_config = AsyncMock(spec=ConfigService)
-            mock_config.start.side_effect = Exception("Startup failed")
-            mock_get_config.return_value = mock_config
+        # Reset service state
+        import sys
+        
+        # Store original service
+        original_service = sys.modules['micro_cold_spray.api.messaging.router']._service
+        
+        try:
+            # Reset service to None
+            sys.modules['micro_cold_spray.api.messaging.router']._service = None
             
-            with pytest.raises(Exception, match="Startup failed"):
-                await startup()
+            # Mock config service to raise an error
+            mock_get_config = mocker.patch(
+                'micro_cold_spray.api.messaging.router.get_config_service',
+                side_effect=Exception("Failed to get config service"))
+            
+            # Create a mock FastAPI app
+            mock_app = mocker.MagicMock()
+            
+            # Test the lifespan context manager
+            async with lifespan(mock_app):
+                pytest.fail("Should not reach this point")  # Should raise before this
+        except Exception as exc:
+            assert "Failed to get config service" in str(exc)
+            mock_get_config.assert_called_once()
+        finally:
+            # Restore service state
+            sys.modules['micro_cold_spray.api.messaging.router']._service = original_service
 
     @pytest.mark.asyncio
     async def test_service_control_invalid_action(self, async_client):
@@ -236,8 +208,9 @@ class TestMessagingRouter:
         response = await async_client.post("/messaging/control", json={"action": "invalid"})
         assert response.status_code == 400
         data = response.json()
-        assert "Invalid action" in data["detail"]["error"]
-        assert "valid_actions" in data["detail"]
+        assert data["detail"]["error"] == "Invalid Action"
+        assert "Invalid action" in data["detail"]["message"]
+        assert "valid_actions" in data["detail"]["data"]
 
     @pytest.mark.asyncio
     async def test_service_control_missing_action(self, async_client):
@@ -245,5 +218,6 @@ class TestMessagingRouter:
         response = await async_client.post("/messaging/control", json={})
         assert response.status_code == 400
         data = response.json()
-        assert "Missing action" in data["detail"]["error"]
-        assert "valid_actions" in data["detail"]
+        assert data["detail"]["error"] == "Missing Parameter"
+        assert "Missing action" in data["detail"]["message"]
+        assert "valid_actions" in data["detail"]["data"]
