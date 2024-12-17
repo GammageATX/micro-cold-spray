@@ -45,7 +45,7 @@ def setup_logging() -> None:
         rotation="1 day",
         retention="30 days",
         compression="zip",
-        level="DEBUG",
+        level="INFO",
         enqueue=True
     )
 
@@ -95,7 +95,7 @@ async def check_service_health(port: int, retries: int = 5, delay: float = 2.0, 
             if response.status_code == 200:
                 health_data = response.json()
                 status = health_data.get("status")
-                if status in ["ok", "degraded"]:
+                if status == "ok":
                     logger.info(f"Service on port {port} is healthy (status: {status})")
                     return True
                 else:
@@ -242,7 +242,7 @@ class ServiceManager:
         # Remove the process from the dictionary
         if name in self.processes:
             del self.processes[name]
-            logger.debug(f"Removed {name} service from process list")
+            logger.info(f"Removed {name} service from process list")
 
     def stop_all(self) -> None:
         """Stop all services in reverse order."""
@@ -269,7 +269,8 @@ def run_config_api_process():
         "micro_cold_spray.api.config.router:app",
         host="0.0.0.0",
         port=8001,
-        reload=False
+        reload=False,
+        log_level="info"
     )
     server = uvicorn.Server(config)
     asyncio.run(server.serve())
@@ -281,7 +282,8 @@ def run_communication_api_process():
         "micro_cold_spray.api.communication.router:app",
         host="0.0.0.0",
         port=8002,
-        reload=False
+        reload=False,
+        log_level="info"
     )
     server = uvicorn.Server(config)
     asyncio.run(server.serve())
@@ -293,7 +295,8 @@ def run_messaging_api_process():
         "micro_cold_spray.api.messaging.router:app",
         host="0.0.0.0",
         port=8007,
-        reload=False
+        reload=False,
+        log_level="info"
     )
     server = uvicorn.Server(config)
     asyncio.run(server.serve())
@@ -305,7 +308,8 @@ def run_process_api_process():
         "micro_cold_spray.api.process.router:app",
         host="0.0.0.0",
         port=8003,
-        reload=False
+        reload=False,
+        log_level="info"
     )
     server = uvicorn.Server(config)
     asyncio.run(server.serve())
@@ -317,7 +321,8 @@ def run_state_api_process():
         "micro_cold_spray.api.state.router:app",
         host="0.0.0.0",
         port=8004,
-        reload=False
+        reload=False,
+        log_level="info"
     )
     server = uvicorn.Server(config)
     asyncio.run(server.serve())
@@ -329,7 +334,8 @@ def run_data_collection_api_process():
         "micro_cold_spray.api.data_collection.router:app",
         host="0.0.0.0",
         port=8005,
-        reload=False
+        reload=False,
+        log_level="info"
     )
     server = uvicorn.Server(config)
     asyncio.run(server.serve())
@@ -341,7 +347,8 @@ def run_validation_api_process():
         "micro_cold_spray.api.validation.router:app",
         host="0.0.0.0",
         port=8006,
-        reload=False
+        reload=False,
+        log_level="info"
     )
     server = uvicorn.Server(config)
     asyncio.run(server.serve())
@@ -399,6 +406,9 @@ async def main():
 
             # Non-critical services
             ('state', run_state_api_process, False),
+            ('process', run_process_api_process, False),
+            ('data_collection', run_data_collection_api_process, False),
+            ('validation', run_validation_api_process, False),
             ('ui', run_ui_process, False)
         ]
 

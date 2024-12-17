@@ -13,15 +13,19 @@ from .exceptions import ValidationError
 from ..base.router import add_health_endpoints
 from ..base.errors import ErrorCode, format_error
 from ..config.singleton import get_config_service
+from ..messaging.service import MessagingService
 
 # Create router without prefix (app already handles the /validation prefix)
 router = APIRouter(tags=["validation"])
 _service: Optional[ValidationService] = None
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Lifespan context manager for FastAPI app."""
+async def init_router(app: FastAPI) -> None:
+    """Initialize validation router with required services.
+    
+    Args:
+        app: FastAPI application instance
+    """
     global _service
     try:
         # Get shared config service instance
@@ -29,8 +33,16 @@ async def lifespan(app: FastAPI):
         await config_service.start()
         logger.info("ConfigService started successfully")
         
+        # Create and start message broker
+        message_broker = MessagingService(config_service=config_service)
+        await message_broker.start()
+        logger.info("MessageBroker started successfully")
+        
         # Initialize validation service
-        _service = ValidationService(config_service=config_service)
+        _service = ValidationService(
+            config_service=config_service,
+            message_broker=message_broker
+        )
         await _service.start()
         logger.info("ValidationService started successfully")
         
@@ -40,6 +52,19 @@ async def lifespan(app: FastAPI):
         app.include_router(router)
         logger.info("Validation router initialized")
         
+    except Exception as e:
+        logger.error(f"Failed to initialize validation router: {e}")
+        # Attempt cleanup
+        if _service and _service.is_running:
+            await _service.stop()
+        raise
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for FastAPI app."""
+    try:
+        await init_router(app)
         yield
         
         # Cleanup on shutdown

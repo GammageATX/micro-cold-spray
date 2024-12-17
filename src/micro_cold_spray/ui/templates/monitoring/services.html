@@ -194,17 +194,26 @@ async function controlService(serviceName, action) {
         
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.detail || `Failed to ${action} service`);
+            throw new Error(error.detail?.message || 'Service control failed');
         }
-        
-        showSuccess(`Service ${action} request sent`);
+
+        // Add visual feedback
+        const statusBadge = card.querySelector('.status-badge');
+        statusBadge.textContent = 'Updating...';
+        statusBadge.style.background = '#ffc107';  // Yellow warning color
+
+        // Force an immediate status update
         await updateServices();
     } catch (error) {
-        showError(error.message);
-    } finally {
-        button.disabled = false;
+        console.error('Service control error:', error);
+        showError(error.message || 'Failed to control service');
+        
+        // Revert visual state on error
         const card = button.closest('.service-card');
         card.classList.remove('updating');
+        updateServices();  // Refresh to show correct state
+    } finally {
+        button.disabled = false;
     }
 }
 
@@ -253,8 +262,11 @@ function formatUptime(seconds) {
     background: white;
     border-radius: 4px;
     padding: 15px;
-    margin-bottom: 15px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin-bottom: 0;
+    height: fit-content;
+    display: flex;
+    flex-direction: column;
 }
 
 .service-card.running { border-left: 4px solid var(--success-color); }
@@ -432,6 +444,41 @@ function formatUptime(seconds) {
     color: var(--error-color);
     font-size: 0.9em;
     margin-top: 5px;
+}
+
+/* Add updating state styles */
+.service-card.updating {
+    opacity: 0.7;
+    pointer-events: none;
+    position: relative;
+}
+
+.service-card.updating::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.service-card.updating::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 30px;
+    height: 30px;
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    z-index: 1;
 }
 </style>
 {% endblock %} 

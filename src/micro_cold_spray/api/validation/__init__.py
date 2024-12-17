@@ -1,11 +1,13 @@
 """Validation API package."""
 
-from .service import ValidationService, ValidationError
-from .router import router, init_router
+from .service import ValidationService
+from .exceptions import ValidationError
+from .router import router, init_router, app
 
 __all__ = [
     "ValidationService",
     "ValidationError",
     "router",
-    "init_router"
+    "init_router",
+    "app"
 ]
