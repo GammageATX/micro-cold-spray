@@ -2,13 +2,138 @@
 
 import os
 import psutil
-from typing import Dict, Any
-from fastapi import APIRouter, HTTPException
+from typing import Dict, Any, Optional, Callable, Awaitable, Type, Union
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, APIRouter, HTTPException
 from loguru import logger
+from starlette.middleware.cors import CORSMiddleware
 
 from .service import BaseService
+from .configurable import ConfigurableService
 from .errors import ErrorCode, format_error
 from .exceptions import ServiceError
+
+
+def create_api_app(
+    service_factory: Union[Type[BaseService], Type[ConfigurableService]],
+    prefix: str,
+    router: APIRouter,
+    additional_routers: Optional[list[APIRouter]] = None,
+    config_type: Optional[str] = None
+) -> FastAPI:
+    """Create a FastAPI application with standard configuration.
+    
+    Args:
+        service_factory: Service class to instantiate
+        prefix: URL prefix for the API
+        router: Main router for the API
+        additional_routers: Additional routers to include
+        config_type: Type of configuration to load for configurable services
+        
+    Returns:
+        Configured FastAPI application
+    """
+    
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        """Standard lifespan context manager for FastAPI app."""
+        service = None
+        try:
+            # Initialize service based on type
+            if issubclass(service_factory, ConfigurableService):
+                # Import here to avoid circular imports
+                from ..config.singleton import get_config_service
+                
+                # Get shared config service instance
+                config_service = get_config_service()
+                await config_service.start()
+                logger.info("ConfigService started successfully")
+                
+                # Create and configure service
+                service = service_factory(config_service=config_service)
+                if config_type:
+                    service.set_config_type(config_type)
+            else:
+                service = service_factory()
+            
+            # Start the service
+            await service.start()
+            logger.info(f"{service._service_name} started successfully")
+            
+            # Store service instance in app state
+            app.state.service = service
+            
+            # Add health endpoints
+            add_health_endpoints(app, service)
+            
+            # Include routers
+            app.include_router(router, prefix=prefix)
+            if additional_routers:
+                for additional_router in additional_routers:
+                    app.include_router(additional_router, prefix=prefix)
+            
+            logger.info(f"{service._service_name} router initialized")
+            
+            yield
+            
+            # Cleanup on shutdown
+            logger.info(f"{service._service_name} API shutting down")
+            if service:
+                try:
+                    await service.stop()
+                    logger.info(f"{service._service_name} stopped successfully")
+                except Exception as e:
+                    logger.error(f"Error stopping {service._service_name}: {e}")
+                finally:
+                    app.state.service = None
+                    
+        except Exception as e:
+            logger.error(f"Failed to initialize services: {e}")
+            if service:
+                try:
+                    await service.stop()
+                except Exception as stop_error:
+                    logger.error(f"Error during cleanup: {stop_error}")
+                finally:
+                    app.state.service = None
+            raise
+
+    # Create FastAPI app with lifespan
+    app = FastAPI(lifespan=lifespan)
+
+    # Add CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # In production, replace with specific origins
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    return app
+
+
+def get_service_from_app(app: FastAPI, service_type: Type[BaseService]) -> BaseService:
+    """Get service instance from FastAPI app state.
+    
+    Args:
+        app: FastAPI application instance
+        service_type: Expected service type
+        
+    Returns:
+        Service instance
+        
+    Raises:
+        HTTPException: If service is not available or wrong type
+    """
+    service = getattr(app.state, "service", None)
+    if not service or not isinstance(service, service_type):
+        error = ErrorCode.SERVICE_UNAVAILABLE
+        raise HTTPException(
+            status_code=error.get_status_code(),
+            detail=format_error(error, f"{service_type.__name__} not initialized")["detail"]
+        )
+    return service
 
 
 def add_health_endpoints(router: APIRouter, service: BaseService):

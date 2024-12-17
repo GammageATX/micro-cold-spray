@@ -2,8 +2,10 @@
 
 from typing import Dict, Any, Optional, List
 from datetime import datetime
+from contextlib import asynccontextmanager
 from fastapi import APIRouter, HTTPException, BackgroundTasks, FastAPI
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from .service import ProcessService
@@ -20,18 +22,15 @@ from .models import (
 from ..base.router import add_health_endpoints
 from ..config.singleton import get_config_service
 
-# Create FastAPI app
-app = FastAPI(title="Process API")
-
-router = APIRouter(prefix="/process", tags=["process"])
+# Create router without prefix (app already handles the /process prefix)
+router = APIRouter(tags=["process"])
 _service: Optional[ProcessService] = None
 
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize services on startup."""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for FastAPI app."""
     global _service
-    
     try:
         # Get shared config service instance
         config_service = get_config_service()
@@ -49,6 +48,17 @@ async def startup_event():
         app.include_router(router)
         logger.info("Process router initialized")
         
+        yield
+        
+        # Cleanup on shutdown
+        logger.info("Process API shutting down")
+        if _service:
+            try:
+                await _service.stop()
+                logger.info("Process service stopped successfully")
+            except Exception as e:
+                logger.error(f"Error stopping process service: {e}")
+            
     except Exception as e:
         logger.error(f"Failed to initialize services: {e}")
         # Attempt cleanup
@@ -57,16 +67,17 @@ async def startup_event():
         raise
 
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Handle shutdown tasks."""
-    logger.info("Process API shutting down")
-    if _service:
-        try:
-            await _service.stop()
-            logger.info("Process service stopped successfully")
-        except Exception as e:
-            logger.error(f"Error stopping process service: {e}")
+# Create FastAPI app with lifespan
+app = FastAPI(title="Process API", lifespan=lifespan)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace with specific origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 def get_service() -> ProcessService:

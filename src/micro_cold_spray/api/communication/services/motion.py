@@ -5,19 +5,21 @@ from loguru import logger
 
 from ...base import ConfigurableService
 from ...base.exceptions import HardwareError, ValidationError
+from ...config import ConfigService
 from ..clients import PLCClient
 
 
 class MotionService(ConfigurableService):
     """Service for motion system control."""
 
-    def __init__(self, plc_client: PLCClient):
+    def __init__(self, plc_client: PLCClient, config_service: ConfigService):
         """Initialize motion service.
         
         Args:
             plc_client: PLC client for hardware communication
+            config_service: Configuration service instance
         """
-        super().__init__(service_name="motion")
+        super().__init__(service_name="motion", config_service=config_service)
         self._plc = plc_client
 
     async def move_axis(self, axis: str, position: float, velocity: float) -> None:

@@ -6,6 +6,7 @@ from loguru import logger
 
 from ...base import ConfigurableService
 from ...base.exceptions import ServiceError, ValidationError
+from ...config import ConfigService
 from .tag_mapping import TagMappingService
 from ..models.tags import TagValue, TagMetadata, TagCacheResponse
 
@@ -13,10 +14,13 @@ from ..models.tags import TagValue, TagMetadata, TagCacheResponse
 class TagCacheService(ConfigurableService):
     """Service for caching and validating tag values."""
 
-    def __init__(self, config_service):
-        """Initialize tag cache service."""
-        super().__init__(service_name="tag_cache")
-        self._config_service = config_service
+    def __init__(self, config_service: ConfigService):
+        """Initialize tag cache service.
+        
+        Args:
+            config_service: Configuration service instance
+        """
+        super().__init__(service_name="tag_cache", config_service=config_service)
         self._tag_mapping: TagMappingService = None
         self._cache: Dict[str, TagValue] = {}
 

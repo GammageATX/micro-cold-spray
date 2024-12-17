@@ -5,16 +5,20 @@ from loguru import logger
 
 from ...base import ConfigurableService
 from ...base.exceptions import ServiceError, ValidationError
+from ...config import ConfigService
 from ...config.models import ConfigUpdate
 
 
 class TagMappingService(ConfigurableService):
     """Service for mapping between hardware and logical tag names."""
 
-    def __init__(self, config_service):
-        """Initialize tag mapping service."""
-        super().__init__(service_name="tag_mapping")
-        self._config_service = config_service
+    def __init__(self, config_service: ConfigService):
+        """Initialize tag mapping service.
+        
+        Args:
+            config_service: Configuration service instance
+        """
+        super().__init__(service_name="tag_mapping", config_service=config_service)
         self._hw_to_mapped: Dict[str, str] = {}
         self._mapped_to_hw: Dict[str, str] = {}
         self._plc_tags: set = set()

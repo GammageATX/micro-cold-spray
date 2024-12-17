@@ -3,15 +3,17 @@
 from typing import Dict, Any, Optional, Set
 from datetime import datetime
 from contextlib import asynccontextmanager
-from fastapi import APIRouter, HTTPException, WebSocket, BackgroundTasks, Body
+from fastapi import APIRouter, HTTPException, WebSocket, BackgroundTasks, Body, FastAPI
 from starlette.websockets import WebSocketDisconnect
 from loguru import logger
 from pydantic import BaseModel
+from starlette.middleware.cors import CORSMiddleware
 
 from .service import MessagingService
 from micro_cold_spray.api.base.exceptions import MessageError
 from ..base.errors import ErrorCode, format_error
 from ..config.singleton import get_config_service
+from micro_cold_spray.api.base.router import add_health_endpoints
 
 
 class MessageData(BaseModel):
@@ -20,8 +22,51 @@ class MessageData(BaseModel):
     value: Any
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan event handler for FastAPI."""
+    global _service
+    try:
+        # Get shared config service instance
+        config_service = get_config_service()
+        await config_service.start()
+        logger.info("ConfigService started successfully")
+        
+        # Get config data
+        config = await config_service.get_config("application")
+        logger.debug("Got application config")
+        
+        # Create messaging service with config
+        _service = MessagingService(config_service=config_service)
+        await _service.start()
+        logger.info("Messaging service started successfully")
+        
+        # Add health endpoints
+        add_health_endpoints(app, _service)
+        yield
+    finally:
+        if _service:
+            await _service.stop()
+            logger.info("Messaging service stopped successfully")
+
+
+# Create FastAPI app with lifespan
+app = FastAPI(lifespan=lifespan)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace with specific origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Create router with prefix
 router = APIRouter(prefix="/messaging", tags=["messaging"])
+
+# Include router in app
+app.include_router(router)
 
 _service: Optional[MessagingService] = None
 
@@ -34,39 +79,6 @@ def init_router(service_instance: MessagingService) -> None:
     """
     global _service
     _service = service_instance
-
-
-@asynccontextmanager
-async def lifespan(app):
-    """Handle startup and shutdown events."""
-    # Startup
-    logger.info("Messaging API starting up")
-    global _service
-    if _service is None:
-        try:
-            # Get shared config service instance
-            config_service = get_config_service()
-            await config_service.start()
-            logger.info("ConfigService started successfully")
-            
-            # Create messaging service with config
-            _service = MessagingService(config_service=config_service)
-            await _service.start()
-            logger.info("Messaging service started successfully")
-        except Exception as e:
-            logger.error(f"Failed to start messaging service: {e}")
-            raise
-
-    yield  # Server is running
-
-    # Shutdown
-    logger.info("Messaging API shutting down")
-    if _service:
-        try:
-            await _service.stop()
-            logger.info("Messaging service stopped successfully")
-        except Exception as e:
-            logger.error(f"Error stopping messaging service: {e}")
 
 
 def get_service() -> MessagingService:

@@ -2,28 +2,75 @@
 
 from typing import Dict, Any, Optional, List
 from datetime import datetime
+from contextlib import asynccontextmanager
 from fastapi import APIRouter, HTTPException, BackgroundTasks, FastAPI, Request, status, Query, Body, Path
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from pydantic import BaseModel, Field
 
 from .service import DataCollectionService
 from .models import SprayEvent
 from .exceptions import DataCollectionError
+from ..base.router import add_health_endpoints
+from ..config.singleton import get_config_service
 
-# Create FastAPI app and router
-app = FastAPI()
-router = APIRouter(prefix="/data-collection", tags=["data-collection"])
+# Create router without prefix (app already handles the /data-collection prefix)
+router = APIRouter(tags=["data-collection"])
 _service: Optional[DataCollectionService] = None
 
-# Mount router to app
-app.include_router(router)
 
-
-def init_router(service: DataCollectionService) -> None:
-    """Initialize the router with a data collection service instance."""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for FastAPI app."""
     global _service
-    _service = service
+    try:
+        # Get shared config service instance
+        config_service = get_config_service()
+        await config_service.start()
+        logger.info("ConfigService started successfully")
+        
+        # Initialize data collection service
+        _service = DataCollectionService(config_service=config_service)
+        await _service.start()
+        logger.info("DataCollectionService started successfully")
+        
+        # Add health endpoints
+        add_health_endpoints(app, _service)
+        # Mount router to app
+        app.include_router(router)
+        logger.info("Data collection router initialized")
+        
+        yield
+        
+        # Cleanup on shutdown
+        logger.info("Data collection API shutting down")
+        if _service:
+            try:
+                await _service.stop()
+                logger.info("Data collection service stopped successfully")
+            except Exception as e:
+                logger.error(f"Error stopping data collection service: {e}")
+            
+    except Exception as e:
+        logger.error(f"Failed to initialize services: {e}")
+        # Attempt cleanup
+        if _service and _service.is_running:
+            await _service.stop()
+        raise
+
+
+# Create FastAPI app with lifespan
+app = FastAPI(title="Data Collection API", lifespan=lifespan)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace with specific origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 def get_service() -> DataCollectionService:

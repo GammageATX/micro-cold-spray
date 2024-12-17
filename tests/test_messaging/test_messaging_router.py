@@ -3,8 +3,73 @@
 import pytest
 from fastapi import HTTPException
 from starlette.websockets import WebSocketDisconnect
+from datetime import datetime
+from unittest.mock import AsyncMock, patch
+
 from micro_cold_spray.api.messaging.router import get_service, lifespan
-from micro_cold_spray.api.base.exceptions import MessageError
+from micro_cold_spray.api.base.exceptions import MessageError, ConfigurationError
+from micro_cold_spray.api.config.models import ConfigData, ConfigMetadata
+
+
+@pytest.fixture
+def mock_config_service():
+    """Create mock config service."""
+    service = AsyncMock()
+    service.is_initialized = True
+    service.is_running = True
+    
+    # Mock get_config to return proper config data
+    async def mock_get_config(config_type: str):
+        return ConfigData(
+            metadata=ConfigMetadata(
+                config_type=config_type,
+                last_modified=datetime.now(),
+                version="1.0.0"
+            ),
+            data={
+                "services": {
+                    "message_broker": {
+                        "topics": {
+                            "system": ["state", "health", "control"],
+                            "data": ["spray", "position", "pressure"]
+                        },
+                        "max_subscribers": 10,
+                        "timeout": 5.0
+                    }
+                }
+            }
+        )
+    service.get_config.side_effect = mock_get_config
+    return service
+
+
+@pytest.fixture
+def mock_messaging_service(mock_config_service):
+    """Create mock messaging service with config."""
+    service = AsyncMock()
+    service.is_initialized = True
+    service.is_running = True
+    service._service_name = "MessagingService"
+    service.version = "1.0.0"
+    service.uptime = "0:00:00"
+    service._config_service = mock_config_service
+    
+    # Mock health check method
+    async def mock_check_health():
+        return {
+            "status": "healthy",
+            "service_info": {
+                "name": service._service_name,
+                "version": service.version,
+                "uptime": str(service.uptime),
+                "running": service.is_running
+            },
+            "topics": 6,
+            "subscribers": 2
+        }
+    service.check_health = AsyncMock(side_effect=mock_check_health)
+    
+    return service
 
 
 class TestMessagingRouter:
@@ -221,3 +286,68 @@ class TestMessagingRouter:
         assert data["detail"]["error"] == "Missing Parameter"
         assert "Missing action" in data["detail"]["message"]
         assert "valid_actions" in data["detail"]["data"]
+
+    @pytest.mark.asyncio
+    async def test_startup_with_config(self, mocker):
+        """Test startup with configuration."""
+        mock_config = AsyncMock()
+        mock_config.get_config.return_value = ConfigData(
+            metadata=ConfigMetadata(
+                config_type="application",
+                last_modified=datetime.now(),
+                version="1.0.0"
+            ),
+            data={
+                "services": {
+                    "message_broker": {
+                        "topics": {
+                            "system": ["state", "health"],
+                            "data": ["spray", "position"]
+                        },
+                        "max_subscribers": 5,
+                        "timeout": 3.0
+                    }
+                }
+            }
+        )
+        
+        with patch("micro_cold_spray.api.messaging.router.get_config_service", return_value=mock_config):
+            mock_app = mocker.MagicMock()
+            async with lifespan(mock_app):
+                mock_config.start.assert_called_once()
+                assert mock_config.get_config.called
+                assert mock_config.get_config.call_args[0][0] == "application"
+
+    def test_service_configuration(self, mock_messaging_service, mock_config_service):
+        """Test service configuration from config service."""
+        assert mock_messaging_service._config_service == mock_config_service
+        assert mock_messaging_service.is_initialized
+        assert mock_messaging_service.is_running
+
+    @pytest.mark.asyncio
+    async def test_config_error_handling(self, mock_messaging_service, mock_config_service):
+        """Test handling of configuration errors."""
+        mock_config_service.get_config.side_effect = ConfigurationError("Config error")
+        
+        with pytest.raises(ConfigurationError, match="Config error"):
+            await mock_messaging_service._start()
+
+    def test_health_check_includes_config(self, test_client, mock_messaging_service):
+        """Test health check includes configuration status."""
+        response = test_client.get("/messaging/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert "status" in data
+        assert "topics" in data
+        assert data["topics"] == 6  # Total number of topics from mock config
+
+    def test_topics_from_config(self, test_client, mock_messaging_service):
+        """Test topics are loaded from configuration."""
+        response = test_client.get("/messaging/topics")
+        assert response.status_code == 200
+        data = response.json()
+        assert "topics" in data
+        topics = data["topics"]
+        assert len(topics) == 6  # Total number of topics from mock config
+        assert "state" in topics
+        assert "spray" in topics

@@ -67,8 +67,20 @@ def ensure_directories() -> None:
         (BASE_DIR / dir_name).mkdir(parents=True, exist_ok=True)
 
 
-async def check_service_health(port: int, retries: int = 5, delay: float = 2.0) -> bool:
-    """Check if a service is healthy by polling its health endpoint."""
+async def check_service_health(port: int, retries: int = 5, delay: float = 2.0, is_critical: bool = False) -> bool:
+    """Check if a service is healthy by polling its health endpoint.
+    
+    Args:
+        port: Port number to check
+        retries: Number of retry attempts
+        delay: Delay between retries in seconds
+        is_critical: Whether this is a critical service (increases retries and delay)
+    """
+    # Increase retries and delay for critical services
+    if is_critical:
+        retries = 10  # Double the retries for critical services
+        delay = 3.0   # Increase delay for critical services
+        
     url = f"http://localhost:{port}/health"
     for attempt in range(retries):
         try:
@@ -94,6 +106,37 @@ async def check_service_health(port: int, retries: int = 5, delay: float = 2.0) 
             logger.warning(f"Service on port {port} not responding (attempt {attempt + 1}/{retries})")
         except Exception as e:
             logger.warning(f"Error checking service health on port {port}: {str(e)}")
+        
+        if attempt < retries - 1:
+            await asyncio.sleep(delay)
+    
+    return False
+
+
+async def check_config_ready(port: int) -> bool:
+    """Specifically check if config service is ready by attempting to get config.
+    
+    Args:
+        port: Config service port number
+    """
+    url = f"http://localhost:{port}/config/application"
+    retries = 10
+    delay = 3.0
+    
+    for attempt in range(retries):
+        try:
+            response = requests.get(url, timeout=5)
+            if response.status_code == 200:
+                config_data = response.json()
+                if config_data and "config" in config_data:
+                    logger.info("Config service is ready with configuration data")
+                    return True
+            elif response.status_code == 404:
+                logger.warning(f"Config endpoint not ready (attempt {attempt + 1}/{retries})")
+            else:
+                logger.warning(f"Config service returned status {response.status_code}")
+        except Exception as e:
+            logger.warning(f"Config service not ready (attempt {attempt + 1}/{retries}): {str(e)}")
         
         if attempt < retries - 1:
             await asyncio.sleep(delay)
@@ -149,20 +192,26 @@ class ServiceManager:
             process.start()
             self.processes[name] = process
             
-            # Skip health checks for services without ports (e.g. test services)
+            # Skip health checks for services without ports
             if port is None and name not in self.ports:
                 return True
-                
+            
             service_port = port or self.ports[name]
             
             # First wait for the service to start accepting connections
             if not await wait_for_service(service_port):
                 logger.error(f"Service {name} failed to start accepting connections")
                 return False
-                
+            
+            # For config service, do additional readiness check
+            if name == 'config':
+                if not await check_config_ready(service_port):
+                    logger.error("Config service failed readiness check")
+                    return False
+                logger.info("Config service passed readiness check")
+            
             # Then check its health
-            retries = 5 if critical else 3
-            is_healthy = await check_service_health(service_port, retries=retries)
+            is_healthy = await check_service_health(service_port, is_critical=critical)
             
             if not is_healthy:
                 if critical:
@@ -170,8 +219,8 @@ class ServiceManager:
                     return False
                 else:
                     logger.warning(f"Non-critical service {name} failed health check but continuing")
-                    return True  # Allow non-critical services to continue even if health check fails
-                    
+                    return True
+                
             return True
             
         except Exception as e:
@@ -343,7 +392,7 @@ async def main():
 
         # Define service startup sequence with dependencies
         startup_sequence = [
-            # Critical services first
+            # Critical services first - with increased delays between them
             ('config', run_config_api_process, True),
             ('messaging', run_messaging_api_process, True),
             ('communication', run_communication_api_process, True),
@@ -356,13 +405,19 @@ async def main():
         # Create a map of service names to their runners
         startup_map = {name: runner for name, runner, _ in startup_sequence}
 
-        # Start services in sequence
+        # Start services in sequence with proper delays
         for name, runner, critical in startup_sequence:
             success = await service_manager.start_service(name, runner, critical)
             if not success and critical:
                 logger.critical(f"Failed to start critical service {name}")
                 raise RuntimeError(f"Critical service {name} failed to start")
-            await asyncio.sleep(2)  # Give services time to stabilize
+            
+            # Add extra delay after config service starts
+            if name == 'config':
+                logger.info("Adding extra delay after config service start")
+                await asyncio.sleep(5)  # Extra 5 second delay after config
+            else:
+                await asyncio.sleep(2)  # Normal delay between other services
 
         def shutdown_handler(sig, frame):
             logger.info("Shutdown requested...")

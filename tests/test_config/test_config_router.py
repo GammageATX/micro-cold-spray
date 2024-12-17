@@ -8,6 +8,7 @@ import yaml
 import copy
 import asyncio
 import json
+import aiohttp
 
 from micro_cold_spray.api.config.router import app, init_router, router, get_service
 from micro_cold_spray.api.config.service import ConfigService
