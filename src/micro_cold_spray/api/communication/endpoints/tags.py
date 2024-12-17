@@ -239,26 +239,31 @@ async def update_tag_mapping(
 async def get_tag_cache(
     service: CommunicationService = Depends(get_service(CommunicationService))
 ) -> Dict[str, Any]:
-    """Get all available tags and their current values."""
+    """Get all cached tags and their values."""
     try:
-        response = await service.tag_cache.filter_tags()
+        logger.debug("Getting tag cache service")
+        tag_service = service.tag_cache
+        logger.debug("Filtering tags")
+        tag_cache = await tag_service.filter_tags()
+        logger.debug(f"Found {len(tag_cache.tags)} tags")
         return {
             "tags": {
-                tag: value.value 
-                for tag, value in response.tags.items()
+                tag: {
+                    "value": value.value,
+                    "metadata": value.metadata.dict(),
+                    "timestamp": value.timestamp.isoformat()
+                }
+                for tag, value in tag_cache.tags.items()
             }
         }
-    except ValidationError as e:
-        raise HTTPException(
-            status_code=ErrorCode.VALIDATION_ERROR.get_status_code(),
-            detail=format_error(ErrorCode.VALIDATION_ERROR, str(e), e.context)
-        )
     except ServiceError as e:
+        logger.error(f"Service error in get_tag_cache: {e}")
         raise HTTPException(
             status_code=ErrorCode.SERVICE_UNAVAILABLE.get_status_code(),
             detail=format_error(ErrorCode.SERVICE_UNAVAILABLE, str(e), e.context)
         )
     except Exception as e:
+        logger.error(f"Error in get_tag_cache: {e}")
         raise HTTPException(
             status_code=ErrorCode.INTERNAL_ERROR.get_status_code(),
             detail=format_error(ErrorCode.INTERNAL_ERROR, str(e))

@@ -63,8 +63,8 @@ def create_api_app(
             # Store service instance in app state
             app.state.service = service
             
-            # Add health endpoints
-            add_health_endpoints(app, service)
+            # Add health endpoints to the main router
+            add_health_endpoints(router, service)
             
             # Include routers
             app.include_router(router, prefix=prefix)

@@ -399,35 +399,49 @@ async def main():
 
         # Define service startup sequence with dependencies
         startup_sequence = [
-            # Critical services first - with increased delays between them
+            # UI first for fast loading
+            ('ui', run_ui_process, False),
+            
+            # Critical services in parallel
             ('config', run_config_api_process, True),
             ('messaging', run_messaging_api_process, True),
-            ('communication', run_communication_api_process, True),
-
+            
             # Non-critical services
+            ('communication', run_communication_api_process, False),
             ('state', run_state_api_process, False),
             ('process', run_process_api_process, False),
             ('data_collection', run_data_collection_api_process, False),
-            ('validation', run_validation_api_process, False),
-            ('ui', run_ui_process, False)
+            ('validation', run_validation_api_process, False)
         ]
 
         # Create a map of service names to their runners
         startup_map = {name: runner for name, runner, _ in startup_sequence}
 
-        # Start services in sequence with proper delays
-        for name, runner, critical in startup_sequence:
-            success = await service_manager.start_service(name, runner, critical)
-            if not success and critical:
+        # Start UI first
+        success = await service_manager.start_service('ui', run_ui_process, False)
+        if not success:
+            logger.warning("UI service failed to start, but continuing...")
+
+        # Start critical services in parallel
+        critical_tasks = []
+        for name in ['config', 'messaging']:
+            runner = startup_map[name]
+            task = asyncio.create_task(service_manager.start_service(name, runner, True))
+            critical_tasks.append((name, task))
+
+        # Wait for critical services
+        for name, task in critical_tasks:
+            success = await task
+            if not success:
                 logger.critical(f"Failed to start critical service {name}")
                 raise RuntimeError(f"Critical service {name} failed to start")
-            
-            # Add extra delay after config service starts
-            if name == 'config':
-                logger.info("Adding extra delay after config service start")
-                await asyncio.sleep(5)  # Extra 5 second delay after config
-            else:
-                await asyncio.sleep(2)  # Normal delay between other services
+
+        # Start non-critical services in parallel
+        non_critical_tasks = []
+        for name in ['communication', 'state', 'process', 'data_collection', 'validation']:
+            runner = startup_map[name]
+            task = asyncio.create_task(service_manager.start_service(name, runner, False))
+            non_critical_tasks.append((name, task))
 
         def shutdown_handler(sig, frame):
             logger.info("Shutdown requested...")
