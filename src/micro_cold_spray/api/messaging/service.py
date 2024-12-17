@@ -4,13 +4,13 @@ from typing import Dict, Any, Set, Callable, Awaitable
 import asyncio
 from loguru import logger
 
-from micro_cold_spray.api.base.service import BaseService
+from micro_cold_spray.api.base.configurable import ConfigurableService
 from micro_cold_spray.api.base.exceptions import MessageError
 from micro_cold_spray.api.config import ConfigService
 from .models import MessageHandler
 
 
-class MessagingService(BaseService):
+class MessagingService(ConfigurableService):
     """Service for handling pub/sub messaging."""
 
     def __init__(self, config_service: ConfigService):
@@ -19,8 +19,7 @@ class MessagingService(BaseService):
         Args:
             config_service: Configuration service instance
         """
-        super().__init__("MessagingService")
-        self._config_service = config_service
+        super().__init__(service_name="messaging", config_service=config_service)
         self._valid_topics: Set[str] = set()
         self._handlers: Dict[str, Set[MessageHandler]] = {}
         self._background_tasks: Set[asyncio.Task] = set()
@@ -30,7 +29,7 @@ class MessagingService(BaseService):
         """Start messaging service."""
         try:
             # Get valid topics from config
-            config = await self._config_service.get_config()
+            config = await self._config_service.get_config("application")
             topics = config.data.get("services", {}).get("message_broker", {}).get("topics", {})
             
             # Flatten topic groups into set
@@ -39,6 +38,10 @@ class MessagingService(BaseService):
                 valid_topics.update(group)
                 
             await self.set_valid_topics(valid_topics)
+            
+            # Configure the service with messaging config
+            messaging_config = config.data.get("services", {}).get("message_broker", {})
+            await self.configure(messaging_config)
             
             # Start background monitoring task
             monitor_task = asyncio.create_task(self._monitor_queue())

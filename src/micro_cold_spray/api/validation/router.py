@@ -2,27 +2,74 @@
 
 from typing import Dict, Any, Optional
 from datetime import datetime
+from contextlib import asynccontextmanager
 from fastapi import APIRouter, HTTPException, BackgroundTasks, FastAPI
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from .service import ValidationService
 from .exceptions import ValidationError
 from ..base.router import add_health_endpoints
 from ..base.errors import ErrorCode, format_error
+from ..config.singleton import get_config_service
 
-# Create FastAPI app
-app = FastAPI(title="Validation API")
-
-router = APIRouter(prefix="/validation", tags=["validation"])
+# Create router without prefix (app already handles the /validation prefix)
+router = APIRouter(tags=["validation"])
 _service: Optional[ValidationService] = None
 
 
-def init_router(service: ValidationService) -> None:
-    """Initialize router with service instance."""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for FastAPI app."""
     global _service
-    _service = service
-    add_health_endpoints(app, service)
+    try:
+        # Get shared config service instance
+        config_service = get_config_service()
+        await config_service.start()
+        logger.info("ConfigService started successfully")
+        
+        # Initialize validation service
+        _service = ValidationService(config_service=config_service)
+        await _service.start()
+        logger.info("ValidationService started successfully")
+        
+        # Add health endpoints
+        add_health_endpoints(app, _service)
+        # Mount router to app
+        app.include_router(router)
+        logger.info("Validation router initialized")
+        
+        yield
+        
+        # Cleanup on shutdown
+        logger.info("Validation API shutting down")
+        if _service:
+            try:
+                await _service.stop()
+                logger.info("Validation service stopped successfully")
+            except Exception as e:
+                logger.error(f"Error stopping validation service: {e}")
+            
+    except Exception as e:
+        logger.error(f"Failed to initialize services: {e}")
+        # Attempt cleanup
+        if _service and _service.is_running:
+            await _service.stop()
+        raise
+
+
+# Create FastAPI app with lifespan
+app = FastAPI(title="Validation API", lifespan=lifespan)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace with specific origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 def get_service() -> ValidationService:
@@ -164,6 +211,3 @@ async def health_check() -> JSONResponse:
             status_code=error.get_status_code(),
             content=format_error(error, str(e))
         )
-
-# Add router to app
-app.include_router(router)

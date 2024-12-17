@@ -14,10 +14,67 @@ from micro_cold_spray.api.state.exceptions import (
     InvalidStateError,
     ConditionError
 )
+from micro_cold_spray.api.config.models import ConfigData, ConfigMetadata
 
 
 @pytest.fixture
-def mock_state_service():
+def mock_config_service():
+    """Create mock config service."""
+    service = AsyncMock()
+    service.is_running = True
+    service.start_time = datetime.now()
+    
+    # Mock get_config to return proper config data
+    async def mock_get_config(config_type: str):
+        return ConfigData(
+            metadata=ConfigMetadata(
+                config_type=config_type,
+                last_modified=datetime.now(),
+                version="1.0.0"
+            ),
+            data={
+                "state_machine": {
+                    "initial_state": "INIT",
+                    "states": {
+                        "INIT": {
+                            "transitions": ["READY"],
+                            "conditions": ["hardware.connected"]
+                        },
+                        "READY": {
+                            "transitions": ["RUNNING", "ERROR"],
+                            "conditions": ["hardware.enabled"]
+                        }
+                    }
+                }
+            }
+        )
+    service.get_config.side_effect = mock_get_config
+    return service
+
+
+@pytest.fixture
+def mock_message_broker():
+    """Create mock message broker."""
+    broker = AsyncMock()
+    broker.is_running = True
+    broker.start = AsyncMock()
+    broker.stop = AsyncMock()
+    broker.set_valid_topics = AsyncMock()
+    return broker
+
+
+@pytest.fixture
+def mock_communication_service():
+    """Create mock communication service."""
+    service = AsyncMock()
+    service.is_running = True
+    service.start = AsyncMock()
+    service.stop = AsyncMock()
+    return service
+
+
+@pytest.fixture
+def mock_state_service(mock_config_service, mock_message_broker, mock_communication_service):
     """Create mock state service."""
     service = AsyncMock()
     service.is_running = True
@@ -25,6 +82,9 @@ def mock_state_service():
     service.uptime = 60
     service.current_state = "INIT"
     service.name = "state"
+    service._config_service = mock_config_service
+    service._message_broker = mock_message_broker
+    service._communication_service = mock_communication_service
     
     # Configure mock responses
     service.transition_to.return_value = StateResponse(
@@ -88,46 +148,6 @@ def client(mock_state_service):
     app.state._state_service = mock_state_service
     
     return TestClient(app)
-
-
-@pytest.fixture
-def mock_config_service():
-    """Create mock config service."""
-    service = AsyncMock()
-    service.get_config = AsyncMock(return_value=MagicMock(data={
-        "initial_state": "INIT",
-        "transitions": {
-            "INIT": {
-                "next_states": ["READY"],
-                "conditions": ["hardware.connected"],
-                "description": "Initial state"
-            },
-            "READY": {
-                "next_states": ["RUNNING", "ERROR"],
-                "conditions": ["hardware.enabled"],
-                "description": "Ready to run"
-            }
-        }
-    }))
-    return service
-
-
-@pytest.fixture
-def mock_message_broker():
-    """Create mock message broker."""
-    broker = AsyncMock()
-    broker.set_valid_topics = AsyncMock()
-    broker.start = AsyncMock()
-    return broker
-
-
-@pytest.fixture
-def mock_communication_service():
-    """Create mock communication service."""
-    service = AsyncMock()
-    service.start = AsyncMock()
-    service.is_running = True
-    return service
 
 
 class TestStateRouter:
@@ -494,3 +514,47 @@ class TestStateRouter:
             
             with pytest.raises(Exception, match="Communication service failed"):
                 await router.startup()
+
+    @pytest.mark.asyncio
+    async def test_startup_with_config(self, mock_config_service, mock_message_broker, mock_communication_service):
+        """Test startup with configuration loading."""
+        with patch("micro_cold_spray.api.state.router.get_config_service", return_value=mock_config_service), \
+             patch("micro_cold_spray.api.state.router.MessagingService", return_value=mock_message_broker), \
+             patch("micro_cold_spray.api.state.router.CommunicationService", return_value=mock_communication_service):
+            
+            mock_app = MagicMock()
+            async with app.router.lifespan(mock_app):
+                # Verify config was loaded
+                mock_config_service.start.assert_called_once()
+                mock_config_service.get_config.assert_called_with("state")
+                assert mock_config_service.get_config.call_count >= 1
+
+    def test_service_configuration(self, mock_state_service, mock_config_service):
+        """Test service configuration from config service."""
+        assert mock_state_service._config_service == mock_config_service
+        assert mock_state_service.is_running is True
+        assert mock_state_service.current_state == "INIT"
+
+    def test_service_dependencies(self, mock_state_service, mock_message_broker, mock_communication_service):
+        """Test service dependencies are properly initialized."""
+        assert mock_state_service._message_broker == mock_message_broker
+        assert mock_state_service._communication_service == mock_communication_service
+        assert mock_message_broker.is_running is True
+        assert mock_communication_service.is_running is True
+
+    @pytest.mark.asyncio
+    async def test_config_error_handling(self, mock_state_service, mock_config_service):
+        """Test handling of configuration errors."""
+        mock_config_service.get_config.side_effect = Exception("Config error")
+        
+        with pytest.raises(Exception, match="Config error"):
+            await mock_state_service._start()
+
+    def test_health_check_includes_config(self, client, mock_state_service):
+        """Test health check includes config service status."""
+        response = client.get("/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert "dependencies" in data
+        assert "config" in data["dependencies"]
+        assert data["dependencies"]["config"]["status"] == "ok"

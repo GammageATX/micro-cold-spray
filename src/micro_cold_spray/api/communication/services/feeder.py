@@ -5,20 +5,22 @@ from loguru import logger
 
 from ...base import ConfigurableService
 from ...base.exceptions import HardwareError, ValidationError
+from ...config import ConfigService
 from ..clients import SSHClient
 
 
 class FeederService(ConfigurableService):
     """Service for controlling powder feeder via P tags."""
 
-    def __init__(self, ssh_client: SSHClient, hardware_set: int = 1):
+    def __init__(self, ssh_client: SSHClient, config_service: ConfigService, hardware_set: int = 1):
         """Initialize feeder service.
         
         Args:
             ssh_client: SSH client for direct feeder control
+            config_service: Configuration service instance
             hardware_set: Hardware set number (1 or 2)
         """
-        super().__init__(service_name="feeder")
+        super().__init__(service_name="feeder", config_service=config_service)
         self._ssh = ssh_client
         self._hardware_set = hardware_set
         

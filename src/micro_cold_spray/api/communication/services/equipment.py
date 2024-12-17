@@ -5,19 +5,21 @@ from loguru import logger
 
 from ...base import ConfigurableService
 from ...base.exceptions import HardwareError, ValidationError
+from ...config import ConfigService
 from ..clients import PLCClient
 
 
 class EquipmentService(ConfigurableService):
     """Service for controlling process equipment."""
 
-    def __init__(self, plc_client: PLCClient):
+    def __init__(self, plc_client: PLCClient, config_service: ConfigService):
         """Initialize equipment service.
         
         Args:
             plc_client: PLC client for hardware communication
+            config_service: Configuration service instance
         """
-        super().__init__(service_name="equipment")
+        super().__init__(service_name="equipment", config_service=config_service)
         self._plc = plc_client
 
     async def set_gas_flow(self, flow_type: str, value: float) -> None:

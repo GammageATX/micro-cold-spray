@@ -9,7 +9,8 @@ from datetime import datetime
 import os
 from loguru import logger
 
-from .service import ConfigService, ConfigurationError
+from .service import ConfigService
+from ..base.exceptions import ConfigurationError
 from ..base.router import add_health_endpoints
 from ..base.errors import ErrorCode, format_error
 

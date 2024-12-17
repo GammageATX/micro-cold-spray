@@ -18,7 +18,6 @@ from ..communication.service import CommunicationService
 
 # Create router without prefix (app already handles the /state prefix)
 router = APIRouter(tags=["state"])
-
 _service: Optional[StateService] = None
 
 
@@ -26,7 +25,6 @@ _service: Optional[StateService] = None
 async def lifespan(app: FastAPI):
     """Lifespan context manager for FastAPI app."""
     global _service
-    
     try:
         # Get shared config service instance
         config_service = get_config_service()
@@ -36,20 +34,6 @@ async def lifespan(app: FastAPI):
         # Initialize message broker
         message_broker = MessagingService(config_service=config_service)
         await message_broker.start()
-        
-        # Load valid topics from application config
-        config = await config_service.get_config("application")
-        services_config = config.data.get("services", {})
-        message_config = services_config.get("message_broker", {})
-        topic_groups = message_config.get("topics", {})
-        
-        # Flatten topic groups into a set of valid topics
-        valid_topics = set()
-        for group in topic_groups.values():
-            valid_topics.update(group)
-            
-        # Set valid topics before using messaging
-        await message_broker.set_valid_topics(valid_topics)
         logger.info("MessagingService started successfully")
         
         # Initialize communication service
@@ -68,11 +52,11 @@ async def lifespan(app: FastAPI):
         
         # Add health endpoints
         add_health_endpoints(app, _service)
-        # Mount router to app with prefix
-        app.include_router(router, prefix="/state")
+        # Mount router to app
+        app.include_router(router)
         logger.info("State router initialized")
         
-        yield  # Application runs here
+        yield
         
         # Cleanup on shutdown
         logger.info("State API shutting down")
@@ -80,16 +64,16 @@ async def lifespan(app: FastAPI):
             try:
                 await _service.stop()
                 logger.info("State service stopped successfully")
-                _service = None
             except Exception as e:
                 logger.error(f"Error stopping state service: {e}")
-                
+            
     except Exception as e:
         logger.error(f"Failed to initialize services: {e}")
-        # Attempt cleanup of any partially initialized services
+        # Attempt cleanup
         if _service and _service.is_running:
             await _service.stop()
         raise
+
 
 # Create FastAPI app with lifespan
 app = FastAPI(title="State API", lifespan=lifespan)
@@ -104,12 +88,12 @@ app.add_middleware(
 )
 
 
-def get_state_service() -> StateService:
+def get_service() -> StateService:
     """Get state service instance."""
     if _service is None:
         error = ErrorCode.SERVICE_UNAVAILABLE
         raise HTTPException(
-            status_code=503,  # Service Unavailable
+            status_code=error.get_status_code(),
             detail=format_error(error, "State service not initialized")["detail"]
         )
     return _service
@@ -117,7 +101,7 @@ def get_state_service() -> StateService:
 
 @router.get("/status", response_model=Dict[str, Any])
 async def get_status(
-    service: StateService = Depends(get_state_service)
+    service: StateService = Depends(get_service)
 ) -> Dict[str, Any]:
     """Get current state status."""
     try:
@@ -143,7 +127,7 @@ async def get_status(
 @router.get("/conditions", response_model=Dict[str, Any])
 async def get_conditions(
     state: Optional[str] = Query(None),
-    service: StateService = Depends(get_state_service)
+    service: StateService = Depends(get_service)
 ) -> Dict[str, Any]:
     """Get conditions for a state."""
     try:
@@ -192,7 +176,7 @@ async def get_conditions(
 async def transition_state(
     request: StateRequest,
     background_tasks: BackgroundTasks,
-    service: StateService = Depends(get_state_service)
+    service: StateService = Depends(get_service)
 ) -> StateResponse:
     """Request state transition."""
     try:
@@ -258,7 +242,7 @@ async def get_history(
         description="Maximum number of history entries to return",
         ge=0
     ),
-    service: StateService = Depends(get_state_service)
+    service: StateService = Depends(get_service)
 ) -> List[StateTransition]:
     """Get state transition history."""
     try:
@@ -289,7 +273,7 @@ async def get_history(
 
 @router.get("/transitions", response_model=Dict[str, List[str]])
 async def get_transitions(
-    service: StateService = Depends(get_state_service)
+    service: StateService = Depends(get_service)
 ) -> Dict[str, List[str]]:
     """Get valid state transitions."""
     try:
@@ -304,70 +288,3 @@ async def get_transitions(
             status_code=500,  # Internal Server Error
             detail=format_error(error, str(e))["detail"]
         )
-
-
-# Add startup and shutdown events for testing
-async def startup():
-    """Initialize services on startup."""
-    global _service
-    
-    try:
-        # Get shared config service instance
-        config_service = get_config_service()
-        await config_service.start()
-        logger.info("ConfigService started successfully")
-        
-        # Initialize message broker
-        message_broker = MessagingService(config_service=config_service)
-        await message_broker.start()
-        
-        # Load valid topics from application config
-        config = await config_service.get_config("application")
-        services_config = config.data.get("services", {})
-        message_config = services_config.get("message_broker", {})
-        topic_groups = message_config.get("topics", {})
-        
-        # Flatten topic groups into a set of valid topics
-        valid_topics = set()
-        for group in topic_groups.values():
-            valid_topics.update(group)
-            
-        # Set valid topics before using messaging
-        await message_broker.set_valid_topics(valid_topics)
-        logger.info("MessagingService started successfully")
-        
-        # Initialize communication service
-        communication_service = CommunicationService(config_service=config_service)
-        await communication_service.start()
-        logger.info("CommunicationService started successfully")
-        
-        # Initialize state service
-        _service = StateService(
-            config_service=config_service,
-            message_broker=message_broker,
-            communication_service=communication_service
-        )
-        await _service.start()
-        logger.info("StateService started successfully")
-        
-    except Exception as e:
-        logger.error(f"Failed to initialize services: {e}")
-        if _service and _service.is_running:
-            await _service.stop()
-        raise e  # Re-raise the exception to ensure test catches it
-
-
-async def shutdown():
-    """Handle shutdown tasks."""
-    global _service
-    if _service:
-        try:
-            await _service.stop()
-            _service = None
-        except Exception as e:
-            logger.error(f"Error stopping state service: {e}")
-            # Don't re-raise the exception to allow clean shutdown
-
-# Add startup and shutdown events to router for testing
-router.startup = startup
-router.shutdown = shutdown

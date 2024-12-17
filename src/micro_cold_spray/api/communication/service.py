@@ -30,8 +30,7 @@ class CommunicationService(ConfigurableService):
         Args:
             config_service: Configuration service instance
         """
-        super().__init__(service_name="communication")
-        self._config_service = config_service
+        super().__init__(service_name="communication", config_service=config_service)
         
         # Clients
         self._plc_client: Optional[PLCClient] = None
@@ -99,9 +98,18 @@ class CommunicationService(ConfigurableService):
     async def _init_and_start_services(self) -> None:
         """Initialize and start all services."""
         # Initialize services
-        self._equipment = EquipmentService(plc_client=self._plc_client)
-        self._feeder = FeederService(ssh_client=self._ssh_client)
-        self._motion = MotionService(plc_client=self._plc_client)
+        self._equipment = EquipmentService(
+            plc_client=self._plc_client,
+            config_service=self._config_service
+        )
+        self._feeder = FeederService(
+            ssh_client=self._ssh_client,
+            config_service=self._config_service
+        )
+        self._motion = MotionService(
+            plc_client=self._plc_client,
+            config_service=self._config_service
+        )
         self._tag_cache = TagCacheService(self._config_service)
         self._tag_mapping = TagMappingService(self._config_service)
         
@@ -158,13 +166,13 @@ class CommunicationService(ConfigurableService):
             }
             
             return {
-                "status": "healthy" if all(status.values()) else "degraded",
+                "status": "ok" if all(status.values()) else "degraded",
                 "components": status
             }
             
         except Exception as e:
             raise ServiceError(
-                "Failed to check communication health",
+                "Failed to check communication service health",
                 {"error": str(e)}
             )
 

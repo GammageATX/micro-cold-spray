@@ -1,13 +1,13 @@
 """Configuration API package."""
 
-from .service import ConfigService
+from micro_cold_spray.api.base.exceptions import ConfigurationError
 from .models import (
     ConfigData,
     ConfigMetadata,
     ConfigUpdate,
     ConfigStatus
 )
-from micro_cold_spray.api.base.exceptions import ConfigurationError
+from .service import ConfigService
 from .router import router, init_router
 
 __all__ = [
