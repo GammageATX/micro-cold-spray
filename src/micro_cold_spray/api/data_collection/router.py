@@ -10,6 +10,7 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from .service import DataCollectionService
+from .storage import DatabaseStorage
 from .models import SprayEvent
 from .exceptions import DataCollectionError
 from ..base.router import add_health_endpoints
@@ -35,8 +36,18 @@ async def init_router(app: FastAPI) -> None:
         await config_service.start()
         logger.info("ConfigService started successfully")
         
+        # Get database configuration
+        config = await config_service.get_config("application")
+        db_config = config.data.get("services", {}).get("data_collection", {}).get("database", {})
+        dsn = f"postgresql://{db_config.get('user', 'postgres')}:{db_config.get('password', 'postgres')}@{db_config.get('host', 'localhost')}:{db_config.get('port', 5432)}/{db_config.get('database', 'micro_cold_spray')}"
+        
+        # Initialize storage backend
+        storage = DatabaseStorage(dsn=dsn)
+        await storage.initialize()
+        logger.info("Database storage initialized successfully")
+        
         # Initialize data collection service
-        _service = DataCollectionService(config_service=config_service)
+        _service = DataCollectionService(storage=storage, config_service=config_service)
         await _service.start()
         logger.info("DataCollectionService started successfully")
         

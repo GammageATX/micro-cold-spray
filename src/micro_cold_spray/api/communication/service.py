@@ -97,28 +97,39 @@ class CommunicationService(ConfigurableService):
 
     async def _init_and_start_services(self) -> None:
         """Initialize and start all services."""
-        # Initialize services
-        self._equipment = EquipmentService(
-            plc_client=self._plc_client,
-            config_service=self._config_service
-        )
-        self._feeder = FeederService(
-            ssh_client=self._ssh_client,
-            config_service=self._config_service
-        )
-        self._motion = MotionService(
-            plc_client=self._plc_client,
-            config_service=self._config_service
-        )
-        self._tag_cache = TagCacheService(self._config_service)
-        self._tag_mapping = TagMappingService(self._config_service)
-        
-        # Start all services
-        await self._equipment.start()
-        await self._feeder.start()
-        await self._motion.start()
-        await self._tag_cache.start()
-        await self._tag_mapping.start()
+        try:
+            logger.debug("Initializing services...")
+            # Initialize services
+            self._equipment = EquipmentService(
+                plc_client=self._plc_client,
+                config_service=self._config_service
+            )
+            self._feeder = FeederService(
+                ssh_client=self._ssh_client,
+                config_service=self._config_service
+            )
+            self._motion = MotionService(
+                plc_client=self._plc_client,
+                config_service=self._config_service
+            )
+            logger.debug("Initializing tag cache service...")
+            self._tag_cache = TagCacheService(self._config_service)
+            logger.debug("Initializing tag mapping service...")
+            self._tag_mapping = TagMappingService(self._config_service)
+            
+            # Start all services
+            logger.debug("Starting services...")
+            await self._equipment.start()
+            await self._feeder.start()
+            await self._motion.start()
+            logger.debug("Starting tag cache service...")
+            await self._tag_cache.start()
+            logger.debug("Starting tag mapping service...")
+            await self._tag_mapping.start()
+            logger.debug("All services started")
+        except Exception as e:
+            logger.error(f"Failed to initialize and start services: {e}")
+            raise
 
     async def _stop(self) -> None:
         """Stop communication service."""
@@ -155,26 +166,53 @@ class CommunicationService(ConfigurableService):
             ServiceError: If health check fails
         """
         try:
+            logger.debug("Checking communication service health")
+            
+            # Check clients first
+            plc_status = False
+            ssh_status = False
+            try:
+                plc_status = await self._plc_client.check_connection()
+                logger.debug(f"PLC client status: {plc_status}")
+            except Exception as e:
+                logger.error(f"PLC client health check failed: {e}")
+                
+            try:
+                ssh_status = await self._ssh_client.check_connection()
+                logger.debug(f"SSH client status: {ssh_status}")
+            except Exception as e:
+                logger.error(f"SSH client health check failed: {e}")
+            
+            # Check services
             status = {
-                "plc": await self._plc_client.check_connection(),
-                "ssh": await self._ssh_client.check_connection(),
-                "equipment": self._equipment.is_running,
-                "feeder": self._feeder.is_running,
-                "motion": self._motion.is_running,
-                "tag_cache": self._tag_cache.is_running,
-                "tag_mapping": self._tag_mapping.is_running
+                "plc": plc_status,
+                "ssh": ssh_status,
+                "equipment": self._equipment and self._equipment.is_running,
+                "feeder": self._feeder and self._feeder.is_running,
+                "motion": self._motion and self._motion.is_running,
+                "tag_cache": self._tag_cache and self._tag_cache.is_running,
+                "tag_mapping": self._tag_mapping and self._tag_mapping.is_running
             }
             
+            # Add error details if available
+            details = {}
+            for component, is_healthy in status.items():
+                if not is_healthy:
+                    details[component] = "Component not initialized or not running"
+            
+            health_status = "ok" if all(status.values()) else "error"
+            logger.debug(f"Health status: {health_status}, details: {details}")
+            
             return {
-                "status": "ok" if all(status.values()) else "degraded",
-                "components": status
+                "status": health_status,
+                "components": status,
+                "details": details if details else None
             }
             
         except Exception as e:
-            raise ServiceError(
-                "Failed to check communication service health",
-                {"error": str(e)}
-            )
+            error_msg = f"Failed to check communication service health: {str(e)}"
+            logger.error(error_msg)
+            raise ServiceError(error_msg)
 
     @property
     def equipment(self) -> EquipmentService:

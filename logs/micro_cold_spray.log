@@ -948,3 +948,238 @@ RuntimeError: Critical service communication failed to start
 2024-12-17 17:18:33.019 | INFO     | __main__:stop_service:245 - Removed messaging service from process list
 2024-12-17 17:18:33.020 | INFO     | __main__:stop_service:245 - Removed config service from process list
 2024-12-17 17:18:33.021 | INFO     | __main__:main:460 - Application shutdown complete
+2024-12-17 17:29:01.473 | INFO     | __main__:main:398 - Starting Micro Cold Spray application
+2024-12-17 17:29:01.473 | INFO     | __main__:start_service:190 - Starting config service...
+2024-12-17 17:29:05.089 | INFO     | __main__:check_config_ready:132 - Config service is ready with configuration data
+2024-12-17 17:29:05.090 | INFO     | __main__:start_service:211 - Config service passed readiness check
+2024-12-17 17:29:07.140 | INFO     | __main__:check_service_health:99 - Service on port 8001 is healthy (status: ok)
+2024-12-17 17:29:07.141 | INFO     | __main__:main:427 - Adding extra delay after config service start
+2024-12-17 17:29:12.157 | INFO     | __main__:start_service:190 - Starting messaging service...
+2024-12-17 17:29:15.732 | INFO     | __main__:check_service_health:99 - Service on port 8007 is healthy (status: ok)
+2024-12-17 17:29:17.744 | INFO     | __main__:start_service:190 - Starting communication service...
+2024-12-17 17:29:23.318 | INFO     | __main__:check_service_health:99 - Service on port 8002 is healthy (status: ok)
+2024-12-17 17:29:25.326 | INFO     | __main__:start_service:190 - Starting state service...
+2024-12-17 17:29:30.923 | WARNING  | __main__:check_service_health:102 - Service on port 8004 reported unhealthy status: error
+2024-12-17 17:29:34.988 | WARNING  | __main__:check_service_health:102 - Service on port 8004 reported unhealthy status: error
+2024-12-17 17:29:39.029 | WARNING  | __main__:check_service_health:102 - Service on port 8004 reported unhealthy status: error
+2024-12-17 17:29:43.109 | WARNING  | __main__:check_service_health:102 - Service on port 8004 reported unhealthy status: error
+2024-12-17 17:29:47.130 | WARNING  | __main__:check_service_health:102 - Service on port 8004 reported unhealthy status: error
+2024-12-17 17:29:47.131 | WARNING  | __main__:start_service:221 - Non-critical service state failed health check but continuing
+2024-12-17 17:29:49.139 | INFO     | __main__:start_service:190 - Starting process service...
+2024-12-17 17:30:19.391 | ERROR    | __main__:start_service:203 - Service process failed to start accepting connections
+2024-12-17 17:30:21.403 | INFO     | __main__:start_service:190 - Starting data_collection service...
+2024-12-17 17:30:51.657 | ERROR    | __main__:start_service:203 - Service data_collection failed to start accepting connections
+2024-12-17 17:30:53.662 | INFO     | __main__:start_service:190 - Starting validation service...
+2024-12-17 17:31:23.908 | ERROR    | __main__:start_service:203 - Service validation failed to start accepting connections
+2024-12-17 17:31:25.919 | INFO     | __main__:start_service:190 - Starting ui service...
+2024-12-17 17:31:29.488 | INFO     | __main__:check_service_health:99 - Service on port 8000 is healthy (status: ok)
+2024-12-17 17:31:31.495 | WARNING  | __main__:main:449 - Non-critical service process died - attempting restart
+2024-12-17 17:31:31.496 | INFO     | __main__:start_service:190 - Starting process service...
+2024-12-17 17:32:01.748 | ERROR    | __main__:start_service:203 - Service process failed to start accepting connections
+2024-12-17 17:32:01.748 | WARNING  | __main__:main:449 - Non-critical service data_collection died - attempting restart
+2024-12-17 17:32:01.750 | INFO     | __main__:start_service:190 - Starting data_collection service...
+2024-12-17 17:32:32.021 | ERROR    | __main__:start_service:203 - Service data_collection failed to start accepting connections
+2024-12-17 17:32:32.022 | WARNING  | __main__:main:449 - Non-critical service validation died - attempting restart
+2024-12-17 17:32:32.022 | INFO     | __main__:start_service:190 - Starting validation service...
+2024-12-17 17:33:02.253 | ERROR    | __main__:start_service:203 - Service validation failed to start accepting connections
+2024-12-17 17:33:07.264 | WARNING  | __main__:main:449 - Non-critical service process died - attempting restart
+2024-12-17 17:33:07.265 | INFO     | __main__:start_service:190 - Starting process service...
+2024-12-17 17:33:37.557 | ERROR    | __main__:start_service:203 - Service process failed to start accepting connections
+2024-12-17 17:33:37.557 | WARNING  | __main__:main:449 - Non-critical service data_collection died - attempting restart
+2024-12-17 17:33:37.558 | INFO     | __main__:start_service:190 - Starting data_collection service...
+2024-12-17 17:34:07.800 | ERROR    | __main__:start_service:203 - Service data_collection failed to start accepting connections
+2024-12-17 17:34:07.801 | WARNING  | __main__:main:449 - Non-critical service validation died - attempting restart
+2024-12-17 17:34:07.801 | INFO     | __main__:start_service:190 - Starting validation service...
+2024-12-17 17:34:38.001 | ERROR    | __main__:start_service:203 - Service validation failed to start accepting connections
+2024-12-17 17:34:43.016 | WARNING  | __main__:main:449 - Non-critical service process died - attempting restart
+2024-12-17 17:34:43.016 | INFO     | __main__:start_service:190 - Starting process service...
+2024-12-17 17:35:13.287 | ERROR    | __main__:start_service:203 - Service process failed to start accepting connections
+2024-12-17 17:35:13.288 | WARNING  | __main__:main:449 - Non-critical service data_collection died - attempting restart
+2024-12-17 17:35:13.290 | INFO     | __main__:start_service:190 - Starting data_collection service...
+2024-12-17 17:35:27.921 | INFO     | __main__:shutdown_handler:433 - Shutdown requested...
+2024-12-17 17:35:27.922 | INFO     | __main__:stop_service:245 - Removed ui service from process list
+2024-12-17 17:35:27.922 | INFO     | __main__:stop_service:245 - Removed validation service from process list
+2024-12-17 17:35:27.923 | INFO     | __main__:stop_service:245 - Removed data_collection service from process list
+2024-12-17 17:35:27.923 | INFO     | __main__:stop_service:245 - Removed process service from process list
+2024-12-17 17:35:27.924 | INFO     | __main__:stop_service:245 - Removed state service from process list
+2024-12-17 17:35:27.924 | INFO     | __main__:stop_service:245 - Removed communication service from process list
+2024-12-17 17:35:27.925 | INFO     | __main__:stop_service:245 - Removed messaging service from process list
+2024-12-17 17:35:27.926 | INFO     | __main__:stop_service:245 - Removed config service from process list
+2024-12-17 17:35:27.926 | INFO     | __main__:main:460 - Application shutdown complete
+2024-12-17 17:35:36.400 | INFO     | __main__:main:398 - Starting Micro Cold Spray application
+2024-12-17 17:35:36.401 | INFO     | __main__:start_service:190 - Starting ui service...
+2024-12-17 17:35:39.987 | INFO     | __main__:check_service_health:99 - Service on port 8000 is healthy (status: ok)
+2024-12-17 17:35:39.987 | INFO     | __main__:start_service:190 - Starting config service...
+2024-12-17 17:35:43.566 | INFO     | __main__:check_config_ready:132 - Config service is ready with configuration data
+2024-12-17 17:35:43.567 | INFO     | __main__:start_service:211 - Config service passed readiness check
+2024-12-17 17:35:45.638 | INFO     | __main__:check_service_health:99 - Service on port 8001 is healthy (status: ok)
+2024-12-17 17:35:45.638 | INFO     | __main__:start_service:190 - Starting messaging service...
+2024-12-17 17:35:49.200 | INFO     | __main__:check_service_health:99 - Service on port 8007 is healthy (status: ok)
+2024-12-17 17:35:49.200 | INFO     | __main__:start_service:190 - Starting communication service...
+2024-12-17 17:35:51.219 | INFO     | __main__:start_service:190 - Starting state service...
+2024-12-17 17:35:53.245 | INFO     | __main__:start_service:190 - Starting process service...
+2024-12-17 17:35:55.255 | INFO     | __main__:start_service:190 - Starting data_collection service...
+2024-12-17 17:35:57.277 | INFO     | __main__:start_service:190 - Starting validation service...
+2024-12-17 17:36:02.338 | INFO     | __main__:check_service_health:99 - Service on port 8002 is healthy (status: ok)
+2024-12-17 17:36:05.387 | WARNING  | __main__:check_service_health:102 - Service on port 8004 reported unhealthy status: error
+2024-12-17 17:36:05.387 | WARNING  | __main__:main:463 - Non-critical service process died - attempting restart
+2024-12-17 17:36:05.388 | INFO     | __main__:start_service:190 - Starting process service...
+2024-12-17 17:36:15.506 | WARNING  | __main__:check_service_health:102 - Service on port 8004 reported unhealthy status: error
+2024-12-17 17:36:25.647 | WARNING  | __main__:check_service_health:102 - Service on port 8004 reported unhealthy status: error
+2024-12-17 17:36:27.662 | ERROR    | __main__:start_service:203 - Service process failed to start accepting connections
+2024-12-17 17:36:27.663 | ERROR    | __main__:start_service:203 - Service data_collection failed to start accepting connections
+2024-12-17 17:36:27.663 | ERROR    | __main__:start_service:203 - Service validation failed to start accepting connections
+2024-12-17 17:36:29.719 | WARNING  | __main__:check_service_health:102 - Service on port 8004 reported unhealthy status: error
+2024-12-17 17:36:33.770 | WARNING  | __main__:check_service_health:102 - Service on port 8004 reported unhealthy status: error
+2024-12-17 17:36:33.770 | WARNING  | __main__:start_service:221 - Non-critical service state failed health check but continuing
+2024-12-17 17:36:36.286 | ERROR    | __main__:start_service:203 - Service process failed to start accepting connections
+2024-12-17 17:36:36.286 | WARNING  | __main__:main:463 - Non-critical service data_collection died - attempting restart
+2024-12-17 17:36:36.287 | INFO     | __main__:start_service:190 - Starting data_collection service...
+2024-12-17 17:37:06.563 | ERROR    | __main__:start_service:203 - Service data_collection failed to start accepting connections
+2024-12-17 17:37:06.564 | WARNING  | __main__:main:463 - Non-critical service validation died - attempting restart
+2024-12-17 17:37:06.565 | INFO     | __main__:start_service:190 - Starting validation service...
+2024-12-17 17:37:36.822 | ERROR    | __main__:start_service:203 - Service validation failed to start accepting connections
+2024-12-17 17:37:41.836 | WARNING  | __main__:main:463 - Non-critical service process died - attempting restart
+2024-12-17 17:37:41.837 | INFO     | __main__:start_service:190 - Starting process service...
+2024-12-17 17:38:11.605 | INFO     | __main__:shutdown_handler:447 - Shutdown requested...
+2024-12-17 17:38:11.605 | INFO     | __main__:stop_service:245 - Removed validation service from process list
+2024-12-17 17:38:11.606 | INFO     | __main__:stop_service:245 - Removed data_collection service from process list
+2024-12-17 17:38:11.606 | INFO     | __main__:stop_service:245 - Removed process service from process list
+2024-12-17 17:38:11.607 | INFO     | __main__:stop_service:245 - Removed state service from process list
+2024-12-17 17:38:11.607 | INFO     | __main__:stop_service:245 - Removed communication service from process list
+2024-12-17 17:38:11.608 | INFO     | __main__:stop_service:245 - Removed messaging service from process list
+2024-12-17 17:38:11.609 | INFO     | __main__:stop_service:245 - Removed config service from process list
+2024-12-17 17:38:11.609 | INFO     | __main__:stop_service:245 - Removed ui service from process list
+2024-12-17 17:38:11.610 | INFO     | __main__:main:474 - Application shutdown complete
+2024-12-17 17:38:16.541 | INFO     | __main__:main:398 - Starting Micro Cold Spray application
+2024-12-17 17:38:16.542 | INFO     | __main__:start_service:190 - Starting ui service...
+2024-12-17 17:38:31.169 | INFO     | __main__:stop_service:245 - Removed ui service from process list
+2024-12-17 17:38:31.169 | INFO     | __main__:main:474 - Application shutdown complete
+2024-12-17 17:38:40.175 | INFO     | __main__:main:398 - Starting Micro Cold Spray application
+2024-12-17 17:38:40.175 | INFO     | __main__:start_service:190 - Starting ui service...
+2024-12-17 17:38:43.748 | INFO     | __main__:check_service_health:99 - Service on port 8000 is healthy (status: ok)
+2024-12-17 17:38:43.748 | INFO     | __main__:start_service:190 - Starting config service...
+2024-12-17 17:38:47.320 | INFO     | __main__:check_config_ready:132 - Config service is ready with configuration data
+2024-12-17 17:38:47.320 | INFO     | __main__:start_service:211 - Config service passed readiness check
+2024-12-17 17:38:49.377 | INFO     | __main__:check_service_health:99 - Service on port 8001 is healthy (status: ok)
+2024-12-17 17:38:49.378 | INFO     | __main__:start_service:190 - Starting messaging service...
+2024-12-17 17:38:52.927 | INFO     | __main__:check_service_health:99 - Service on port 8007 is healthy (status: ok)
+2024-12-17 17:38:52.928 | INFO     | __main__:start_service:190 - Starting communication service...
+2024-12-17 17:38:54.948 | INFO     | __main__:start_service:190 - Starting state service...
+2024-12-17 17:38:56.977 | INFO     | __main__:start_service:190 - Starting process service...
+2024-12-17 17:38:58.998 | INFO     | __main__:start_service:190 - Starting data_collection service...
+2024-12-17 17:39:01.013 | INFO     | __main__:start_service:190 - Starting validation service...
+2024-12-17 17:39:06.059 | WARNING  | __main__:check_service_health:90 - Service on port 8002 starting up (health endpoint not ready)
+2024-12-17 17:39:09.080 | WARNING  | __main__:check_service_health:102 - Service on port 8004 reported unhealthy status: error
+2024-12-17 17:39:09.080 | WARNING  | __main__:main:463 - Non-critical service process died - attempting restart
+2024-12-17 17:39:09.081 | INFO     | __main__:start_service:190 - Starting process service...
+2024-12-17 17:39:19.173 | WARNING  | __main__:check_service_health:90 - Service on port 8002 starting up (health endpoint not ready)
+2024-12-17 17:39:21.215 | WARNING  | __main__:check_service_health:102 - Service on port 8004 reported unhealthy status: error
+2024-12-17 17:39:31.324 | WARNING  | __main__:check_service_health:90 - Service on port 8002 starting up (health endpoint not ready)
+2024-12-17 17:39:33.361 | WARNING  | __main__:check_service_health:102 - Service on port 8004 reported unhealthy status: error
+2024-12-17 17:39:35.387 | ERROR    | __main__:start_service:203 - Service process failed to start accepting connections
+2024-12-17 17:39:35.387 | ERROR    | __main__:start_service:203 - Service data_collection failed to start accepting connections
+2024-12-17 17:39:35.388 | ERROR    | __main__:start_service:203 - Service validation failed to start accepting connections
+2024-12-17 17:39:37.416 | WARNING  | __main__:check_service_health:90 - Service on port 8002 starting up (health endpoint not ready)
+2024-12-17 17:39:39.441 | WARNING  | __main__:check_service_health:102 - Service on port 8004 reported unhealthy status: error
+2024-12-17 17:39:39.441 | ERROR    | __main__:start_service:203 - Service process failed to start accepting connections
+2024-12-17 17:39:39.442 | WARNING  | __main__:main:463 - Non-critical service data_collection died - attempting restart
+2024-12-17 17:39:39.442 | INFO     | __main__:start_service:190 - Starting data_collection service...
+2024-12-17 17:39:43.490 | WARNING  | __main__:check_service_health:90 - Service on port 8002 starting up (health endpoint not ready)
+2024-12-17 17:39:43.490 | WARNING  | __main__:start_service:221 - Non-critical service communication failed health check but continuing
+2024-12-17 17:39:45.511 | WARNING  | __main__:check_service_health:102 - Service on port 8004 reported unhealthy status: error
+2024-12-17 17:39:45.511 | WARNING  | __main__:start_service:221 - Non-critical service state failed health check but continuing
+2024-12-17 17:40:10.742 | ERROR    | __main__:start_service:203 - Service data_collection failed to start accepting connections
+2024-12-17 17:40:10.743 | WARNING  | __main__:main:463 - Non-critical service validation died - attempting restart
+2024-12-17 17:40:10.743 | INFO     | __main__:start_service:190 - Starting validation service...
+2024-12-17 17:40:19.321 | INFO     | __main__:shutdown_handler:447 - Shutdown requested...
+2024-12-17 17:40:19.321 | INFO     | __main__:stop_service:245 - Removed validation service from process list
+2024-12-17 17:40:19.322 | INFO     | __main__:stop_service:245 - Removed data_collection service from process list
+2024-12-17 17:40:19.322 | INFO     | __main__:stop_service:245 - Removed process service from process list
+2024-12-17 17:40:19.322 | INFO     | __main__:stop_service:245 - Removed state service from process list
+2024-12-17 17:40:19.323 | INFO     | __main__:stop_service:245 - Removed communication service from process list
+2024-12-17 17:40:19.324 | INFO     | __main__:stop_service:245 - Removed messaging service from process list
+2024-12-17 17:40:19.324 | INFO     | __main__:stop_service:245 - Removed config service from process list
+2024-12-17 17:40:19.325 | INFO     | __main__:stop_service:245 - Removed ui service from process list
+2024-12-17 17:40:19.326 | INFO     | __main__:main:474 - Application shutdown complete
+2024-12-17 17:40:24.018 | INFO     | __main__:main:398 - Starting Micro Cold Spray application
+2024-12-17 17:40:24.019 | INFO     | __main__:start_service:190 - Starting ui service...
+2024-12-17 17:40:28.562 | INFO     | __main__:stop_service:245 - Removed ui service from process list
+2024-12-17 17:40:28.563 | INFO     | __main__:main:474 - Application shutdown complete
+2024-12-17 17:40:39.197 | INFO     | __main__:main:398 - Starting Micro Cold Spray application
+2024-12-17 17:40:39.198 | INFO     | __main__:start_service:190 - Starting ui service...
+2024-12-17 17:40:42.777 | INFO     | __main__:check_service_health:99 - Service on port 8000 is healthy (status: ok)
+2024-12-17 17:40:42.778 | INFO     | __main__:start_service:190 - Starting config service...
+2024-12-17 17:40:46.359 | INFO     | __main__:check_config_ready:132 - Config service is ready with configuration data
+2024-12-17 17:40:46.359 | INFO     | __main__:start_service:211 - Config service passed readiness check
+2024-12-17 17:40:48.407 | INFO     | __main__:check_service_health:99 - Service on port 8001 is healthy (status: ok)
+2024-12-17 17:40:48.407 | INFO     | __main__:start_service:190 - Starting messaging service...
+2024-12-17 17:40:51.958 | INFO     | __main__:check_service_health:99 - Service on port 8007 is healthy (status: ok)
+2024-12-17 17:40:51.959 | INFO     | __main__:start_service:190 - Starting communication service...
+2024-12-17 17:40:53.976 | INFO     | __main__:start_service:190 - Starting state service...
+2024-12-17 17:40:56.002 | INFO     | __main__:start_service:190 - Starting process service...
+2024-12-17 17:40:58.031 | INFO     | __main__:start_service:190 - Starting data_collection service...
+2024-12-17 17:41:00.053 | INFO     | __main__:start_service:190 - Starting validation service...
+2024-12-17 17:41:05.122 | WARNING  | __main__:check_service_health:90 - Service on port 8002 starting up (health endpoint not ready)
+2024-12-17 17:41:08.186 | WARNING  | __main__:check_service_health:102 - Service on port 8004 reported unhealthy status: error
+2024-12-17 17:41:08.187 | WARNING  | __main__:main:463 - Non-critical service process died - attempting restart
+2024-12-17 17:41:08.187 | INFO     | __main__:start_service:190 - Starting process service...
+2024-12-17 17:41:13.220 | INFO     | __main__:shutdown_handler:447 - Shutdown requested...
+2024-12-17 17:41:13.220 | INFO     | __main__:stop_service:245 - Removed validation service from process list
+2024-12-17 17:41:13.221 | INFO     | __main__:stop_service:245 - Removed data_collection service from process list
+2024-12-17 17:41:13.221 | INFO     | __main__:stop_service:245 - Removed process service from process list
+2024-12-17 17:41:13.222 | INFO     | __main__:stop_service:234 - Stopping state service...
+2024-12-17 17:41:13.234 | INFO     | __main__:stop_service:245 - Removed state service from process list
+2024-12-17 17:41:13.234 | INFO     | __main__:stop_service:234 - Stopping communication service...
+2024-12-17 17:41:13.244 | INFO     | __main__:stop_service:245 - Removed communication service from process list
+2024-12-17 17:41:13.245 | INFO     | __main__:stop_service:234 - Stopping messaging service...
+2024-12-17 17:41:13.254 | INFO     | __main__:stop_service:245 - Removed messaging service from process list
+2024-12-17 17:41:13.255 | INFO     | __main__:stop_service:234 - Stopping config service...
+2024-12-17 17:41:13.262 | INFO     | __main__:stop_service:245 - Removed config service from process list
+2024-12-17 17:41:13.263 | INFO     | __main__:stop_service:234 - Stopping ui service...
+2024-12-17 17:41:13.270 | INFO     | __main__:stop_service:245 - Removed ui service from process list
+2024-12-17 17:41:13.271 | INFO     | __main__:main:474 - Application shutdown complete
+2024-12-17 17:43:44.695 | INFO     | __main__:main:398 - Starting Micro Cold Spray application
+2024-12-17 17:43:44.695 | INFO     | __main__:start_service:190 - Starting ui service...
+2024-12-17 17:43:48.280 | INFO     | __main__:check_service_health:99 - Service on port 8000 is healthy (status: ok)
+2024-12-17 17:43:48.280 | INFO     | __main__:start_service:190 - Starting config service...
+2024-12-17 17:43:51.832 | INFO     | __main__:check_config_ready:132 - Config service is ready with configuration data
+2024-12-17 17:43:51.833 | INFO     | __main__:start_service:211 - Config service passed readiness check
+2024-12-17 17:43:53.880 | INFO     | __main__:check_service_health:99 - Service on port 8001 is healthy (status: ok)
+2024-12-17 17:43:53.881 | INFO     | __main__:start_service:190 - Starting messaging service...
+2024-12-17 17:43:57.443 | INFO     | __main__:check_service_health:99 - Service on port 8007 is healthy (status: ok)
+2024-12-17 17:43:57.444 | INFO     | __main__:start_service:190 - Starting communication service...
+2024-12-17 17:43:59.461 | INFO     | __main__:start_service:190 - Starting state service...
+2024-12-17 17:44:01.489 | INFO     | __main__:start_service:190 - Starting process service...
+2024-12-17 17:44:03.514 | INFO     | __main__:start_service:190 - Starting data_collection service...
+2024-12-17 17:44:05.539 | INFO     | __main__:start_service:190 - Starting validation service...
+2024-12-17 17:44:09.071 | INFO     | __main__:check_service_health:99 - Service on port 8006 is healthy (status: ok)
+2024-12-17 17:44:12.110 | WARNING  | __main__:check_service_health:90 - Service on port 8002 starting up (health endpoint not ready)
+2024-12-17 17:44:15.164 | WARNING  | __main__:check_service_health:102 - Service on port 8004 reported unhealthy status: error
+2024-12-17 17:44:15.165 | WARNING  | __main__:main:463 - Non-critical service process died - attempting restart
+2024-12-17 17:44:15.165 | INFO     | __main__:start_service:190 - Starting process service...
+2024-12-17 17:44:23.279 | WARNING  | __main__:check_service_health:90 - Service on port 8002 starting up (health endpoint not ready)
+2024-12-17 17:44:25.319 | WARNING  | __main__:check_service_health:102 - Service on port 8004 reported unhealthy status: error
+2024-12-17 17:44:33.376 | WARNING  | __main__:check_service_health:90 - Service on port 8002 starting up (health endpoint not ready)
+2024-12-17 17:44:35.430 | WARNING  | __main__:check_service_health:102 - Service on port 8004 reported unhealthy status: error
+2024-12-17 17:44:37.452 | ERROR    | __main__:start_service:203 - Service process failed to start accepting connections
+2024-12-17 17:44:37.453 | ERROR    | __main__:start_service:203 - Service data_collection failed to start accepting connections
+2024-12-17 17:44:39.499 | WARNING  | __main__:check_service_health:90 - Service on port 8002 starting up (health endpoint not ready)
+2024-12-17 17:44:41.568 | WARNING  | __main__:check_service_health:102 - Service on port 8004 reported unhealthy status: error
+2024-12-17 17:44:45.607 | WARNING  | __main__:check_service_health:90 - Service on port 8002 starting up (health endpoint not ready)
+2024-12-17 17:44:45.607 | WARNING  | __main__:start_service:221 - Non-critical service communication failed health check but continuing
+2024-12-17 17:44:47.651 | WARNING  | __main__:check_service_health:102 - Service on port 8004 reported unhealthy status: error
+2024-12-17 17:44:47.652 | WARNING  | __main__:start_service:221 - Non-critical service state failed health check but continuing
+2024-12-17 17:44:47.652 | ERROR    | __main__:start_service:203 - Service process failed to start accepting connections
+2024-12-17 17:44:47.652 | WARNING  | __main__:main:463 - Non-critical service data_collection died - attempting restart
+2024-12-17 17:44:47.653 | INFO     | __main__:start_service:190 - Starting data_collection service...
+2024-12-17 17:45:04.802 | INFO     | __main__:shutdown_handler:447 - Shutdown requested...
+2024-12-17 17:45:04.802 | INFO     | __main__:stop_service:245 - Removed validation service from process list
+2024-12-17 17:45:04.803 | INFO     | __main__:stop_service:245 - Removed data_collection service from process list
+2024-12-17 17:45:04.803 | INFO     | __main__:stop_service:245 - Removed process service from process list
+2024-12-17 17:45:04.804 | INFO     | __main__:stop_service:245 - Removed state service from process list
+2024-12-17 17:45:04.804 | INFO     | __main__:stop_service:245 - Removed communication service from process list
+2024-12-17 17:45:04.804 | INFO     | __main__:stop_service:245 - Removed messaging service from process list
+2024-12-17 17:45:04.805 | INFO     | __main__:stop_service:245 - Removed config service from process list
+2024-12-17 17:45:04.806 | INFO     | __main__:stop_service:245 - Removed ui service from process list
+2024-12-17 17:45:04.806 | INFO     | __main__:main:474 - Application shutdown complete

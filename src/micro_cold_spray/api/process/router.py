@@ -21,6 +21,10 @@ from .models import (
 )
 from ..base.router import add_health_endpoints
 from ..config.singleton import get_config_service
+from ..communication.service import CommunicationService
+from ..messaging.service import MessagingService
+from ..data_collection.service import DataCollectionService
+from ..validation.service import ValidationService
 
 # Create router without prefix (app already handles the /process prefix)
 router = APIRouter(tags=["process"])
@@ -36,9 +40,32 @@ async def lifespan(app: FastAPI):
         config_service = get_config_service()
         await config_service.start()
         logger.info("ConfigService started successfully")
+
+        # Initialize required services
+        message_broker = MessagingService(config_service=config_service)
+        await message_broker.start()
+        logger.info("MessagingService started successfully")
+
+        comm_service = CommunicationService(config_service=config_service)
+        await comm_service.start()
+        logger.info("CommunicationService started successfully")
+
+        data_collection_service = DataCollectionService(config_service=config_service)
+        await data_collection_service.start()
+        logger.info("DataCollectionService started successfully")
+
+        validation_service = ValidationService(config_service=config_service)
+        await validation_service.start()
+        logger.info("ValidationService started successfully")
         
-        # Initialize process service
-        _service = ProcessService(config_service=config_service)
+        # Initialize process service with all dependencies
+        _service = ProcessService(
+            config_service=config_service,
+            comm_service=comm_service,
+            message_broker=message_broker,
+            data_collection_service=data_collection_service,
+            validation_service=validation_service
+        )
         await _service.start()
         logger.info("ProcessService started successfully")
         

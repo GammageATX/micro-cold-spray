@@ -26,14 +26,25 @@ class TagCacheService(ConfigurableService):
 
     async def _start(self) -> None:
         """Initialize service."""
-        # Initialize tag mapping
-        self._tag_mapping = TagMappingService(self._config_service)
-        await self._tag_mapping.start()
-        
-        # Load tag definitions
-        tag_config = await self._config_service.get_config("tags")
-        await self._build_cache(tag_config)
-        logger.info("Tag cache initialized")
+        try:
+            logger.debug("Initializing tag mapping service")
+            # Initialize tag mapping
+            self._tag_mapping = TagMappingService(self._config_service)
+            await self._tag_mapping.start()
+            
+            # Load tag definitions
+            logger.debug("Loading tag configuration")
+            tag_config = await self._config_service.get_config("tags")
+            if not tag_config:
+                logger.error("Tag configuration is empty")
+                raise ValidationError("Tag configuration is empty")
+                
+            logger.debug("Building tag cache")
+            await self._build_cache(tag_config)
+            logger.info("Tag cache initialized")
+        except Exception as e:
+            logger.error(f"Failed to start tag cache service: {e}")
+            raise
 
     async def _stop(self) -> None:
         """Cleanup service."""
@@ -47,6 +58,7 @@ class TagCacheService(ConfigurableService):
         """Build tag cache from config."""
         try:
             self._cache.clear()
+            logger.debug("Processing tag groups")
             
             def process_tag_group(group_name: str, group_data: Dict[str, Any], parent_path: str = "") -> None:
                 """Process a group of tags recursively."""
@@ -60,6 +72,7 @@ class TagCacheService(ConfigurableService):
                     
                     # If this is a tag definition (has type field)
                     if "type" in tag_data:
+                        logger.debug(f"Adding tag: {current_path}")
                         metadata = TagMetadata(
                             type=tag_data["type"],
                             access=tag_data["access"],
@@ -79,14 +92,19 @@ class TagCacheService(ConfigurableService):
                         )
                     # If this is a nested group, process recursively
                     else:
+                        logger.debug(f"Processing nested group: {current_path}")
                         process_tag_group(group_name, tag_data, current_path)
             
             # Process all tag groups
-            for group_name, group_data in config.get("tag_groups", {}).items():
+            tag_groups = config.get("tag_groups", {})
+            logger.debug(f"Found {len(tag_groups)} tag groups")
+            for group_name, group_data in tag_groups.items():
+                logger.debug(f"Processing group: {group_name}")
                 process_tag_group(group_name, group_data)
                     
             logger.info(f"Built cache with {len(self._cache)} tags")
         except Exception as e:
+            logger.error(f"Failed to build tag cache: {e}")
             raise ServiceError(
                 "Failed to build tag cache",
                 {"error": str(e)}
@@ -228,3 +246,47 @@ class TagCacheService(ConfigurableService):
                 "Failed to filter tags",
                 {"error": str(e)}
             )
+
+    @property
+    def is_running(self) -> bool:
+        """Check if service is running."""
+        try:
+            # Service is running if we have a valid cache and tag mapping service
+            return (
+                self._cache is not None and
+                self._tag_mapping is not None and
+                self._tag_mapping.is_running
+            )
+        except Exception as e:
+            logger.error(f"Error checking tag cache service status: {e}")
+            return False
+
+    async def check_health(self) -> Dict[str, Any]:
+        """Check service health."""
+        try:
+            status = {
+                "cache_initialized": self._cache is not None,
+                "tag_mapping": self._tag_mapping is not None and self._tag_mapping.is_running,
+                "tag_count": len(self._cache) if self._cache is not None else 0
+            }
+            
+            details = {}
+            if not status["cache_initialized"]:
+                details["cache"] = "Tag cache not initialized"
+            if not status["tag_mapping"]:
+                details["tag_mapping"] = "Tag mapping service not running"
+            if status["tag_count"] == 0:
+                details["tags"] = "No tags in cache"
+                
+            return {
+                "status": "ok" if all(status.values()) and status["tag_count"] > 0 else "error",
+                "components": status,
+                "details": details if details else None
+            }
+        except Exception as e:
+            error_msg = f"Failed to check tag cache health: {str(e)}"
+            logger.error(error_msg)
+            return {
+                "status": "error",
+                "error": error_msg
+            }

@@ -2,6 +2,7 @@
 
 from typing import Dict, Any
 from datetime import datetime
+from loguru import logger
 
 from ..base import BaseService
 from ..config import ConfigService
@@ -45,7 +46,15 @@ class ValidationService(BaseService):
         try:
             # Load validation rules
             config = await self._config_service.get_config("process")
-            self._validation_rules = config["process"]["validation"]
+            if not config or not config.data:
+                raise ValidationError("No process configuration found")
+                
+            process_config = config.data
+            if "validation" not in process_config:
+                raise ValidationError("No validation rules found in process configuration")
+                
+            self._validation_rules = process_config["validation"]
+            logger.info("Loaded validation rules successfully")
             
             # Initialize validators
             self._pattern_validator = PatternValidator(
@@ -71,8 +80,10 @@ class ValidationService(BaseService):
                 "validation/request",
                 self._handle_validation_request
             )
+            logger.info("Validation service initialized successfully")
             
         except Exception as e:
+            logger.error(f"Failed to start validation service: {e}")
             raise ValidationError("Failed to start validation service", {"error": str(e)})
         
     async def _handle_validation_request(self, data: Dict[str, Any]) -> None:
