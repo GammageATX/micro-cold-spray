@@ -103,6 +103,9 @@ class PatternValidator(BaseValidator):
             
         Returns:
             List of error messages
+            
+        Raises:
+            ValidationError: If hardware config cannot be retrieved
         """
         errors = []
         try:
@@ -132,7 +135,7 @@ class PatternValidator(BaseValidator):
                     errors.append(rules["speed"]["message"])
                     
         except Exception as e:
-            errors.append(f"Pattern bounds validation error: {str(e)}")
+            raise ValidationError("Pattern bounds validation failed", {"error": str(e)})
         return errors
 
     async def _validate_serpentine_pattern(self, data: Dict[str, Any]) -> List[str]:
@@ -248,7 +251,7 @@ class PatternValidator(BaseValidator):
         return errors
 
     async def _calculate_pattern_bounds(self, pattern: Dict[str, Any]) -> PatternBounds:
-        """Calculate pattern bounds based on type.
+        """Calculate pattern bounds in 3D space.
         
         Args:
             pattern: Pattern data
@@ -256,22 +259,37 @@ class PatternValidator(BaseValidator):
         Returns:
             Pattern bounds
         """
+        bounds = PatternBounds()
+        
+        # Get pattern position
+        position = pattern.get("position", {})
+        x = position.get("x", 0.0)
+        y = position.get("y", 0.0)
+        z = position.get("z", 0.0)
+        
+        # Calculate bounds based on pattern type
         pattern_type = pattern.get("type")
         params = pattern.get("params", {})
         
         if pattern_type == "serpentine":
-            return PatternBounds(
-                max_x=params.get("length", 0),
-                max_y=params.get("width", 0)
-            )
-        elif pattern_type == "spiral":
-            diameter = params.get("diameter", 0)
-            radius = diameter / 2
-            return PatternBounds(
-                min_x=-radius,
-                max_x=radius,
-                min_y=-radius,
-                max_y=radius
-            )
+            length = params.get("length", 0.0)
+            spacing = params.get("spacing", 0.0)
             
-        return PatternBounds()
+            bounds.min_x = x
+            bounds.max_x = x + length
+            bounds.min_y = y
+            bounds.max_y = y + spacing
+            bounds.min_z = z
+            bounds.max_z = z
+            
+        elif pattern_type == "spiral":
+            diameter = params.get("diameter", 0.0)
+            
+            bounds.min_x = x - diameter / 2
+            bounds.max_x = x + diameter / 2
+            bounds.min_y = y - diameter / 2
+            bounds.max_y = y + diameter / 2
+            bounds.min_z = z
+            bounds.max_z = z
+            
+        return bounds

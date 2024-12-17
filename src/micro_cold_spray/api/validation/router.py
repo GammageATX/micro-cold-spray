@@ -30,7 +30,7 @@ def get_service() -> ValidationService:
     if _service is None:
         error = ErrorCode.SERVICE_UNAVAILABLE
         raise HTTPException(
-            status_code=error.status_code,
+            status_code=error.get_status_code(),
             detail=format_error(error, "Validation service not initialized")
         )
     return _service
@@ -49,13 +49,13 @@ async def validate_data(
         if "type" not in request:
             error = ErrorCode.VALIDATION_ERROR
             raise HTTPException(
-                status_code=error.status_code,
+                status_code=error.get_status_code(),
                 detail=format_error(error, "Missing validation type")
             )
         if "data" not in request:
             error = ErrorCode.VALIDATION_ERROR
             raise HTTPException(
-                status_code=error.status_code,
+                status_code=error.get_status_code(),
                 detail=format_error(error, "Missing validation data")
             )
             
@@ -74,7 +74,7 @@ async def validate_data(
         else:
             error = ErrorCode.VALIDATION_ERROR
             raise HTTPException(
-                status_code=error.status_code,
+                status_code=error.get_status_code(),
                 detail=format_error(error, f"Unknown validation type: {validation_type}")
             )
             
@@ -101,13 +101,13 @@ async def validate_data(
     except ValidationError as e:
         error = ErrorCode.VALIDATION_ERROR
         raise HTTPException(
-            status_code=error.status_code,
+            status_code=error.get_status_code(),
             detail=format_error(error, str(e), e.context)
         )
     except Exception as e:
         error = ErrorCode.INTERNAL_ERROR
         raise HTTPException(
-            status_code=error.status_code,
+            status_code=error.get_status_code(),
             detail=format_error(error, str(e))
         )
 
@@ -127,13 +127,13 @@ async def get_validation_rules(rule_type: str) -> Dict[str, Any]:
     except ValidationError as e:
         error = ErrorCode.VALIDATION_ERROR
         raise HTTPException(
-            status_code=error.status_code,
+            status_code=error.get_status_code(),
             detail=format_error(error, str(e), e.context)
         )
     except Exception as e:
         error = ErrorCode.INTERNAL_ERROR
         raise HTTPException(
-            status_code=error.status_code,
+            status_code=error.get_status_code(),
             detail=format_error(error, str(e))
         )
 
@@ -152,7 +152,7 @@ async def health_check() -> JSONResponse:
         if not service.is_running:
             error = ErrorCode.SERVICE_UNAVAILABLE
             return JSONResponse(
-                status_code=error.status_code,
+                status_code=error.get_status_code(),
                 content=format_error(error, "Service not running")
             )
             
@@ -161,7 +161,7 @@ async def health_check() -> JSONResponse:
     except Exception as e:
         error = ErrorCode.INTERNAL_ERROR
         return JSONResponse(
-            status_code=error.status_code,
+            status_code=error.get_status_code(),
             content=format_error(error, str(e))
         )
 

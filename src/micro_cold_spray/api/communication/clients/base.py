@@ -78,22 +78,22 @@ class CommunicationClient(ABC, BaseService):
         """Start client service."""
         try:
             await self.connect()
-            logger.info(f"{self.service_name} started")
+            logger.info(f"{self._service_name} started")
         except Exception as e:
-            error_msg = f"Failed to start {self.service_name}: {str(e)}"
+            error_msg = f"Failed to start {self._service_name}: {str(e)}"
             logger.error(error_msg)
-            raise ServiceError(error_msg, {"device": self.service_name})
+            raise ServiceError(error_msg, {"device": self._service_name})
 
     async def _stop(self) -> None:
         """Stop client service."""
         try:
             if self.is_connected:
                 await self.disconnect()
-            logger.info(f"{self.service_name} stopped")
+            logger.info(f"{self._service_name} stopped")
         except Exception as e:
-            error_msg = f"Failed to stop {self.service_name}: {str(e)}"
+            error_msg = f"Failed to stop {self._service_name}: {str(e)}"
             logger.error(error_msg)
-            raise ServiceError(error_msg, {"device": self.service_name})
+            raise ServiceError(error_msg, {"device": self._service_name})
 
     async def check_connection(self) -> bool:
         """Check if connection is healthy.
@@ -113,5 +113,5 @@ class CommunicationClient(ABC, BaseService):
             return True
             
         except Exception as e:
-            logger.warning(f"Connection check failed for {self.service_name}: {e}")
+            logger.warning(f"Connection check failed for {self._service_name}: {e}")
             return False

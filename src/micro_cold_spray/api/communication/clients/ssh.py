@@ -22,11 +22,13 @@ class SSHClient(CommunicationClient):
             self._host = ssh_config['host']
             self._port = ssh_config.get('port', 22)
             self._username = ssh_config['username']
-            self._key_file = Path(ssh_config.get('key_file', ''))
+            
+            # Handle authentication
+            self._key_file = Path(ssh_config.get('key_file', '')) if 'key_file' in ssh_config else None
             self._password = ssh_config.get('password')
             
             # Validate we have either key file or password
-            if not self._key_file.exists() and not self._password:
+            if (not self._key_file or not self._key_file.exists()) and not self._password:
                 raise ValidationError(
                     "No valid authentication method provided",
                     {"host": self._host}
@@ -63,7 +65,7 @@ class SSHClient(CommunicationClient):
             }
             
             # Add authentication
-            if self._key_file.exists():
+            if self._key_file and self._key_file.exists():
                 options['client_keys'] = [str(self._key_file)]
             elif self._password:
                 options['password'] = self._password
@@ -86,8 +88,8 @@ class SSHClient(CommunicationClient):
         """
         try:
             if self._connection:
-                self._connection.close()
-                await self._connection.wait_closed()
+                self._connection.close()  # Synchronous call
+                await self._connection.wait_closed()  # Wait for close to complete
             self._connected = False
             logger.info(f"Disconnected from {self._host}")
         except Exception as e:

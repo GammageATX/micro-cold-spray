@@ -42,13 +42,19 @@ class SequenceValidator(BaseValidator):
         warnings = []
         
         try:
-            # Check required fields
+            # Check required fields first
             required = self._rules["sequences"]["required_fields"]
-            errors.extend(self._check_required_fields(
+            required_errors = self._check_required_fields(
                 data,
                 required["fields"],
                 "Sequence: "
-            ))
+            )
+            if required_errors:
+                return {
+                    "valid": False,
+                    "errors": required_errors,
+                    "warnings": warnings
+                }
 
             # Validate metadata
             if "metadata" in data:
@@ -57,10 +63,15 @@ class SequenceValidator(BaseValidator):
 
             # Validate steps
             if "steps" in data:
-                # Check max steps
+                # Check max steps first
                 max_steps = self._rules["sequences"].get("max_steps", 100)
                 if len(data["steps"]) > max_steps:
                     errors.append(f"Sequence exceeds maximum steps: {max_steps}")
+                    return {
+                        "valid": False,
+                        "errors": errors,
+                        "warnings": warnings
+                    }
                 
                 # Validate each step
                 for i, step in enumerate(data["steps"]):
@@ -83,7 +94,11 @@ class SequenceValidator(BaseValidator):
                 "warnings": warnings
             }
 
+        except ValidationError as e:
+            # Re-raise validation errors with context
+            raise ValidationError(str(e), e.context)
         except Exception as e:
+            # Wrap other exceptions
             raise ValidationError("Sequence validation failed", {"error": str(e)})
 
     async def _validate_metadata(self, metadata: Dict[str, Any]) -> List[str]:
@@ -176,7 +191,7 @@ class SequenceValidator(BaseValidator):
                 errors.append(f"Unknown sequence type: {sequence_type}")
                 return errors
             
-            # Check required steps
+            # Check required steps first
             if "required_steps" in type_rules:
                 required_steps = type_rules["required_steps"]
                 found_steps = set()
@@ -185,17 +200,20 @@ class SequenceValidator(BaseValidator):
                     if "action" in step:
                         found_steps.add(step["action"])
                 
+                missing_steps = []
                 for required in required_steps:
                     if required not in found_steps:
+                        missing_steps.append(required)
                         errors.append(f"Missing required step: {required}")
-            
-            # Check step order
-            if type_rules.get("check_order", False) and "step_order" in type_rules:
-                order_errors = self._validate_step_order(
-                    data["steps"],
-                    type_rules["step_order"]
-                )
-                errors.extend(order_errors)
+                
+                # Only check step order if all required steps are present
+                if not missing_steps and type_rules.get("check_order", False):
+                    order_errors = self._validate_step_order(
+                        data["steps"],
+                        type_rules["step_order"],
+                        type_rules.get("optional_steps", [])
+                    )
+                    errors.extend(order_errors)
                 
         except Exception as e:
             errors.append(f"Sequence type validation error: {str(e)}")
@@ -206,14 +224,61 @@ class SequenceValidator(BaseValidator):
         
         Returns:
             List of error messages
+            
+        Raises:
+            ValidationError: If hardware validation fails
         """
         try:
             # Use hardware validator for safety checks
             result = await self._hardware_validator.validate({})
+            if not result["valid"]:
+                raise ValidationError("Safety validation failed", {"errors": result["errors"]})
             return result.get("errors", [])
-            
+        except ValidationError as e:
+            # Re-raise validation errors with context
+            raise ValidationError("Safety validation failed", e.context)
         except Exception as e:
-            return [f"Safety validation error: {str(e)}"]
+            # Wrap other exceptions
+            raise ValidationError("Safety validation failed", {"error": str(e)})
+
+    def _validate_step_order(
+        self,
+        steps: List[Dict[str, Any]],
+        expected_order: List[str],
+        optional_steps: List[str]
+    ) -> List[str]:
+        """Validate step order.
+        
+        Args:
+            steps: List of sequence steps
+            expected_order: Expected order of steps
+            optional_steps: Optional steps that can be skipped
+            
+        Returns:
+            List of error messages
+        """
+        errors = []
+        try:
+            # Extract step actions in order
+            step_actions = []
+            for step in steps:
+                if "action" in step:
+                    step_actions.append(step["action"])
+
+            # Check each required step is in correct order
+            last_found_idx = -1
+            for expected in expected_order:
+                if expected in step_actions:
+                    idx = step_actions.index(expected)
+                    if idx < last_found_idx:
+                        errors.append(f"Step order violation: {expected} found out of order")
+                    last_found_idx = idx
+                elif expected not in optional_steps:
+                    errors.append(f"Step order violation: {expected} not found in expected position")
+
+        except Exception as e:
+            errors.append(f"Step order validation error: {str(e)}")
+        return errors
 
     async def _validate_action_step(self, step: Dict[str, Any]) -> List[str]:
         """Validate action step.
@@ -249,31 +314,14 @@ class SequenceValidator(BaseValidator):
                 
                 # Check parameter values
                 if "parameter_rules" in param_rules:
-                    for param, rules in param_rules["parameter_rules"].items():
-                        if param in parameters:
-                            value = parameters[param]
-                            
-                            if "min" in rules or "max" in rules:
-                                error = self._check_numeric_range(
-                                    value,
-                                    rules.get("min"),
-                                    rules.get("max"),
-                                    param
-                                )
-                                if error:
-                                    errors.append(f"Action {action}: {error}")
-                                    
-                            if "enum" in rules:
-                                error = self._check_enum_value(
-                                    value,
-                                    rules["enum"],
-                                    param
-                                )
-                                if error:
-                                    errors.append(f"Action {action}: {error}")
-                
+                    param_errors = self._validate_parameter_values(
+                        parameters,
+                        param_rules["parameter_rules"]
+                    )
+                    errors.extend([f"Action {action}: {err}" for err in param_errors])
+                    
         except Exception as e:
-            errors.append(f"Action step validation error: {str(e)}")
+            errors.append(f"Action validation error: {str(e)}")
         return errors
 
     async def _validate_pattern_step(self, step: Dict[str, Any]) -> List[str]:
@@ -289,71 +337,32 @@ class SequenceValidator(BaseValidator):
         try:
             pattern = step["pattern"]
             
-            # Check pattern exists
-            if not await self._check_pattern_exists(pattern):
-                errors.append(f"Pattern not found: {pattern}")
+            # Check pattern type is valid
+            valid_patterns = self._rules["sequences"].get("valid_patterns", [])
+            if pattern["type"] not in valid_patterns:
+                errors.append(f"Invalid pattern type: {pattern['type']}")
                 return errors
             
-            # Validate pattern modifications
-            if "modifications" in step:
-                mod_errors = await self._validate_pattern_modifications(
-                    step["modifications"]
-                )
-                errors.extend(mod_errors)
+            # Validate pattern parameters
+            if "parameters" in pattern:
+                param_rules = self._rules["sequences"]["patterns"][pattern["type"]]
                 
-        except Exception as e:
-            errors.append(f"Pattern step validation error: {str(e)}")
-        return errors
-
-    def _validate_step_order(
-        self,
-        steps: List[Dict[str, Any]],
-        required_order: List[str]
-    ) -> List[str]:
-        """Validate step order.
-        
-        Args:
-            steps: Sequence steps
-            required_order: Required step order
-            
-        Returns:
-            List of error messages
-        """
-        errors = []
-        try:
-            current_index = 0
-            
-            for required in required_order:
-                # Find next matching step
-                found = False
-                for i in range(current_index, len(steps)):
-                    step = steps[i]
-                    if "action" in step and step["action"] == required:
-                        current_index = i + 1
-                        found = True
-                        break
+                # Check required parameters
+                if "required_parameters" in param_rules:
+                    errors.extend(self._check_required_fields(
+                        pattern["parameters"],
+                        param_rules["required_parameters"],
+                        f"Pattern {pattern['type']}: "
+                    ))
                 
-                if not found:
-                    errors.append(f"Step order violation: {required} not found in expected position")
+                # Check parameter values
+                if "parameter_rules" in param_rules:
+                    param_errors = self._validate_parameter_values(
+                        pattern["parameters"],
+                        param_rules["parameter_rules"]
+                    )
+                    errors.extend([f"Pattern {pattern['type']}: {err}" for err in param_errors])
                     
         except Exception as e:
-            errors.append(f"Step order validation error: {str(e)}")
+            errors.append(f"Pattern validation error: {str(e)}")
         return errors
-
-    async def _check_pattern_exists(self, pattern_id: str) -> bool:
-        """Check if pattern exists.
-        
-        Args:
-            pattern_id: Pattern ID to check
-            
-        Returns:
-            Whether pattern exists
-        """
-        try:
-            response = await self._message_broker.request(
-                "pattern/exists",
-                {"pattern_id": pattern_id}
-            )
-            return response.get("exists", False)
-        except Exception:
-            return False

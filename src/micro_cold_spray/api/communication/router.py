@@ -1,14 +1,14 @@
 """Communication router."""
 
-from typing import Optional
+from typing import Dict, Any, Optional
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, APIRouter, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, APIRouter, HTTPException, BackgroundTasks, Depends
 from loguru import logger
 
 from .service import CommunicationService
 from ..base.router import add_health_endpoints
 from ..base.errors import ErrorCode, format_error
+from ..base.exceptions import ServiceError
 from ..config.singleton import get_config_service
 
 # Create router without prefix (app already handles the /communication prefix)
@@ -58,25 +58,13 @@ async def lifespan(app: FastAPI):
             await _service.stop()
         raise
 
-# Create FastAPI app with lifespan
-app = FastAPI(title="Communication API", lifespan=lifespan)
-
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 
 def get_communication_service() -> CommunicationService:
     """Get communication service instance."""
     if _service is None:
         error = ErrorCode.SERVICE_UNAVAILABLE
         raise HTTPException(
-            status_code=503,  # Service Unavailable
+            status_code=error.get_status_code(),
             detail=format_error(error, "Communication service not initialized")["detail"]
         )
     return _service
@@ -88,6 +76,81 @@ def init_router(service: CommunicationService) -> None:
     _service = service
     # Add health endpoints
     add_health_endpoints(router, service)
+
+
+@router.get("/health", response_model=Dict[str, Any])
+async def health_check(
+    service: CommunicationService = Depends(get_communication_service)
+) -> Dict[str, Any]:
+    """Check service health."""
+    try:
+        health_info = await service.check_health()
+        return health_info
+    except ServiceError as e:
+        logger.error(f"Health check failed: {e}")
+        error = ErrorCode.HEALTH_CHECK_ERROR
+        raise HTTPException(
+            status_code=error.get_status_code(),
+            detail=format_error(error, str(e))["detail"]
+        )
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        error = ErrorCode.INTERNAL_ERROR
+        raise HTTPException(
+            status_code=error.get_status_code(),
+            detail=format_error(error, str(e))["detail"]
+        )
+
+
+@router.post("/control")
+async def control_service(
+    action: str,
+    background_tasks: BackgroundTasks,
+    service: CommunicationService = Depends(get_communication_service)
+) -> Dict[str, str]:
+    """Control service operation."""
+    try:
+        valid_actions = ["start", "stop", "restart"]
+        if action not in valid_actions:
+            error = ErrorCode.INVALID_ACTION
+            raise HTTPException(
+                status_code=error.get_status_code(),
+                detail=format_error(
+                    error,
+                    f"Invalid action: {action}",
+                    {"valid_actions": valid_actions}
+                )["detail"]
+            )
+
+        if action == "stop":
+            await service.stop()
+            background_tasks.add_task(logger.info, "Communication service stopped")
+            return {"status": "stopped"}
+        elif action == "start":
+            await service.start()
+            background_tasks.add_task(logger.info, "Communication service started")
+            return {"status": "started"}
+        elif action == "restart":
+            await service.stop()
+            await service.start()
+            background_tasks.add_task(logger.info, "Communication service restarted")
+            return {"status": "restarted"}
+    except ServiceError as e:
+        logger.error(f"Failed to {action} service: {e}")
+        error = ErrorCode.SERVICE_UNAVAILABLE
+        raise HTTPException(
+            status_code=error.get_status_code(),
+            detail=format_error(error, str(e))["detail"]
+        )
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        logger.error(f"Failed to {action} service: {e}")
+        error = ErrorCode.INTERNAL_ERROR
+        raise HTTPException(
+            status_code=error.get_status_code(),
+            detail=format_error(error, str(e))["detail"]
+        )
 
 
 # Add startup and shutdown events for testing
@@ -110,7 +173,7 @@ async def startup():
         logger.error(f"Failed to initialize services: {e}")
         if _service and _service.is_running:
             await _service.stop()
-        raise e
+        raise
 
 
 async def shutdown():

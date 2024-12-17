@@ -5,6 +5,7 @@ from loguru import logger
 
 from ...base import ConfigurableService
 from ...base.exceptions import ServiceError, ValidationError
+from ...config.models import ConfigUpdate
 
 
 class TagMappingService(ConfigurableService):
@@ -113,3 +114,69 @@ class TagMappingService(ConfigurableService):
                 {"mapped_name": mapped_name}
             )
         return mapped_name in self._feeder_tags
+
+    async def get_mappings(self) -> Dict[str, str]:
+        """Get all tag mappings.
+        
+        Returns:
+            Dictionary mapping logical tag names to hardware tags.
+        """
+        return self._mapped_to_hw.copy()
+
+    async def update_mapping(self, tag_path: str, plc_tag: str) -> None:
+        """Update tag mapping.
+        
+        Args:
+            tag_path: Logical tag path
+            plc_tag: Hardware PLC tag
+            
+        Raises:
+            ValidationError: If tag path is invalid
+            ServiceError: If update fails
+        """
+        try:
+            # Get current config
+            tag_config = await self._config_service.get_config("tags")
+            
+            # Find the tag in the config
+            group_name, tag_name = tag_path.split(".", 1)
+            if group_name not in tag_config.get("tag_groups", {}):
+                raise ValidationError(
+                    f"Invalid tag group: {group_name}",
+                    {"tag_path": tag_path}
+                )
+                
+            group = tag_config["tag_groups"][group_name]
+            if tag_name not in group:
+                raise ValidationError(
+                    f"Invalid tag: {tag_path}",
+                    {"tag_path": tag_path}
+                )
+                
+            # Update the tag definition
+            tag_def = group[tag_name]
+            tag_def["mapped"] = True
+            tag_def["plc_tag"] = plc_tag
+            
+            # Save the updated config
+            update = ConfigUpdate(
+                config_type="tags",
+                data=tag_config,
+                validate=True
+            )
+            await self._config_service.update_config(update)
+            
+            # Rebuild mappings
+            await self._build_mappings(tag_config)
+            
+        except ValidationError:
+            raise
+        except Exception as e:
+            raise ServiceError(
+                "Failed to update tag mapping",
+                {
+                    "tag_path": tag_path,
+                    "plc_tag": plc_tag,
+                    "error": str(e)
+                }
+            )

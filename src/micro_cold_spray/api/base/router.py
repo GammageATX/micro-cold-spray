@@ -8,6 +8,7 @@ from loguru import logger
 
 from .service import BaseService
 from .errors import ErrorCode, format_error
+from .exceptions import ServiceError
 
 
 def add_health_endpoints(router: APIRouter, service: BaseService):
@@ -54,12 +55,19 @@ def add_health_endpoints(router: APIRouter, service: BaseService):
 
         except HTTPException:
             raise
+        except ServiceError as e:
+            logger.error(f"Health check failed: {e}")
+            error = ErrorCode.HEALTH_CHECK_ERROR
+            raise HTTPException(
+                status_code=500,  # Internal Server Error
+                detail=format_error(error, str(e))
+            )
         except Exception as e:
             logger.error(f"Health check failed: {e}")
             error = ErrorCode.HEALTH_CHECK_ERROR
             raise HTTPException(
                 status_code=500,  # Internal Server Error
-                detail=format_error(error, str(e))["detail"]
+                detail=format_error(error, str(e))
             )
 
     @router.post("/control")
@@ -75,7 +83,7 @@ def add_health_endpoints(router: APIRouter, service: BaseService):
                         error,
                         f"Invalid action: {action}",
                         {"valid_actions": valid_actions}
-                    )["detail"]
+                    )
                 )
 
             if action == "stop":
@@ -90,13 +98,17 @@ def add_health_endpoints(router: APIRouter, service: BaseService):
                 return {"status": "restarted"}
         except HTTPException:
             raise
+        except ServiceError as e:
+            logger.error(f"Failed to {action} service: {e}")
+            error = ErrorCode.SERVICE_UNAVAILABLE
+            raise HTTPException(
+                status_code=error.get_status_code(),
+                detail=format_error(error, str(e))
+            )
         except Exception as e:
             logger.error(f"Failed to {action} service: {e}")
             error = ErrorCode.INTERNAL_ERROR
             raise HTTPException(
                 status_code=error.get_status_code(),
-                detail=format_error(
-                    error,
-                    str(e)
-                )["detail"]
+                detail=format_error(error, str(e))
             )
