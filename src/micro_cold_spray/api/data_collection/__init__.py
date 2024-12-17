@@ -3,7 +3,7 @@
 from .service import DataCollectionService
 from .exceptions import DataCollectionError, StorageError
 from .models import SprayEvent
-from .router import router, init_router
+from .router import router, init_router, app
 from .storage import DataStorage, DatabaseStorage
 
 __all__ = [
@@ -13,6 +13,7 @@ __all__ = [
     "SprayEvent",
     "router",
     "init_router",
+    "app",
     "DataStorage",
     "DatabaseStorage"
 ]

@@ -19,10 +19,15 @@ from ..config.singleton import get_config_service
 router = APIRouter(tags=["data-collection"])
 _service: Optional[DataCollectionService] = None
 
+__all__ = ["router", "init_router", "app"]
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Lifespan context manager for FastAPI app."""
+
+async def init_router(app: FastAPI) -> None:
+    """Initialize data collection router with required services.
+    
+    Args:
+        app: FastAPI application instance
+    """
     global _service
     try:
         # Get shared config service instance
@@ -41,6 +46,19 @@ async def lifespan(app: FastAPI):
         app.include_router(router)
         logger.info("Data collection router initialized")
         
+    except Exception as e:
+        logger.error(f"Failed to initialize data collection router: {e}")
+        # Attempt cleanup
+        if _service and _service.is_running:
+            await _service.stop()
+        raise
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for FastAPI app."""
+    try:
+        await init_router(app)
         yield
         
         # Cleanup on shutdown

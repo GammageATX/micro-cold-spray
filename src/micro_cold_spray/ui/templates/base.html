@@ -4,11 +4,13 @@
 <head>
     <title>MicroColdSpray UI</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
 </head>
 <body>
     <nav>
         <a href="/">Home</a>
         <a href="/testing">Testing</a>
+        <a href="/monitoring/services">Services</a>
     </nav>
     <main>
         {% block content %}{% endblock %}

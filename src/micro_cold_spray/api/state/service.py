@@ -37,8 +37,7 @@ class StateService(ConfigurableService):
         communication_service: CommunicationService
     ):
         """Initialize state service."""
-        super().__init__(service_name="state")
-        self._config_service = config_service
+        super().__init__(service_name="state", config_service=config_service)
         self._message_broker = message_broker
         self._communication_service = communication_service
         self._current_state = "INIT"
