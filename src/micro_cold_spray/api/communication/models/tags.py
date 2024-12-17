@@ -70,6 +70,16 @@ class TagRequest(BaseModel):
     )
 
 
+class TagMappingUpdateRequest(BaseModel):
+    """Request to update a tag mapping."""
+    tag_path: str = Field(
+        description="Full path to the tag (e.g., 'gas_control.main_flow.setpoint')"
+    )
+    plc_tag: str = Field(
+        description="Hardware PLC tag to map to the logical tag"
+    )
+
+
 class TagWriteRequest(BaseModel):
     """
     Request to write a tag value.

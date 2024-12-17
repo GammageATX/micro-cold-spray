@@ -1,8 +1,8 @@
 """Base error formats and messages."""
 
 from enum import Enum
-from typing import Dict, Any, Optional
 from fastapi import status
+from typing import Dict, Any
 
 
 class ErrorCode(str, Enum):
@@ -101,32 +101,15 @@ class ErrorCode(str, Enum):
         return error_status_codes[self]
 
 
-def format_error(code: ErrorCode, message: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Format error response.
-    
-    Args:
-        code: Error code from ErrorCode enum
-        message: Detailed error message
-        data: Optional additional error data/context
-        
-    Returns:
-        Formatted error response with standard structure:
-        {
-            "detail": {
-                "error": "<error_type>",
-                "message": "Detailed error message",
-                "data": { ...additional data if provided }
-            }
-        }
-    """
+def format_error(error_code: ErrorCode, message: str, extra_info: Dict[str, Any] = None) -> Dict[str, Any]:
+    """Format error response."""
     error_response = {
-        "detail": {
-            "error": code.value,
-            "message": message
-        }
+        "code": error_code.name,
+        "message": message,
+        "detail": f"{error_code.name}: {message}"
     }
     
-    if data:
-        error_response["detail"]["data"] = data
-    
+    if extra_info:
+        error_response.update(extra_info)
+        
     return error_response

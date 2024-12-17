@@ -29,7 +29,8 @@ class ValidationService(BaseService):
             config_service: Configuration service
             message_broker: Message broker service
         """
-        super().__init__(service_name="validation", config_service=config_service)
+        super().__init__(service_name="validation")
+        self._config_service = config_service
         self._message_broker = message_broker
         self._validation_rules = {}
         

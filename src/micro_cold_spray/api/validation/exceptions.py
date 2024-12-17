@@ -7,7 +7,15 @@ from ..base.exceptions import ServiceError
 class ValidationError(ServiceError):
     """Base class for validation errors."""
     def __init__(self, message: str, context: Optional[Dict[str, Any]] = None):
+        """Initialize validation error.
+        
+        Args:
+            message: Error message
+            context: Optional error context
+        """
         super().__init__(message, context)
+        self.message = message
+        self.context = context or {}
 
 
 class ParameterError(ValidationError):

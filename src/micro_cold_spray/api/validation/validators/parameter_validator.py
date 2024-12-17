@@ -84,10 +84,16 @@ class ParameterValidator(BaseValidator):
         try:
             rules = self._rules["parameters"]["gas_flows"]
             
-            # Validate gas type
-            if "gas_type" not in gas_data:
-                errors.append("Gas type not specified")
-            else:
+            # Check required gas flow fields
+            required_fields = ["gas_type", "main_gas", "feeder_gas"]
+            errors.extend(self._check_required_fields(
+                gas_data,
+                required_fields,
+                "Gas flows: "
+            ))
+            
+            # Validate gas type if present
+            if "gas_type" in gas_data:
                 error = self._check_enum_value(
                     gas_data["gas_type"],
                     rules["gas_type"]["choices"],
@@ -96,7 +102,7 @@ class ParameterValidator(BaseValidator):
                 if error:
                     errors.append(error)
                 
-            # Validate flow rates
+            # Validate flow rates if present
             if "main_gas" in gas_data:
                 error = self._check_numeric_range(
                     gas_data["main_gas"],
@@ -134,7 +140,15 @@ class ParameterValidator(BaseValidator):
         try:
             rules = self._rules["parameters"]["powder_feed"]
             
-            # Validate frequency
+            # Check required powder feed fields
+            required_fields = ["frequency", "deagglomerator"]
+            errors.extend(self._check_required_fields(
+                feed_data,
+                required_fields,
+                "Powder feed: "
+            ))
+            
+            # Validate frequency if present
             if "frequency" in feed_data:
                 error = self._check_numeric_range(
                     feed_data["frequency"],
@@ -145,19 +159,22 @@ class ParameterValidator(BaseValidator):
                 if error:
                     errors.append(error)
                     
-            # Validate deagglomerator
+            # Validate deagglomerator if present
             if "deagglomerator" in feed_data:
                 deagg = feed_data["deagglomerator"]
-                if "speed" not in deagg:
-                    errors.append("Deagglomerator speed not specified")
+                if not isinstance(deagg, dict):
+                    errors.append("Deagglomerator settings must be an object")
                 else:
-                    error = self._check_enum_value(
-                        deagg["speed"],
-                        rules["deagglomerator"]["speed"]["choices"],
-                        "Deagglomerator speed"
-                    )
-                    if error:
-                        errors.append(error)
+                    if "speed" not in deagg:
+                        errors.append("Deagglomerator speed not specified")
+                    else:
+                        error = self._check_enum_value(
+                            deagg["speed"],
+                            rules["deagglomerator"]["speed"]["choices"],
+                            "Deagglomerator speed"
+                        )
+                        if error:
+                            errors.append(error)
                     
         except Exception as e:
             errors.append(f"Powder feed validation error: {str(e)}")
@@ -196,7 +213,7 @@ class ParameterValidator(BaseValidator):
                     "Material: "
                 ))
                 
-            # Validate material type
+            # Validate material type if present
             if "type" in material_data:
                 error = self._check_enum_value(
                     material_data["type"],
@@ -206,7 +223,7 @@ class ParameterValidator(BaseValidator):
                 if error:
                     errors.append(error)
                     
-            # Validate particle size
+            # Validate particle size if present
             if "particle_size" in material_data:
                 size = material_data["particle_size"]
                 error = self._check_numeric_range(

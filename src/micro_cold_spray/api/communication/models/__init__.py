@@ -16,7 +16,8 @@ from .tags import (
     TagWriteRequest,
     TagResponse,
     TagCacheRequest,
-    TagCacheResponse
+    TagCacheResponse,
+    TagMappingUpdateRequest
 )
 
 __all__ = [
@@ -38,5 +39,6 @@ __all__ = [
     'TagWriteRequest',
     'TagResponse',
     'TagCacheRequest',
-    'TagCacheResponse'
+    'TagCacheResponse',
+    'TagMappingUpdateRequest'
 ]

@@ -1,6 +1,7 @@
 """Database storage implementation for spray events."""
 
 from typing import List, Protocol
+import json
 import asyncpg
 from loguru import logger
 
@@ -29,7 +30,7 @@ class DataStorage(Protocol):
 
 
 class DatabaseStorage:
-    """PostgreSQL/TimescaleDB storage implementation."""
+    """PostgreSQL storage implementation."""
     
     def __init__(self, dsn: str):
         """Initialize with database connection string."""
@@ -51,51 +52,44 @@ class DatabaseStorage:
                 command_timeout=60.0
             )
             
-            # Create TimescaleDB extension
+            # Create tables if they don't exist
             async with self._pool.acquire() as conn:
-                await conn.execute("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;")
-                
-                # Create tables if they don't exist
                 await conn.execute("""
-                    CREATE TABLE IF NOT EXISTS spray_events (
+                    CREATE TABLE IF NOT EXISTS spray_runs (
                         id SERIAL PRIMARY KEY,
                         sequence_id TEXT NOT NULL,
-                        spray_index INTEGER NOT NULL,
-                        timestamp TIMESTAMPTZ NOT NULL,
-                        x_pos DOUBLE PRECISION NOT NULL,
-                        y_pos DOUBLE PRECISION NOT NULL,
-                        z_pos DOUBLE PRECISION NOT NULL,
-                        pressure DOUBLE PRECISION NOT NULL,
-                        temperature DOUBLE PRECISION NOT NULL,
-                        flow_rate DOUBLE PRECISION NOT NULL,
+                        start_time TIMESTAMP WITH TIME ZONE NOT NULL,
+                        end_time TIMESTAMP WITH TIME ZONE,
+                        operator TEXT,
+                        nozzle_type TEXT,
+                        powder_type TEXT,
+                        parameters JSONB,
                         status TEXT NOT NULL,
-                        UNIQUE(sequence_id, spray_index)
+                        error TEXT,
+                        UNIQUE(sequence_id)
                     );
-                """)
-                
-                # Create indexes
-                await conn.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_spray_events_sequence_id
-                    ON spray_events(sequence_id);
+
+                    CREATE TABLE IF NOT EXISTS spray_events (
+                        id SERIAL PRIMARY KEY,
+                        run_id INTEGER REFERENCES spray_runs(id),
+                        spray_index INTEGER NOT NULL,
+                        timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
+                        position JSONB NOT NULL,
+                        measurements JSONB NOT NULL,
+                        status TEXT NOT NULL,
+                        UNIQUE(run_id, spray_index)
+                    );
+
+                    -- Basic indexes
+                    CREATE INDEX IF NOT EXISTS idx_spray_runs_sequence_id
+                    ON spray_runs(sequence_id);
                     
-                    CREATE INDEX IF NOT EXISTS idx_spray_events_timestamp
-                    ON spray_events(timestamp);
+                    CREATE INDEX IF NOT EXISTS idx_spray_events_run_id
+                    ON spray_events(run_id);
                 """)
                 
-                # Convert to hypertable if not already
-                try:
-                    await conn.execute("""
-                        SELECT create_hypertable('spray_events', 'timestamp',
-                            if_not_exists => TRUE,
-                            migrate_data => TRUE
-                        );
-                    """)
-                except Exception as e:
-                    logger.warning(f"Failed to create hypertable: {e}")
-                
-                logger.info("TimescaleDB extension created successfully")
-            
             logger.info("Database initialized successfully")
+            
         except Exception as e:
             if self._pool:
                 await self._pool.close()
@@ -126,26 +120,50 @@ class DatabaseStorage:
                 })
 
             async with self._pool.acquire() as conn:
+                # Get or create run record
+                run_id = await conn.fetchval("""
+                    SELECT id FROM spray_runs
+                    WHERE sequence_id = $1
+                """, event.sequence_id)
+
+                if not run_id:
+                    run_id = await conn.fetchval("""
+                        INSERT INTO spray_runs (
+                            sequence_id, start_time, status
+                        ) VALUES ($1, $2, 'active')
+                        RETURNING id
+                    """, event.sequence_id, event.timestamp)
+
+                # Insert event
                 try:
+                    position = json.dumps({
+                        "x": event.x_pos,
+                        "y": event.y_pos,
+                        "z": event.z_pos
+                    })
+                    measurements = json.dumps({
+                        "pressure": event.pressure,
+                        "temperature": event.temperature,
+                        "flow_rate": event.flow_rate
+                    })
+                    
                     result = await conn.fetchrow(
                         """
                         INSERT INTO spray_events (
-                            sequence_id,
+                            run_id,
                             spray_index,
                             timestamp,
-                            x_pos,
-                            y_pos,
-                            z_pos,
-                            pressure,
-                            temperature,
-                            flow_rate,
+                            position,
+                            measurements,
                             status
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                        ) VALUES ($1, $2, $3, $4, $5, $6)
                         RETURNING id
                         """,
-                        event.sequence_id, event.spray_index, event.timestamp,
-                        event.x_pos, event.y_pos, event.z_pos,
-                        event.pressure, event.temperature, event.flow_rate,
+                        run_id,
+                        event.spray_index,
+                        event.timestamp,
+                        position,
+                        measurements,
                         event.status
                     )
                     event.id = result['id']
@@ -169,25 +187,31 @@ class DatabaseStorage:
 
         try:
             async with self._pool.acquire() as conn:
+                position = json.dumps({
+                    "x": event.x_pos,
+                    "y": event.y_pos,
+                    "z": event.z_pos
+                })
+                measurements = json.dumps({
+                    "pressure": event.pressure,
+                    "temperature": event.temperature,
+                    "flow_rate": event.flow_rate
+                })
+                
                 result = await conn.execute(
                     """
                     UPDATE spray_events
-                    SET sequence_id = $1,
-                        spray_index = $2,
-                        timestamp = $3,
-                        x_pos = $4,
-                        y_pos = $5,
-                        z_pos = $6,
-                        pressure = $7,
-                        temperature = $8,
-                        flow_rate = $9,
-                        status = $10
-                    WHERE id = $11
+                    SET timestamp = $1,
+                        position = $2,
+                        measurements = $3,
+                        status = $4
+                    WHERE id = $5
                     """,
-                    event.sequence_id, event.spray_index, event.timestamp,
-                    event.x_pos, event.y_pos, event.z_pos,
-                    event.pressure, event.temperature, event.flow_rate,
-                    event.status, event_id
+                    event.timestamp,
+                    position,
+                    measurements,
+                    event.status,
+                    event_id
                 )
 
                 if result == "UPDATE 0":
@@ -207,30 +231,45 @@ class DatabaseStorage:
 
         try:
             async with self._pool.acquire() as conn:
-                rows = await conn.fetch(
+                run = await conn.fetchrow(
                     """
-                    SELECT id, sequence_id, spray_index, timestamp,
-                           x_pos, y_pos, z_pos,
-                           pressure, temperature, flow_rate,
-                           status
-                    FROM spray_events
+                    SELECT id FROM spray_runs
                     WHERE sequence_id = $1
-                    ORDER BY spray_index;
                     """,
                     sequence_id
+                )
+                
+                if not run:
+                    return []
+
+                rows = await conn.fetch(
+                    """
+                    SELECT id, spray_index, timestamp,
+                           position->>'x' as x_pos,
+                           position->>'y' as y_pos,
+                           position->>'z' as z_pos,
+                           measurements->>'pressure' as pressure,
+                           measurements->>'temperature' as temperature,
+                           measurements->>'flow_rate' as flow_rate,
+                           status
+                    FROM spray_events
+                    WHERE run_id = $1
+                    ORDER BY spray_index;
+                    """,
+                    run['id']
                 )
 
                 return [SprayEvent(
                     id=row['id'],
-                    sequence_id=row['sequence_id'],
+                    sequence_id=sequence_id,
                     spray_index=row['spray_index'],
                     timestamp=row['timestamp'],
-                    x_pos=row['x_pos'],
-                    y_pos=row['y_pos'],
-                    z_pos=row['z_pos'],
-                    pressure=row['pressure'],
-                    temperature=row['temperature'],
-                    flow_rate=row['flow_rate'],
+                    x_pos=float(row['x_pos']),
+                    y_pos=float(row['y_pos']),
+                    z_pos=float(row['z_pos']),
+                    pressure=float(row['pressure']),
+                    temperature=float(row['temperature']),
+                    flow_rate=float(row['flow_rate']),
                     status=row['status']
                 ) for row in rows]
         except Exception as e:
