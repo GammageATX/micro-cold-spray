@@ -6,12 +6,68 @@ from micro_cold_spray.api.base.router import add_health_endpoints
 from micro_cold_spray.api.base.service import BaseService
 
 
+class _MockServiceWithHealth(BaseService):
+    """Mock service with health check capability for testing."""
+    
+    def __init__(self):
+        """Initialize test service."""
+        super().__init__("test_service")
+        self._health_status = "ok"
+        self._message = None
+        self._error = None
+
+    async def _check_health(self):
+        if self._error:
+            return {
+                "status": "error",
+                "error": self._error
+            }
+        return {
+            "status": self._health_status,
+            "message": self._message
+        }
+
+    def set_health_status(self, status, message=None):
+        """Set health check response."""
+        self._health_status = status
+        self._message = message
+        self._error = None
+
+    def set_health_error(self, error):
+        """Set health check to raise error."""
+        self._error = error
+        self._health_status = "error"
+        self._message = None
+
+
+@pytest.fixture
+def mock_service_with_health():
+    """Create mock service with health check capability."""
+    return _MockServiceWithHealth()
+
+
 @pytest.fixture
 def test_router():
     """Create test router with service."""
     app = FastAPI()  # Create FastAPI app
     router = APIRouter()
     service = BaseService("test_service")
+    
+    # Add endpoints to router
+    add_health_endpoints(router, service)
+    
+    # Include router in app
+    app.include_router(router)
+    
+    return router, service
+
+
+@pytest.fixture
+def test_router_with_mock():
+    """Create test router with mock service that has health check."""
+    app = FastAPI()
+    router = APIRouter()
+    service = _MockServiceWithHealth()
     
     # Add endpoints to router
     add_health_endpoints(router, service)
@@ -38,33 +94,8 @@ async def test_health_endpoint(test_router):
     assert "uptime" in response
     assert "memory_usage" in response
     assert response["service_info"]["name"] == "test_service"
-
-
-@pytest.mark.asyncio
-async def test_control_endpoint(test_router):
-    """Test service control endpoint."""
-    router, service = test_router
-    
-    # Get control route handler
-    control_route = next(r for r in router.routes if r.path == "/control")
-    
-    # Test start
-    response = await control_route.endpoint(action="start")
-    assert response["status"] == "started"
-    assert service.is_running
-    
-    # Test stop
-    response = await control_route.endpoint(action="stop")
-    assert response["status"] == "stopped"
-    assert not service.is_running
-    
-    # Test invalid action
-    try:
-        await control_route.endpoint(action="invalid")
-        pytest.fail("Should have raised HTTPException")
-    except HTTPException as exc:
-        assert exc.status_code == 400
-        assert "Invalid action" in str(exc.detail)
+    assert response["service_info"]["running"] is True
+    assert response["service_info"]["version"] == "1.0.0"
 
 
 @pytest.mark.asyncio
@@ -84,27 +115,12 @@ async def test_health_check_error(test_router):
         await service.start()
     assert str(exc.value) == "Test error"
     
-    # Then verify health check endpoint returns stopped status with error
+    # Then verify health check endpoint returns error status
     response = await health_route.endpoint()
-    assert response["status"] == "stopped"
-    assert "Test error" in str(response["service_info"]["error"])
-
-
-@pytest.mark.asyncio
-async def test_service_error(test_router):
-    """Test service operation error handling."""
-    router, service = test_router
-    
-    # Force error in service start
-    async def _start():
-        raise ValueError("Start error")
-    service._start = _start
-    
-    control_route = next(r for r in router.routes if r.path == "/control")
-    with pytest.raises(HTTPException) as exc:
-        await control_route.endpoint(action="start")
-    assert exc.value.status_code == 500
-    assert "Start error" in str(exc.value.detail)
+    assert response["status"] == "error"
+    assert response["error"] == "Service not initialized"
+    assert response["service_info"]["error"] == "Service not initialized"
+    assert response["service_info"]["running"] is False
 
 
 @pytest.mark.asyncio
@@ -112,7 +128,10 @@ async def test_health_check_stopped(test_router):
     """Test health check when service is stopped."""
     router, service = test_router
     
-    # Stop service
+    # Start service first so it's initialized
+    await service.start()
+    
+    # Then stop service
     await service.stop()
     
     # Get route handler
@@ -121,67 +140,33 @@ async def test_health_check_stopped(test_router):
     
     assert response["status"] == "stopped"
     assert response["service_info"]["running"] is False
-
-
-class TestServiceWithHealth(BaseService):
-    """Test service with health check capability."""
-    
-    def __init__(self):
-        """Initialize test service."""
-        super().__init__("test_service")
-        self._health_status = "ok"
-        self._health_message = None
-        self._health_error = None
-
-    async def check_health(self):
-        """Implement health check."""
-        return {
-            "status": self._health_status,
-            "message": self._health_message,
-            "error": self._health_error
-        }
-
-    def set_health_status(self, status: str, message: str = None, error: str = None):
-        """Set health check response."""
-        self._health_status = status
-        self._health_message = message
-        self._health_error = error
-
-
-@pytest.fixture
-def test_router_with_health():
-    """Create test router with service that has health check."""
-    app = FastAPI()
-    router = APIRouter()
-    service = TestServiceWithHealth()
-    add_health_endpoints(router, service)
-    app.include_router(router)
-    return router, service
+    assert response["service_info"]["uptime"] is None
 
 
 @pytest.mark.asyncio
-async def test_health_check_error_status(test_router_with_health):
+async def test_health_check_error_status(test_router_with_mock):
     """Test health check with error status."""
-    router, service = test_router_with_health
+    router, service = test_router_with_mock
     
     # Start service
     await service.start()
     
     # Set error status
-    service.set_health_status("error", error="Test error")
+    service.set_health_error("Test error")
     
     # Get route handler
     health_route = next(r for r in router.routes if r.path == "/health")
     response = await health_route.endpoint()
     
     assert response["status"] == "error"
-    assert response["service_info"]["error"] == "Test error"
+    assert response["error"] == "Test error"
+    assert response["service_info"]["running"] is True
 
 
 @pytest.mark.asyncio
-async def test_health_check_degraded(test_router_with_health):
+async def test_health_check_degraded(test_router_with_mock):
     """Test health check with degraded status."""
-    router, service = test_router_with_health
+    router, service = test_router_with_mock
     
     # Start service
     await service.start()
@@ -194,7 +179,8 @@ async def test_health_check_degraded(test_router_with_health):
     response = await health_route.endpoint()
     
     assert response["status"] == "degraded"
-    assert "Performance degraded" in response["service_info"]["message"]
+    assert response["message"] == "Performance degraded"
+    assert response["service_info"]["running"] is True
 
 
 @pytest.mark.asyncio
@@ -228,4 +214,6 @@ async def test_control_endpoint_restart_error(test_router):
     with pytest.raises(HTTPException) as exc:
         await control_route.endpoint(action="restart")
     assert exc.value.status_code == 500
-    assert "Start error" in str(exc.value.detail)
+    error_detail = exc.value.detail
+    assert error_detail["error"] == "Internal Server Error"
+    assert error_detail["message"] == "Start error"

@@ -193,30 +193,55 @@ class DataCollectionService(ConfigurableService):
             )
 
     async def check_storage(self) -> bool:
-        """Check if storage backend is accessible.
-        
-        Returns:
-            True if storage is accessible
-        """
+        """Check storage health."""
         if not self.is_running:
             return False
-
+        
         try:
-            # Try to read/write test data
-            test_event = SprayEvent(
-                sequence_id="test",
-                spray_index=0,
-                timestamp=datetime.now(),
-                x_pos=0.0,
-                y_pos=0.0,
-                z_pos=0.0,
-                pressure=0.0,
-                temperature=0.0,
-                flow_rate=0.0,
-                status="test"
-            )
-            await self._storage.save_spray_event(test_event)
+            # Check basic connectivity
+            if not await self._storage.check_connection():
+                logger.error("Storage connection check failed")
+                return False
+            
+            # Check storage functionality
+            if not await self._storage.check_storage():
+                logger.error("Storage functionality check failed")
+                return False
+            
+            # Check health status
+            health = await self._storage.check_health()
+            if health["status"] != "ok":
+                logger.error(f"Storage health check failed: {health.get('error', 'Unknown error')}")
+                return False
+            
             return True
         except Exception as e:
             logger.error(f"Storage check failed: {str(e)}")
             return False
+
+    async def check_health(self) -> dict:
+        """Check service health status."""
+        health = await super().check_health()
+        
+        if not self.is_running:
+            return health
+        
+        try:
+            # Check storage health
+            storage_health = await self._storage.check_health()
+            if storage_health["status"] != "ok":
+                health["status"] = "error"
+                health["error"] = storage_health.get("error")
+                return health
+            
+            # Add storage health info
+            health.update(storage_health)
+            
+            # Add active session info if exists
+            if self._active_session:
+                health["active_sequence"] = self._active_session.sequence_id
+        except Exception as e:
+            health["status"] = "error"
+            health["error"] = str(e)
+        
+        return health

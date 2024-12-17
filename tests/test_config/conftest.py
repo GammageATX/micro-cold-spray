@@ -4,15 +4,14 @@ from micro_cold_spray.__main__ import get_test_config
 import uvicorn
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an instance of the default event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
+@pytest.fixture(scope="function")
+def event_loop_policy():
+    """Create and set a new event loop policy for each test."""
+    policy = asyncio.get_event_loop_policy()
+    return policy
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 async def config_service():
     """Start a test config service instance."""
     config = get_test_config('config')

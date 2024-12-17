@@ -79,8 +79,16 @@ class TestMessagingService:
         task = asyncio.create_task(error_task())
         service.add_background_task(task)
 
-        # Wait for error to be logged
-        await asyncio.sleep(0.5)
+        # Wait for error to be raised and handled
+        try:
+            await asyncio.wait_for(task, timeout=1.0)
+        except (asyncio.TimeoutError, Exception):
+            pass  # Expected error
+
+        # Verify task is removed from background tasks
+        await asyncio.sleep(0.1)  # Allow cleanup to occur
+        assert task not in service._background_tasks
+
         await service.stop()
 
     @pytest.mark.asyncio
@@ -101,8 +109,7 @@ class TestMessagingService:
         """Test monitor queue exception handling."""
         # Create a monitor task that will raise an exception
         async def error_monitor():
-            while True:
-                raise Exception("Monitor error")
+            raise Exception("Monitor error")
 
         # Replace the existing monitor task
         monitor_task = next(iter(service._background_tasks))
@@ -113,8 +120,16 @@ class TestMessagingService:
         error_task = asyncio.create_task(error_monitor())
         service.add_background_task(error_task)
 
-        # Wait for error to be logged
-        await asyncio.sleep(0.5)
+        # Wait for error to be raised and handled
+        try:
+            await asyncio.wait_for(error_task, timeout=1.0)
+        except (asyncio.TimeoutError, Exception):
+            pass  # Expected error
+
+        # Verify task is removed from background tasks
+        await asyncio.sleep(0.1)  # Allow cleanup to occur
+        assert error_task not in service._background_tasks
+
         await service.stop()
 
     @pytest.mark.asyncio

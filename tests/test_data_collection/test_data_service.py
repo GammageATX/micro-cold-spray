@@ -39,6 +39,8 @@ def mock_storage():
     storage.save_spray_event = AsyncMock()
     storage.get_spray_events = AsyncMock(return_value=[])
     storage.check_connection = AsyncMock(return_value=True)
+    storage.check_storage = AsyncMock(return_value=True)
+    storage.check_health = AsyncMock(return_value={"status": "ok"})
     return storage
 
 
@@ -48,6 +50,15 @@ def mock_config():
     config = Mock(spec=ConfigService)
     config.get_service_config = AsyncMock(return_value={"test": "config"})
     return config
+
+
+@pytest.fixture
+async def service(mock_storage, mock_config):
+    """Create and start a test service."""
+    service = DataCollectionService(mock_storage, mock_config)
+    await service.start()
+    yield service
+    await service.stop()
 
 
 class TestServiceStateValidation:
@@ -144,14 +155,6 @@ class TestServiceStateValidation:
 class TestServiceHealthChecks:
     """Test service health monitoring and checks."""
     
-    @pytest.fixture
-    async def service(self, mock_storage, mock_config):
-        """Create and start a test service."""
-        service = DataCollectionService(mock_storage, mock_config)
-        await service.start()
-        yield service
-        await service.stop()
-    
     @pytest.mark.asyncio
     async def test_health_check_healthy(self, service, mock_storage):
         """Test health check when service is healthy."""
@@ -190,10 +193,7 @@ class TestServiceHealthChecks:
         error_msg = "Connection failed"
         mock_storage.check_connection.side_effect = StorageError(error_msg)
         mock_storage.check_storage.return_value = False
-        mock_storage.check_health.return_value = {
-            "status": "error",
-            "error": error_msg
-        }
+        mock_storage.check_health.side_effect = StorageError(error_msg)
         
         health = await service.check_health()
         assert health["status"] == "error"

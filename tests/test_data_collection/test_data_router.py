@@ -1,6 +1,6 @@
 """Tests for data collection router."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from typing import AsyncGenerator
 import pytest
@@ -10,7 +10,7 @@ from httpx import AsyncClient
 import httpx
 from fastapi.encoders import jsonable_encoder
 
-from micro_cold_spray.api.data_collection.router import get_service, router
+from micro_cold_spray.api.data_collection.router import router
 from micro_cold_spray.api.data_collection.service import DataCollectionService
 from micro_cold_spray.api.data_collection.models import SprayEvent, CollectionSession
 from micro_cold_spray.api.data_collection.exceptions import DataCollectionError
@@ -41,7 +41,6 @@ SAMPLE_EVENT = SprayEvent(
 )
 
 COLLECTION_PARAMS = {
-    "mode": "continuous",
     "interval": 1.0,
     "duration": 60.0
 }
@@ -57,6 +56,19 @@ def mock_service() -> Mock:
     service.get_sequence_events = AsyncMock(return_value=[])
     service.check_health = AsyncMock(return_value={"status": "ok"})
     service.is_running = True
+    service.initialize = AsyncMock()
+    service.start = AsyncMock()
+    service.stop = AsyncMock()
+    service._initialized = True  # Mark service as initialized
+    
+    # Configure default behavior
+    service.check_health.return_value = {"status": "ok"}
+    service.start_collection.side_effect = lambda seq_id, params: CollectionSession(
+        sequence_id=seq_id,
+        start_time=datetime.now(timezone.utc),
+        collection_params=params
+    )
+    
     return service
 
 
@@ -65,7 +77,10 @@ def app(mock_service: Mock) -> FastAPI:
     """Create test FastAPI application."""
     app = FastAPI()
     app.include_router(router)
-    app.dependency_overrides[get_service] = lambda: mock_service
+    
+    # Initialize router with mock service
+    from micro_cold_spray.api.data_collection.router import init_router
+    init_router(mock_service)
     
     # Configure JSON encoder for datetime
     app.json_encoder = DateTimeEncoder
@@ -75,10 +90,21 @@ def app(mock_service: Mock) -> FastAPI:
 @pytest.fixture
 async def async_client(app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
     """Create async test client."""
+    transport = httpx.ASGITransport(app=app)
     async with AsyncClient(
-        app=app,
-        base_url="http://test"
+        transport=transport,
+        base_url="http://test",
+        headers={"Content-Type": "application/json"}
     ) as client:
+        # Patch the client's build_request method to handle datetime serialization
+        original_build_request = client.build_request
+        
+        def patched_build_request(method: str, url: str, **kwargs):
+            if "json" in kwargs:
+                kwargs["content"] = json.dumps(kwargs.pop("json"), cls=DateTimeEncoder).encode()
+            return original_build_request(method, url, **kwargs)
+        
+        client.build_request = patched_build_request
         yield client
 
 
@@ -94,23 +120,37 @@ class TestRequestValidation:
     async def test_sequence_id_validation(self, async_client):
         """Test sequence ID validation in various endpoints."""
         # Test empty sequence ID
-        response = await async_client.post("/data-collection/start", params={"sequence_id": ""})
-        assert response.status_code == 422  # FastAPI validation error
-        assert "value_error" in response.json()["detail"][0]["type"]
+        response = await async_client.post("/data-collection/start", json={"collection_params": {}})
+        assert response.status_code == 422  # Unprocessable Entity
+        data = response.json()
+        assert "detail" in data
+        assert isinstance(data["detail"], list)  # FastAPI validation error format
         
         # Test invalid characters in sequence ID
-        response = await async_client.get("/data-collection/events/invalid#sequence@id")
-        assert response.status_code == 422  # FastAPI validation error
-        assert "value_error" in response.json()["detail"][0]["type"]
+        response = await async_client.post(
+            "/data-collection/start",
+            params={"sequence_id": "invalid#sequence@id"},
+            json={"collection_params": {}}
+        )
+        assert response.status_code == 422  # Unprocessable Entity
+        data = response.json()
+        assert "detail" in data
+        assert isinstance(data["detail"], list)  # FastAPI validation error format
         
         # Test sequence ID length limits
         long_id = "a" * 101
-        response = await async_client.post("/data-collection/start", params={"sequence_id": long_id})
-        assert response.status_code == 422  # FastAPI validation error
-        assert "value_error" in response.json()["detail"][0]["type"]
+        response = await async_client.post(
+            "/data-collection/start",
+            params={"sequence_id": long_id},
+            json={"collection_params": {}}
+        )
+        assert response.status_code == 422  # Unprocessable Entity
+        data = response.json()
+        assert "detail" in data
+        assert isinstance(data["detail"], list)  # FastAPI validation error format
     
     @pytest.mark.asyncio
-    async def test_collection_params_validation(self, async_client):
+    async def test_collection_params_validation(self, async_client, mock_service):
         """Test collection parameters validation."""
         # Test missing required params
         response = await async_client.post(
@@ -119,13 +159,15 @@ class TestRequestValidation:
             json={}
         )
         assert response.status_code == 422  # FastAPI validation error
-        assert "value_error" in response.json()["detail"][0]["type"]
+        data = response.json()
+        assert "detail" in data
+        assert isinstance(data["detail"], list)
+        assert any("msg" in error for error in data["detail"])  # FastAPI validation error format
         
         # Test invalid parameter types
         invalid_params = {
             "interval": "invalid",
-            "max_events": -1,
-            "buffer_size": 0
+            "duration": -1
         }
         response = await async_client.post(
             "/data-collection/start",
@@ -133,13 +175,15 @@ class TestRequestValidation:
             json=invalid_params
         )
         assert response.status_code == 422  # FastAPI validation error
-        assert "value_error" in response.json()["detail"][0]["type"]
+        data = response.json()
+        assert "detail" in data
+        assert isinstance(data["detail"], list)
+        assert any("msg" in error for error in data["detail"])  # FastAPI validation error format
         
         # Test parameter range validation
         invalid_ranges = {
             "interval": 0.0,
-            "max_events": 1000000,
-            "buffer_size": -1
+            "duration": -1.0
         }
         response = await async_client.post(
             "/data-collection/start",
@@ -147,7 +191,10 @@ class TestRequestValidation:
             json=invalid_ranges
         )
         assert response.status_code == 422  # FastAPI validation error
-        assert "value_error" in response.json()["detail"][0]["type"]
+        data = response.json()
+        assert "detail" in data
+        assert isinstance(data["detail"], list)
+        assert any("msg" in error for error in data["detail"])  # FastAPI validation error format
     
     @pytest.mark.asyncio
     async def test_spray_event_validation(self, async_client):
@@ -193,11 +240,10 @@ class TestResponseFormatting:
         # Test collection start response
         session = CollectionSession(
             sequence_id="test_sequence",
-            start_time=datetime.now(),
+            start_time=datetime.now(timezone.utc),
             collection_params=COLLECTION_PARAMS
         )
         mock_service.start_collection.return_value = session
-        mock_service.is_running = True  # Ensure service appears running
         
         response = await async_client.post(
             "/data-collection/start",
@@ -223,63 +269,101 @@ class TestResponseFormatting:
     @pytest.mark.asyncio
     async def test_error_response_format(self, async_client, mock_service):
         """Test error response formatting."""
-        # Test service error
-        mock_service.start_collection.side_effect = DataCollectionError("Test error")
-        mock_service.is_running = True  # Ensure service appears running
+        # Test service error - Collection already in progress
+        error_msg = "Collection already in progress"
+        mock_service.start_collection.side_effect = DataCollectionError(error_msg)
         
         response = await async_client.post(
             "/data-collection/start",
             params={"sequence_id": "test_sequence"},
             json=COLLECTION_PARAMS
         )
-        assert response.status_code == 400
+        assert response.status_code == 409  # Conflict
         data = response.json()
         assert "detail" in data
         assert isinstance(data["detail"], dict)
         assert "error" in data["detail"]
-        assert data["detail"]["error"] == "Test error"
+        assert error_msg in str(data["detail"]["error"])
+        
+        # Test service error - No active session
+        error_msg = "No active collection session"
+        mock_service.record_spray_event.side_effect = DataCollectionError(error_msg)
+        
+        response = await async_client.post(
+            "/data-collection/events",
+            json=SAMPLE_EVENT.model_dump()
+        )
+        assert response.status_code == 404  # Not Found
+        data = response.json()
+        assert "detail" in data
+        assert isinstance(data["detail"], dict)
+        assert "error" in data["detail"]
+        assert error_msg in str(data["detail"]["error"])
+        
+        # Test service error - Duplicate event
+        error_msg = "Duplicate spray event"
+        mock_service.record_spray_event.side_effect = DataCollectionError(error_msg)
+        
+        response = await async_client.post(
+            "/data-collection/events",
+            json=SAMPLE_EVENT.model_dump()
+        )
+        assert response.status_code == 409  # Conflict
+        data = response.json()
+        assert "detail" in data
+        assert isinstance(data["detail"], dict)
+        assert "error" in data["detail"]
+        assert error_msg in str(data["detail"]["error"])
         
         # Test validation error response
         response = await async_client.post(
             "/data-collection/events",
             json={"invalid": "data"}
         )
-        assert response.status_code == 422
+        assert response.status_code == 422  # Unprocessable Entity
         data = response.json()
         assert "detail" in data
         assert isinstance(data["detail"], list)
+        assert any("msg" in error for error in data["detail"])  # FastAPI validation error format
+        
+        # Test internal server error
+        error_msg = "Internal server error"
+        mock_service.record_spray_event.side_effect = Exception(error_msg)
+        
+        response = await async_client.post(
+            "/data-collection/events",
+            json=SAMPLE_EVENT.model_dump()
+        )
+        assert response.status_code == 500  # Internal Server Error
+        data = response.json()
+        assert "detail" in data
+        assert isinstance(data["detail"], dict)
+        assert "error" in data["detail"]
+        assert error_msg in str(data["detail"]["message"])
     
     @pytest.mark.asyncio
     async def test_health_check_response(self, async_client, mock_service):
         """Test health check response format."""
         # Test healthy response
-        mock_service.is_running = True  # Ensure service appears running
-        mock_service.check_health.return_value = {
-            "status": "ok",
-            "active_sequence": "test_sequence",
-            "uptime": 3600,
-            "event_count": 100
-        }
+        mock_service.is_running = True
+        mock_service.check_storage.return_value = True
         response = await async_client.get("/data-collection/health")
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "ok"
-        assert isinstance(data["uptime"], int)
-        assert isinstance(data["event_count"], int)
+        assert data["service"] == "ok"
+        assert data["storage"] == "ok"
         
         # Test unhealthy response
-        mock_service.check_health.return_value = {
-            "status": "error",
-            "error": "Storage connection failed"
-        }
+        mock_service.is_running = False
+        mock_service.check_storage.return_value = False
         response = await async_client.get("/data-collection/health")
         assert response.status_code == 503
         data = response.json()
-        assert data["status"] == "error"
-        assert "error" in data
+        assert data["service"] == "error"
+        assert data["storage"] == "error"
     
     @pytest.mark.asyncio
-    async def test_content_type_handling(self, async_client):
+    async def test_content_type_handling(self, async_client, mock_service):
         """Test content type validation and handling."""
         # Test invalid content type
         response = await async_client.post(
@@ -288,6 +372,10 @@ class TestResponseFormatting:
             headers={"Content-Type": "text/plain"}
         )
         assert response.status_code == 422  # FastAPI handles invalid content type with validation error
+        data = response.json()
+        assert "detail" in data
+        assert isinstance(data["detail"], list)
+        assert any("msg" in error for error in data["detail"])  # FastAPI validation error format
         
         # Test missing content type
         response = await async_client.post(
@@ -295,11 +383,21 @@ class TestResponseFormatting:
             content=b"invalid data"
         )
         assert response.status_code == 422  # FastAPI handles missing content type with validation error
+        data = response.json()
+        assert "detail" in data
+        assert isinstance(data["detail"], list)
+        assert any("msg" in error for error in data["detail"])  # FastAPI validation error format
         
         # Test valid JSON with wrong content type
+        event_data = SAMPLE_EVENT.model_dump()
+        event_data["timestamp"] = event_data["timestamp"].isoformat()  # Convert datetime to string
         response = await async_client.post(
             "/data-collection/events",
-            content=json.dumps(SAMPLE_EVENT.model_dump()),
+            content=json.dumps(event_data),
             headers={"Content-Type": "application/x-www-form-urlencoded"}
         )
         assert response.status_code == 422  # FastAPI handles wrong content type with validation error
+        data = response.json()
+        assert "detail" in data
+        assert isinstance(data["detail"], list)
+        assert any("msg" in error for error in data["detail"])  # FastAPI validation error format

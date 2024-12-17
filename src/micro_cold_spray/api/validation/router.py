@@ -9,6 +9,7 @@ from loguru import logger
 from .service import ValidationService
 from .exceptions import ValidationError
 from ..base.router import add_health_endpoints
+from ..base.errors import ErrorCode, format_error
 
 # Create FastAPI app
 app = FastAPI(title="Validation API")
@@ -18,29 +19,20 @@ _service: Optional[ValidationService] = None
 
 
 def init_router(service: ValidationService) -> None:
-    """Initialize router with service instance.
-    
-    Args:
-        service: Validation service instance
-    """
+    """Initialize router with service instance."""
     global _service
     _service = service
-    # Add health endpoints
     add_health_endpoints(app, service)
 
 
 def get_service() -> ValidationService:
-    """Get validation service instance.
-    
-    Returns:
-        ValidationService instance
-        
-    Raises:
-        RuntimeError: If service not initialized
-    """
+    """Get validation service instance."""
     if _service is None:
-        logger.error("Validation service not initialized")
-        raise RuntimeError("Validation service not initialized")
+        error = ErrorCode.SERVICE_UNAVAILABLE
+        raise HTTPException(
+            status_code=error.status_code,
+            detail=format_error(error, "Validation service not initialized")
+        )
     return _service
 
 
@@ -49,28 +41,23 @@ async def validate_data(
     request: Dict[str, Any],
     background_tasks: BackgroundTasks
 ) -> Dict[str, Any]:
-    """Validate data against rules.
-    
-    Args:
-        request: Dictionary containing:
-            - type: Type of validation to perform
-            - data: Data to validate
-        background_tasks: FastAPI background tasks
-        
-    Returns:
-        Dict containing validation results
-        
-    Raises:
-        HTTPException: If validation fails
-    """
+    """Validate data against rules."""
     service = get_service()
     
     try:
         # Validate request format
         if "type" not in request:
-            raise ValidationError("Missing validation type")
+            error = ErrorCode.VALIDATION_ERROR
+            raise HTTPException(
+                status_code=error.status_code,
+                detail=format_error(error, "Missing validation type")
+            )
         if "data" not in request:
-            raise ValidationError("Missing validation data")
+            error = ErrorCode.VALIDATION_ERROR
+            raise HTTPException(
+                status_code=error.status_code,
+                detail=format_error(error, "Missing validation data")
+            )
             
         # Perform validation based on type
         validation_type = request["type"]
@@ -85,7 +72,11 @@ async def validate_data(
         elif validation_type == "hardware":
             result = await service.validate_hardware(validation_data)
         else:
-            raise ValidationError(f"Unknown validation type: {validation_type}")
+            error = ErrorCode.VALIDATION_ERROR
+            raise HTTPException(
+                status_code=error.status_code,
+                detail=format_error(error, f"Unknown validation type: {validation_type}")
+            )
             
         # Log validation result
         if result["valid"]:
@@ -108,32 +99,22 @@ async def validate_data(
         }
         
     except ValidationError as e:
-        logger.error(f"Validation error: {str(e)}")
+        error = ErrorCode.VALIDATION_ERROR
         raise HTTPException(
-            status_code=400,
-            detail={"error": str(e), "context": e.context}
+            status_code=error.status_code,
+            detail=format_error(error, str(e), e.context)
         )
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
+        error = ErrorCode.INTERNAL_ERROR
         raise HTTPException(
-            status_code=500,
-            detail={"error": "Internal server error", "message": str(e)}
+            status_code=error.status_code,
+            detail=format_error(error, str(e))
         )
 
 
 @router.get("/rules/{rule_type}", response_model=Dict[str, Any])
 async def get_validation_rules(rule_type: str) -> Dict[str, Any]:
-    """Get validation rules for type.
-    
-    Args:
-        rule_type: Type of rules to retrieve
-        
-    Returns:
-        Dict containing rules
-        
-    Raises:
-        HTTPException: If rules not found
-    """
+    """Get validation rules for type."""
     service = get_service()
     
     try:
@@ -144,29 +125,22 @@ async def get_validation_rules(rule_type: str) -> Dict[str, Any]:
             "timestamp": datetime.now().isoformat()
         }
     except ValidationError as e:
-        logger.error(f"Failed to get rules: {str(e)}")
+        error = ErrorCode.VALIDATION_ERROR
         raise HTTPException(
-            status_code=400,
-            detail={"error": str(e), "context": e.context}
+            status_code=error.status_code,
+            detail=format_error(error, str(e), e.context)
         )
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
+        error = ErrorCode.INTERNAL_ERROR
         raise HTTPException(
-            status_code=500,
-            detail={"error": "Internal server error", "message": str(e)}
+            status_code=error.status_code,
+            detail=format_error(error, str(e))
         )
 
 
 @router.get("/health")
 async def health_check() -> JSONResponse:
-    """Check API and service health status.
-    
-    Returns:
-        JSON response with health status
-        
-    Note:
-        Returns 503 if service unhealthy
-    """
+    """Check API and service health status."""
     service = get_service()
     
     try:
@@ -176,22 +150,19 @@ async def health_check() -> JSONResponse:
         }
         
         if not service.is_running:
+            error = ErrorCode.SERVICE_UNAVAILABLE
             return JSONResponse(
-                status_code=503,
-                content=status
+                status_code=error.status_code,
+                content=format_error(error, "Service not running")
             )
             
         return JSONResponse(status)
         
     except Exception as e:
-        logger.error(f"Health check failed: {str(e)}")
+        error = ErrorCode.INTERNAL_ERROR
         return JSONResponse(
-            status_code=503,
-            content={
-                "service": "error",
-                "error": str(e),
-                "timestamp": datetime.now().isoformat()
-            }
+            status_code=error.status_code,
+            content=format_error(error, str(e))
         )
 
 # Add router to app

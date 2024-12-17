@@ -1,80 +1,142 @@
-"""Base service class for all APIs."""
+"""Base service functionality."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
+from typing import Dict, Any, Optional
 from loguru import logger
-from .exceptions import ServiceError
 
 
 class BaseService:
-    """Base service class."""
-
+    """Base service class with lifecycle management."""
+    
     def __init__(self, service_name: str):
         """Initialize service."""
         self._service_name = service_name
-        self._initialized = False
-        self._running = False
-        self.start_time = datetime.now()
-        self._error = None
-        self.version = "1.0.0"
-
+        self._start_time: Optional[datetime] = None
+        self._is_running = False
+        self._is_initialized = False
+        self._error: Optional[str] = None
+        self._message: Optional[str] = None
+        self.version = "1.0.0"  # Default version
+    
+    @property
+    def is_running(self) -> bool:
+        """Get service running state."""
+        return self._is_running
+    
+    @property
+    def is_initialized(self) -> bool:
+        """Get service initialization state."""
+        return self._is_initialized
+    
+    @property
+    def uptime(self) -> Optional[timedelta]:
+        """Get service uptime."""
+        if self._start_time and self._is_running:
+            return datetime.now() - self._start_time
+        return None
+    
     async def start(self):
-        """Start service."""
-        if self._running:
-            raise ServiceError(f"{self._service_name} already running")
-
+        """Start service operation."""
+        if self._is_running:
+            logger.warning(f"{self._service_name} already running")
+            return
+        
         try:
             await self._start()
-            self._initialized = True
-            self._running = True
-            self.start_time = datetime.now()
+            self._is_running = True
+            self._start_time = datetime.now()
+            self._is_initialized = True
             self._error = None
+            self._message = None
             logger.info(f"{self._service_name} started")
         except Exception as e:
-            self._running = False
             self._error = str(e)
             logger.error(f"Failed to start {self._service_name}: {e}")
             raise
-
+    
     async def stop(self):
-        """Stop service."""
-        if not self._running:
+        """Stop service operation."""
+        if not self._is_running:
             logger.warning(f"{self._service_name} not running")
             return
-
+        
         try:
             await self._stop()
-            self._running = False
+            self._is_running = False
+            self._start_time = None
             logger.info(f"{self._service_name} stopped")
         except Exception as e:
+            self._error = str(e)
             logger.error(f"Failed to stop {self._service_name}: {e}")
             raise
-
-    @property
-    def is_running(self) -> bool:
-        """Return whether service is running."""
-        return self._running
-
-    @property
-    def is_initialized(self) -> bool:
-        """Return whether service is initialized."""
-        return self._initialized
-
-    @property
-    def error(self) -> str:
-        """Return last error message."""
-        return self._error
-
+    
+    async def restart(self):
+        """Restart service operation."""
+        await self.stop()
+        await self.start()
+    
+    async def check_health(self) -> Dict[str, Any]:
+        """Check service health status."""
+        try:
+            # Get service-specific health info
+            health_info = await self._check_health()
+            
+            # Add base service info
+            health_info.update({
+                "service_info": {
+                    "name": self._service_name,
+                    "version": self.version,
+                    "running": self._is_running,
+                    "uptime": str(self.uptime) if self.uptime else None
+                }
+            })
+            
+            # Set status based on service state
+            if not self._is_initialized:
+                health_info["status"] = "error"
+                health_info["error"] = "Service not initialized"
+                health_info["service_info"]["error"] = "Service not initialized"
+            elif not self._is_running:
+                health_info["status"] = "stopped"
+                if self._error:
+                    health_info["error"] = self._error
+                    health_info["service_info"]["error"] = self._error
+            elif self._error:
+                health_info["status"] = "error"
+                health_info["error"] = self._error
+                health_info["service_info"]["error"] = self._error
+            elif self._message:
+                health_info["status"] = "degraded"
+                health_info["message"] = self._message
+                health_info["service_info"]["message"] = self._message
+            else:
+                health_info["status"] = "ok"
+            
+            return health_info
+        except Exception as e:
+            self._error = str(e)
+            return {
+                "status": "error",
+                "error": str(e),
+                "service_info": {
+                    "name": self._service_name,
+                    "version": self.version,
+                    "running": self._is_running,
+                    "uptime": str(self.uptime) if self.uptime else None,
+                    "error": str(e)
+                }
+            }
+    
     async def _start(self):
-        """Start service implementation."""
+        """Service-specific startup logic."""
         pass
-
+    
     async def _stop(self):
-        """Stop service implementation."""
+        """Service-specific shutdown logic."""
         pass
-
-    async def check_health(self):
-        """Check service health."""
-        return {
-            "status": "ok" if self.is_running else "stopped",
-            "error": self._error
-        }
+    
+    async def _check_health(self) -> Dict[str, Any]:
+        """Service-specific health check logic."""
+        if not self._is_initialized:
+            raise RuntimeError("Service not initialized")
+        return {}
