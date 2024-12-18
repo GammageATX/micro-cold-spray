@@ -1,0 +1,272 @@
+{% extends "base.html" %}
+
+{% block breadcrumb %}
+<span>System</span> / <span>State</span>
+{% endblock %}
+
+{% block content %}
+<div class="card mb-4">
+    <div class="card-header">
+        <h2 class="card-title">System State</h2>
+        <div class="card-actions">
+            <button class="btn btn-primary" onclick="refreshSystemState()">
+                <i class="fas fa-sync"></i> Refresh
+            </button>
+        </div>
+    </div>
+    <div class="card-content">
+        <p class="mb-2">Current system state and operational parameters.</p>
+    </div>
+</div>
+
+<div class="grid">
+    <!-- Process State -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Process State</h3>
+            <span id="processStateStatus" class="status-badge">Unknown</span>
+        </div>
+        <div class="card-content" id="processState">
+            <p>Loading process state...</p>
+        </div>
+    </div>
+
+    <!-- Equipment State -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Equipment State</h3>
+            <span id="equipmentStateStatus" class="status-badge">Unknown</span>
+        </div>
+        <div class="card-content" id="equipmentState">
+            <p>Loading equipment state...</p>
+        </div>
+    </div>
+
+    <!-- Motion State -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Motion State</h3>
+            <span id="motionStateStatus" class="status-badge">Unknown</span>
+        </div>
+        <div class="card-content" id="motionState">
+            <p>Loading motion state...</p>
+        </div>
+    </div>
+
+    <!-- Gas System State -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Gas System</h3>
+            <span id="gasStateStatus" class="status-badge">Unknown</span>
+        </div>
+        <div class="card-content" id="gasState">
+            <p>Loading gas system state...</p>
+        </div>
+    </div>
+</div>
+
+<!-- State History -->
+<div class="card mt-4">
+    <div class="card-header">
+        <h3 class="card-title">State History</h3>
+        <div class="card-actions">
+            <button class="btn btn-success" onclick="exportStateHistory()">
+                <i class="fas fa-download"></i> Export History
+            </button>
+        </div>
+    </div>
+    <div class="card-content">
+        <div class="table-responsive">
+            <table class="table" id="stateHistory">
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Component</th>
+                        <th>Previous State</th>
+                        <th>New State</th>
+                        <th>Trigger</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td colspan="5" class="text-center">Loading state history...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    // Pass API URLs to JavaScript
+    const apiUrlsData = {{ api_urls | tojson | safe }};
+    document.getElementById('apiUrls').dataset.urls = JSON.stringify(apiUrlsData);
+
+    // Function to update process state display
+    async function updateProcessState() {
+        try {
+            const response = await fetch(`${apiUrls.state}/process/state`);
+            const data = await response.json();
+            
+            const stateElement = document.getElementById('processState');
+            const statusElement = document.getElementById('processStateStatus');
+            
+            statusElement.className = `status-badge ${data.status}`;
+            statusElement.textContent = data.state;
+            
+            stateElement.innerHTML = `
+                <p><strong>Current State:</strong> ${data.state}</p>
+                <p><strong>Mode:</strong> ${data.mode}</p>
+                <p><strong>Status:</strong> ${data.status}</p>
+                <p><strong>Last Updated:</strong> ${new Date(data.timestamp).toLocaleString()}</p>
+            `;
+        } catch (error) {
+            console.error('Error updating process state:', error);
+        }
+    }
+
+    // Function to update equipment state display
+    async function updateEquipmentState() {
+        try {
+            const response = await fetch(`${apiUrls.state}/equipment/state`);
+            const data = await response.json();
+            
+            const stateElement = document.getElementById('equipmentState');
+            const statusElement = document.getElementById('equipmentStateStatus');
+            
+            statusElement.className = `status-badge ${data.status}`;
+            statusElement.textContent = data.state;
+            
+            stateElement.innerHTML = `
+                <p><strong>Current State:</strong> ${data.state}</p>
+                <p><strong>Status:</strong> ${data.status}</p>
+                <p><strong>Last Updated:</strong> ${new Date(data.timestamp).toLocaleString()}</p>
+                ${data.errors.length ? `
+                    <div class="mt-2">
+                        <strong>Errors:</strong>
+                        <ul class="text-danger">
+                            ${data.errors.map(error => `<li>${error}</li>`).join('')}
+                        </ul>
+                    </div>
+                ` : ''}
+            `;
+        } catch (error) {
+            console.error('Error updating equipment state:', error);
+        }
+    }
+
+    // Function to update motion state display
+    async function updateMotionState() {
+        try {
+            const response = await fetch(`${apiUrls.state}/motion/state`);
+            const data = await response.json();
+            
+            const stateElement = document.getElementById('motionState');
+            const statusElement = document.getElementById('motionStateStatus');
+            
+            statusElement.className = `status-badge ${data.status}`;
+            statusElement.textContent = data.state;
+            
+            stateElement.innerHTML = `
+                <p><strong>Current State:</strong> ${data.state}</p>
+                <p><strong>Status:</strong> ${data.status}</p>
+                <p><strong>Position:</strong> X: ${data.position.x.toFixed(2)}, Y: ${data.position.y.toFixed(2)}, Z: ${data.position.z.toFixed(2)}</p>
+                <p><strong>Last Updated:</strong> ${new Date(data.timestamp).toLocaleString()}</p>
+            `;
+        } catch (error) {
+            console.error('Error updating motion state:', error);
+        }
+    }
+
+    // Function to update gas system state display
+    async function updateGasState() {
+        try {
+            const response = await fetch(`${apiUrls.state}/gas/state`);
+            const data = await response.json();
+            
+            const stateElement = document.getElementById('gasState');
+            const statusElement = document.getElementById('gasStateStatus');
+            
+            statusElement.className = `status-badge ${data.status}`;
+            statusElement.textContent = data.state;
+            
+            stateElement.innerHTML = `
+                <p><strong>Current State:</strong> ${data.state}</p>
+                <p><strong>Status:</strong> ${data.status}</p>
+                <p><strong>Pressure:</strong> ${data.pressure.toFixed(2)} PSI</p>
+                <p><strong>Flow Rate:</strong> ${data.flowRate.toFixed(2)} SLPM</p>
+                <p><strong>Last Updated:</strong> ${new Date(data.timestamp).toLocaleString()}</p>
+            `;
+        } catch (error) {
+            console.error('Error updating gas state:', error);
+        }
+    }
+
+    // Function to update state history
+    async function updateStateHistory() {
+        try {
+            const response = await fetch(`${apiUrls.state}/history`);
+            const data = await response.json();
+            
+            const tbody = document.querySelector('#stateHistory tbody');
+            tbody.innerHTML = data.map(entry => `
+                <tr>
+                    <td>${new Date(entry.timestamp).toLocaleString()}</td>
+                    <td>${entry.component}</td>
+                    <td>${entry.previousState}</td>
+                    <td>${entry.newState}</td>
+                    <td>${entry.trigger}</td>
+                </tr>
+            `).join('');
+        } catch (error) {
+            console.error('Error updating state history:', error);
+        }
+    }
+
+    // Function to refresh all state information
+    async function refreshSystemState() {
+        await Promise.all([
+            updateProcessState(),
+            updateEquipmentState(),
+            updateMotionState(),
+            updateGasState(),
+            updateStateHistory()
+        ]);
+    }
+
+    // Function to export state history
+    function exportStateHistory() {
+        const table = document.getElementById('stateHistory');
+        const rows = Array.from(table.querySelectorAll('tr'));
+        
+        const data = rows.slice(1).map(row => {
+            const cells = Array.from(row.cells);
+            return {
+                timestamp: cells[0].textContent,
+                component: cells[1].textContent,
+                previousState: cells[2].textContent,
+                newState: cells[3].textContent,
+                trigger: cells[4].textContent
+            };
+        });
+
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `state-history-${new Date().toISOString()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    // Initialize state display and set up periodic updates
+    document.addEventListener('DOMContentLoaded', () => {
+        refreshSystemState();
+        setInterval(refreshSystemState, 5000);
+    });
+</script>
+{% endblock %} 

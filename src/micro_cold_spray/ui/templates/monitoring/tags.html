@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block breadcrumb %}
+<span>Monitoring</span> / <span>Tags</span>
+{% endblock %}
+
+{% block content %}
+<div class="card mb-4">
+    <div class="card-header">
+        <h2 class="card-title">Tag Monitor</h2>
+        <div class="card-actions">
+            <button class="btn btn-primary" id="pauseButton">
+                <i class="fas fa-pause"></i> Pause Updates
+            </button>
+            <button class="btn btn-success" id="exportButton">
+                <i class="fas fa-download"></i> Export Data
+            </button>
+        </div>
+    </div>
+    <div class="card-content">
+        <p class="mb-2">Real-time monitoring of system tags and values.</p>
+        <div class="form-group">
+            <input type="text" class="form-control" id="tagFilter" placeholder="Filter tags...">
+        </div>
+    </div>
+</div>
+
+<div id="tagMonitor" class="grid">
+    <!-- Tag cards will be dynamically inserted here -->
+    <div class="card">
+        <div class="card-content">
+            <p class="text-light">Connecting to tag service...</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    // Pass API URLs to JavaScript
+    const apiUrlsData = {{ api_urls | tojson | safe }};
+    document.getElementById('apiUrls').dataset.urls = JSON.stringify(apiUrlsData);
+
+    // Add tag filtering
+    const tagFilter = document.getElementById('tagFilter');
+    tagFilter.addEventListener('input', (e) => {
+        const filter = e.target.value.toLowerCase();
+        const tagCards = document.querySelectorAll('#tagMonitor [data-tag-name]');
+        
+        tagCards.forEach(card => {
+            const tagName = card.dataset.tagName.toLowerCase();
+            card.style.display = tagName.includes(filter) ? '' : 'none';
+        });
+    });
+
+    // Add pause/resume functionality
+    const pauseButton = document.getElementById('pauseButton');
+    let isPaused = false;
+
+    pauseButton.addEventListener('click', () => {
+        isPaused = !isPaused;
+        pauseButton.innerHTML = isPaused ? 
+            '<i class="fas fa-play"></i> Resume Updates' :
+            '<i class="fas fa-pause"></i> Pause Updates';
+        
+        if (isPaused) {
+            pauseButton.classList.replace('btn-primary', 'btn-warning');
+        } else {
+            pauseButton.classList.replace('btn-warning', 'btn-primary');
+        }
+    });
+
+    // Add export functionality
+    document.getElementById('exportButton').addEventListener('click', () => {
+        const tagCards = document.querySelectorAll('#tagMonitor [data-tag-name]');
+        const exportData = Array.from(tagCards).map(card => ({
+            name: card.dataset.tagName,
+            value: card.querySelector('.tag-value').textContent,
+            timestamp: card.querySelector('.tag-timestamp').textContent
+        }));
+
+        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `tag-data-${new Date().toISOString()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    });
+
+    // Override the updateTagDisplay function to respect pause state
+    const originalUpdateTagDisplay = window.updateTagDisplay;
+    window.updateTagDisplay = (tagData) => {
+        if (!isPaused) {
+            originalUpdateTagDisplay(tagData);
+        }
+    };
+</script>
+{% endblock %} 

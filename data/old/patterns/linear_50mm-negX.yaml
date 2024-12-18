@@ -1,0 +1,4 @@
+params:
+  direction: negX
+  length: 50.0
+type: linear

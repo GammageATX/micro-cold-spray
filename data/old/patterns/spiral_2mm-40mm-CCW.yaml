@@ -1,0 +1,5 @@
+params:
+  direction: CCW
+  diameter: 40.0
+  pitch: 2.0
+type: spiral

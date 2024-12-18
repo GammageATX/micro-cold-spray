@@ -1,0 +1,431 @@
+"""Tag cache service implementation."""
+
+from typing import Dict, Any, Set, Optional, Callable, List
+from datetime import datetime
+import asyncio
+from loguru import logger
+
+from micro_cold_spray.core.base import ConfigurableService
+from micro_cold_spray.core.errors import ServiceError, ValidationError
+from micro_cold_spray.core.config import ConfigService
+from micro_cold_spray.core.communication.services.tag_mapping import TagMappingService
+from micro_cold_spray.core.communication.models.tags import TagValue, TagMetadata, TagCacheResponse
+from micro_cold_spray.core.communication.clients import PLCClient, SSHClient
+
+
+class TagCacheService(ConfigurableService):
+    """Service for caching and validating tag values."""
+
+    def __init__(
+        self,
+        config_service: ConfigService,
+        plc_client: Optional[PLCClient] = None,
+        ssh_client: Optional[SSHClient] = None,
+        polling_interval: float = 0.1
+    ):
+        """Initialize tag cache service.
+        
+        Args:
+            config_service: Configuration service instance
+            plc_client: Optional PLC client for hardware communication
+            ssh_client: Optional SSH client for hardware communication
+            polling_interval: Tag polling interval in seconds
+        """
+        super().__init__(service_name="tag_cache", config_service=config_service)
+        self._tag_mapping: TagMappingService = None
+        self._cache: Dict[str, TagValue] = {}
+        self._plc = plc_client
+        self._ssh = ssh_client
+        self._polling_interval = polling_interval
+        self._polling_task: Optional[asyncio.Task] = None
+        self._subscribers: List[Callable[[Dict[str, Any]], None]] = []
+        self._last_values: Dict[str, Any] = {}
+
+    async def _start(self) -> None:
+        """Initialize service."""
+        try:
+            logger.debug("Initializing tag mapping service")
+            # Initialize tag mapping
+            self._tag_mapping = TagMappingService(self._config_service)
+            await self._tag_mapping.start()
+            
+            # Load tag definitions
+            logger.debug("Loading tag configuration")
+            tag_config = await self._config_service.get_config("tags")
+            if not tag_config:
+                logger.error("Tag configuration is empty")
+                raise ValidationError("Tag configuration is empty")
+                
+            logger.debug("Building tag cache")
+            await self._build_cache(tag_config)
+            
+            # Start polling if we have clients
+            if self._plc or self._ssh:
+                logger.debug("Starting tag polling")
+                self._polling_task = asyncio.create_task(self._poll_tags())
+                
+            logger.info("Tag cache initialized")
+        except Exception as e:
+            logger.error(f"Failed to start tag cache service: {e}")
+            raise
+
+    async def _stop(self) -> None:
+        """Cleanup service."""
+        if self._polling_task:
+            self._polling_task.cancel()
+            try:
+                await self._polling_task
+            except asyncio.CancelledError:
+                pass
+            
+        if self._tag_mapping:
+            await self._tag_mapping.stop()
+            
+        self._cache.clear()
+        self._last_values.clear()
+        self._subscribers.clear()
+        logger.info("Tag cache stopped")
+
+    async def _poll_tags(self) -> None:
+        """Poll tags from hardware."""
+        logger.info("Starting tag polling")
+        while True:
+            try:
+                # Get all mapped tags
+                mapped_tags = await self._tag_mapping.get_mappings()
+                
+                # Poll PLC tags
+                if self._plc:
+                    plc_tags = {
+                        tag: hw_tag for tag, hw_tag in mapped_tags.items()
+                        if self._tag_mapping.is_plc_tag(tag)
+                    }
+                    if plc_tags:
+                        try:
+                            values = {}
+                            for tag, hw_tag in plc_tags.items():
+                                value = await self._plc.read_tag(hw_tag)
+                                values[tag] = value
+                            await self._update_values(values)
+                        except Exception as e:
+                            logger.error(f"Failed to poll PLC tags: {e}")
+                
+                # Poll SSH/feeder tags
+                if self._ssh:
+                    ssh_tags = {
+                        tag: hw_tag for tag, hw_tag in mapped_tags.items()
+                        if self._tag_mapping.is_feeder_tag(tag)
+                    }
+                    if ssh_tags:
+                        try:
+                            values = {}
+                            for tag, hw_tag in ssh_tags.items():
+                                value = await self._ssh.read_tag(hw_tag)
+                                values[tag] = value
+                            await self._update_values(values)
+                        except Exception as e:
+                            logger.error(f"Failed to poll SSH tags: {e}")
+                
+                # Wait for next poll
+                await asyncio.sleep(self._polling_interval)
+                
+            except asyncio.CancelledError:
+                logger.info("Tag polling cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in tag polling: {e}")
+                await asyncio.sleep(1.0)  # Wait before retry
+
+    async def _update_values(self, values: Dict[str, Any]) -> None:
+        """Update cached values and notify subscribers."""
+        changes = {}
+        
+        # Update cache and track changes
+        for tag, value in values.items():
+            if tag not in self._last_values or self._last_values[tag] != value:
+                changes[tag] = value
+                self._last_values[tag] = value
+                
+                # Update cache with metadata
+                if tag in self._cache:
+                    self._cache[tag] = TagValue(
+                        value=value,
+                        metadata=self._cache[tag].metadata,
+                        timestamp=datetime.now()
+                    )
+        
+        # Notify subscribers of changes
+        if changes and self._subscribers:
+            for callback in self._subscribers:
+                try:
+                    await callback(changes)
+                except Exception as e:
+                    logger.error(f"Error in subscriber callback: {e}")
+
+    async def subscribe(
+        self,
+        tags: Optional[List[str]] = None,
+        callback: Callable[[Dict[str, Any]], None] = None
+    ) -> None:
+        """Subscribe to tag updates.
+        
+        Args:
+            tags: Optional list of tags to subscribe to (None for all)
+            callback: Async callback function to receive updates
+        """
+        if callback:
+            self._subscribers.append(callback)
+            
+            # Send initial values
+            initial_values = {}
+            for tag, value in self._last_values.items():
+                if not tags or tag in tags:
+                    initial_values[tag] = value
+                    
+            if initial_values:
+                try:
+                    await callback(initial_values)
+                except Exception as e:
+                    logger.error(f"Error in subscriber callback: {e}")
+
+    async def unsubscribe(self, callback: Callable[[Dict[str, Any]], None]) -> None:
+        """Unsubscribe from tag updates."""
+        if callback in self._subscribers:
+            self._subscribers.remove(callback)
+
+    async def _build_cache(self, config: Dict[str, Any]) -> None:
+        """Build tag cache from config."""
+        try:
+            self._cache.clear()
+            logger.debug("Processing tag groups")
+            
+            def process_tag_group(group_name: str, group_data: Dict[str, Any], parent_path: str = "") -> None:
+                """Process a group of tags recursively."""
+                for tag_name, tag_data in group_data.items():
+                    # Skip non-dict entries
+                    if not isinstance(tag_data, dict):
+                        continue
+                        
+                    # Build the full path
+                    current_path = f"{parent_path}.{tag_name}" if parent_path else f"{group_name}.{tag_name}"
+                    
+                    # If this is a tag definition (has type field)
+                    if "type" in tag_data:
+                        logger.debug(f"Adding tag: {current_path}")
+                        metadata = TagMetadata(
+                            type=tag_data["type"],
+                            access=tag_data["access"],
+                            description=tag_data.get("description", ""),
+                            unit=tag_data.get("unit"),
+                            range=tag_data.get("range"),
+                            states=tag_data.get("states"),
+                            options=tag_data.get("options"),
+                            internal=not tag_data.get("mapped", False),
+                            group=group_name
+                        )
+                        
+                        self._cache[current_path] = TagValue(
+                            value=None,
+                            metadata=metadata,
+                            timestamp=datetime.now()
+                        )
+                    # If this is a nested group, process recursively
+                    else:
+                        logger.debug(f"Processing nested group: {current_path}")
+                        process_tag_group(group_name, tag_data, current_path)
+            
+            # Process all tag groups
+            tag_groups = config.get("tag_groups", {})
+            logger.debug(f"Found {len(tag_groups)} tag groups")
+            for group_name, group_data in tag_groups.items():
+                logger.debug(f"Processing group: {group_name}")
+                process_tag_group(group_name, group_data)
+                    
+            logger.info(f"Built cache with {len(self._cache)} tags")
+        except Exception as e:
+            logger.error(f"Failed to build tag cache: {e}")
+            raise ServiceError(
+                "Failed to build tag cache",
+                {"error": str(e)}
+            )
+
+    def update_tag(self, tag_path: str, value: Any) -> None:
+        """Update tag value in cache."""
+        if tag_path not in self._cache:
+            raise ValidationError(
+                f"Tag not in cache: {tag_path}",
+                {"tag_path": tag_path}
+            )
+            
+        try:
+            # Validate value before caching
+            self.validate_value(tag_path, value)
+            
+            # Update cache
+            self._cache[tag_path] = TagValue(
+                value=value,
+                metadata=self._cache[tag_path].metadata,
+                timestamp=datetime.now()
+            )
+        except ValidationError:
+            raise
+        except Exception as e:
+            raise ServiceError(
+                f"Failed to update tag {tag_path}",
+                {"tag_path": tag_path, "value": value, "error": str(e)}
+            )
+
+    def validate_value(self, tag_path: str, value: Any) -> None:
+        """Validate value against tag metadata."""
+        if tag_path not in self._cache:
+            raise ValidationError(
+                f"Tag not in cache: {tag_path}",
+                {"tag_path": tag_path}
+            )
+            
+        metadata = self._cache[tag_path].metadata
+        
+        # Type validation
+        if metadata.type == "float":
+            if not isinstance(value, (int, float)):
+                raise ValidationError(
+                    "Value must be numeric",
+                    {"tag_path": tag_path, "value": value, "type": metadata.type}
+                )
+        elif metadata.type == "bool":
+            if not isinstance(value, bool):
+                raise ValidationError(
+                    "Value must be boolean",
+                    {"tag_path": tag_path, "value": value, "type": metadata.type}
+                )
+        elif metadata.type == "string":
+            if not isinstance(value, str):
+                raise ValidationError(
+                    "Value must be string",
+                    {"tag_path": tag_path, "value": value, "type": metadata.type}
+                )
+                
+        # Range validation
+        if metadata.range and isinstance(value, (int, float)):
+            min_val, max_val = metadata.range
+            if value < min_val or value > max_val:
+                raise ValidationError(
+                    f"Value out of range [{min_val}, {max_val}]",
+                    {
+                        "tag_path": tag_path,
+                        "value": value,
+                        "range": metadata.range
+                    }
+                )
+            
+        # Options validation
+        if metadata.options and isinstance(value, str):
+            if value not in metadata.options:
+                raise ValidationError(
+                    f"Invalid option. Must be one of: {metadata.options}",
+                    {
+                        "tag_path": tag_path,
+                        "value": value,
+                        "options": metadata.options
+                    }
+                )
+
+    def get_tag(self, tag_path: str) -> Any:
+        """Get tag value from cache."""
+        if tag_path not in self._cache:
+            raise ValidationError(
+                f"Tag not in cache: {tag_path}",
+                {"tag_path": tag_path}
+            )
+            
+        return self._cache[tag_path].value
+
+    def get_tag_with_metadata(self, tag_path: str) -> TagValue:
+        """Get tag value with metadata."""
+        if tag_path not in self._cache:
+            raise ValidationError(
+                f"Tag not in cache: {tag_path}",
+                {"tag_path": tag_path}
+            )
+            
+        return self._cache[tag_path]
+
+    def filter_tags(
+        self,
+        groups: Set[str] = None,
+        types: Set[str] = None,
+        access: Set[str] = None
+    ) -> TagCacheResponse:
+        """Get filtered tag values."""
+        try:
+            filtered_tags = {}
+            for tag_path, tag_value in self._cache.items():
+                # Apply filters
+                if groups and tag_value.metadata.group not in groups:
+                    continue
+                    
+                if types and tag_value.metadata.type not in types:
+                    continue
+                    
+                if access and tag_value.metadata.access not in access:
+                    continue
+                    
+                filtered_tags[tag_path] = tag_value
+                
+            # Get unique groups in response
+            result_groups = {v.metadata.group for v in filtered_tags.values()}
+                
+            return TagCacheResponse(
+                tags=filtered_tags,
+                timestamp=datetime.now(),
+                groups=result_groups
+            )
+        except Exception as e:
+            raise ServiceError(
+                "Failed to filter tags",
+                {"error": str(e)}
+            )
+
+    @property
+    def is_running(self) -> bool:
+        """Check if service is running."""
+        try:
+            # Service is running if we have a valid cache and tag mapping service
+            return (
+                self._cache is not None and
+                self._tag_mapping is not None and
+                self._tag_mapping.is_running
+            )
+        except Exception as e:
+            logger.error(f"Error checking tag cache service status: {e}")
+            return False
+
+    async def check_health(self) -> Dict[str, Any]:
+        """Check service health."""
+        try:
+            status = {
+                "cache_initialized": self._cache is not None,
+                "tag_mapping": self._tag_mapping is not None and self._tag_mapping.is_running,
+                "tag_count": len(self._cache) if self._cache is not None else 0
+            }
+            
+            details = {}
+            if not status["cache_initialized"]:
+                details["cache"] = "Tag cache not initialized"
+            if not status["tag_mapping"]:
+                details["tag_mapping"] = "Tag mapping service not running"
+            if status["tag_count"] == 0:
+                details["tags"] = "No tags in cache"
+                
+            return {
+                "status": "ok" if all(status.values()) and status["tag_count"] > 0 else "error",
+                "components": status,
+                "details": details if details else None
+            }
+        except Exception as e:
+            error_msg = f"Failed to check tag cache health: {str(e)}"
+            logger.error(error_msg)
+            return {
+                "status": "error",
+                "error": error_msg
+            }

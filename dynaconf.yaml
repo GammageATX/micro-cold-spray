@@ -1,0 +1,126 @@
+default:
+  # Application settings
+  application:
+    name: "Micro Cold Spray"
+    version: "0.1.0"
+    environment:
+      mode: "development"
+      log_level: "INFO"
+      debug: true
+
+  # Database settings
+  database:
+    host: "localhost"
+    port: 5432
+    name: "microcoldspray"
+    user: "@format {env[POSTGRES_USER]}"
+    password: "@format {env[POSTGRES_PASSWORD]}"
+    tables:
+      spray_events: "spray_events"
+      spray_data: "spray_data"
+      run_metadata: "run_metadata"
+
+  # Data collection settings
+  data_collection:
+    run_data:
+      directory: "data/runs"  # Single directory for all run data
+      format: "yaml"
+      backup_enabled: true
+      backup_directory: "data/backups/runs"
+    spray_data:
+      batch_size: 1000  # Records per batch for DB inserts
+      buffer_size: 10000  # Maximum records to buffer before force write
+      vacuum_interval: 86400  # DB vacuum interval in seconds
+
+  # Process validation settings
+  process:
+    validation:
+      chamber_pressure_max: 1400.0  # torr
+      min_feeder_flow: 2.0  # SLPM
+      spray_threshold: 5.0  # torr
+      warning_threshold: 1000.0  # torr
+      error_threshold: 1400.0  # torr
+
+  # Gas settings
+  gas:
+    types:
+      - name: "nitrogen"
+        scaling_factor: 0.72
+        flow_control:
+          main:
+            flow_max: 72.0
+            flow_min: 0.0
+            dac_max: 4095
+            dac_min: 0
+          feeder:
+            flow_max: 7.2
+            flow_min: 0.0
+            dac_max: 4095
+            dac_min: 0
+      - name: "helium"
+        scaling_factor: 1.0
+        flow_control:
+          main:
+            flow_max: 100.0
+            flow_min: 0.0
+            dac_max: 4095
+            dac_min: 0
+          feeder:
+            flow_max: 10.0
+            flow_min: 0.0
+            dac_max: 4095
+            dac_min: 0
+      - name: "argon"
+        scaling_factor: 0.85
+        flow_control:
+          main:
+            flow_max: 85.0
+            flow_min: 0.0
+            dac_max: 4095
+            dac_min: 0
+          feeder:
+            flow_max: 8.5
+            flow_min: 0.0
+            dac_max: 4095
+            dac_min: 0
+
+  # Hardware settings
+  hardware:
+    sets:
+      set1:
+        nozzle: "nozzle1"
+        feeder: "feeder1"
+        deagglomerator: "deagg1"
+      set2:
+        nozzle: "nozzle2"
+        feeder: "feeder2"
+        deagglomerator: "deagg2"
+
+development:
+  application:
+    environment:
+      debug: true
+      log_level: "DEBUG"
+  data_collection:
+    spray_data:
+      batch_size: 100  # Smaller batches for development
+
+production:
+  application:
+    environment:
+      debug: false
+      log_level: "INFO"
+  data_collection:
+    spray_data:
+      batch_size: 1000  # Larger batches for production
+
+testing:
+  application:
+    environment:
+      debug: true
+      log_level: "DEBUG"
+  database:
+    name: "microcoldspray_test"
+  data_collection:
+    spray_data:
+      batch_size: 10  # Small batches for testing

@@ -1,0 +1,4 @@
+params:
+  direction: posY
+  length: 50.0
+type: linear

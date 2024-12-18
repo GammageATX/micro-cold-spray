@@ -1,0 +1,6 @@
+params:
+  direction: negX
+  length: 50.0
+  width: 30.0
+  spacing: 2.0
+type: serpentine

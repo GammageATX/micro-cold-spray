@@ -1,0 +1,31 @@
+sequence:
+  metadata:
+    name: "Flow Study"
+    version: "1.0"
+    created: "2024-03-20"
+    author: "John Doe"
+    description: "Study of deposition efficiency at different flow rates"
+    
+  steps:
+    - name: "Initialize System"
+      action_group: "ready_system"
+      
+    - name: "First Pattern"
+      actions:
+        - action_group: "move_to_trough"
+        - action_group: "apply_parameters"
+          parameters:
+            file: "mcs24_n2_low_flow.yaml"
+        - action_group: "move_to_position"
+          parameters:
+            x: 10.0
+            y: 10.0
+            z: 5.0
+        - action_group: "execute_pattern"
+          parameters:
+            file: "serpentine_2mm-50mm-posX.yaml"
+            passes: 3
+        - action_group: "stop_feeder"
+        
+    - name: "Shutdown"
+      action_group: "shutdown_process" 
