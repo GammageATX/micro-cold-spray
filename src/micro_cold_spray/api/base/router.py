@@ -139,23 +139,68 @@ def get_service_from_app(app: FastAPI, service_type: Type[BaseService]) -> BaseS
 def add_health_endpoints(router: APIRouter, service: BaseService):
     """Add health check endpoints to router."""
     
+    def get_service() -> BaseService:
+        """Get service instance."""
+        if not service:
+            error = ErrorCode.SERVICE_UNAVAILABLE
+            raise HTTPException(
+                status_code=error.get_status_code(),
+                detail=format_error(error, "Service not initialized")["detail"]
+            )
+        return service
+    
     @router.get("/health", tags=["health"])
     async def health_check() -> Dict[str, Any]:
         """Get service health status."""
         try:
+            # Get service instance
+            svc = get_service()
+            
             # Get service health info
-            health_info = await service.check_health()
+            try:
+                health_info = await svc.check_health()
+            except ServiceError as e:
+                logger.error(f"Health check failed: {e}")
+                error = ErrorCode.HEALTH_CHECK_ERROR
+                raise HTTPException(
+                    status_code=error.get_status_code(),
+                    detail=format_error(error, str(e))
+                )
+            except Exception as e:
+                if isinstance(e, HTTPException):
+                    raise e
+                logger.error(f"Health check failed: {e}")
+                error = ErrorCode.INTERNAL_ERROR
+                raise HTTPException(
+                    status_code=error.get_status_code(),
+                    detail=format_error(error, str(e))
+                )
             
             # Add process info
             process = psutil.Process(os.getpid())
-            health_info["process_info"] = {
-                "pid": process.pid,
-                "memory": process.memory_info().rss / 1024 / 1024,  # MB
-                "cpu_percent": process.cpu_percent()
-            }
-            
-            # Add memory usage for backward compatibility
-            health_info["memory_usage"] = health_info["process_info"]["memory"]
+            try:
+                memory_info = process.memory_info()
+                cpu_percent = process.cpu_percent()
+                health_info["process_info"] = {
+                    "pid": process.pid,
+                    "memory": memory_info.rss / 1024 / 1024,  # MB
+                    "cpu_percent": cpu_percent
+                }
+                
+                # Add memory usage for backward compatibility
+                health_info["memory_usage"] = health_info["process_info"]["memory"]
+            except psutil.AccessDenied as e:
+                logger.error(f"Failed to get process info: {e}")
+                error = ErrorCode.HEALTH_CHECK_ERROR
+                raise HTTPException(
+                    status_code=error.get_status_code(),
+                    detail=format_error(error, f"Access denied to process info: {e}")
+                )
+            except Exception as e:
+                logger.warning(f"Failed to get process info: {e}")
+                health_info["process_info"] = {
+                    "error": str(e)
+                }
             
             # Add service info if not present
             if "service_info" not in health_info:
@@ -163,15 +208,11 @@ def add_health_endpoints(router: APIRouter, service: BaseService):
             
             # Update service info with standard fields
             health_info["service_info"].update({
-                "name": service._service_name,
-                "version": service.version,
-                "uptime": str(service.uptime) if service.is_running else None,
-                "running": service.is_running
+                "name": svc._service_name,
+                "version": svc.version,
+                "uptime": str(svc.uptime) if svc.is_running else None,
+                "running": svc.is_running
             })
-            
-            # Add uptime for backward compatibility
-            if "uptime" not in health_info and service.uptime:
-                health_info["uptime"] = str(service.uptime)
             
             # Copy message and error to service_info if present
             if "message" in health_info:
@@ -179,22 +220,19 @@ def add_health_endpoints(router: APIRouter, service: BaseService):
             if "error" in health_info:
                 health_info["service_info"]["error"] = health_info["error"]
             
+            # Add uptime for backward compatibility
+            if "uptime" not in health_info and svc.uptime:
+                health_info["uptime"] = str(svc.uptime)
+            
             return health_info
 
         except HTTPException:
             raise
-        except ServiceError as e:
-            logger.error(f"Health check failed: {e}")
-            error = ErrorCode.HEALTH_CHECK_ERROR
-            raise HTTPException(
-                status_code=500,  # Internal Server Error
-                detail=format_error(error, str(e))
-            )
         except Exception as e:
             logger.error(f"Health check failed: {e}")
-            error = ErrorCode.HEALTH_CHECK_ERROR
+            error = ErrorCode.INTERNAL_ERROR
             raise HTTPException(
-                status_code=500,  # Internal Server Error
+                status_code=error.get_status_code(),
                 detail=format_error(error, str(e))
             )
 

@@ -171,17 +171,22 @@ class CommunicationService(ConfigurableService):
             # Check clients first
             plc_status = False
             ssh_status = False
+            plc_error = None
+            ssh_error = None
+            
             try:
                 plc_status = await self._plc_client.check_connection()
                 logger.debug(f"PLC client status: {plc_status}")
             except Exception as e:
                 logger.error(f"PLC client health check failed: {e}")
+                plc_error = str(e)
                 
             try:
                 ssh_status = await self._ssh_client.check_connection()
                 logger.debug(f"SSH client status: {ssh_status}")
             except Exception as e:
                 logger.error(f"SSH client health check failed: {e}")
+                ssh_error = str(e)
             
             # Check services
             status = {
@@ -196,19 +201,29 @@ class CommunicationService(ConfigurableService):
             
             # Add error details if available
             details = {}
+            if plc_error:
+                details["plc"] = plc_error
+            if ssh_error:
+                details["ssh"] = ssh_error
+            
             for component, is_healthy in status.items():
-                if not is_healthy:
+                if not is_healthy and component not in details:
                     details[component] = "Component not initialized or not running"
             
-            health_status = "ok" if all(status.values()) else "error"
-            logger.debug(f"Health status: {health_status}, details: {details}")
+            # If any component is unhealthy, raise an error
+            if not all(status.values()):
+                error_msg = "Communication service health check failed: "
+                error_msg += ", ".join(f"{k}: {v}" for k, v in details.items())
+                raise ServiceError(error_msg)
             
+            logger.debug("All components healthy")
             return {
-                "status": health_status,
-                "components": status,
-                "details": details if details else None
+                "status": "healthy",
+                "components": status
             }
             
+        except ServiceError:
+            raise
         except Exception as e:
             error_msg = f"Failed to check communication service health: {str(e)}"
             logger.error(error_msg)
