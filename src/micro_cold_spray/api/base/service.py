@@ -8,15 +8,20 @@ from loguru import logger
 class BaseService:
     """Base service class with lifecycle management."""
     
-    def __init__(self, service_name: str):
-        """Initialize service."""
+    def __init__(self, service_name: str, version: str = "1.0.0"):
+        """Initialize service.
+        
+        Args:
+            service_name: Name of the service
+            version: Service version (default: "1.0.0")
+        """
         self._service_name = service_name
         self._start_time: Optional[datetime] = None
         self._is_running = False
         self._is_initialized = False
         self._error: Optional[str] = None
         self._message: Optional[str] = None
-        self.version = "1.0.0"  # Default version
+        self._version = version
     
     @property
     def is_running(self) -> bool:
@@ -34,6 +39,31 @@ class BaseService:
         if self._start_time and self._is_running:
             return datetime.now() - self._start_time
         return None
+
+    @property
+    def service_name(self) -> str:
+        """Get service name."""
+        return self._service_name
+
+    @property
+    def error(self) -> Optional[str]:
+        """Get current error message."""
+        return self._error
+
+    @property
+    def message(self) -> Optional[str]:
+        """Get current status message."""
+        return self._message
+
+    @property
+    def version(self) -> str:
+        """Get service version."""
+        return self._version
+
+    @version.setter
+    def version(self, value: str) -> None:
+        """Set service version."""
+        self._version = value
     
     async def start(self):
         """Start service operation."""
