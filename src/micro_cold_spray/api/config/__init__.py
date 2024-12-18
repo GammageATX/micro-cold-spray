@@ -8,13 +8,12 @@ from .models import (
     ConfigStatus
 )
 from .service import ConfigService
-from .router import router, init_router
+from .router import router
 
 __all__ = [
     # Core components
     "ConfigService",
     "router",
-    "init_router",
     # Models
     "ConfigData",
     "ConfigMetadata",

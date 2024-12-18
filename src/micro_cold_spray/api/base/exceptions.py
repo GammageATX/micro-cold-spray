@@ -1,60 +1,57 @@
-"""Core exceptions module."""
+"""Base exceptions for the application."""
+
+from typing import Dict, Any, Optional
 
 
-class APIError(Exception):
-    """Base exception for core module."""
-
-    def __init__(self, message: str, context: dict | None = None):
-        """Initialize with message and optional context."""
+class ServiceError(Exception):
+    """Base class for service errors."""
+    def __init__(self, message: str, context: Optional[Dict[str, Any]] = None):
+        """Initialize service error.
+        
+        Args:
+            message: Error message
+            context: Optional error context
+        """
         super().__init__(message)
-        self.context = context if context is not None else {}
+        self.message = message
+        self.context = context or {}
 
 
-class ValidationError(APIError):
-    """Validation related errors."""
+class APIError(ServiceError):
+    """Base class for API errors."""
+    pass
 
 
-class ConfigurationError(APIError):
-    """Configuration related errors."""
+class ValidationError(ServiceError):
+    """Raised when validation fails."""
+    pass
 
 
-class OperationError(APIError):
-    """Operation related errors (actions, patterns, sequences)."""
-
-    def __init__(
-            self,
-            message: str,
-            operation_type: str,
-            context: dict | None = None):
-        """Initialize with operation type."""
-        super().__init__(message, context)
-        self.operation_type = operation_type
+class ConfigurationError(ServiceError):
+    """Raised when configuration is invalid."""
+    pass
 
 
-class HardwareError(APIError):
-    """Hardware related errors."""
-
-    def __init__(self, message: str, device: str, context: dict | None = None):
-        """Initialize with device info."""
-        super().__init__(message, context)
-        self.device = device
+class CommunicationError(ServiceError):
+    """Raised when communication with hardware fails."""
+    pass
 
 
-class StateError(APIError):
-    """State management related errors."""
+class DataCollectionError(ServiceError):
+    """Raised when data collection fails."""
+    pass
 
 
-class ServiceError(APIError):
-    """Service related errors."""
+class StateError(ServiceError):
+    """Raised when state operations fail."""
+    pass
 
 
-class MessageError(APIError):
-    """Message broker related errors."""
+class ProcessError(ServiceError):
+    """Raised when process operations fail."""
+    pass
 
 
-class DataError(APIError):
-    """Data collection and storage related errors."""
-
-
-class UIError(APIError):
-    """UI related errors."""
+class MessageError(ServiceError):
+    """Raised when messaging operations fail."""
+    pass
