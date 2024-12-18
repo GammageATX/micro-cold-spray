@@ -4,9 +4,6 @@ from fastapi import APIRouter, HTTPException, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from typing import Dict, Any, Optional, List
-import psutil
-from datetime import datetime
-import os
 from loguru import logger
 
 from .service import ConfigService
@@ -78,50 +75,6 @@ async def get_config_types() -> List[Dict[str, str]]:
         {"id": "state", "name": "State Configuration"},
         {"id": "tags", "name": "Tag Configuration"}
     ]
-
-
-@router.get("/health")
-async def health_check(
-    service: ConfigService = Depends(get_service)
-) -> Dict[str, Any]:
-    """Check API health status."""
-    try:
-        # Get base service health info
-        process = psutil.Process(os.getpid())
-        uptime = (datetime.now() - service.start_time).total_seconds() if service.is_running else None
-        memory = process.memory_info().rss
-
-        # Get config-specific health status
-        config_ok = await service.check_config_access() if service.is_running else False
-
-        # Determine status
-        if not service.is_running:
-            status = "stopped"
-        else:
-            status = "ok" if config_ok else "error"
-
-        return {
-            "status": status,
-            "uptime": uptime,
-            "memory_usage": memory,
-            "service_info": {
-                "name": service._service_name,
-                "version": getattr(service, "version", "1.0.0"),
-                "running": service.is_running,
-                "error": None if status == "ok" else "Health check failed"
-            }
-        }
-    except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        error = ErrorCode.HEALTH_CHECK_ERROR
-        error_detail = {
-            "error": error.value,
-            "message": str(e)
-        }
-        raise HTTPException(
-            status_code=error.get_status_code(),
-            detail=error_detail
-        )
 
 
 @router.get("/{config_type}")
