@@ -1,53 +1,90 @@
-"""FastAPI router for messaging operations."""
+"""Messaging router."""
 
-from typing import Dict, Any, Optional, Set
+from typing import Dict, Any, Optional
 from datetime import datetime
 from contextlib import asynccontextmanager
-from fastapi import APIRouter, HTTPException, WebSocket, BackgroundTasks, Body, FastAPI
-from starlette.websockets import WebSocketDisconnect
-from loguru import logger
+from fastapi import FastAPI, APIRouter, HTTPException, status, Depends, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from starlette.middleware.cors import CORSMiddleware
+from loguru import logger
 
 from .service import MessagingService
-from micro_cold_spray.api.base.exceptions import MessageError
-from ..base.errors import ErrorCode, format_error
 from ..config.singleton import get_config_service
-from micro_cold_spray.api.base.router import add_health_endpoints
+from ..base.exceptions import ServiceError
+from ..base.errors import AppErrorCode, format_error
 
 
-class MessageData(BaseModel):
-    """Message data model."""
-    key: str
-    value: Any
+class MessageResponse(BaseModel):
+    """Message response model."""
+    message_id: str
+    topic: str
+    timestamp: datetime
+
+
+class ServiceResponse(BaseModel):
+    """Standard service response model."""
+    status: str
+    message: str
+    timestamp: datetime
+
+
+class HealthResponse(BaseModel):
+    """Health check response model."""
+    status: str
+    service_name: str
+    version: str
+    is_running: bool
+    timestamp: datetime
+
+
+# Create router with prefix (app will handle the base /api/v1 prefix)
+router = APIRouter(prefix="/messaging", tags=["messaging"])
+
+# Global service instance
+_service: Optional[MessagingService] = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Lifespan event handler for FastAPI."""
+    """Lifespan context manager for FastAPI app."""
     global _service
     try:
         # Get shared config service instance
         config_service = get_config_service()
-        await config_service.start()
-        logger.info("ConfigService started successfully")
+        if not config_service.is_running:
+            await config_service.start()
+            if not config_service.is_running:
+                raise ServiceError("ConfigService failed to start")
+            logger.info("ConfigService started successfully")
         
-        # Create messaging service with config service
+        # Initialize messaging service
         _service = MessagingService(config_service=config_service)
         await _service.start()
-        logger.info("Messaging service started successfully")
+        if not _service.is_running:
+            raise ServiceError("MessagingService failed to start")
+        logger.info("MessagingService started successfully")
         
-        # Add health endpoints
-        add_health_endpoints(app, _service)
+        # Store service in app state for testing
+        app.state.service = _service
+        
         yield
+        
     finally:
+        # Cleanup on shutdown
+        logger.info("Messaging API shutting down")
         if _service:
-            await _service.stop()
-            logger.info("Messaging service stopped successfully")
+            try:
+                await _service.stop()
+                logger.info("Messaging service stopped successfully")
+            except Exception as e:
+                logger.error(f"Error stopping messaging service: {e}")
+            finally:
+                _service = None
+                app.state.service = None
 
 
 # Create FastAPI app with lifespan
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(title="Messaging API", lifespan=lifespan)
 
 # Add CORS middleware
 app.add_middleware(
@@ -58,259 +95,97 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Create router with prefix
-router = APIRouter(prefix="/messaging", tags=["messaging"])
-
-# Include router in app
-app.include_router(router)
-
-_service: Optional[MessagingService] = None
-
-
-def init_router(service_instance: MessagingService) -> None:
-    """Initialize router with service instance.
-    
-    Args:
-        service_instance: MessagingService instance to use
-    """
-    global _service
-    _service = service_instance
-
 
 def get_service() -> MessagingService:
-    """Get messaging service instance."""
-    if _service is None:
-        error = ErrorCode.SERVICE_UNAVAILABLE
+    """Get service instance."""
+    if not _service or not _service.is_running:
         raise HTTPException(
-            status_code=error.get_status_code(),
-            detail=format_error(error, "Messaging service not initialized")["detail"]
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, "MessagingService not initialized")
         )
     return _service
 
 
-@router.get("/health")
-async def health_check():
-    """Check messaging service health."""
+@router.get(
+    "/health",
+    response_model=HealthResponse,
+    responses={
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service is not running"}
+    }
+)
+async def health_check(service: MessagingService = Depends(get_service)):
+    """Check service health."""
     try:
-        service = get_service()
-        return await service.check_health()
+        # Directly check service health without storing result
+        await service.check_health()
+        return HealthResponse(
+            status="ok" if service.is_running else "error",
+            service_name=service._service_name,
+            version=getattr(service, "version", "1.0.0"),
+            is_running=service.is_running,
+            timestamp=datetime.now()
+        )
+    except ServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e), e.context)
+        )
     except Exception as e:
-        error = ErrorCode.INTERNAL_ERROR
         raise HTTPException(
-            status_code=error.get_status_code(),
-            detail=format_error(error, str(e))["detail"]
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e))
         )
 
 
-@router.get("/topics")
-async def get_topics():
-    """Get list of available topics."""
-    try:
-        service = get_service()
-        topics = await service.get_topics()
-        return {"topics": list(topics)}
-    except Exception as e:
-        error = ErrorCode.INTERNAL_ERROR
-        raise HTTPException(
-            status_code=error.get_status_code(),
-            detail=format_error(error, str(e))["detail"]
-        )
-
-
-@router.get("/subscribers/{topic:path}")
-async def get_subscriber_count(topic: str):
-    """Get subscriber count for a topic."""
-    service = get_service()
-    try:
-        count = await service.get_subscriber_count(topic)
-        return {"count": count}
-    except MessageError as e:
-        error = ErrorCode.BAD_REQUEST
-        raise HTTPException(
-            status_code=error.get_status_code(),
-            detail=format_error(error, str(e), e.context)["detail"]
-        )
-
-
-async def validate_topic(topic: str) -> None:
-    """Validate topic name."""
-    if topic.isspace():
-        error = ErrorCode.INVALID_ACTION
-        raise HTTPException(
-            status_code=error.get_status_code(),
-            detail=format_error(error, "Invalid topic name", {"topic": topic})["detail"]
-        )
-
-
-@router.post("/publish/")
-async def publish_message_empty():
-    """Handle empty topic publish attempts."""
-    error = ErrorCode.NOT_FOUND
-    raise HTTPException(
-        status_code=error.get_status_code(),
-        detail=format_error(error, "Topic not found", {"topic": ""})["detail"]
-    )
-
-
-@router.post("/publish/{topic:path}")
-async def publish_message(topic: str, message: Dict[str, Any] = Body(...)):
+@router.post(
+    "/publish/{topic}",
+    response_model=MessageResponse,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {"description": "Invalid topic or message"},
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service error"}
+    }
+)
+async def publish_message(
+    topic: str,
+    message: Dict[str, Any],
+    service: MessagingService = Depends(get_service)
+) -> MessageResponse:
     """Publish a message to a topic."""
-    if not topic:
-        error = ErrorCode.NOT_FOUND
-        raise HTTPException(
-            status_code=error.get_status_code(),
-            detail=format_error(error, "Topic not found", {"topic": topic})["detail"]
-        )
-    
-    await validate_topic(topic)
-    
-    service = get_service()
     try:
-        await service.publish(topic, message)
-        return {
-            "status": "published",
-            "topic": topic,
-            "timestamp": datetime.now().isoformat()
-        }
-    except MessageError as e:
-        error = ErrorCode.BAD_REQUEST
+        message_id = await service.publish(topic, message)
+        return MessageResponse(
+            message_id=message_id,
+            topic=topic,
+            timestamp=datetime.now()
+        )
+    except ValueError as e:
         raise HTTPException(
-            status_code=error.get_status_code(),
-            detail=format_error(error, str(e), e.context)["detail"]
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=format_error(AppErrorCode.INVALID_ACTION, str(e))
+        )
+    except ServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e), e.context)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e))
         )
 
 
-@router.post("/request/{topic:path}")
-async def request_message(topic: str, message: Dict[str, Any] = Body(...)):
-    """Send a request-response message."""
-    service = get_service()
-    try:
-        response = await service.request(topic, message)
-        return {
-            "status": "success",
-            "response": response,
-            "timestamp": datetime.now().isoformat()
-        }
-    except MessageError as e:
-        error = ErrorCode.BAD_REQUEST
-        raise HTTPException(
-            status_code=error.get_status_code(),
-            detail=format_error(error, str(e), e.context)["detail"]
-        )
-
-
-@router.websocket("/subscribe/{topic:path}")
-async def websocket_subscribe(websocket: WebSocket, topic: str):
-    """Subscribe to a topic via WebSocket."""
-    service = get_service()
-    handler = None
-    
+@router.websocket("/subscribe/{topic}")
+async def subscribe_topic(websocket: WebSocket, topic: str, service: MessagingService = Depends(get_service)):
+    """Subscribe to messages on a topic."""
     try:
         await websocket.accept()
-        
-        # Subscribe to topic
-        try:
-            handler = await service.subscribe(topic, lambda msg: websocket.send_json(msg))
-        except MessageError as e:
-            logger.error(f"WebSocket subscription error: {e}")
-            await websocket.close(code=1008, reason=str(e))  # Policy violation
-            raise WebSocketDisconnect(code=1008)
-            
-        # Main message loop
-        try:
-            while True:
-                data = await websocket.receive_json()
-                if data.get("type") == "subscribe":
-                    await websocket.send_json({
-                        "type": "subscribed",
-                        "topic": topic,
-                        "timestamp": datetime.now().isoformat()
-                    })
-                elif data.get("type") == "ping":
-                    await websocket.send_json({"type": "pong"})
-        except WebSocketDisconnect:
-            logger.info(f"WebSocket disconnected for topic: {topic}")
-        except Exception as e:
-            logger.error(f"WebSocket error in message loop: {e}")
-        finally:
-            if handler:
-                await handler.stop()
-    except WebSocketDisconnect:
-        raise
+        async for message in service.subscribe(topic):
+            await websocket.send_json(message)
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
-        try:
-            await websocket.close(code=1008)  # Policy violation
-        except Exception:
-            pass  # Ignore errors during close
-        raise WebSocketDisconnect(code=1008)
+        await websocket.close()
 
 
-@router.post("/control")
-async def control_service(
-    data: Dict[str, Any] = Body(...),
-    background_tasks: BackgroundTasks = None
-):
-    """Control messaging service."""
-    service = get_service()
-    action = data.get("action")
-
-    if not action:
-        error = ErrorCode.MISSING_PARAMETER
-        raise HTTPException(
-            status_code=error.get_status_code(),
-            detail=format_error(error, "Missing action", {"valid_actions": ["start", "stop", "restart"]})["detail"]
-        )
-
-    valid_actions = ["start", "stop", "restart"]
-    if action not in valid_actions:
-        error = ErrorCode.INVALID_ACTION
-        raise HTTPException(
-            status_code=error.get_status_code(),
-            detail=format_error(error, "Invalid action", {"valid_actions": valid_actions})["detail"]
-        )
-
-    try:
-        if action == "stop":
-            await service.stop()
-            return {"status": "stopped"}
-        elif action == "start":
-            await service.start()
-            return {"status": "started"}
-        elif action == "restart":
-            await service.stop()
-            await service.start()
-            return {"status": "restarted"}
-    except Exception as e:
-        error = ErrorCode.INTERNAL_ERROR
-        raise HTTPException(
-            status_code=error.get_status_code(),
-            detail=format_error(error, str(e))["detail"]
-        )
-
-
-@router.post("/topics")
-async def set_topics(
-    topics: Set[str] = Body(...),
-    background_tasks: BackgroundTasks = None
-):
-    """Set valid topics."""
-    service = get_service()
-    
-    try:
-        await service.set_valid_topics(topics)
-        if background_tasks:
-            background_tasks.add_task(logger.info, f"Updated valid topics: {topics}")
-        
-        return {
-            "status": "updated",
-            "topics": list(topics),
-            "count": len(topics),
-            "timestamp": datetime.now().isoformat()
-        }
-    except MessageError as e:
-        error = ErrorCode.BAD_REQUEST
-        raise HTTPException(
-            status_code=error.get_status_code(),
-            detail=format_error(error, str(e), e.context)["detail"]
-        )
+# Include router in app
+app.include_router(router, prefix="/api/v1")

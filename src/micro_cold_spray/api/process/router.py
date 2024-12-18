@@ -1,33 +1,49 @@
-"""FastAPI router for process operations."""
+"""Process router."""
 
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 from contextlib import asynccontextmanager
-from fastapi import APIRouter, HTTPException, BackgroundTasks, FastAPI
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, APIRouter, HTTPException, BackgroundTasks, status, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from loguru import logger
 
 from .service import ProcessService
-from .exceptions import (
-    ProcessError,
-    SequenceError
-)
-from .models import (
-    ExecutionStatus,
-    ActionStatus,
-    ProcessPattern,
-    ParameterSet
-)
-from ..base.router import add_health_endpoints
+from .models import ExecutionStatus, ActionStatus, ProcessPattern, ParameterSet
+from ..base.exceptions import ProcessError, ServiceError
+from ..base.errors import AppErrorCode, format_error
 from ..config.singleton import get_config_service
 from ..communication.service import CommunicationService
 from ..messaging.service import MessagingService
 from ..data_collection.service import DataCollectionService
 from ..validation.service import ValidationService
 
-# Create router without prefix (app already handles the /process prefix)
-router = APIRouter(tags=["process"])
+
+class ServiceResponse(BaseModel):
+    """Standard service response model."""
+    status: str
+    message: str
+    timestamp: datetime
+
+
+class SequenceResponse(BaseModel):
+    """Sequence operation response model."""
+    status: str
+    sequence_id: Optional[str] = None
+    timestamp: datetime
+
+
+class HealthResponse(BaseModel):
+    """Health check response model."""
+    status: str
+    service_name: str
+    version: str
+    is_running: bool
+    timestamp: datetime
+
+
+# Create router with prefix (app will handle the base /api/v1 prefix)
+router = APIRouter(prefix="/process", tags=["process"])
 _service: Optional[ProcessService] = None
 
 
@@ -38,24 +54,35 @@ async def lifespan(app: FastAPI):
     try:
         # Get shared config service instance
         config_service = get_config_service()
-        await config_service.start()
-        logger.info("ConfigService started successfully")
+        if not config_service.is_running:
+            await config_service.start()
+            if not config_service.is_running:
+                raise ServiceError("ConfigService failed to start")
+            logger.info("ConfigService started successfully")
 
         # Initialize required services
         message_broker = MessagingService(config_service=config_service)
         await message_broker.start()
+        if not message_broker.is_running:
+            raise ServiceError("MessagingService failed to start")
         logger.info("MessagingService started successfully")
 
         comm_service = CommunicationService(config_service=config_service)
         await comm_service.start()
+        if not comm_service.is_running:
+            raise ServiceError("CommunicationService failed to start")
         logger.info("CommunicationService started successfully")
 
         data_collection_service = DataCollectionService(config_service=config_service)
         await data_collection_service.start()
+        if not data_collection_service.is_running:
+            raise ServiceError("DataCollectionService failed to start")
         logger.info("DataCollectionService started successfully")
 
         validation_service = ValidationService(config_service=config_service)
         await validation_service.start()
+        if not validation_service.is_running:
+            raise ServiceError("ValidationService failed to start")
         logger.info("ValidationService started successfully")
         
         # Initialize process service with all dependencies
@@ -67,16 +94,16 @@ async def lifespan(app: FastAPI):
             validation_service=validation_service
         )
         await _service.start()
+        if not _service.is_running:
+            raise ServiceError("ProcessService failed to start")
         logger.info("ProcessService started successfully")
         
-        # Add health endpoints
-        add_health_endpoints(app, _service)
-        # Mount router to app
-        app.include_router(router)
-        logger.info("Process router initialized")
+        # Store service in app state for testing
+        app.state.service = _service
         
         yield
         
+    finally:
         # Cleanup on shutdown
         logger.info("Process API shutting down")
         if _service:
@@ -85,13 +112,9 @@ async def lifespan(app: FastAPI):
                 logger.info("Process service stopped successfully")
             except Exception as e:
                 logger.error(f"Error stopping process service: {e}")
-            
-    except Exception as e:
-        logger.error(f"Failed to initialize services: {e}")
-        # Attempt cleanup
-        if _service and _service.is_running:
-            await _service.stop()
-        raise
+            finally:
+                _service = None
+                app.state.service = None
 
 
 # Create FastAPI app with lifespan
@@ -108,155 +131,149 @@ app.add_middleware(
 
 
 def get_service() -> ProcessService:
-    """Get process service instance."""
-    if _service is None:
-        logger.error("Process service not initialized")
-        raise RuntimeError("Process service not initialized")
+    """Get service instance."""
+    if not _service or not _service.is_running:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, "ProcessService not initialized")
+        )
     return _service
 
 
-@router.get("/health")
-async def health_check() -> JSONResponse:
-    """Check API and service health status."""
-    service = get_service()
-    
+@router.get(
+    "/health",
+    response_model=HealthResponse,
+    responses={
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service is not running"}
+    }
+)
+async def health_check(service: ProcessService = Depends(get_service)):
+    """Check service health."""
     try:
-        status = {
-            "status": "ok" if service.is_running else "error",
-            "service_info": {
-                "name": service._service_name,
-                "version": getattr(service, "version", "1.0.0"),
-                "running": service.is_running
-            },
-            "sequence": await service.get_current_sequence(),
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        if not service.is_running:
-            status["status"] = "error"
-            status["error"] = "Service not running"
-            return JSONResponse(
-                status_code=503,
-                content=status
-            )
-            
-        return JSONResponse(status)
-        
+        # Directly check service health without storing result
+        await service.check_health()
+        return HealthResponse(
+            status="ok" if service.is_running else "error",
+            service_name=service._service_name,
+            version=getattr(service, "version", "1.0.0"),
+            is_running=service.is_running,
+            timestamp=datetime.now()
+        )
+    except ProcessError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error(AppErrorCode.PROCESS_ERROR, str(e), e.context)
+        )
+    except ServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e), e.context)
+        )
     except Exception as e:
-        logger.error(f"Health check failed: {str(e)}")
-        return JSONResponse(
-            status_code=503,
-            content={
-                "status": "error",
-                "error": str(e),
-                "service_info": {
-                    "name": service._service_name,
-                    "running": False
-                },
-                "timestamp": datetime.now().isoformat()
-            }
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e))
         )
 
 
-@router.post("/sequence/start/{sequence_id}", response_model=Dict[str, Any])
+@router.post(
+    "/sequence/start/{sequence_id}",
+    response_model=SequenceResponse,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {"description": "Invalid sequence"},
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service error"}
+    }
+)
 async def start_sequence(
     sequence_id: str,
-    background_tasks: BackgroundTasks
-) -> Dict[str, Any]:
-    """Start executing a sequence.
-    
-    Args:
-        sequence_id: ID of sequence to execute
-        background_tasks: FastAPI background tasks
-        
-    Returns:
-        Dict containing operation status
-        
-    Raises:
-        HTTPException: If sequence cannot be started
-    """
-    service = get_service()
-    
+    background_tasks: BackgroundTasks,
+    service: ProcessService = Depends(get_service)
+):
+    """Start executing a sequence."""
     try:
         await service.start_sequence(sequence_id)
-        background_tasks.add_task(
-            logger.info,
-            f"Started sequence {sequence_id}"
-        )
+        background_tasks.add_task(logger.info, f"Started sequence {sequence_id}")
         
-        return {
-            "status": "started",
-            "sequence_id": sequence_id,
-            "timestamp": datetime.now().isoformat()
-        }
-    except SequenceError as e:
-        logger.error(f"Failed to start sequence: {str(e)}")
+        return SequenceResponse(
+            status="started",
+            sequence_id=sequence_id,
+            timestamp=datetime.now()
+        )
+    except ValueError as e:
         raise HTTPException(
-            status_code=400,
-            detail={"error": str(e), "context": e.context}
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=format_error(AppErrorCode.INVALID_ACTION, str(e))
+        )
+    except ProcessError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error(AppErrorCode.PROCESS_ERROR, str(e), e.context)
+        )
+    except ServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e), e.context)
         )
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
         raise HTTPException(
-            status_code=500,
-            detail={"error": "Internal server error", "message": str(e)}
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e))
         )
 
 
-@router.post("/sequence/abort", response_model=Dict[str, Any])
+@router.post(
+    "/sequence/abort",
+    response_model=ServiceResponse,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {"description": "Cannot abort sequence"},
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service error"}
+    }
+)
 async def abort_sequence(
-    background_tasks: BackgroundTasks
-) -> Dict[str, Any]:
-    """Abort current sequence.
-    
-    Args:
-        background_tasks: FastAPI background tasks
-        
-    Returns:
-        Dict containing operation status
-        
-    Raises:
-        HTTPException: If sequence cannot be aborted
-    """
-    service = get_service()
-    
+    background_tasks: BackgroundTasks,
+    service: ProcessService = Depends(get_service)
+):
+    """Abort current sequence."""
     try:
         await service.abort_sequence()
-        background_tasks.add_task(
-            logger.info,
-            "Aborted current sequence"
-        )
+        background_tasks.add_task(logger.info, "Aborted current sequence")
         
-        return {
-            "status": "aborted",
-            "timestamp": datetime.now().isoformat()
-        }
-    except ProcessError as e:
-        logger.error(f"Failed to abort sequence: {str(e)}")
+        return ServiceResponse(
+            status="ok",
+            message="Sequence aborted successfully",
+            timestamp=datetime.now()
+        )
+    except ValueError as e:
         raise HTTPException(
-            status_code=400,
-            detail={"error": str(e), "context": e.context}
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=format_error(AppErrorCode.INVALID_ACTION, str(e))
+        )
+    except ProcessError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error(AppErrorCode.PROCESS_ERROR, str(e), e.context)
+        )
+    except ServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e), e.context)
         )
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
         raise HTTPException(
-            status_code=500,
-            detail={"error": "Internal server error", "message": str(e)}
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e))
         )
 
 
-@router.get("/sequence/status", response_model=ExecutionStatus)
-async def get_sequence_status() -> ExecutionStatus:
-    """Get current sequence status.
-    
-    Returns:
-        Current sequence execution status
-        
-    Raises:
-        HTTPException: If status cannot be retrieved
-    """
-    service = get_service()
-    
+@router.get(
+    "/sequence/status",
+    response_model=ExecutionStatus,
+    responses={
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service error"}
+    }
+)
+async def get_sequence_status(service: ProcessService = Depends(get_service)):
+    """Get current sequence status."""
     try:
         sequence = await service.get_current_sequence()
         if not sequence:
@@ -278,113 +295,116 @@ async def get_sequence_status() -> ExecutionStatus:
             error=sequence.get("error"),
             progress=sequence["current_step"] / len(sequence["sequence"]["steps"]) * 100
         )
-    except Exception as e:
-        logger.error(f"Failed to get sequence status: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail={"error": "Internal server error", "message": str(e)}
-        )
-
-
-@router.get("/sequences", response_model=List[Dict[str, Any]])
-async def list_sequences() -> List[Dict[str, Any]]:
-    """List available sequences.
-    
-    Returns:
-        List of sequences with metadata
-        
-    Raises:
-        HTTPException: If sequences cannot be retrieved
-    """
-    service = get_service()
-    
-    try:
-        sequences = await service.list_sequences()
-        return sequences
     except ProcessError as e:
-        logger.error(f"Failed to list sequences: {str(e)}")
         raise HTTPException(
-            status_code=400,
-            detail={"error": str(e), "context": e.context}
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error(AppErrorCode.PROCESS_ERROR, str(e), e.context)
+        )
+    except ServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e), e.context)
         )
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
         raise HTTPException(
-            status_code=500,
-            detail={"error": "Internal server error", "message": str(e)}
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e))
         )
 
 
-@router.get("/patterns", response_model=List[ProcessPattern])
-async def list_patterns() -> List[ProcessPattern]:
-    """List available patterns.
-    
-    Returns:
-        List of patterns with metadata
-        
-    Raises:
-        HTTPException: If patterns cannot be retrieved
-    """
-    service = get_service()
-    
+@router.get(
+    "/sequences",
+    response_model=List[Dict[str, Any]],
+    responses={
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service error"}
+    }
+)
+async def list_sequences(service: ProcessService = Depends(get_service)):
+    """List available sequences."""
     try:
-        patterns = await service.list_patterns()
-        return patterns
+        return await service.list_sequences()
     except ProcessError as e:
-        logger.error(f"Failed to list patterns: {str(e)}")
         raise HTTPException(
-            status_code=400,
-            detail={"error": str(e), "context": e.context}
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error(AppErrorCode.PROCESS_ERROR, str(e), e.context)
+        )
+    except ServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e), e.context)
         )
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
         raise HTTPException(
-            status_code=500,
-            detail={"error": "Internal server error", "message": str(e)}
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e))
         )
 
 
-@router.get("/parameters", response_model=List[ParameterSet])
-async def list_parameter_sets() -> List[ParameterSet]:
-    """List available parameter sets.
-    
-    Returns:
-        List of parameter sets with metadata
-        
-    Raises:
-        HTTPException: If parameter sets cannot be retrieved
-    """
-    service = get_service()
-    
+@router.get(
+    "/patterns",
+    response_model=List[ProcessPattern],
+    responses={
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service error"}
+    }
+)
+async def list_patterns(service: ProcessService = Depends(get_service)):
+    """List available patterns."""
     try:
-        parameter_sets = await service.list_parameter_sets()
-        return parameter_sets
+        return await service.list_patterns()
     except ProcessError as e:
-        logger.error(f"Failed to list parameter sets: {str(e)}")
         raise HTTPException(
-            status_code=400,
-            detail={"error": str(e), "context": e.context}
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error(AppErrorCode.PROCESS_ERROR, str(e), e.context)
+        )
+    except ServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e), e.context)
         )
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
         raise HTTPException(
-            status_code=500,
-            detail={"error": "Internal server error", "message": str(e)}
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e))
         )
 
 
-@router.get("/action/status", response_model=Optional[ActionStatus])
-async def get_action_status() -> Optional[ActionStatus]:
-    """Get current action status.
-    
-    Returns:
-        Current action status or None if no action is running
-        
-    Raises:
-        HTTPException: If status cannot be retrieved
-    """
-    service = get_service()
-    
+@router.get(
+    "/parameters",
+    response_model=List[ParameterSet],
+    responses={
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service error"}
+    }
+)
+async def list_parameter_sets(service: ProcessService = Depends(get_service)):
+    """List available parameter sets."""
+    try:
+        return await service.list_parameter_sets()
+    except ProcessError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error(AppErrorCode.PROCESS_ERROR, str(e), e.context)
+        )
+    except ServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e), e.context)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e))
+        )
+
+
+@router.get(
+    "/action/status",
+    response_model=Optional[ActionStatus],
+    responses={
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service error"}
+    }
+)
+async def get_action_status(service: ProcessService = Depends(get_service)):
+    """Get current action status."""
     try:
         action = await service.get_current_action()
         if not action:
@@ -400,9 +420,22 @@ async def get_action_status() -> Optional[ActionStatus]:
             progress=action.get("progress", 0.0),
             data=action.get("data", {})
         )
-    except Exception as e:
-        logger.error(f"Failed to get action status: {str(e)}")
+    except ProcessError as e:
         raise HTTPException(
-            status_code=500,
-            detail={"error": "Internal server error", "message": str(e)}
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error(AppErrorCode.PROCESS_ERROR, str(e), e.context)
         )
+    except ServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e), e.context)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e))
+        )
+
+
+# Include router in app
+app.include_router(router, prefix="/api/v1")

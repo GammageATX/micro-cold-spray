@@ -1,31 +1,80 @@
-"""FastAPI router for configuration operations."""
+"""Configuration router."""
 
-from fastapi import APIRouter, HTTPException, Depends, FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from typing import Dict, Any, Optional
+from datetime import datetime
 from contextlib import asynccontextmanager
-from typing import Dict, Any, Optional, List
+from fastapi import FastAPI, APIRouter, HTTPException, BackgroundTasks, status, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from loguru import logger
 
 from .service import ConfigService
-from ..base.exceptions import ConfigurationError
-from ..base.router import add_health_endpoints
-from ..base.errors import ErrorCode
+from .singleton import get_config_service
+from ..base.exceptions import ConfigurationError, ServiceError
+from ..base.errors import AppErrorCode, format_error
+
+
+class ConfigResponse(BaseModel):
+    """Configuration response model."""
+    config: Dict[str, Any]
+    timestamp: datetime
+
+
+class ServiceResponse(BaseModel):
+    """Standard service response model."""
+    status: str
+    message: str
+    timestamp: datetime
+
+
+class HealthResponse(BaseModel):
+    """Health check response model."""
+    status: str
+    service_name: str
+    version: str
+    is_running: bool
+    timestamp: datetime
+
+
+# Create router with prefix (app will handle the base /api/v1 prefix)
+router = APIRouter(prefix="/config", tags=["config"])
+
+# Global service instance
+_service: Optional[ConfigService] = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Lifespan event handler for FastAPI."""
+    """Lifespan context manager for FastAPI app."""
     global _service
-    _service = ConfigService()  # Uses default config directory
-    await _service.start()
-    # Add health endpoint directly to app
-    add_health_endpoints(app, _service)  # Mount to app instead of router
-    yield
-    if _service:
-        await _service.stop()
+    try:
+        # Initialize config service
+        _service = get_config_service()
+        await _service.start()
+        if not _service.is_running:
+            raise ServiceError("ConfigService failed to start")
+        logger.info("ConfigService started successfully")
+        
+        # Store service in app state for testing
+        app.state.service = _service
+        
+        yield
+        
+    finally:
+        # Cleanup on shutdown
+        logger.info("Config API shutting down")
+        if _service:
+            try:
+                await _service.stop()
+                logger.info("Config service stopped successfully")
+            except Exception as e:
+                logger.error(f"Error stopping config service: {e}")
+            finally:
+                _service = None
+                app.state.service = None
 
 
-# Create FastAPI app
+# Create FastAPI app with lifespan
 app = FastAPI(title="Config API", lifespan=lifespan)
 
 # Add CORS middleware
@@ -37,146 +86,122 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-router = APIRouter(prefix="/config", tags=["config"])
-_service: Optional[ConfigService] = None
-
-
-def init_router(service: ConfigService) -> None:
-    """Initialize router with service instance."""
-    global _service
-    _service = service
-    # Add health endpoints
-    add_health_endpoints(router, service)
-
 
 def get_service() -> ConfigService:
-    """Get config service instance."""
-    if _service is None:
-        error = ErrorCode.SERVICE_UNAVAILABLE
-        error_detail = {
-            "error": error.value,
-            "message": "Config service not initialized"
-        }
+    """Get service instance."""
+    if not _service or not _service.is_running:
         raise HTTPException(
-            status_code=error.get_status_code(),
-            detail=error_detail
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, "ConfigService not initialized")
         )
     return _service
 
 
-@router.get("/types")
-async def get_config_types() -> List[Dict[str, str]]:
-    """Get available configuration types."""
-    return [
-        {"id": "application", "name": "Application Configuration"},
-        {"id": "hardware", "name": "Hardware Configuration"},
-        {"id": "file_format", "name": "File Format Configuration"},
-        {"id": "process", "name": "Process Configuration"},
-        {"id": "state", "name": "State Configuration"},
-        {"id": "tags", "name": "Tag Configuration"}
-    ]
-
-
-@router.get("/{config_type}")
-async def get_config(
-    config_type: str,
-    service: ConfigService = Depends(get_service)
-) -> Dict[str, Any]:
-    """Get configuration by type."""
+@router.get(
+    "/health",
+    response_model=HealthResponse,
+    responses={
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service is not running"}
+    }
+)
+async def health_check(service: ConfigService = Depends(get_service)):
+    """Check service health."""
     try:
-        config = await service.get_config(config_type)
-        return {"config": config}
+        # Directly check service health without storing result
+        await service.check_health()
+        return HealthResponse(
+            status="ok" if service.is_running else "error",
+            service_name=service._service_name,
+            version=getattr(service, "version", "1.0.0"),
+            is_running=service.is_running,
+            timestamp=datetime.now()
+        )
     except ConfigurationError as e:
-        error = ErrorCode.CONFIGURATION_ERROR
-        error_detail = {
-            "error": error.value,
-            "message": str(e)
-        }
-        if e.context:
-            error_detail["data"] = e.context
         raise HTTPException(
-            status_code=error.get_status_code(),
-            detail=error_detail
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error(AppErrorCode.CONFIGURATION_ERROR, str(e), e.context)
+        )
+    except ServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e), e.context)
         )
     except Exception as e:
-        error = ErrorCode.INTERNAL_ERROR
-        error_detail = {
-            "error": error.value,
-            "message": str(e)
-        }
         raise HTTPException(
-            status_code=error.get_status_code(),
-            detail=error_detail
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e))
         )
 
 
-@router.post("/{config_type}")
-async def update_config(
-    config_type: str,
-    config_data: Dict[str, Any],
-    service: ConfigService = Depends(get_service)
-) -> Dict[str, str]:
-    """Update configuration."""
+@router.get(
+    "/",
+    response_model=ConfigResponse,
+    responses={
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service error"}
+    }
+)
+async def get_config(service: ConfigService = Depends(get_service)):
+    """Get current configuration."""
     try:
-        from micro_cold_spray.api.config.models import ConfigUpdate
-        
-        backup = config_data.get("backup", True)
-        should_validate = config_data.get("should_validate", True)
-        data = config_data.get("data", config_data)
-        
-        update = ConfigUpdate(
-            config_type=config_type,
-            data=data,
-            backup=backup,
-            should_validate=should_validate
+        config = await service.get_config()
+        return ConfigResponse(
+            config=config,
+            timestamp=datetime.now()
         )
-        
-        logger.debug(f"Creating config update: {update}")
-        await service.update_config(update)
-        return {"status": "updated"}
     except ConfigurationError as e:
-        error = ErrorCode.CONFIGURATION_ERROR
-        error_detail = {
-            "error": error.value,
-            "message": str(e)
-        }
-        if e.context:
-            error_detail["data"] = e.context
         raise HTTPException(
-            status_code=error.get_status_code(),
-            detail=error_detail
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error(AppErrorCode.CONFIGURATION_ERROR, str(e), e.context)
+        )
+    except ServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e), e.context)
         )
     except Exception as e:
-        error = ErrorCode.INTERNAL_ERROR
-        error_detail = {
-            "error": error.value,
-            "message": str(e)
-        }
         raise HTTPException(
-            status_code=error.get_status_code(),
-            detail=error_detail
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e))
         )
 
 
-@router.post("/cache/clear")
-async def clear_cache(
+@router.post(
+    "/reload",
+    response_model=ServiceResponse,
+    responses={
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service error"}
+    }
+)
+async def reload_config(
+    background_tasks: BackgroundTasks,
     service: ConfigService = Depends(get_service)
-) -> Dict[str, str]:
-    """Clear configuration cache."""
+):
+    """Reload configuration from disk."""
     try:
-        await service.clear_cache()
-        return {"status": "Cache cleared"}
-    except Exception as e:
-        error = ErrorCode.INTERNAL_ERROR
-        error_detail = {
-            "error": error.value,
-            "message": str(e)
-        }
+        await service.reload_config()
+        message = "Configuration reloaded successfully"
+        background_tasks.add_task(logger.info, message)
+        return ServiceResponse(
+            status="ok",
+            message=message,
+            timestamp=datetime.now()
+        )
+    except ConfigurationError as e:
         raise HTTPException(
-            status_code=error.get_status_code(),
-            detail=error_detail
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error(AppErrorCode.CONFIGURATION_ERROR, str(e), e.context)
+        )
+    except ServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e), e.context)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e))
         )
 
 
 # Include router in app
-app.include_router(router)
+app.include_router(router, prefix="/api/v1")

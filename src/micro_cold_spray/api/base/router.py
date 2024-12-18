@@ -1,17 +1,21 @@
 """Base router functionality."""
 
-import os
-import psutil
-from typing import Dict, Any, Optional, Type, Union
+from typing import Optional, Type, Union
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, APIRouter, HTTPException
+from fastapi import FastAPI, APIRouter, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from loguru import logger
-from starlette.middleware.cors import CORSMiddleware
 
-from .service import BaseService
-from .configurable import ConfigurableService
-from .errors import ErrorCode, format_error
-from .exceptions import ServiceError
+from .service import BaseService, ConfigurableService
+
+
+class HealthResponse(BaseModel):
+    """Health check response model."""
+    status: str
+    service_name: str
+    version: str
+    is_running: bool
 
 
 def create_api_app(
@@ -21,18 +25,7 @@ def create_api_app(
     additional_routers: Optional[list[APIRouter]] = None,
     config_type: Optional[str] = None
 ) -> FastAPI:
-    """Create a FastAPI application with standard configuration.
-    
-    Args:
-        service_factory: Service class to instantiate
-        prefix: URL prefix for the API
-        router: Main router for the API
-        additional_routers: Additional routers to include
-        config_type: Type of configuration to load for configurable services
-        
-    Returns:
-        Configured FastAPI application
-    """
+    """Create a FastAPI application with standard configuration."""
     
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -114,167 +107,65 @@ def create_api_app(
 
 
 def get_service_from_app(app: FastAPI, service_type: Type[BaseService]) -> BaseService:
-    """Get service instance from FastAPI app state.
-    
-    Args:
-        app: FastAPI application instance
-        service_type: Expected service type
-        
-    Returns:
-        Service instance
-        
-    Raises:
-        HTTPException: If service is not available or wrong type
-    """
+    """Get service instance from FastAPI app state."""
     service = getattr(app.state, "service", None)
     if not service or not isinstance(service, service_type):
-        error = ErrorCode.SERVICE_UNAVAILABLE
         raise HTTPException(
-            status_code=error.get_status_code(),
-            detail=f"{error.name}: {service_type.__name__} not initialized"
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Service {service_type.__name__} not initialized"
         )
     return service
 
 
-def add_health_endpoints(router: APIRouter, service: BaseService):
-    """Add health check endpoints to router."""
-    
-    def get_service() -> BaseService:
-        """Get service instance."""
-        if not service:
-            error = ErrorCode.SERVICE_UNAVAILABLE
+def add_health_endpoints(router: APIRouter, service: Union[BaseService, ConfigurableService]) -> None:
+    """Add standard health check endpoints to router."""
+    @router.get(
+        "/health",
+        response_model=HealthResponse,
+        status_code=status.HTTP_200_OK,
+        responses={
+            status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service is not running"}
+        }
+    )
+    async def health_check():
+        """Check service health status."""
+        if not service.is_running:
             raise HTTPException(
-                status_code=error.get_status_code(),
-                detail=format_error(error, "Service not initialized")["detail"]
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"{service._service_name} is not running"
             )
-        return service
-    
-    @router.get("/health", tags=["health"])
-    async def health_check() -> Dict[str, Any]:
-        """Get service health status."""
+        
+        return HealthResponse(
+            status="ok",
+            service_name=service._service_name,
+            version=getattr(service, "version", "1.0.0"),
+            is_running=service.is_running
+        )
+
+    @router.post(
+        "/control",
+        status_code=status.HTTP_200_OK,
+        responses={
+            status.HTTP_400_BAD_REQUEST: {"description": "Invalid control command"},
+            status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service is not available"}
+        }
+    )
+    async def control(command: str):
+        """Control service state."""
         try:
-            # Get service instance
-            svc = get_service()
-            
-            # Get service health info
-            try:
-                health_info = await svc.check_health()
-            except ServiceError as e:
-                logger.error(f"Health check failed: {e}")
-                error = ErrorCode.HEALTH_CHECK_ERROR
-                raise HTTPException(
-                    status_code=error.get_status_code(),
-                    detail=format_error(error, str(e))
-                )
-            except Exception as e:
-                if isinstance(e, HTTPException):
-                    raise e
-                logger.error(f"Health check failed: {e}")
-                error = ErrorCode.INTERNAL_ERROR
-                raise HTTPException(
-                    status_code=error.get_status_code(),
-                    detail=format_error(error, str(e))
-                )
-            
-            # Add process info
-            process = psutil.Process(os.getpid())
-            try:
-                memory_info = process.memory_info()
-                cpu_percent = process.cpu_percent()
-                health_info["process_info"] = {
-                    "pid": process.pid,
-                    "memory": memory_info.rss / 1024 / 1024,  # MB
-                    "cpu_percent": cpu_percent
-                }
-                
-                # Add memory usage for backward compatibility
-                health_info["memory_usage"] = health_info["process_info"]["memory"]
-            except psutil.AccessDenied as e:
-                logger.error(f"Failed to get process info: {e}")
-                error = ErrorCode.HEALTH_CHECK_ERROR
-                raise HTTPException(
-                    status_code=error.get_status_code(),
-                    detail=format_error(error, f"Access denied to process info: {e}")
-                )
-            except Exception as e:
-                logger.warning(f"Failed to get process info: {e}")
-                health_info["process_info"] = {
-                    "error": str(e)
-                }
-            
-            # Add service info if not present
-            if "service_info" not in health_info:
-                health_info["service_info"] = {}
-            
-            # Update service info with standard fields
-            health_info["service_info"].update({
-                "name": svc._service_name,
-                "version": svc.version,
-                "uptime": str(svc.uptime) if svc.is_running else None,
-                "running": svc.is_running
-            })
-            
-            # Copy message and error to service_info if present
-            if "message" in health_info:
-                health_info["service_info"]["message"] = health_info["message"]
-            if "error" in health_info:
-                health_info["service_info"]["error"] = health_info["error"]
-            
-            # Add uptime for backward compatibility
-            if "uptime" not in health_info and svc.uptime:
-                health_info["uptime"] = str(svc.uptime)
-            
-            return health_info
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Health check failed: {e}")
-            error = ErrorCode.INTERNAL_ERROR
-            raise HTTPException(
-                status_code=error.get_status_code(),
-                detail=format_error(error, str(e))
-            )
-
-    @router.post("/control")
-    async def control_service(action: str):
-        """Control service operation."""
-        try:
-            valid_actions = ["start", "stop", "restart"]
-            if action not in valid_actions:
-                error = ErrorCode.INVALID_ACTION
-                raise HTTPException(
-                    status_code=error.get_status_code(),
-                    detail=format_error(
-                        error,
-                        f"Invalid action: {action}",
-                        {"valid_actions": valid_actions}
-                    )
-                )
-
-            if action == "stop":
-                await service.stop()
-                return {"status": "stopped"}
-            elif action == "start":
+            if command == "start":
                 await service.start()
-                return {"status": "started"}
-            elif action == "restart":
+                return {"status": "ok", "message": f"{service._service_name} started"}
+            elif command == "stop":
                 await service.stop()
-                await service.start()
-                return {"status": "restarted"}
-        except HTTPException:
-            raise
-        except ServiceError as e:
-            logger.error(f"Failed to {action} service: {e}")
-            error = ErrorCode.SERVICE_UNAVAILABLE
-            raise HTTPException(
-                status_code=error.get_status_code(),
-                detail=format_error(error, str(e))
-            )
+                return {"status": "ok", "message": f"{service._service_name} stopped"}
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid command: {command}"
+                )
         except Exception as e:
-            logger.error(f"Failed to {action} service: {e}")
-            error = ErrorCode.INTERNAL_ERROR
             raise HTTPException(
-                status_code=error.get_status_code(),
-                detail=format_error(error, str(e))
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=str(e)
             )

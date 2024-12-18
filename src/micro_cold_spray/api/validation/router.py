@@ -1,29 +1,52 @@
 """FastAPI router for validation endpoints."""
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 from contextlib import asynccontextmanager
-from fastapi import APIRouter, HTTPException, BackgroundTasks, FastAPI
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, HTTPException, BackgroundTasks, FastAPI, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from loguru import logger
 
 from .service import ValidationService
-from .exceptions import ValidationError
+from ..base.exceptions import ValidationError, ServiceError
 from ..base.router import add_health_endpoints
-from ..base.errors import ErrorCode, format_error
+from ..base.errors import AppErrorCode, format_error
 from ..config.singleton import get_config_service
 from ..messaging.service import MessagingService
+
+
+class ValidationRequest(BaseModel):
+    """Validation request model."""
+    type: str
+    data: Dict[str, Any]
+
+
+class ValidationResponse(BaseModel):
+    """Validation response model."""
+    type: str
+    valid: bool
+    errors: List[str] = []
+    warnings: List[str] = []
+    timestamp: datetime
+
+
+class ValidationRulesResponse(BaseModel):
+    """Validation rules response model."""
+    type: str
+    rules: Dict[str, Any]
+    timestamp: datetime
+
+
+class HealthResponse(BaseModel):
+    """Health check response model."""
+    service: str
+    timestamp: datetime
+
 
 # Create router without prefix (app already handles the /validation prefix)
 router = APIRouter(tags=["validation"])
 _service: Optional[ValidationService] = None
-
-
-def init_router(service: ValidationService) -> None:
-    """Initialize router with service instance."""
-    global _service
-    _service = service
 
 
 @asynccontextmanager
@@ -93,37 +116,31 @@ app.add_middleware(
 def get_service() -> ValidationService:
     """Get validation service instance."""
     if _service is None:
-        error = ErrorCode.SERVICE_UNAVAILABLE
         raise HTTPException(
-            status_code=error.get_status_code(),
-            detail=format_error(error, "Validation service not initialized")
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, "Validation service not initialized")
         )
     return _service
 
 
-@router.post("/validate")
-async def validate_data(request: Dict[str, Any], background_tasks: BackgroundTasks) -> Dict[str, Any]:
+@router.post(
+    "/validate",
+    response_model=ValidationResponse,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {"description": "Invalid request format or validation error"},
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service unavailable"}
+    }
+)
+async def validate_data(
+    request: ValidationRequest,
+    background_tasks: BackgroundTasks,
+    service: ValidationService = Depends(get_service)
+) -> ValidationResponse:
     """Validate data against rules."""
     try:
-        service = get_service()
-        
-        # Validate request format
-        if "type" not in request:
-            error = ErrorCode.MISSING_PARAMETER
-            raise HTTPException(
-                status_code=error.get_status_code(),
-                detail=format_error(error, "Missing validation type")
-            )
-        if "data" not in request:
-            error = ErrorCode.MISSING_PARAMETER
-            raise HTTPException(
-                status_code=error.get_status_code(),
-                detail=format_error(error, "Missing validation data")
-            )
-            
         # Perform validation based on type
-        validation_type = request["type"]
-        validation_data = request["data"]
+        validation_type = request.type
+        validation_data = request.data
         
         if validation_type == "parameters":
             result = await service.validate_parameters(validation_data)
@@ -134,12 +151,11 @@ async def validate_data(request: Dict[str, Any], background_tasks: BackgroundTas
         elif validation_type == "hardware":
             result = await service.validate_hardware(validation_data)
         else:
-            error = ErrorCode.INVALID_ACTION
             raise HTTPException(
-                status_code=error.get_status_code(),
-                detail=format_error(error, f"Unknown validation type: {validation_type}")
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=format_error(AppErrorCode.INVALID_ACTION, f"Unknown validation type: {validation_type}")
             )
-            
+
         # Log validation result
         if result["valid"]:
             background_tasks.add_task(
@@ -152,81 +168,99 @@ async def validate_data(request: Dict[str, Any], background_tasks: BackgroundTas
                 f"Validation failed for {validation_type}: {result['errors']}"
             )
             
-        return {
-            "type": validation_type,
-            "valid": result["valid"],
-            "errors": result.get("errors", []),
-            "warnings": result.get("warnings", []),
-            "timestamp": datetime.now().isoformat()
-        }
+        return ValidationResponse(
+            type=validation_type,
+            valid=result["valid"],
+            errors=result.get("errors", []),
+            warnings=result.get("warnings", []),
+            timestamp=datetime.now()
+        )
         
     except ValidationError as e:
-        error = ErrorCode.VALIDATION_ERROR
         raise HTTPException(
-            status_code=error.get_status_code(),
-            detail=format_error(error, str(e), e.context)
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=format_error(AppErrorCode.VALIDATION_ERROR, str(e), e.context)
+        )
+    except ServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e), e.context)
         )
     except HTTPException:
         raise
     except Exception as e:
-        error = ErrorCode.INTERNAL_ERROR
         raise HTTPException(
-            status_code=error.get_status_code(),
-            detail=format_error(error, str(e))
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e))
         )
 
 
-@router.get("/rules/{rule_type}")
-async def get_validation_rules(rule_type: str) -> Dict[str, Any]:
+@router.get(
+    "/rules/{rule_type}",
+    response_model=ValidationRulesResponse,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {"description": "Invalid rule type"},
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service unavailable"}
+    }
+)
+async def get_validation_rules(
+    rule_type: str,
+    service: ValidationService = Depends(get_service)
+) -> ValidationRulesResponse:
     """Get validation rules for type."""
     try:
-        service = get_service()
         rules = await service.get_rules(rule_type)
-        return {
-            "type": rule_type,
-            "rules": rules,
-            "timestamp": datetime.now().isoformat()
-        }
+        return ValidationRulesResponse(
+            type=rule_type,
+            rules=rules,
+            timestamp=datetime.now()
+        )
     except ValidationError as e:
-        error = ErrorCode.VALIDATION_ERROR
         raise HTTPException(
-            status_code=error.get_status_code(),
-            detail=format_error(error, str(e), e.context)
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=format_error(AppErrorCode.VALIDATION_ERROR, str(e), e.context)
+        )
+    except ServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e), e.context)
         )
     except Exception as e:
-        error = ErrorCode.INTERNAL_ERROR
         raise HTTPException(
-            status_code=error.get_status_code(),
-            detail=format_error(error, str(e))
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e))
         )
 
 
-@router.get("/health")
-async def health_check() -> JSONResponse:
+@router.get(
+    "/health",
+    response_model=HealthResponse,
+    responses={
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service unavailable"}
+    }
+)
+async def health_check() -> HealthResponse:
     """Check API and service health status."""
     try:
         service = get_service()
         
         if not service.is_running:
-            error = ErrorCode.SERVICE_UNAVAILABLE
-            return JSONResponse(
-                status_code=error.get_status_code(),
-                content=format_error(error, "Service not running")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=format_error(AppErrorCode.SERVICE_ERROR, "Service not running")
             )
             
-        return JSONResponse(
-            status_code=200,
-            content={
-                "service": "ok",
-                "timestamp": datetime.now().isoformat()
-            }
+        return HealthResponse(
+            service="ok",
+            timestamp=datetime.now()
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
-        error = ErrorCode.HEALTH_CHECK_ERROR
-        return JSONResponse(
-            status_code=error.get_status_code(),
-            content=format_error(error, str(e))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e))
         )
 
 # Include router in app
