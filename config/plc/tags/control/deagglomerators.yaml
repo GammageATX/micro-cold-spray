@@ -1,0 +1,46 @@
+deagglomerator_control:
+  set1:
+    duty_cycle:
+      access: read/write
+      description: "Deagglomerator 1 PWM duty cycle (higher duty = lower speed)"
+      mapped: true
+      plc_tag: AOS32-0.1.6.1
+      range: [20, 35]
+      speeds:
+        high: 20
+        med: 25
+        low: 30
+        off: 35
+      type: integer
+      unit: "%"
+    frequency:
+      access: read/write
+      description: "Deagglomerator 1 PWM frequency"
+      mapped: true
+      plc_tag: AOS32-0.1.6.2
+      default: 500
+      type: integer
+      unit: Hz
+  
+  set2:
+    duty_cycle:
+      access: read/write
+      description: "Deagglomerator 2 PWM duty cycle (higher duty = lower speed)"
+      mapped: true
+      plc_tag: AOS32-0.1.6.3
+      range: [20, 35]
+      speeds:
+        high: 20
+        med: 25
+        low: 30
+        off: 35
+      type: integer
+      unit: "%"
+    frequency:
+      access: read/write
+      description: "Deagglomerator 2 PWM frequency"
+      mapped: true
+      plc_tag: AOS32-0.1.6.4
+      default: 500
+      type: integer
+      unit: Hz 

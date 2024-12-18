@@ -1,0 +1,79 @@
+status:
+  hardware:
+    motion:
+      x_axis:
+        access: read
+        description: "X axis detailed status"
+        mapped: true
+        plc_tag: AMC.Ax1AxisStatus
+        type: integer
+        bit_definitions:
+          "1": "Timer Active"
+          "2": "Steady Velocity"
+          "3": "Sequence Loop"
+          "4": "Initialization Complete"
+          "6": "Application Move"
+          "7": "Stopped at Move Target"
+          "8": "Stopped at Registration Target"
+          "9": "Aborted - Instruction Disabled"
+          "10": "Aborted - Hit Limit"
+          "11": "Aborted - Communications Failure"
+          "12": "Aborted - IO Fault"
+          "13": "Aborted - Over Max Accel"
+          "14": "Aborted - Over Max Decel"
+          "15": "Aborted - Over Max Velocity"
+      y_axis:
+        access: read
+        description: "Y axis detailed status"
+        mapped: true
+        plc_tag: AMC.Ax2AxisStatus
+        type: integer
+        bit_definitions:
+          "1": "Timer Active"
+          "2": "Steady Velocity"
+          "3": "Sequence Loop"
+          "4": "Initialization Complete"
+          "6": "Application Move"
+          "7": "Stopped at Move Target"
+          "8": "Stopped at Registration Target"
+          "9": "Aborted - Instruction Disabled"
+          "10": "Aborted - Hit Limit"
+          "11": "Aborted - Communications Failure"
+          "12": "Aborted - IO Fault"
+          "13": "Aborted - Over Max Accel"
+          "14": "Aborted - Over Max Decel"
+          "15": "Aborted - Over Max Velocity"
+      z_axis:
+        access: read
+        description: "Z axis detailed status"
+        mapped: true
+        plc_tag: AMC.Ax3AxisStatus
+        type: integer
+        bit_definitions:
+          "1": "Timer Active"
+          "2": "Steady Velocity"
+          "3": "Sequence Loop"
+          "4": "Initialization Complete"
+          "6": "Application Move"
+          "7": "Stopped at Move Target"
+          "8": "Stopped at Registration Target"
+          "9": "Aborted - Instruction Disabled"
+          "10": "Aborted - Hit Limit"
+          "11": "Aborted - Communications Failure"
+          "12": "Aborted - IO Fault"
+          "13": "Aborted - Over Max Accel"
+          "14": "Aborted - Over Max Decel"
+          "15": "Aborted - Over Max Velocity"
+  
+  process:
+    gas_flows:
+      main_stable: bool
+      feeder_stable: bool
+      duration: float
+    powder_feed:
+      active: bool
+      stable: bool
+    position:
+      valid: bool
+      at_target: bool
+      in_motion: bool 

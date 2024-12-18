@@ -1,0 +1,36 @@
+interlocks:
+  motion_ready:
+    access: read
+    description: "Motion controller ready status"
+    mapped: true
+    plc_tag: AMC.ModuleStatus
+    type: bool
+  
+  safe_for_motion:
+    access: read
+    description: "All motion safety conditions met"
+    internal: true
+    mapped: false
+    type: bool
+    conditions:
+      - pressure_in_range
+      - no_hardware_faults
+      - position_valid
+  
+  safe_for_spray:
+    access: read
+    description: "Safe to start spraying"
+    internal: true
+    mapped: false
+    type: bool
+    conditions:
+      - chamber_vacuum_ok
+      - gas_flows_stable
+      - powder_feed_ready
+  
+  shutter_engaged:
+    access: read
+    description: "Shutter position feedback"
+    mapped: true
+    plc_tag: Shutter
+    type: bool 

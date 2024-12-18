@@ -1,0 +1,66 @@
+validations:
+  hardware:
+    motion_complete:
+      description: "Motion has completed"
+      conditions:
+        - tag: motion.status.in_progress
+          value: false
+        - tag: motion.status.error
+          value: false
+      timeout: 30.0
+    
+    position_reached:
+      description: "Target position reached"
+      conditions:
+        - tag: motion.position.x
+          tolerance: 0.1
+        - tag: motion.position.y
+          tolerance: 0.1
+        - tag: motion.position.z
+          tolerance: 0.1
+      timeout: 10.0
+    
+    flow_stable:
+      description: "Gas flows are stable"
+      conditions:
+        - tag: gas.main_flow.measured
+          compare_to: gas.main_flow.setpoint
+          tolerance: 2.0
+        - tag: gas.feeder_flow.measured
+          compare_to: gas.feeder_flow.setpoint
+          tolerance: 0.5
+      timeout: 5.0
+    
+    chamber_vacuum:
+      description: "Chamber vacuum is ready"
+      conditions:
+        - tag: pressure.chamber_pressure
+          max_value: 5.0
+      timeout: 30.0
+  
+  process:
+    parameter_validation:
+      description: "Validate process parameters"
+      rules:
+        - name: "nozzle_exists"
+          check: "nozzle in templates.nozzles"
+        - name: "flow_within_limits"
+          check: "main_gas <= hardware.safety.gas.main_flow.max"
+        - name: "feeder_within_limits"
+          check: "frequency <= hardware.safety.powder.feeder.frequency.max"
+    
+    pattern_validation:
+      description: "Validate pattern file"
+      rules:
+        - name: "moves_within_limits"
+          check: "all moves within stage.dimensions"
+        - name: "valid_speed"
+          check: "speed <= hardware.safety.motion.max_speed"
+    
+    sequence_validation:
+      description: "Validate sequence file"
+      rules:
+        - name: "valid_steps"
+          check: "all steps in actions.groups"
+        - name: "valid_parameters"
+          check: "all parameter files exist" 

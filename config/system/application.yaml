@@ -1,0 +1,45 @@
+application:
+  environment:
+    mode: development
+    debug: false
+    log_level: INFO
+    async_mode: true
+    user: Default User
+  
+  paths:
+    data: data/
+    logs: logs/
+    resources: resources/
+  
+  services:
+    config_manager:
+      validation_enabled: true
+      backup_enabled: true
+      backup_interval: 3600
+    
+    data_manager:
+      cache_enabled: true
+      cache_timeout: 1000
+      validation_enabled: true
+      formats:
+        - parameters
+        - patterns
+        - sequences
+    
+    tag_manager:
+      cache_enabled: true
+      cache_timeout: 1000
+      poll_rate: 100
+  
+  window:
+    title: "Micro Cold Spray Control System"
+    geometry:
+      width: 1280
+      height: 720
+      x: 100
+      y: 100
+    style:
+      theme: system
+      font:
+        family: Segoe UI
+        size: 10

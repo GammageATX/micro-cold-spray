@@ -1,0 +1,46 @@
+internal_tags:
+  safety:
+    approach_z:
+      access: read/write
+      description: "Approach height"
+      internal: true
+      type: float
+      unit: mm
+    
+    safe_z:
+      access: read/write
+      description: "Safe Z travel height"
+      internal: true
+      type: float
+      unit: mm
+    
+    spray_z:
+      access: read/write
+      description: "Spray height"
+      internal: true
+      type: float
+      unit: mm
+  
+  process:
+    parameters:
+      gas_flow_stable: 
+        type: bool
+        description: "Gas flows are at setpoint"
+      powder_feed_active:
+        type: bool
+        description: "Powder feed system active"
+      process_ready:
+        type: bool
+        description: "System ready for spraying"
+    
+  hardware:
+    components:
+      motion_enabled:
+        type: bool
+        description: "Motion system enabled"
+      plc_connected:
+        type: bool
+        description: "PLC communication active"
+      position_valid:
+        type: bool
+        description: "Position tracking valid" 

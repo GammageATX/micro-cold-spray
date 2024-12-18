@@ -1,0 +1,34 @@
+feeder_control:
+  set1:
+    frequency:
+      access: read/write
+      description: "Feeder 1 frequency"
+      mapped: true
+      max_value: 1200
+      min_value: 200
+      type: integer
+      ssh:
+        freq_var: P6
+        start_var: P10
+        time_var: P12
+        freq_step: 200
+        default_time: 999
+        start_val: 1
+        stop_val: 4
+  
+  set2:
+    frequency:
+      access: read/write
+      description: "Feeder 2 frequency"
+      mapped: true
+      max_value: 1200
+      min_value: 200
+      type: integer
+      ssh:
+        freq_var: P106
+        start_var: P110
+        time_var: P112
+        freq_step: 200
+        default_time: 999
+        start_val: 1
+        stop_val: 4 

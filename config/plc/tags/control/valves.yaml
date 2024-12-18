@@ -1,0 +1,37 @@
+valve_control:
+  main_gas:
+    access: read/write
+    description: "Main gas line valve"
+    mapped: true
+    plc_tag: MainSwitch
+    type: bool
+  
+  feeder_gas:
+    access: read/write
+    description: "Feeder gas line valve"
+    mapped: true
+    plc_tag: FeederSwitch
+    type: bool
+  
+  gate_valve:
+    open:
+      access: read/write
+      description: "Gate valve full open position"
+      mapped: true
+      plc_tag: Open
+      type: bool
+      default: false
+    partial:
+      access: read/write
+      description: "Gate valve partial position"
+      mapped: true
+      plc_tag: Partial
+      type: bool
+      default: false
+  
+  vent:
+    access: read/write
+    description: "Chamber vent valve"
+    mapped: true
+    plc_tag: VentSwitch
+    type: bool 

@@ -1,0 +1,109 @@
+actions:
+  atomic:
+    motion:
+      move_xy:
+        description: "Coordinated XY move"
+        parameters:
+          - x_position: float
+          - y_position: float
+          - velocity: float
+        validation:
+          - motion_complete
+          - position_reached
+      
+      move_z:
+        description: "Z axis move"
+        parameters:
+          - z_position: float
+          - velocity: float
+        validation:
+          - motion_complete
+          - position_reached
+    
+    gas:
+      set_flows:
+        description: "Set gas flow rates"
+        parameters:
+          - main_flow: float
+          - feeder_flow: float
+        validation:
+          - flow_stable
+      
+      control_valves:
+        description: "Control gas valves"
+        parameters:
+          - main_valve: bool
+          - feeder_valve: bool
+        validation:
+          - valve_state
+    
+    powder:
+      control_feeder:
+        description: "Control powder feeder"
+        parameters:
+          - frequency: int
+        validation:
+          - feeder_state
+      
+      control_deagglomerator:
+        description: "Control deagglomerator"
+        parameters:
+          - duty_cycle: int
+          - frequency: int
+        validation:
+          - deagglomerator_state
+  
+  groups:
+    ready_system:
+      description: "Prepare system for operation"
+      steps:
+        - action: motion.home_axes
+        - action: gas.control_valves
+          parameters:
+            main_valve: false
+            feeder_valve: false
+        - validation: chamber_vacuum
+    
+    apply_parameters:
+      description: "Apply parameter set"
+      parameters:
+        - parameter_file: string
+      steps:
+        - action: gas.set_flows
+        - validation: flow_stable
+        - action: powder.control_feeder
+        - action: powder.control_deagglomerator
+    
+    execute_pattern:
+      description: "Execute spray pattern"
+      parameters:
+        - pattern_file: string
+        - passes: int
+      steps:
+        - action: motion.move_xy
+        - validation: position_reached
+        - repeat:
+            count: passes
+            steps:
+              - action: motion.execute_pattern
+              - validation: pattern_complete
+    
+    shutdown_process:
+      description: "Shutdown system safely"
+      steps:
+        - action: powder.control_feeder
+          parameters:
+            frequency: 0
+        - action: gas.set_flows
+          parameters:
+            main_flow: 0
+            feeder_flow: 0
+        - validation: flow_stable
+        - action: gas.control_valves
+          parameters:
+            main_valve: false
+            feeder_valve: false
+        - action: motion.move_xy
+          parameters:
+            x: 0
+            y: 0 

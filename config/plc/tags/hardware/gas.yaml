@@ -1,0 +1,40 @@
+gas_control:
+  main_flow:
+    measured:
+      access: read
+      description: "Main gas flow measured"
+      mapped: true
+      plc_tag: MainFlowRate
+      range: [0.0, 100.0]
+      scaling: 12bit_linear
+      type: float
+      unit: SLPM
+    setpoint:
+      access: read/write
+      description: "Main gas flow setpoint"
+      mapped: true
+      plc_tag: AOS32-0.1.2.1
+      range: [0.0, 100.0]
+      scaling: 12bit_dac
+      type: float
+      unit: SLPM
+  
+  feeder_flow:
+    measured:
+      access: read
+      description: "Feeder gas flow measured"
+      mapped: true
+      plc_tag: FeederFlowRate
+      range: [0.0, 10.0]
+      scaling: 12bit_linear
+      type: float
+      unit: SLPM
+    setpoint:
+      access: read/write
+      description: "Feeder gas flow setpoint"
+      mapped: true
+      plc_tag: AOS32-0.1.2.2
+      range: [0.0, 10.0]
+      scaling: 12bit_dac
+      type: float
+      unit: SLPM 

@@ -1,0 +1,73 @@
+motion_control:
+  position:
+    x:
+      access: read
+      description: "X axis position"
+      mapped: true
+      plc_tag: AMC.Ax1Position
+      type: float
+      unit: mm
+    y:
+      access: read
+      description: "Y axis position"
+      mapped: true
+      plc_tag: AMC.Ax2Position
+      type: float
+      unit: mm
+    z:
+      access: read
+      description: "Z axis position"
+      mapped: true
+      plc_tag: AMC.Ax3Position
+      type: float
+      unit: mm
+  
+  coordinated_move:
+    parameters:
+      velocity:
+        access: read/write
+        description: "XY coordinated move velocity"
+        mapped: true
+        plc_tag: XYMove.LINVelocity
+        type: float
+        unit: mm/s
+      ramps:
+        access: read/write
+        description: "XY coordinated move ramp time"
+        mapped: true
+        plc_tag: XYMove.LINRamps
+        type: float
+        unit: s
+      x_position:
+        access: read/write
+        description: "XY move X target position"
+        mapped: true
+        plc_tag: XYMove.XPosition
+        type: float
+        unit: mm
+      y_position:
+        access: read/write
+        description: "XY move Y target position"
+        mapped: true
+        plc_tag: XYMove.YPosition
+        type: float
+        unit: mm
+    status:
+      in_progress:
+        access: read
+        description: "XY move in progress"
+        mapped: true
+        plc_tag: XYMove.InProgress
+        type: bool
+      complete:
+        access: read
+        description: "XY move status"
+        mapped: true
+        plc_tag: XYMove.Complete
+        type: bool
+    trigger:
+      access: read/write
+      description: "Trigger coordinated XY move"
+      mapped: true
+      plc_tag: MoveXY
+      type: bool 

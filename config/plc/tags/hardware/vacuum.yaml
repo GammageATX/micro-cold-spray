@@ -1,0 +1,28 @@
+vacuum_control:
+  booster_pump:
+    start:
+      access: read/write
+      description: "Start booster pump"
+      mapped: true
+      plc_tag: BoosterPumpStart
+      type: bool
+    stop:
+      access: read/write
+      description: "Stop booster pump"
+      mapped: true
+      plc_tag: BoosterPumpStop
+      type: bool
+  
+  mechanical_pump:
+    start:
+      access: read/write
+      description: "Start mechanical pump"
+      mapped: true
+      plc_tag: MechPumpStart
+      type: bool
+    stop:
+      access: read/write
+      description: "Stop mechanical pump"
+      mapped: true
+      plc_tag: MechPumpStop
+      type: bool 

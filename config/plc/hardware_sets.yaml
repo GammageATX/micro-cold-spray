@@ -1,0 +1,42 @@
+hardware_sets:
+  set1:
+    nozzle: nozzle1
+    feeder:
+      id: feeder1
+      p_vars:
+        frequency: P6
+        start: P10
+        time: P12
+    deagglomerator:
+      id: deagg1
+      pwm:
+        duty_cycle: AOS32-0.1.6.1
+        frequency: AOS32-0.1.6.2
+    offset_x: 0.0
+  
+  set2:
+    nozzle: nozzle2
+    feeder:
+      id: feeder2
+      p_vars:
+        frequency: P106
+        start: P110
+        time: P112
+    deagglomerator:
+      id: deagg2
+      pwm:
+        duty_cycle: AOS32-0.1.6.3
+        frequency: AOS32-0.1.6.4
+    offset_x: 38.1
+  
+  speeds:
+    deagglomerator:
+      off: 35
+      low: 30
+      medium: 25
+      high: 20
+    feeder:
+      min: 200
+      max: 1200
+      step: 200
+      default: 600 
