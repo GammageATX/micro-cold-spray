@@ -4,7 +4,7 @@ from typing import Type, TypeVar, Callable
 
 from .service import BaseService
 from .configurable import ConfigurableService
-from .exceptions import APIError, ServiceError, ValidationError
+from .exceptions import ServiceError, ValidationError
 
 # Type variable for service types
 T = TypeVar('T', bound=BaseService)
@@ -41,7 +41,6 @@ def register_service(service: BaseService) -> None:
 __all__ = [
     "BaseService",
     "ConfigurableService",
-    "APIError",
     "ServiceError",
     "ValidationError",
     "get_service",

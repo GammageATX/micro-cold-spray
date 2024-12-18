@@ -49,3 +49,20 @@ def setup_test_config(tmp_path: Path, name: str) -> Path:
     test_config = tmp_path / f"{name}.yaml"
     shutil.copy2(real_config, test_config)
     return test_config
+
+
+def create_test_config(tmp_path: Path, name: str, data: dict) -> Path:
+    """Create a test config file with given data.
+    
+    Args:
+        tmp_path: Temporary directory path
+        name: Config name
+        data: Config data to write
+        
+    Returns:
+        Path to created config file
+    """
+    test_config = tmp_path / f"{name}.yaml"
+    with open(test_config, "w") as f:
+        yaml.dump(data, f)
+    return test_config

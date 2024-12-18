@@ -1,13 +1,18 @@
-"""Base router functionality."""
+"""Base router functionality.
 
-from typing import Optional, Type, Union
-from contextlib import asynccontextmanager
-from fastapi import FastAPI, APIRouter, HTTPException, status
-from fastapi.middleware.cors import CORSMiddleware
+This module provides core routing functionality for both BaseService (used by Config API)
+and ConfigurableService (used by all other APIs).
+"""
+
+from typing import Type, Union, TypeVar
+from fastapi import FastAPI, APIRouter, HTTPException, status, Body
 from pydantic import BaseModel
-from loguru import logger
 
-from .service import BaseService, ConfigurableService
+from .service import BaseService
+from .configurable import ConfigurableService
+
+# Type variable for service types
+ServiceType = TypeVar('ServiceType', BaseService, ConfigurableService)
 
 
 class HealthResponse(BaseModel):
@@ -18,96 +23,24 @@ class HealthResponse(BaseModel):
     is_running: bool
 
 
-def create_api_app(
-    service_factory: Union[Type[BaseService], Type[ConfigurableService]],
-    prefix: str,
-    router: APIRouter,
-    additional_routers: Optional[list[APIRouter]] = None,
-    config_type: Optional[str] = None
-) -> FastAPI:
-    """Create a FastAPI application with standard configuration."""
+class ControlRequest(BaseModel):
+    """Control request model."""
+    action: str
+
+
+def get_service_from_app(app: FastAPI, service_type: Type[ServiceType]) -> ServiceType:
+    """Get service instance from FastAPI app state.
     
-    @asynccontextmanager
-    async def lifespan(app: FastAPI):
-        """Standard lifespan context manager for FastAPI app."""
-        service = None
-        try:
-            # Initialize service based on type
-            if issubclass(service_factory, ConfigurableService):
-                # Import here to avoid circular imports
-                from ..config.singleton import get_config_service
-                
-                # Get shared config service instance
-                config_service = get_config_service()
-                await config_service.start()
-                logger.info("ConfigService started successfully")
-                
-                # Create and configure service
-                service = service_factory(config_service=config_service)
-                if config_type:
-                    service.set_config_type(config_type)
-            else:
-                service = service_factory()
-            
-            # Start the service
-            await service.start()
-            logger.info(f"{service._service_name} started successfully")
-            
-            # Store service instance in app state
-            app.state.service = service
-            
-            # Add health endpoints to the main router
-            add_health_endpoints(router, service)
-            
-            # Include routers
-            app.include_router(router, prefix=prefix)
-            if additional_routers:
-                for additional_router in additional_routers:
-                    app.include_router(additional_router, prefix=prefix)
-            
-            logger.info(f"{service._service_name} router initialized")
-            
-            yield
-            
-            # Cleanup on shutdown
-            logger.info(f"{service._service_name} API shutting down")
-            if service:
-                try:
-                    await service.stop()
-                    logger.info(f"{service._service_name} stopped successfully")
-                except Exception as e:
-                    logger.error(f"Error stopping {service._service_name}: {e}")
-                finally:
-                    app.state.service = None
-                    
-        except Exception as e:
-            logger.error(f"Failed to initialize services: {e}")
-            if service:
-                try:
-                    await service.stop()
-                except Exception as stop_error:
-                    logger.error(f"Error during cleanup: {stop_error}")
-                finally:
-                    app.state.service = None
-            raise
-
-    # Create FastAPI app with lifespan
-    app = FastAPI(lifespan=lifespan)
-
-    # Add CORS middleware
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],  # In production, replace with specific origins
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-    return app
-
-
-def get_service_from_app(app: FastAPI, service_type: Type[BaseService]) -> BaseService:
-    """Get service instance from FastAPI app state."""
+    Args:
+        app: FastAPI application instance
+        service_type: Expected service type (BaseService or ConfigurableService)
+    
+    Returns:
+        Service instance of the requested type
+    
+    Raises:
+        HTTPException: If service is not initialized or of wrong type
+    """
     service = getattr(app.state, "service", None)
     if not service or not isinstance(service, service_type):
         raise HTTPException(
@@ -118,7 +51,12 @@ def get_service_from_app(app: FastAPI, service_type: Type[BaseService]) -> BaseS
 
 
 def add_health_endpoints(router: APIRouter, service: Union[BaseService, ConfigurableService]) -> None:
-    """Add standard health check endpoints to router."""
+    """Add standard health check endpoints to router.
+    
+    Args:
+        router: Router to add endpoints to
+        service: Service instance to monitor
+    """
     @router.get(
         "/health",
         response_model=HealthResponse,
@@ -129,18 +67,28 @@ def add_health_endpoints(router: APIRouter, service: Union[BaseService, Configur
     )
     async def health_check():
         """Check service health status."""
-        if not service.is_running:
+        try:
+            health = await service.check_health()
+            response = HealthResponse(
+                status=health["status"],
+                service_name=service._service_name,
+                version=health["service_info"]["version"],
+                is_running=health["service_info"]["running"]
+            )
+            
+            # Return 503 if service is not running
+            if not response.is_running:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Service is not running"
+                )
+            
+            return response
+        except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"{service._service_name} is not running"
+                detail=str(e)
             )
-        
-        return HealthResponse(
-            status="ok",
-            service_name=service._service_name,
-            version=getattr(service, "version", "1.0.0"),
-            is_running=service.is_running
-        )
 
     @router.post(
         "/control",
@@ -150,20 +98,25 @@ def add_health_endpoints(router: APIRouter, service: Union[BaseService, Configur
             status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service is not available"}
         }
     )
-    async def control(command: str):
+    async def control(command: str = Body(..., embed=True)):
         """Control service state."""
+        valid_commands = ["start", "stop", "restart"]
+        if command not in valid_commands:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid command: {command}. Valid commands are {valid_commands}"
+            )
+        
         try:
             if command == "start":
                 await service.start()
-                return {"status": "ok", "message": f"{service._service_name} started"}
+                return {"status": "started", "message": f"{service._service_name} started"}
             elif command == "stop":
                 await service.stop()
-                return {"status": "ok", "message": f"{service._service_name} stopped"}
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid command: {command}"
-                )
+                return {"status": "stopped", "message": f"{service._service_name} stopped"}
+            else:  # restart
+                await service.restart()
+                return {"status": "restarted", "message": f"{service._service_name} restarted"}
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

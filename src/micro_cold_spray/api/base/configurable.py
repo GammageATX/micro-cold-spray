@@ -1,6 +1,6 @@
 """Base class for configurable services."""
 
-from typing import Dict, Any, Optional, TYPE_CHECKING
+from typing import Dict, Any, TYPE_CHECKING
 from loguru import logger
 
 from .service import BaseService
@@ -22,7 +22,7 @@ class ConfigurableService(BaseService):
         super().__init__(service_name)
         self._config: Dict[str, Any] = {}
         self._config_service = config_service
-        self._config_type: Optional[str] = None
+        self._config_type = service_name  # Use service name as default config type
 
     async def _start(self) -> None:
         """Start configurable service."""
@@ -30,18 +30,15 @@ class ConfigurableService(BaseService):
             # Load configuration if config type is set
             if self._config_type:
                 config = await self._config_service.get_config(self._config_type)
-                if config and config.data:
-                    await self.configure(config.data)
-                else:
-                    logger.warning(f"No configuration found for {self._service_name} ({self._config_type})")
+                await self.configure(config)
             elif not self._config:
                 logger.warning(f"{self._service_name} starting without configuration")
                 
             await super()._start()
             
         except Exception as e:
-            logger.error(f"Failed to start {self._service_name}: {e}")
-            raise
+            logger.warning(f"{self._service_name} starting without configuration: {e}")
+            await super()._start()
 
     async def configure(self, config: Dict[str, Any]) -> None:
         """Configure the service.
@@ -49,7 +46,7 @@ class ConfigurableService(BaseService):
         Args:
             config: Service configuration
         """
-        self._config = config
+        self._config = config.copy()  # Make a copy to prevent modification
         logger.debug(f"Configured {self._service_name}")
 
     @property

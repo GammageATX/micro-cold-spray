@@ -22,13 +22,22 @@ Python/FastAPI
 
 Error Handling and Validation
 
+- Use standard HTTP status codes from FastAPI's status module:
+  - 400 Bad Request: Client errors (invalid input, bad parameters)
+  - 401 Unauthorized: Authentication required
+  - 403 Forbidden: Permission denied
+  - 404 Not Found: Resource doesn't exist
+  - 409 Conflict: Resource state conflict
+  - 422 Unprocessable Entity: Validation errors
+  - 500 Internal Server Error: Unexpected server errors
+  - 503 Service Unavailable: Service not ready/available
 - Implement comprehensive error handling:
-  - Define specific error types for each service
-  - Use early validation and guard clauses
-  - Provide detailed error context for debugging
-  - Log errors appropriately with proper severity levels
-  - Return clear error responses with proper HTTP status codes
+  - Use FastAPI's built-in HTTPException with appropriate status codes
+  - Provide clear, user-friendly error messages
+  - Log errors with proper severity levels and context
   - Handle both expected and unexpected errors gracefully
+  - Use Pydantic for request/response validation
+  - Return consistent error response structures
 
 Dependencies
 
