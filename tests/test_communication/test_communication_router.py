@@ -15,12 +15,11 @@ from micro_cold_spray.api.communication.router import (  # noqa: E402
     router,
     get_communication_service,
     init_router,
-    startup,
-    shutdown
+    app
 )
 from micro_cold_spray.api.communication.service import CommunicationService  # noqa: E402
 from micro_cold_spray.api.base.exceptions import ServiceError  # noqa: E402
-from micro_cold_spray.api.base.errors import ErrorCode, format_error  # noqa: E402
+from micro_cold_spray.api.base.errors import ErrorCode  # noqa: E402
 from micro_cold_spray.api.config.models import ConfigData, ConfigMetadata  # noqa: E402
 
 
@@ -81,13 +80,13 @@ def mock_communication_service():
 @pytest.fixture
 def test_app(mock_communication_service):
     """Create test FastAPI app with communication router."""
+    # Create a new FastAPI app for testing
     app = FastAPI()
+    app.include_router(router, prefix="/api/v1")
     
     # Initialize router with mock service
     init_router(mock_communication_service)
     
-    # Mount router to app
-    app.include_router(router, prefix="/api/v1/communication")
     return app
 
 
@@ -119,43 +118,30 @@ class TestCommunicationRouter:
         with pytest.raises(HTTPException) as exc_info:
             get_communication_service()
         assert exc_info.value.status_code == ErrorCode.SERVICE_UNAVAILABLE.get_status_code()
-        error_detail = format_error(
-            ErrorCode.SERVICE_UNAVAILABLE,
-            "Communication service not initialized"
-        )["detail"]
-        assert exc_info.value.detail == error_detail
+        assert exc_info.value.detail == {
+            "error": ErrorCode.SERVICE_UNAVAILABLE.value,
+            "message": "CommunicationService not initialized"
+        }
 
     @pytest.mark.asyncio
-    async def test_startup(self, mock_config_service):
-        """Test startup function."""
-        with patch('micro_cold_spray.api.communication.router.get_config_service', return_value=mock_config_service):
-            await startup()
-            mock_config_service.start.assert_called_once()
+    async def test_startup_shutdown(self, mock_config_service, mock_communication_service):
+        """Test startup and shutdown through lifespan."""
+        with patch('micro_cold_spray.api.config.singleton.get_config_service', return_value=mock_config_service):
+            async with app.router.lifespan_context(app):
+                assert app.state.service is not None
+                assert app.state.service.is_running
+            assert app.state.service is None
 
     @pytest.mark.asyncio
     async def test_startup_failure(self, mock_config_service):
         """Test startup failure handling."""
         mock_config_service.start.side_effect = Exception("Test error")
         with (
-            patch('micro_cold_spray.api.communication.router.get_config_service', return_value=mock_config_service),
+            patch('micro_cold_spray.api.config.singleton.get_config_service', return_value=mock_config_service),
             pytest.raises(Exception, match="Test error")
         ):
-            await startup()
-
-    @pytest.mark.asyncio
-    async def test_shutdown(self, mock_communication_service):
-        """Test shutdown function."""
-        init_router(mock_communication_service)
-        await shutdown()
-        mock_communication_service.stop.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_shutdown_failure(self, mock_communication_service):
-        """Test shutdown failure handling."""
-        init_router(mock_communication_service)
-        mock_communication_service.stop.side_effect = Exception("Test error")
-        await shutdown()  # Should not raise exception
-        mock_communication_service.stop.assert_called_once()
+            async with app.router.lifespan_context(app):
+                pass
 
     def test_health_check_success(self, client, mock_communication_service):
         """Test successful health check."""
@@ -172,16 +158,22 @@ class TestCommunicationRouter:
         mock_communication_service.check_health.side_effect = ServiceError("Test error")
         response = client.get("/api/v1/communication/health")
         assert response.status_code == ErrorCode.HEALTH_CHECK_ERROR.get_status_code()
-        error_detail = format_error(ErrorCode.HEALTH_CHECK_ERROR, "Test error")["detail"]
-        assert response.json()["detail"] == error_detail
+        assert response.json()["detail"] == {
+            "code": ErrorCode.HEALTH_CHECK_ERROR.name,
+            "message": "Test error",
+            "detail": f"{ErrorCode.HEALTH_CHECK_ERROR.name}: Test error"
+        }
 
     def test_health_check_internal_error(self, client, mock_communication_service):
         """Test health check with internal error."""
         mock_communication_service.check_health.side_effect = Exception("Test error")
         response = client.get("/api/v1/communication/health")
         assert response.status_code == ErrorCode.INTERNAL_ERROR.get_status_code()
-        error_detail = format_error(ErrorCode.INTERNAL_ERROR, "Test error")["detail"]
-        assert response.json()["detail"] == error_detail
+        assert response.json()["detail"] == {
+            "code": ErrorCode.INTERNAL_ERROR.name,
+            "message": "Test error",
+            "detail": f"{ErrorCode.INTERNAL_ERROR.name}: Test error"
+        }
 
     @pytest.mark.parametrize("action", ["start", "stop", "restart"])
     def test_control_service_success(self, client, mock_communication_service, action):
@@ -204,17 +196,18 @@ class TestCommunicationRouter:
         """Test service control with invalid action."""
         response = client.post("/api/v1/communication/control?action=invalid")
         assert response.status_code == ErrorCode.INVALID_ACTION.get_status_code()
-        error_detail = format_error(
-            ErrorCode.INVALID_ACTION,
-            "Invalid action: invalid",
-            {"valid_actions": ["start", "stop", "restart"]}
-        )["detail"]
-        assert response.json()["detail"] == error_detail
+        assert response.json()["detail"] == {
+            "error": ErrorCode.INVALID_ACTION.value,
+            "message": "Invalid action: invalid",
+            "valid_actions": ["start", "stop", "restart"]
+        }
 
     def test_control_service_error(self, client, mock_communication_service):
         """Test service control with service error."""
         mock_communication_service.stop.side_effect = ServiceError("Test error")
         response = client.post("/api/v1/communication/control?action=stop")
-        assert response.status_code == ErrorCode.SERVICE_UNAVAILABLE.get_status_code()
-        error_detail = format_error(ErrorCode.SERVICE_UNAVAILABLE, "Test error")["detail"]
-        assert response.json()["detail"] == error_detail
+        assert response.status_code == ErrorCode.COMMUNICATION_ERROR.get_status_code()
+        assert response.json()["detail"] == {
+            "error": ErrorCode.COMMUNICATION_ERROR.value,
+            "message": "Test error"
+        }

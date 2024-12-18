@@ -131,7 +131,7 @@ def get_service_from_app(app: FastAPI, service_type: Type[BaseService]) -> BaseS
         error = ErrorCode.SERVICE_UNAVAILABLE
         raise HTTPException(
             status_code=error.get_status_code(),
-            detail=format_error(error, f"{service_type.__name__} not initialized")["detail"]
+            detail=f"{error.name}: {service_type.__name__} not initialized"
         )
     return service
 
