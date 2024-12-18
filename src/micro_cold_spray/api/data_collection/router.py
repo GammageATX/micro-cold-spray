@@ -23,12 +23,15 @@ _service: Optional[DataCollectionService] = None
 __all__ = ["router", "init_router", "app"]
 
 
-async def init_router(app: FastAPI) -> None:
-    """Initialize data collection router with required services.
-    
-    Args:
-        app: FastAPI application instance
-    """
+def init_router(service: DataCollectionService) -> None:
+    """Initialize router with service instance."""
+    global _service
+    _service = service
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for FastAPI app."""
     global _service
     try:
         # Get shared config service instance
@@ -39,7 +42,7 @@ async def init_router(app: FastAPI) -> None:
         # Get database configuration
         config = await config_service.get_config("application")
         db_config = config.data.get("services", {}).get("data_collection", {}).get("database", {})
-        dsn = f"postgresql://{db_config.get('user', 'postgres')}:{db_config.get('password', 'postgres')}@{db_config.get('host', 'localhost')}:{db_config.get('port', 5432)}/{db_config.get('database', 'micro_cold_spray')}"
+        dsn = f"postgresql://{db_config.get('user', 'postgres')}:{db_config.get('password', 'dbpassword')}@{db_config.get('host', 'localhost')}:{db_config.get('port', 5432)}/{db_config.get('database', 'micro_cold_spray')}"
         
         # Initialize storage backend
         storage = DatabaseStorage(dsn=dsn)
@@ -57,19 +60,6 @@ async def init_router(app: FastAPI) -> None:
         app.include_router(router)
         logger.info("Data collection router initialized")
         
-    except Exception as e:
-        logger.error(f"Failed to initialize data collection router: {e}")
-        # Attempt cleanup
-        if _service and _service.is_running:
-            await _service.stop()
-        raise
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Lifespan context manager for FastAPI app."""
-    try:
-        await init_router(app)
         yield
         
         # Cleanup on shutdown
@@ -80,12 +70,15 @@ async def lifespan(app: FastAPI):
                 logger.info("Data collection service stopped successfully")
             except Exception as e:
                 logger.error(f"Error stopping data collection service: {e}")
+            finally:
+                _service = None
             
     except Exception as e:
         logger.error(f"Failed to initialize services: {e}")
         # Attempt cleanup
         if _service and _service.is_running:
             await _service.stop()
+            _service = None
         raise
 
 

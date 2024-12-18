@@ -21,6 +21,12 @@ router = APIRouter(tags=["state"])
 _service: Optional[StateService] = None
 
 
+def init_router(service: StateService) -> None:
+    """Initialize router with service instance."""
+    global _service
+    _service = service
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for FastAPI app."""
@@ -66,12 +72,15 @@ async def lifespan(app: FastAPI):
                 logger.info("State service stopped successfully")
             except Exception as e:
                 logger.error(f"Error stopping state service: {e}")
+            finally:
+                _service = None
             
     except Exception as e:
         logger.error(f"Failed to initialize services: {e}")
         # Attempt cleanup
         if _service and _service.is_running:
             await _service.stop()
+            _service = None
         raise
 
 

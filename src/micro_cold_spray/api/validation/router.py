@@ -20,12 +20,15 @@ router = APIRouter(tags=["validation"])
 _service: Optional[ValidationService] = None
 
 
-async def init_router(app: FastAPI) -> None:
-    """Initialize validation router with required services.
-    
-    Args:
-        app: FastAPI application instance
-    """
+def init_router(service: ValidationService) -> None:
+    """Initialize router with service instance."""
+    global _service
+    _service = service
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for FastAPI app."""
     global _service
     try:
         # Get shared config service instance
@@ -52,19 +55,6 @@ async def init_router(app: FastAPI) -> None:
         app.include_router(router)
         logger.info("Validation router initialized")
         
-    except Exception as e:
-        logger.error(f"Failed to initialize validation router: {e}")
-        # Attempt cleanup
-        if _service and _service.is_running:
-            await _service.stop()
-        raise
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Lifespan context manager for FastAPI app."""
-    try:
-        await init_router(app)
         yield
         
         # Cleanup on shutdown
@@ -75,12 +65,15 @@ async def lifespan(app: FastAPI):
                 logger.info("Validation service stopped successfully")
             except Exception as e:
                 logger.error(f"Error stopping validation service: {e}")
+            finally:
+                _service = None
             
     except Exception as e:
         logger.error(f"Failed to initialize services: {e}")
         # Attempt cleanup
         if _service and _service.is_running:
             await _service.stop()
+            _service = None
         raise
 
 
@@ -108,24 +101,21 @@ def get_service() -> ValidationService:
     return _service
 
 
-@router.post("/validate", response_model=Dict[str, Any])
-async def validate_data(
-    request: Dict[str, Any],
-    background_tasks: BackgroundTasks
-) -> Dict[str, Any]:
+@router.post("/validate")
+async def validate_data(request: Dict[str, Any], background_tasks: BackgroundTasks) -> Dict[str, Any]:
     """Validate data against rules."""
-    service = get_service()
-    
     try:
+        service = get_service()
+        
         # Validate request format
         if "type" not in request:
-            error = ErrorCode.VALIDATION_ERROR
+            error = ErrorCode.MISSING_PARAMETER
             raise HTTPException(
                 status_code=error.get_status_code(),
                 detail=format_error(error, "Missing validation type")
             )
         if "data" not in request:
-            error = ErrorCode.VALIDATION_ERROR
+            error = ErrorCode.MISSING_PARAMETER
             raise HTTPException(
                 status_code=error.get_status_code(),
                 detail=format_error(error, "Missing validation data")
@@ -144,7 +134,7 @@ async def validate_data(
         elif validation_type == "hardware":
             result = await service.validate_hardware(validation_data)
         else:
-            error = ErrorCode.VALIDATION_ERROR
+            error = ErrorCode.INVALID_ACTION
             raise HTTPException(
                 status_code=error.get_status_code(),
                 detail=format_error(error, f"Unknown validation type: {validation_type}")
@@ -176,6 +166,8 @@ async def validate_data(
             status_code=error.get_status_code(),
             detail=format_error(error, str(e), e.context)
         )
+    except HTTPException:
+        raise
     except Exception as e:
         error = ErrorCode.INTERNAL_ERROR
         raise HTTPException(
@@ -184,12 +176,11 @@ async def validate_data(
         )
 
 
-@router.get("/rules/{rule_type}", response_model=Dict[str, Any])
+@router.get("/rules/{rule_type}")
 async def get_validation_rules(rule_type: str) -> Dict[str, Any]:
     """Get validation rules for type."""
-    service = get_service()
-    
     try:
+        service = get_service()
         rules = await service.get_rules(rule_type)
         return {
             "type": rule_type,
@@ -213,13 +204,8 @@ async def get_validation_rules(rule_type: str) -> Dict[str, Any]:
 @router.get("/health")
 async def health_check() -> JSONResponse:
     """Check API and service health status."""
-    service = get_service()
-    
     try:
-        status = {
-            "service": "ok" if service.is_running else "error",
-            "timestamp": datetime.now().isoformat()
-        }
+        service = get_service()
         
         if not service.is_running:
             error = ErrorCode.SERVICE_UNAVAILABLE
@@ -228,11 +214,20 @@ async def health_check() -> JSONResponse:
                 content=format_error(error, "Service not running")
             )
             
-        return JSONResponse(status)
+        return JSONResponse(
+            status_code=200,
+            content={
+                "service": "ok",
+                "timestamp": datetime.now().isoformat()
+            }
+        )
         
     except Exception as e:
-        error = ErrorCode.INTERNAL_ERROR
+        error = ErrorCode.HEALTH_CHECK_ERROR
         return JSONResponse(
             status_code=error.get_status_code(),
             content=format_error(error, str(e))
         )
+
+# Include router in app
+app.include_router(router)

@@ -32,11 +32,7 @@ async def lifespan(app: FastAPI):
         await config_service.start()
         logger.info("ConfigService started successfully")
         
-        # Get config data
-        config = await config_service.get_config("application")
-        logger.debug("Got application config")
-        
-        # Create messaging service with config
+        # Create messaging service with config service
         _service = MessagingService(config_service=config_service)
         await _service.start()
         logger.info("Messaging service started successfully")
