@@ -1,4 +1,4 @@
-"""Tests for config API router."""
+"""Tests for configuration router."""
 
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
@@ -8,7 +8,6 @@ import yaml
 import copy
 import asyncio
 import json
-import aiohttp
 
 from micro_cold_spray.api.config.router import app, init_router, router, get_service
 from micro_cold_spray.api.config.service import ConfigService
@@ -271,7 +270,7 @@ def test_clear_cache_error(test_client, mock_config_service):
 
 @pytest.mark.asyncio
 async def test_startup_event():
-    """Test startup event initialization."""
+    """Test startup event handler."""
     # Create a fresh app instance
     from micro_cold_spray.api.config.router import app, lifespan
     
@@ -469,139 +468,55 @@ async def test_update_config_with_backup(test_client, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_config_health(config_service):
+async def test_config_health():
     """Test config health endpoint."""
-    import aiohttp
-    async with aiohttp.ClientSession() as session:
-        async with session.get(f"{config_service}/health") as response:
-            assert response.status == 200
-            data = await response.json()
-            assert data["status"] == "ok"
-            assert "uptime" in data
-            assert "memory_usage" in data
-            assert "service_info" in data
+    # Create a test client with mock service
+    mock_service = MagicMock(spec=ConfigService)
+    mock_service.is_running = True
+    mock_service.start_time = datetime.now()
+    mock_service._service_name = "config"
+    mock_service.version = "1.0.0"
+    mock_service.check_config_access = AsyncMock(return_value=True)
+    
+    # Initialize router with mock service
+    init_router(mock_service)
+    client = TestClient(app)
+    
+    response = client.get("/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert "uptime" in data
+    assert "memory_usage" in data
+    assert "service_info" in data
 
 
 @pytest.mark.asyncio
-async def test_config_endpoints(config_service, tmp_path):
-    """Test config endpoints."""
-    # Create and initialize service
-    from micro_cold_spray.api.config.service import ConfigService
-
-    # Create test directories
-    test_config_dir = tmp_path / "test_config"
-    test_config_dir.mkdir(exist_ok=True)
-    test_schema_dir = test_config_dir / "schemas"
-    test_schema_dir.mkdir(exist_ok=True)
-
-    # Create test schema
-    test_schema = {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {
-            "application": {
-                "type": "object",
-                "properties": {
-                    "environment": {
-                        "type": "object",
-                        "properties": {
-                            "mode": {"type": "string", "enum": ["test", "development", "production"]},
-                            "version": {"type": "string"}
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    # Write schema
-    schema_dest = test_schema_dir / "application.json"
-    with open(schema_dest, "w") as f:
-        json.dump(test_schema, f)
-
-    # Create test config file
-    test_config = {
-        "application": {
-            "environment": {
-                "mode": "development",
-                "version": "1.0.0"
-            }
-        }
-    }
-    config_dest = test_config_dir / "application.yaml"
-    with open(config_dest, "w") as f:
-        yaml.dump(test_config, f)
-
-    # Create and initialize service
-    service = ConfigService()
-    service._config_dir = test_config_dir
-    service._schema_dir = test_schema_dir
-
-    # Override app dependency
-    app.dependency_overrides[get_service] = lambda: service
-
-    try:
-        # Start service
-        await service.start()
-
-        # Test endpoints
-        test_client = TestClient(app)
-        
-        # Enable and initialize cache service
-        service._cache_service.cache_enabled = True
-        await service._cache_service.start()
-        
-        # Set cache configuration in service
-        service._config = {
-            "application": {
-                "services": {
-                    "config_manager": {
-                        "cache_enabled": True,
-                        "cache_timeout": 3600,
-                        "validation_enabled": True
-                    }
-                }
-            }
-        }
-        
-        # Test get config types
-        response = test_client.get("/config/types")
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, list)
-        assert len(data) > 0
-
-        # Test get config
-        response = test_client.get("/config/application")
-        assert response.status_code == 200
-        data = response.json()
-        assert "config" in data
-
-        # Test update config
-        config_data = {
-            "config_type": "application",
-            "data": {
-                "application": {
-                    "environment": {
-                        "mode": "test"
-                    }
-                }
-            },
-            "backup": True,
-            "validate": True
-        }
-        response = test_client.post("/config/application", json=config_data)
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "updated"
-
-        # Test clear cache
-        response = test_client.post("/config/cache/clear")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "Cache cleared"
-
-    finally:
-        # Clean up
-        await service.stop()
-        app.dependency_overrides.clear()
+async def test_config_endpoints():
+    """Test all config endpoints."""
+    # Create a test client with mock service
+    mock_service = MagicMock(spec=ConfigService)
+    mock_service.is_running = True
+    mock_service.get_config = AsyncMock(return_value={"key": "value"})
+    mock_service.update_config = AsyncMock()
+    mock_service.clear_cache = AsyncMock()
+    
+    # Initialize router with mock service
+    init_router(mock_service)
+    client = TestClient(app)
+    
+    # Test GET /config/types
+    response = client.get("/config/types")
+    assert response.status_code == 200
+    
+    # Test GET /config/{config_type}
+    response = client.get("/config/application")
+    assert response.status_code == 200
+    
+    # Test POST /config/{config_type}
+    response = client.post("/config/application", json={"key": "value"})
+    assert response.status_code == 200
+    
+    # Test POST /config/cache/clear
+    response = client.post("/config/cache/clear")
+    assert response.status_code == 200

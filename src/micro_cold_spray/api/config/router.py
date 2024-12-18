@@ -12,7 +12,7 @@ from loguru import logger
 from .service import ConfigService
 from ..base.exceptions import ConfigurationError
 from ..base.router import add_health_endpoints
-from ..base.errors import ErrorCode, format_error
+from ..base.errors import ErrorCode
 
 
 @asynccontextmanager
@@ -56,9 +56,13 @@ def get_service() -> ConfigService:
     """Get config service instance."""
     if _service is None:
         error = ErrorCode.SERVICE_UNAVAILABLE
+        error_detail = {
+            "error": error.value,
+            "message": "Config service not initialized"
+        }
         raise HTTPException(
             status_code=error.get_status_code(),
-            detail=format_error(error, "Config service not initialized")["detail"]
+            detail=error_detail
         )
     return _service
 
@@ -103,15 +107,20 @@ async def health_check(
             "service_info": {
                 "name": service._service_name,
                 "version": getattr(service, "version", "1.0.0"),
-                "running": service.is_running
+                "running": service.is_running,
+                "error": None if status == "ok" else "Health check failed"
             }
         }
     except Exception as e:
         logger.error(f"Health check failed: {e}")
-        error = ErrorCode.INTERNAL_ERROR
+        error = ErrorCode.HEALTH_CHECK_ERROR
+        error_detail = {
+            "error": error.value,
+            "message": str(e)
+        }
         raise HTTPException(
             status_code=error.get_status_code(),
-            detail=format_error(error, str(e))["detail"]
+            detail=error_detail
         )
 
 
@@ -126,15 +135,25 @@ async def get_config(
         return {"config": config}
     except ConfigurationError as e:
         error = ErrorCode.CONFIGURATION_ERROR
+        error_detail = {
+            "error": error.value,
+            "message": str(e)
+        }
+        if e.context:
+            error_detail["data"] = e.context
         raise HTTPException(
             status_code=error.get_status_code(),
-            detail=format_error(error, str(e), e.context)["detail"]
+            detail=error_detail
         )
     except Exception as e:
         error = ErrorCode.INTERNAL_ERROR
+        error_detail = {
+            "error": error.value,
+            "message": str(e)
+        }
         raise HTTPException(
             status_code=error.get_status_code(),
-            detail=format_error(error, str(e))["detail"]
+            detail=error_detail
         )
 
 
@@ -164,15 +183,25 @@ async def update_config(
         return {"status": "updated"}
     except ConfigurationError as e:
         error = ErrorCode.CONFIGURATION_ERROR
+        error_detail = {
+            "error": error.value,
+            "message": str(e)
+        }
+        if e.context:
+            error_detail["data"] = e.context
         raise HTTPException(
             status_code=error.get_status_code(),
-            detail=format_error(error, str(e), e.context)["detail"]
+            detail=error_detail
         )
     except Exception as e:
         error = ErrorCode.INTERNAL_ERROR
+        error_detail = {
+            "error": error.value,
+            "message": str(e)
+        }
         raise HTTPException(
             status_code=error.get_status_code(),
-            detail=format_error(error, str(e))["detail"]
+            detail=error_detail
         )
 
 
@@ -186,9 +215,13 @@ async def clear_cache(
         return {"status": "Cache cleared"}
     except Exception as e:
         error = ErrorCode.INTERNAL_ERROR
+        error_detail = {
+            "error": error.value,
+            "message": str(e)
+        }
         raise HTTPException(
             status_code=error.get_status_code(),
-            detail=format_error(error, str(e))["detail"]
+            detail=error_detail
         )
 
 

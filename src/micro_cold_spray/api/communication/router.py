@@ -1,6 +1,6 @@
 """Communication router."""
 
-from typing import Dict, Any
+from typing import Dict
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from loguru import logger
 

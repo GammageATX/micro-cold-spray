@@ -2,7 +2,7 @@
 
 import os
 import psutil
-from typing import Dict, Any, Optional, Callable, Awaitable, Type, Union
+from typing import Dict, Any, Optional, Type, Union
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, APIRouter, HTTPException
 from loguru import logger
@@ -159,12 +159,15 @@ def add_health_endpoints(router: APIRouter, service: BaseService):
             
             # Add service info if not present
             if "service_info" not in health_info:
-                health_info["service_info"] = {
-                    "name": service._service_name,
-                    "version": service.version,
-                    "uptime": str(service.uptime) if service.is_running else None,
-                    "running": service.is_running
-                }
+                health_info["service_info"] = {}
+            
+            # Update service info with standard fields
+            health_info["service_info"].update({
+                "name": service._service_name,
+                "version": service.version,
+                "uptime": str(service.uptime) if service.is_running else None,
+                "running": service.is_running
+            })
             
             # Add uptime for backward compatibility
             if "uptime" not in health_info and service.uptime:

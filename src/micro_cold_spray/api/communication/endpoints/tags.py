@@ -1,6 +1,6 @@
 """Tag management endpoints."""
 
-from typing import Dict, Any, List
+from typing import Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from datetime import datetime
 from loguru import logger
@@ -50,7 +50,7 @@ async def websocket_subscribe(
             await websocket.send_json({
                 "type": "tags",
                 "tags": {
-                    tag: value.value 
+                    tag: value.value
                     for tag, value in initial_tags.tags.items()
                 },
                 "timestamp": datetime.now().isoformat()

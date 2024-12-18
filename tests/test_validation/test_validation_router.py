@@ -1,7 +1,7 @@
 """Tests for validation router."""
 
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, PropertyMock
 from fastapi.testclient import TestClient
 
 from micro_cold_spray.api.validation.router import (
@@ -11,20 +11,24 @@ from micro_cold_spray.api.validation.router import (
     ValidationService
 )
 from micro_cold_spray.api.validation.exceptions import ValidationError
+from micro_cold_spray.api.base.errors import ErrorCode
 
 
 @pytest.fixture
 def mock_validation_service():
     """Create mock validation service."""
     service = AsyncMock(spec=ValidationService)
-    service.is_running = True
+    # Mock is_running as a property
+    type(service).is_running = PropertyMock(return_value=True)
     return service
 
 
 @pytest.fixture
 def test_client(mock_validation_service):
     """Create test client with mock service."""
+    # Initialize router with mock service
     init_router(mock_validation_service)
+    # Include router in app
     return TestClient(app)
 
 
@@ -51,7 +55,7 @@ class TestValidationRouter:
             "warnings": []
         }
         
-        response = test_client.post("/validation/validate", json={
+        response = test_client.post("/validate", json={
             "type": "parameters",
             "data": {"speed": 100}
         })
@@ -62,31 +66,34 @@ class TestValidationRouter:
 
     async def test_validate_data_missing_type(self, test_client):
         """Test validation with missing type."""
-        response = test_client.post("/validation/validate", json={
+        response = test_client.post("/validate", json={
             "data": {"speed": 100}
         })
         
-        assert response.status_code == 400
-        assert "Missing validation type" in response.json()["detail"]["message"]
+        assert response.status_code == ErrorCode.MISSING_PARAMETER.get_status_code()
+        assert response.json()["code"] == "MISSING_PARAMETER"
+        assert "Missing validation type" in response.json()["message"]
 
     async def test_validate_data_missing_data(self, test_client):
         """Test validation with missing data."""
-        response = test_client.post("/validation/validate", json={
+        response = test_client.post("/validate", json={
             "type": "parameters"
         })
         
-        assert response.status_code == 400
-        assert "Missing validation data" in response.json()["detail"]["message"]
+        assert response.status_code == ErrorCode.MISSING_PARAMETER.get_status_code()
+        assert response.json()["code"] == "MISSING_PARAMETER"
+        assert "Missing validation data" in response.json()["message"]
 
     async def test_validate_data_unknown_type(self, test_client):
         """Test validation with unknown type."""
-        response = test_client.post("/validation/validate", json={
+        response = test_client.post("/validate", json={
             "type": "unknown",
             "data": {}
         })
         
-        assert response.status_code == 400
-        assert "Unknown validation type" in response.json()["detail"]["message"]
+        assert response.status_code == ErrorCode.INVALID_ACTION.get_status_code()
+        assert response.json()["code"] == "INVALID_ACTION"
+        assert "Unknown validation type" in response.json()["message"]
 
     async def test_validate_data_validation_error(self, test_client, mock_validation_service):
         """Test validation with validation error."""
@@ -95,25 +102,27 @@ class TestValidationRouter:
             {"field": "speed"}
         )
         
-        response = test_client.post("/validation/validate", json={
+        response = test_client.post("/validate", json={
             "type": "parameters",
             "data": {"speed": -1}
         })
         
-        assert response.status_code == 400
-        assert "Validation failed" in response.json()["detail"]["message"]
+        assert response.status_code == ErrorCode.VALIDATION_ERROR.get_status_code()
+        assert response.json()["code"] == "VALIDATION_ERROR"
+        assert "Validation failed" in response.json()["message"]
 
     async def test_validate_data_internal_error(self, test_client, mock_validation_service):
         """Test validation with internal error."""
         mock_validation_service.validate_parameters.side_effect = Exception("Internal error")
         
-        response = test_client.post("/validation/validate", json={
+        response = test_client.post("/validate", json={
             "type": "parameters",
             "data": {"speed": 100}
         })
         
-        assert response.status_code == 500
-        assert "Internal error" in response.json()["detail"]["message"]
+        assert response.status_code == ErrorCode.INTERNAL_ERROR.get_status_code()
+        assert response.json()["code"] == "INTERNAL_ERROR"
+        assert "Internal error" in response.json()["message"]
 
     async def test_get_validation_rules_success(self, test_client, mock_validation_service):
         """Test successful rules retrieval."""
@@ -123,7 +132,7 @@ class TestValidationRouter:
         }
         mock_validation_service.get_rules.return_value = mock_rules
         
-        response = test_client.get("/validation/rules/parameters")
+        response = test_client.get("/rules/parameters")
         
         assert response.status_code == 200
         assert response.json()["type"] == "parameters"
@@ -137,16 +146,17 @@ class TestValidationRouter:
             {"type": "unknown"}
         )
         
-        response = test_client.get("/validation/rules/unknown")
+        response = test_client.get("/rules/unknown")
         
-        assert response.status_code == 400
-        assert "Unknown rule type" in response.json()["detail"]["message"]
+        assert response.status_code == ErrorCode.VALIDATION_ERROR.get_status_code()
+        assert response.json()["code"] == "VALIDATION_ERROR"
+        assert "Unknown rule type" in response.json()["message"]
 
     async def test_health_check_success(self, test_client, mock_validation_service):
         """Test successful health check."""
-        mock_validation_service.is_running = True
+        type(mock_validation_service).is_running = PropertyMock(return_value=True)
         
-        response = test_client.get("/validation/health")
+        response = test_client.get("/health")
         
         assert response.status_code == 200
         assert response.json()["service"] == "ok"
@@ -154,18 +164,20 @@ class TestValidationRouter:
 
     async def test_health_check_service_down(self, test_client, mock_validation_service):
         """Test health check when service is down."""
-        mock_validation_service.is_running = False
+        type(mock_validation_service).is_running = PropertyMock(return_value=False)
         
-        response = test_client.get("/validation/health")
+        response = test_client.get("/health")
         
-        assert response.status_code == 503
-        assert "Service not running" in response.json()["detail"]["message"]
+        assert response.status_code == ErrorCode.SERVICE_UNAVAILABLE.get_status_code()
+        assert response.json()["code"] == "SERVICE_UNAVAILABLE"
+        assert "Service not running" in response.json()["message"]
 
     async def test_health_check_error(self, test_client, mock_validation_service):
         """Test health check with error."""
-        mock_validation_service.is_running.side_effect = Exception("Health check failed")
+        type(mock_validation_service).is_running = PropertyMock(side_effect=Exception("Health check failed"))
         
-        response = test_client.get("/validation/health")
+        response = test_client.get("/health")
         
-        assert response.status_code == 500
-        assert "Health check failed" in response.json()["detail"]["message"]
+        assert response.status_code == ErrorCode.HEALTH_CHECK_ERROR.get_status_code()
+        assert response.json()["code"] == "HEALTH_CHECK_ERROR"
+        assert "Health check failed" in response.json()["message"]
