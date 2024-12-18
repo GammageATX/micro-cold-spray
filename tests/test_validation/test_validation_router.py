@@ -10,7 +10,7 @@ from micro_cold_spray.api.validation.router import (
     get_service,
     ValidationService
 )
-from micro_cold_spray.api.validation.exceptions import ValidationError
+from micro_cold_spray.api.base.exceptions import ValidationError
 from micro_cold_spray.api.base.errors import ErrorCode
 
 
