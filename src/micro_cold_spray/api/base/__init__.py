@@ -26,16 +26,42 @@ def get_service(service_type: Type[T]) -> Callable[[], T]:
         RuntimeError: If service not initialized
     """
     def _get_service_instance() -> T:
-        if service_type not in _services:
-            raise RuntimeError(f"Service {service_type.__name__} not initialized")
-        return _services[service_type]
+        # Check if service type is registered directly
+        if service_type in _services:
+            return _services[service_type]
+            
+        # Check if a subclass is registered
+        for registered_type, service in _services.items():
+            if isinstance(service, service_type):
+                return service
+                
+        raise RuntimeError(f"Service {service_type.__name__} not initialized")
     
     return _get_service_instance
 
 
-def register_service(service: BaseService) -> None:
-    """Register a service instance."""
-    _services[type(service)] = service
+def register_service(service: object) -> None:
+    """Register a service instance.
+    
+    Args:
+        service: Service instance to register
+        
+    Raises:
+        TypeError: If service is not an instance of BaseService
+    """
+    if not isinstance(service, BaseService):
+        raise TypeError("Service must be an instance of BaseService")
+        
+    # Register service with its actual type
+    service_type = type(service)
+    _services[service_type] = service
+    
+    # Also register with base types if they're not already registered
+    for base in service_type.__mro__[1:]:  # Skip the class itself
+        if base is object:
+            break
+        if issubclass(base, BaseService) and base not in _services:
+            _services[base] = service
 
 
 __all__ = [
