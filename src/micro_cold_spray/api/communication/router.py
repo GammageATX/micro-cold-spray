@@ -5,18 +5,18 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from loguru import logger
 
 from .service import CommunicationService
-from ..base.router import create_api_app, get_service_from_app
-from ..base.errors import ErrorCode, format_error
+from ..base.router import create_api_app, get_service_from_app, add_health_endpoints
+from ..base.errors import ErrorCode
 from ..base.exceptions import ServiceError
 from .endpoints import equipment_router, motion_router, tags_router
 
-# Create router without prefix (app already handles the /communication prefix)
-router = APIRouter(tags=["communication"])
+# Create router with prefix (app will handle the base /api/v1 prefix)
+router = APIRouter(prefix="/communication", tags=["communication"])
 
 # Create FastAPI app with standard configuration
 app = create_api_app(
     service_factory=CommunicationService,
-    prefix="/communication",
+    prefix="/api/v1",
     router=router,
     additional_routers=[equipment_router, motion_router, tags_router],
     config_type="hardware"  # Load hardware configuration
@@ -26,6 +26,8 @@ app = create_api_app(
 def init_router(service: CommunicationService) -> None:
     """Initialize router with service instance."""
     app.state.service = service
+    # Add health check endpoints
+    add_health_endpoints(router, service)
 
 
 def get_communication_service() -> CommunicationService:
@@ -44,13 +46,14 @@ async def control_service(
         valid_actions = ["start", "stop", "restart"]
         if action not in valid_actions:
             error = ErrorCode.INVALID_ACTION
+            error_detail = {
+                "error": error.value,
+                "message": f"Invalid action: {action}",
+                "valid_actions": valid_actions
+            }
             raise HTTPException(
                 status_code=error.get_status_code(),
-                detail=format_error(
-                    error,
-                    f"Invalid action: {action}",
-                    {"valid_actions": valid_actions}
-                )["detail"]
+                detail=error_detail
             )
 
         if action == "stop":
@@ -68,17 +71,25 @@ async def control_service(
             return {"status": "restarted"}
     except ServiceError as e:
         logger.error(f"Failed to {action} service: {e}")
-        error = ErrorCode.SERVICE_UNAVAILABLE
+        error = ErrorCode.COMMUNICATION_ERROR
+        error_detail = {
+            "error": error.value,
+            "message": str(e)
+        }
         raise HTTPException(
             status_code=error.get_status_code(),
-            detail=format_error(error, str(e))["detail"]
+            detail=error_detail
         )
     except Exception as e:
         if isinstance(e, HTTPException):
             raise e
         logger.error(f"Failed to {action} service: {e}")
         error = ErrorCode.INTERNAL_ERROR
+        error_detail = {
+            "error": error.value,
+            "message": str(e)
+        }
         raise HTTPException(
             status_code=error.get_status_code(),
-            detail=format_error(error, str(e))["detail"]
+            detail=error_detail
         )
