@@ -8,11 +8,11 @@ from typing import Type, TypeVar, Callable
 from fastapi import FastAPI, APIRouter, status, Request
 from loguru import logger
 
-from .services.base_service import BaseService
-from .services.configurable_service import ConfigurableService
-from .models.health import HealthResponse
-from .models.control import ControlRequest, ControlResponse, ServiceAction
-from ..errors import (
+from micro_cold_spray.core.base.services.base_service import BaseService
+from micro_cold_spray.core.base.services.configurable_service import ConfigurableService
+from micro_cold_spray.core.base.models.health import HealthResponse
+from micro_cold_spray.core.base.models.control import ControlRequest, ControlResponse, ServiceAction
+from micro_cold_spray.core.errors.codes import (
     AppErrorCode, raise_http_error,
     ConfigurationError, ServiceError
 )

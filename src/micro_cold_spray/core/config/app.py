@@ -2,16 +2,14 @@
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.routing import APIRouter
 
-from micro_cold_spray.core.config.router import router, init_router
-from micro_cold_spray.core.config.services.config_service import ConfigService
-from micro_cold_spray.core.base.router import add_health_endpoints
+from micro_cold_spray.core.config.router import router
+from micro_cold_spray.core.config.service import ConfigService
 
 # Create FastAPI app
 app = FastAPI(
     title="Configuration Service",
-    description="Service for managing configuration data",
+    description="Service for managing configuration data using Dynaconf",
     version="1.0.0"
 )
 
@@ -24,20 +22,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize service and router
-service = ConfigService()
-init_router(service)
-
-# Add health endpoints directly to app (not under /config prefix)
-health_router = APIRouter()
-add_health_endpoints(health_router, service)
-app.include_router(health_router)
+# Initialize service
+config_service = ConfigService()
 
 # Include config router
 app.include_router(router)
 
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize services on startup."""
-    await service.start()
+# Add health check endpoint
+@app.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    return {
+        "status": "healthy",
+        "environment": config_service.get_environment(),
+        "is_production": config_service.is_production()
+    }

@@ -27,7 +27,7 @@ class TagMappingService(ConfigurableService):
     async def _start(self) -> None:
         """Initialize service."""
         # Load tag definitions
-        tag_config = await self._config_service.get_config("tags")
+        tag_config = await self._get_communication_config('tags')
         await self._build_mappings(tag_config)
         logger.info("Tag mapping initialized")
 

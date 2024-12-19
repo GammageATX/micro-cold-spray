@@ -398,7 +398,11 @@ class ConfigSchema(BaseModel):
         return v
 
     @validator("properties")
-    def validate_properties(cls, v: Optional[Dict[str, 'ConfigSchema']], values: Dict[str, Any]) -> Optional[Dict[str, 'ConfigSchema']]:
+    def validate_properties(
+        cls,
+        v: Optional[Dict[str, 'ConfigSchema']],
+        values: Dict[str, Any]
+    ) -> Optional[Dict[str, 'ConfigSchema']]:
         """Validate properties field."""
         if values.get("type") == "object" and not v:
             raise ValueError("Object type schema must have properties")

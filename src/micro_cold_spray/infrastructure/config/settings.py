@@ -1,7 +1,7 @@
 """Unified configuration system using Dynaconf."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 
 from dynaconf import Dynaconf, Validator, ValidationError
@@ -51,6 +51,7 @@ settings.validators.register(
     Validator("gas.types", must_exist=True, is_type_of=list),
 )
 
+
 def get_database_url() -> PostgresDsn:
     """Generate the PostgreSQL connection URL from settings."""
     return PostgresDsn.build(
@@ -61,6 +62,7 @@ def get_database_url() -> PostgresDsn:
         port=settings.database.port,
         path=f"/{settings.database.name}",
     )
+
 
 def get_config(config_type: str, name: str) -> Optional[Dict[str, Any]]:
     """Get a configuration by type and name.
@@ -76,6 +78,7 @@ def get_config(config_type: str, name: str) -> Optional[Dict[str, Any]]:
         return settings.get(f"{config_type}.{name}")
     except AttributeError:
         return None
+
 
 def save_config(config_type: str, name: str, data: Dict[str, Any]) -> None:
     """Save a configuration.
@@ -103,6 +106,7 @@ def save_config(config_type: str, name: str, data: Dict[str, Any]) -> None:
     # Force Dynaconf to reload configurations
     settings.reload()
 
+
 def validate_config(config_type: str, data: Dict[str, Any]) -> bool:
     """Validate a configuration against its schema.
     
@@ -125,6 +129,7 @@ def validate_config(config_type: str, data: Dict[str, Any]) -> bool:
     except ValidationError:
         return False
 
+
 def list_configs(config_type: str) -> List[Dict[str, Any]]:
     """List all configurations of a specific type.
     
@@ -146,6 +151,7 @@ def list_configs(config_type: str) -> List[Dict[str, Any]]:
         ]
     except AttributeError:
         return []
+
 
 # Validate settings at startup
 settings.validators.validate()

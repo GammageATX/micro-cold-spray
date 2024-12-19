@@ -1,8 +1,9 @@
 """Base service implementation."""
 
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Type
 from loguru import logger
+from pydantic import BaseModel
 
 
 class BaseService:
@@ -22,6 +23,36 @@ class BaseService:
         self._error: Optional[str] = None
         self._message: Optional[str] = None
         self._version = version
+        self._settings_model: Optional[Type[BaseModel]] = None
+    
+    def set_settings_model(self, model: Type[BaseModel]) -> None:
+        """Set the Pydantic model for validating settings.
+        
+        Args:
+            model: Pydantic model class for settings validation
+        """
+        self._settings_model = model
+        logger.debug(f"Set settings model for {self._service_name}")
+    
+    def validate_settings(self, settings: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate settings using the configured Pydantic model.
+        
+        Args:
+            settings: Settings to validate
+            
+        Returns:
+            Validated settings as a dictionary
+            
+        Raises:
+            ValueError: If no settings model is configured
+            ValidationError: If settings validation fails
+        """
+        if not self._settings_model:
+            raise ValueError(f"No settings model configured for {self._service_name}")
+            
+        # Validate settings using Pydantic model
+        validated = self._settings_model(**settings)
+        return validated.model_dump()
     
     @property
     def is_running(self) -> bool:

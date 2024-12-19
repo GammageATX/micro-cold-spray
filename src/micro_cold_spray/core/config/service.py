@@ -1,96 +1,228 @@
-"""Core configuration service for managing user-editable settings."""
+"""Simplified configuration service using Dynaconf."""
 
-from pathlib import Path
-from typing import Any, Dict, List, Optional
-import yaml
+from dynaconf import Dynaconf, Validator
+from fastapi import HTTPException, status
+from loguru import logger
 
-from dynaconf import Dynaconf
-from pydantic import BaseModel, Field
-
-from micro_cold_spray.infrastructure.config import settings as app_settings
-
-
-class ConfigMetadata(BaseModel):
-    """Metadata for a configuration entry."""
-    name: str
-    description: str
-    version: str = Field(default="1.0.0")
-    last_modified: Optional[str] = None
-
-
-class ConfigData(BaseModel):
-    """Configuration data with metadata."""
-    metadata: ConfigMetadata
-    data: Dict[str, Any]
+from micro_cold_spray.core.config.models.config_types import ConfigType, ConfigData, ConfigUpdate
 
 
 class ConfigService:
-    """Service for managing user-editable configurations."""
+    """Simplified configuration service using Dynaconf."""
     
     def __init__(self):
-        """Initialize the configuration service."""
-        self.config_dir = Path(app_settings.core.config.directory)
-        self.config_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Initialize Dynaconf for user configs
-        self.settings = Dynaconf(
-            settings_files=[str(self.config_dir / "*.yaml")],
-            environments=False,
-            load_dotenv=False,
-        )
-    
-    def get_config(self, name: str) -> Optional[ConfigData]:
-        """Get a configuration by name."""
-        config_file = self.config_dir / f"{name}.yaml"
-        if not config_file.exists():
-            return None
+        """Initialize configuration service."""
+        try:
+            self.settings = Dynaconf(
+                # Core settings files
+                settings_files=[
+                    # Base settings
+                    'settings.yaml',
+                    '.secrets.yaml',
+                    
+                    # System configs
+                    'config/system/application.yaml',
+                    'config/system/hardware.yaml',
+                    'config/system/state.yaml',
+                    
+                    # Process configs
+                    'config/process/process.yaml',
+                    'config/process/actions.yaml',
+                    'config/process/validations.yaml',
+                    
+                    # PLC configs
+                    'config/plc/hardware_sets.yaml',
+                    'config/plc/tags/control/*.yaml',   # Control tags
+                    'config/plc/tags/hardware/*.yaml',  # Hardware tags
+                    'config/plc/tags/system/*.yaml',    # System tags
+                ],
+                environments=True,
+                env_switcher="MCS_ENV",
+                load_dotenv=True,
+                
+                # Validation settings
+                validate_on_update=True,
+                validators=[
+                    # System validators
+                    Validator('system.application', must_exist=True),
+                    Validator('system.hardware', must_exist=True),
+                    Validator('system.state', must_exist=True),
+                    
+                    # Process validators
+                    Validator('process.process', must_exist=True),
+                    Validator('process.actions', must_exist=True),
+                    Validator('process.validations', must_exist=True),
+                    
+                    # PLC validators
+                    Validator('plc.hardware_sets', must_exist=True),
+                    Validator('plc.tags.control', must_exist=True),
+                    Validator('plc.tags.hardware', must_exist=True),
+                    Validator('plc.tags.system', must_exist=True),
+                ]
+            )
+            logger.info("Configuration service initialized successfully")
             
-        with open(config_file, 'r') as f:
-            data = yaml.safe_load(f)
-            return ConfigData(**data)
-    
-    def list_configs(self) -> List[ConfigMetadata]:
-        """List all available configurations."""
-        configs = []
-        for config_file in self.config_dir.glob("*.yaml"):
-            with open(config_file, 'r') as f:
-                data = yaml.safe_load(f)
-                configs.append(ConfigMetadata(**data["metadata"]))
-        return configs
-    
-    def save_config(self, name: str, config: ConfigData) -> None:
-        """Save a configuration."""
-        config_file = self.config_dir / f"{name}.yaml"
-        with open(config_file, 'w') as f:
-            yaml.safe_dump(config.dict(), f)
-    
-    def delete_config(self, name: str) -> bool:
-        """Delete a configuration."""
-        config_file = self.config_dir / f"{name}.yaml"
-        if not config_file.exists():
-            return False
-        config_file.unlink()
-        return True
-    
-    def validate_config(self, config: ConfigData) -> bool:
-        """Validate a configuration against its schema."""
-        # TODO: Implement schema validation
-        return True
+        except Exception as e:
+            logger.error(f"Failed to initialize configuration service: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Configuration service initialization failed: {str(e)}"
+            )
 
+    async def get_config(self, config_type: ConfigType) -> ConfigData:
+        """Get configuration by type.
+        
+        Args:
+            config_type: Type of configuration to retrieve
+            
+        Returns:
+            Configuration data
+            
+        Raises:
+            HTTPException: If configuration not found or invalid
+        """
+        try:
+            # Map config types to their actual file structure
+            config_map = {
+                ConfigType.APPLICATION: "system.application",
+                ConfigType.HARDWARE: "system.hardware",
+                ConfigType.PROCESS: {
+                    "process": "process.process",
+                    "actions": "process.actions",
+                    "validations": "process.validations"
+                },
+                ConfigType.STATE: "system.state",
+                ConfigType.TAGS: {
+                    "control": "plc.tags.control",
+                    "hardware": "plc.tags.hardware",
+                    "system": "plc.tags.system"
+                }
+            }
+            
+            # Get configuration from Dynaconf
+            key = config_map.get(config_type)
+            if not key:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid config type: {config_type}"
+                )
+                
+            # Handle composite configs (process and tags)
+            if isinstance(key, dict):
+                data = {}
+                for section, path in key.items():
+                    section_data = self.settings.get(path)
+                    if section_data is None:
+                        logger.warning(f"Section {section} not found in {config_type}")
+                        continue
+                    data[section] = section_data
+            else:
+                data = self.settings.get(key)
+                
+            if not data:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Configuration not found: {config_type}"
+                )
+                
+            return ConfigData(
+                config_type=config_type,
+                data=data
+            )
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to get config {config_type}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to get configuration: {str(e)}"
+            )
 
-# Singleton instance
-_config_service: Optional[ConfigService] = None
+    async def update_config(
+        self,
+        config_type: ConfigType,
+        update: ConfigUpdate
+    ) -> None:
+        """Update configuration.
+        
+        Args:
+            config_type: Type of configuration to update
+            update: Update request with new data
+            
+        Raises:
+            HTTPException: If update fails or validation fails
+        """
+        try:
+            # Map config types to their actual file structure
+            config_map = {
+                ConfigType.APPLICATION: "system.application",
+                ConfigType.HARDWARE: "system.hardware",
+                ConfigType.PROCESS: {
+                    "process": "process.process",
+                    "actions": "process.actions",
+                    "validations": "process.validations"
+                },
+                ConfigType.STATE: "system.state",
+                ConfigType.TAGS: {
+                    "control": "plc.tags.control",
+                    "hardware": "plc.tags.hardware",
+                    "system": "plc.tags.system"
+                }
+            }
+            
+            key = config_map.get(config_type)
+            if not key:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid config type: {config_type}"
+                )
+            
+            # Handle composite configs (process and tags)
+            if isinstance(key, dict):
+                for section, path in key.items():
+                    if section not in update.data:
+                        logger.warning(f"Section {section} not found in update data")
+                        continue
+                    self.settings.update({
+                        path: update.data[section]
+                    })
+            else:
+                # Update single config
+                self.settings.update({
+                    key: update.data
+                })
+            
+            # Write changes to file
+            self.settings.write()
+            
+            logger.info(f"Updated configuration: {config_type}")
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to update config {config_type}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to update configuration: {str(e)}"
+            )
 
+    async def reload_config(self) -> None:
+        """Reload all configurations from files."""
+        try:
+            self.settings.reload()
+            logger.info("Configurations reloaded successfully")
+        except Exception as e:
+            logger.error(f"Failed to reload configurations: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to reload configurations: {str(e)}"
+            )
 
-def get_config_service() -> ConfigService:
-    """Get the singleton config service instance."""
-    global _config_service
-    if _config_service is None:
-        _config_service = ConfigService()
-    return _config_service
+    def get_environment(self) -> str:
+        """Get current environment name."""
+        return self.settings.current_env.lower()
 
-
-def cleanup_config_service() -> None:
-    """Cleanup the config service singleton."""
-    global _config_service
-    _config_service = None 
+    def is_production(self) -> bool:
+        """Check if running in production environment."""
+        return self.get_environment() == "production"

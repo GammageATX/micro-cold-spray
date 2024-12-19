@@ -1,0 +1,15 @@
+pattern:
+  name: "Example Points"
+  type: "points"
+  description: "Example pattern using explicit XYZ coordinates"
+  created: "2024-03-20"
+  author: "John Doe"
+  parameters:
+    speed: 10.0
+    layers: 1
+    points:
+      - {x: 10.0, y: 10.0, z: 5.0}
+      - {x: 20.0, y: 10.0, z: 5.0}
+      - {x: 20.0, y: 20.0, z: 5.0}
+      - {x: 10.0, y: 20.0, z: 5.0}
+      - {x: 10.0, y: 10.0, z: 5.0} 

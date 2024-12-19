@@ -1,6 +1,6 @@
 """Process service implementation."""
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from loguru import logger
 
 from micro_cold_spray.core.base import BaseService

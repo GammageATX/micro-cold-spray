@@ -51,7 +51,7 @@ class TagCacheService(ConfigurableService):
             
             # Load tag definitions
             logger.debug("Loading tag configuration")
-            tag_config = await self._config_service.get_config("tags")
+            tag_config = await self._get_communication_config('tags')
             if not tag_config:
                 logger.error("Tag configuration is empty")
                 raise ValidationError("Tag configuration is empty")

@@ -10,13 +10,13 @@ __all__ = [
     # Services
     'BaseService',
     'ConfigurableService',
-    
+
     # Models
     'HealthResponse',
     'ControlRequest',
     'ControlResponse',
     'ServiceAction',
-    
+
     # Router utilities
     'add_health_endpoints',
     'get_service_from_app',

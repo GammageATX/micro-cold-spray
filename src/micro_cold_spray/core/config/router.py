@@ -1,61 +1,39 @@
-"""FastAPI router for configuration management endpoints."""
+"""Configuration API router."""
 
-from typing import List
+from fastapi import APIRouter
 
-from fastapi import APIRouter, HTTPException, Response, status
-
-from .service import (
-    ConfigData,
-    ConfigMetadata,
-    get_config_service,
+from micro_cold_spray.core.config.models.config_types import (
+    ConfigType, ConfigData, ConfigUpdate
 )
-
-router = APIRouter(prefix="/config", tags=["Configuration"])
-
-
-@router.get("/", response_model=List[ConfigMetadata])
-async def list_configs() -> List[ConfigMetadata]:
-    """List all available configurations."""
-    service = get_config_service()
-    return service.list_configs()
+from micro_cold_spray.core.config.service import ConfigService
 
 
-@router.get("/{name}", response_model=ConfigData)
-async def get_config(name: str) -> ConfigData:
-    """Get a configuration by name."""
-    service = get_config_service()
-    config = service.get_config(name)
-    if config is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Configuration '{name}' not found"
-        )
-    return config
+router = APIRouter(prefix="/config", tags=["config"])
+config_service = ConfigService()
 
 
-@router.put("/{name}", response_model=ConfigData)
-async def save_config(name: str, config: ConfigData) -> ConfigData:
-    """Save a configuration."""
-    service = get_config_service()
-    
-    # Validate configuration
-    if not service.validate_config(config):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Invalid configuration data"
-        )
-    
-    service.save_config(name, config)
-    return config
+@router.get("/{config_type}", response_model=ConfigData)
+async def get_config(config_type: ConfigType) -> ConfigData:
+    """Get configuration by type."""
+    return await config_service.get_config(config_type)
 
 
-@router.delete("/{name}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_config(name: str) -> Response:
-    """Delete a configuration."""
-    service = get_config_service()
-    if not service.delete_config(name):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Configuration '{name}' not found"
-        )
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+@router.put("/{config_type}")
+async def update_config(
+    config_type: ConfigType,
+    update: ConfigUpdate
+) -> None:
+    """Update configuration."""
+    await config_service.update_config(config_type, update)
+
+
+@router.post("/reload")
+async def reload_config() -> None:
+    """Reload all configurations."""
+    await config_service.reload_config()
+
+
+@router.get("/environment")
+async def get_environment() -> str:
+    """Get current environment name."""
+    return config_service.get_environment()

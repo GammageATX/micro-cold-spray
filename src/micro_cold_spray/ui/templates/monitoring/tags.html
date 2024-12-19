@@ -1,35 +1,53 @@
 {% extends "base.html" %}
 
 {% block breadcrumb %}
-<span>Monitoring</span> / <span>Tags</span>
+<li class="breadcrumb-item">Monitoring</li>
+<li class="breadcrumb-item active">Tags</li>
 {% endblock %}
 
 {% block content %}
-<div class="card mb-4">
-    <div class="card-header">
-        <h2 class="card-title">Tag Monitor</h2>
-        <div class="card-actions">
-            <button class="btn btn-primary" id="pauseButton">
-                <i class="fas fa-pause"></i> Pause Updates
-            </button>
-            <button class="btn btn-success" id="exportButton">
-                <i class="fas fa-download"></i> Export Data
-            </button>
-        </div>
-    </div>
-    <div class="card-content">
-        <p class="mb-2">Real-time monitoring of system tags and values.</p>
-        <div class="form-group">
-            <input type="text" class="form-control" id="tagFilter" placeholder="Filter tags...">
+<div class="row">
+    <div class="col-12">
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-tags"></i>
+                        Tag Monitor
+                    </h5>
+                    <small class="text-muted">Real-time monitoring of system tags and values.</small>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-outline-primary" id="pauseButton">
+                        <i class="fas fa-pause"></i> Pause Updates
+                    </button>
+                    <button class="btn btn-outline-success" id="exportButton">
+                        <i class="fas fa-download"></i> Export Data
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="input-group mb-3">
+                    <span class="input-group-text">
+                        <i class="fas fa-search"></i>
+                    </span>
+                    <input type="text" class="form-control" id="tagFilter" placeholder="Filter tags...">
+                </div>
+            </div>
         </div>
     </div>
 </div>
 
-<div id="tagMonitor" class="grid">
+<div class="row" id="tagMonitor">
     <!-- Tag cards will be dynamically inserted here -->
-    <div class="card">
-        <div class="card-content">
-            <p class="text-light">Connecting to tag service...</p>
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body text-center py-5">
+                <div class="spinner-border text-primary mb-3" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="text-muted mb-0">Connecting to tag service...</p>
+            </div>
         </div>
     </div>
 </div>
@@ -37,9 +55,11 @@
 
 {% block extra_scripts %}
 <script>
-    // Pass API URLs to JavaScript
-    const apiUrlsData = {{ api_urls | tojson | safe }};
-    document.getElementById('apiUrls').dataset.urls = JSON.stringify(apiUrlsData);
+    // Initialize with API URLs from server
+    (function() {
+        const apiUrls = {{ api_urls | tojson | safe }};
+        document.getElementById('apiUrls').dataset.urls = JSON.stringify(apiUrls);
+    })();
 
     // Add tag filtering
     const tagFilter = document.getElementById('tagFilter');
@@ -64,9 +84,9 @@
             '<i class="fas fa-pause"></i> Pause Updates';
         
         if (isPaused) {
-            pauseButton.classList.replace('btn-primary', 'btn-warning');
+            pauseButton.classList.replace('btn-outline-primary', 'btn-outline-warning');
         } else {
-            pauseButton.classList.replace('btn-warning', 'btn-primary');
+            pauseButton.classList.replace('btn-outline-warning', 'btn-outline-primary');
         }
     });
 
@@ -91,11 +111,13 @@
     });
 
     // Override the updateTagDisplay function to respect pause state
-    const originalUpdateTagDisplay = window.updateTagDisplay;
-    window.updateTagDisplay = (tagData) => {
-        if (!isPaused) {
-            originalUpdateTagDisplay(tagData);
-        }
-    };
+    window.addEventListener('DOMContentLoaded', () => {
+        const originalUpdateTagDisplay = window.mcsControl.handleTagUpdate;
+        window.mcsControl.handleTagUpdate = (data) => {
+            if (!isPaused) {
+                originalUpdateTagDisplay.call(window.mcsControl, data);
+            }
+        };
+    });
 </script>
 {% endblock %} 

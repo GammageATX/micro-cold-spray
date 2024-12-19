@@ -1,0 +1,279 @@
+{% extends "base.html" %}
+
+{% block breadcrumb %}
+<li class="breadcrumb-item active">Dashboard</li>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- System Overview -->
+    <div class="col-md-6 col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title">
+                    <i class="fas fa-tachometer-alt"></i>
+                    System Overview
+                </h5>
+                <div class="card-actions">
+                    <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#systemInfoModal">
+                        <i class="fas fa-info-circle"></i>
+                        Details
+                    </button>
+                </div>
+            </div>
+            <div class="card-content">
+                <div class="state-grid">
+                    <div class="state-card" data-state-key="system_state">
+                        <div class="state-label">System State</div>
+                        <div class="state-value">Loading...</div>
+                    </div>
+                    <div class="state-card" data-state-key="process_state">
+                        <div class="state-label">Process State</div>
+                        <div class="state-value">Loading...</div>
+                    </div>
+                    <div class="state-card" data-state-key="active_alarms">
+                        <div class="state-label">Active Alarms</div>
+                        <div class="state-value">Loading...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Service Health -->
+    <div class="col-md-6 col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title">
+                    <i class="fas fa-server"></i>
+                    Service Health
+                </h5>
+                <div class="card-actions">
+                    <a href="/services" class="btn btn-sm btn-outline-secondary">
+                        <i class="fas fa-external-link-alt"></i>
+                        View All
+                    </a>
+                </div>
+            </div>
+            <div class="card-content">
+                <div class="service-grid">
+                    <div class="service-card" data-service="communication">
+                        <div class="service-header">
+                            <span class="service-name">Communication</span>
+                            <span class="status-badge">Loading...</span>
+                        </div>
+                        <div class="service-metrics">Loading metrics...</div>
+                    </div>
+                    <div class="service-card" data-service="process">
+                        <div class="service-header">
+                            <span class="service-name">Process Control</span>
+                            <span class="status-badge">Loading...</span>
+                        </div>
+                        <div class="service-metrics">Loading metrics...</div>
+                    </div>
+                    <div class="service-card" data-service="data_collection">
+                        <div class="service-header">
+                            <span class="service-name">Data Collection</span>
+                            <span class="status-badge">Loading...</span>
+                        </div>
+                        <div class="service-metrics">Loading metrics...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Critical Tags -->
+    <div class="col-md-12 col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title">
+                    <i class="fas fa-tags"></i>
+                    Critical Tags
+                </h5>
+                <div class="card-actions">
+                    <a href="/tags" class="btn btn-sm btn-outline-secondary">
+                        <i class="fas fa-external-link-alt"></i>
+                        View All
+                    </a>
+                </div>
+            </div>
+            <div class="card-content">
+                <div class="tag-grid">
+                    <div class="tag-card" data-tag-path="system.pressure">
+                        <div class="tag-header">
+                            <span class="tag-name">System Pressure</span>
+                            <span class="tag-quality">Good</span>
+                        </div>
+                        <div class="tag-value">Loading...</div>
+                        <div class="tag-metadata">
+                            <span class="tag-unit">PSI</span>
+                            <span class="tag-timestamp">Loading...</span>
+                        </div>
+                    </div>
+                    <div class="tag-card" data-tag-path="system.temperature">
+                        <div class="tag-header">
+                            <span class="tag-name">System Temperature</span>
+                            <span class="tag-quality">Good</span>
+                        </div>
+                        <div class="tag-value">Loading...</div>
+                        <div class="tag-metadata">
+                            <span class="tag-unit">°C</span>
+                            <span class="tag-timestamp">Loading...</span>
+                        </div>
+                    </div>
+                    <div class="tag-card" data-tag-path="system.flow_rate">
+                        <div class="tag-header">
+                            <span class="tag-name">Flow Rate</span>
+                            <span class="tag-quality">Good</span>
+                        </div>
+                        <div class="tag-value">Loading...</div>
+                        <div class="tag-metadata">
+                            <span class="tag-unit">SLPM</span>
+                            <span class="tag-timestamp">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <!-- Quick Actions -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title">
+                    <i class="fas fa-bolt"></i>
+                    Quick Actions
+                </h5>
+            </div>
+            <div class="card-content">
+                <div class="d-grid gap-2">
+                    <button class="btn btn-primary service-control-btn" data-service="process" data-action="start">
+                        <i class="fas fa-play"></i>
+                        Start Process
+                    </button>
+                    <button class="btn btn-warning service-control-btn" data-service="process" data-action="pause">
+                        <i class="fas fa-pause"></i>
+                        Pause Process
+                    </button>
+                    <button class="btn btn-danger service-control-btn" data-service="process" data-action="stop">
+                        <i class="fas fa-stop"></i>
+                        Stop Process
+                    </button>
+                    <button class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#configModal">
+                        <i class="fas fa-cog"></i>
+                        Edit Configuration
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Activity -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title">
+                    <i class="fas fa-history"></i>
+                    Recent Activity
+                </h5>
+                <div class="card-actions">
+                    <button class="btn btn-sm btn-outline-secondary" id="clearActivityBtn">
+                        <i class="fas fa-trash"></i>
+                        Clear
+                    </button>
+                </div>
+            </div>
+            <div class="card-content">
+                <div class="activity-log" id="activityLog">
+                    <div class="activity-item">
+                        <span class="activity-icon"><i class="fas fa-info-circle text-info"></i></span>
+                        <span class="activity-message">System initialized</span>
+                        <span class="activity-time">Just now</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Config Modal -->
+<div class="modal fade" id="configModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Configuration</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="list-group">
+                    <a href="/config/edit/system" class="list-group-item list-group-item-action">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h6 class="mb-1">System Configuration</h6>
+                            <small>Last modified: 2h ago</small>
+                        </div>
+                        <p class="mb-1">Basic system settings and parameters</p>
+                    </a>
+                    <a href="/config/edit/hardware" class="list-group-item list-group-item-action">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h6 class="mb-1">Hardware Configuration</h6>
+                            <small>Last modified: 1d ago</small>
+                        </div>
+                        <p class="mb-1">Hardware-specific settings and calibration</p>
+                    </a>
+                    <a href="/config/edit/process" class="list-group-item list-group-item-action">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h6 class="mb-1">Process Configuration</h6>
+                            <small>Last modified: 3h ago</small>
+                        </div>
+                        <p class="mb-1">Process control parameters and setpoints</p>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    // Initialize activity log
+    const activityLog = document.getElementById('activityLog');
+    const clearActivityBtn = document.getElementById('clearActivityBtn');
+    
+    function addActivity(message, type = 'info') {
+        const item = document.createElement('div');
+        item.className = 'activity-item';
+        item.innerHTML = `
+            <span class="activity-icon"><i class="fas fa-${type === 'info' ? 'info-circle' : type} text-${type}"></i></span>
+            <span class="activity-message">${message}</span>
+            <span class="activity-time">Just now</span>
+        `;
+        activityLog.insertBefore(item, activityLog.firstChild);
+        
+        // Limit to 10 items
+        while (activityLog.children.length > 10) {
+            activityLog.removeChild(activityLog.lastChild);
+        }
+    }
+    
+    clearActivityBtn.addEventListener('click', () => {
+        activityLog.innerHTML = '';
+        addActivity('Activity log cleared', 'info');
+    });
+    
+    // Listen for service control events
+    document.querySelectorAll('.service-control-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const service = btn.dataset.service;
+            const action = btn.dataset.action;
+            addActivity(`${action.charAt(0).toUpperCase() + action.slice(1)}ed ${service} service`, 'info');
+        });
+    });
+});
+</script>
+{% endblock %} 

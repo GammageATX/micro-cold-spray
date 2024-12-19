@@ -57,21 +57,27 @@ class CommunicationService(ConfigurableService):
 
     async def _load_config_and_init_clients(self) -> None:
         """Load config and initialize hardware clients."""
-        # Load hardware config
-        config_data = await self._config_service.get_config("hardware")
-        if not config_data or not config_data.data:
-            raise ValidationError("Hardware configuration is empty")
-        
-        config = config_data.data
-        network_config = config.get("network", {})
-        plc_config = network_config.get("plc", {})
-        ssh_config = network_config.get("ssh", {})
-        
-        # Initialize PLC client
-        self._plc_client = await self._init_plc_client(plc_config)
-        
-        # Initialize SSH client
-        self._ssh_client = await self._init_ssh_client(ssh_config)
+        try:
+            # Load network configuration
+            network_config = await self._get_communication_config('network')
+            if not network_config:
+                raise ValidationError("Network configuration is empty")
+            
+            plc_config = network_config.get("plc", {})
+            ssh_config = network_config.get("ssh", {})
+            
+            # Initialize PLC client
+            self._plc_client = await self._init_plc_client(plc_config)
+            
+            # Initialize SSH client
+            self._ssh_client = await self._init_ssh_client(ssh_config)
+            
+        except Exception as e:
+            logger.error(f"Failed to load config and initialize clients: {e}")
+            raise ServiceError(
+                "Failed to initialize communication clients",
+                {"error": str(e)}
+            )
 
     async def _init_plc_client(self, plc_config: Dict[str, Any]) -> PLCClient:
         """Initialize PLC client with fallback to mock."""

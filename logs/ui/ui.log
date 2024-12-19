@@ -1,0 +1,30 @@
+2024-12-18 18:51:34.868 | INFO     | __main__:main:56 | Starting UI service...
+2024-12-18 18:51:34.869 | INFO     | __main__:main:64 | Host: 127.0.0.1
+2024-12-18 18:51:34.869 | INFO     | __main__:main:65 | Port: 8000
+2024-12-18 18:51:34.870 | INFO     | __main__:main:66 | Reload: False
+2024-12-18 18:55:20.209 | INFO     | __main__:main:82 | Starting UI service...
+2024-12-18 18:55:20.209 | INFO     | __main__:main:88 | Host: 127.0.0.1
+2024-12-18 18:55:20.210 | INFO     | __main__:main:89 | Port: 8000
+2024-12-18 18:55:20.210 | INFO     | __main__:main:90 | Reload: False
+2024-12-18 18:55:25.533 | ERROR    | micro_cold_spray.ui.router:get_index:24 | Failed to serve dashboard: 'get_flashed_messages' is undefined
+2024-12-18 18:55:25.534 | ERROR    | micro_cold_spray.ui.router:general_exception_handler:183 | Unhandled exception: 'dict' object is not callable
+2024-12-18 18:55:25.871 | ERROR    | micro_cold_spray.ui.router:get_index:24 | Failed to serve dashboard: 'get_flashed_messages' is undefined
+2024-12-18 18:55:25.871 | ERROR    | micro_cold_spray.ui.router:general_exception_handler:183 | Unhandled exception: 'dict' object is not callable
+2024-12-18 18:58:45.761 | INFO     | __main__:main:82 | Starting UI service...
+2024-12-18 18:58:45.762 | INFO     | __main__:main:88 | Host: 127.0.0.1
+2024-12-18 18:58:45.762 | INFO     | __main__:main:89 | Port: 8000
+2024-12-18 18:58:45.762 | INFO     | __main__:main:90 | Reload: False
+2024-12-18 18:58:58.703 | ERROR    | micro_cold_spray.ui.router:get_services:43 | Failed to serve services page: services.html
+2024-12-18 18:58:58.704 | ERROR    | micro_cold_spray.ui.router:general_exception_handler:178 | Unhandled exception: 'dict' object is not callable
+2024-12-18 18:59:08.481 | ERROR    | micro_cold_spray.ui.router:get_config_editor:99 | Failed to serve config editor: config_editor.html
+2024-12-18 18:59:08.482 | ERROR    | micro_cold_spray.ui.router:general_exception_handler:178 | Unhandled exception: 'dict' object is not callable
+2024-12-18 19:01:14.165 | INFO     | __main__:main:82 | Starting UI service...
+2024-12-18 19:01:14.165 | INFO     | __main__:main:88 | Host: 127.0.0.1
+2024-12-18 19:01:14.165 | INFO     | __main__:main:89 | Port: 8000
+2024-12-18 19:01:14.166 | INFO     | __main__:main:90 | Reload: False
+2024-12-18 19:01:31.048 | ERROR    | micro_cold_spray.ui.router:get_services:43 | Failed to serve services page: services.html
+2024-12-18 19:01:31.049 | ERROR    | micro_cold_spray.ui.router:general_exception_handler:178 | Unhandled exception: 'dict' object is not callable
+2024-12-18 19:01:38.063 | ERROR    | micro_cold_spray.ui.router:get_config_editor:99 | Failed to serve config editor: config_editor.html
+2024-12-18 19:01:38.064 | ERROR    | micro_cold_spray.ui.router:general_exception_handler:178 | Unhandled exception: 'dict' object is not callable
+2024-12-18 19:01:40.185 | ERROR    | micro_cold_spray.ui.router:get_system_state:136 | Failed to serve system state: system_state.html
+2024-12-18 19:01:40.185 | ERROR    | micro_cold_spray.ui.router:general_exception_handler:178 | Unhandled exception: 'dict' object is not callable
