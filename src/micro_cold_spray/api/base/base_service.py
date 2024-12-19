@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from loguru import logger
 
-from .base_errors import ServiceError, AppErrorCode
+from .base_errors import ServiceError, AppErrorCode, ConfigError
 
 
 class BaseService:
@@ -83,6 +83,7 @@ class BaseService:
         
         Raises:
             ServiceError: If service fails to start
+            ConfigError: If configuration is invalid
         """
         if self.is_running:
             return
@@ -96,6 +97,8 @@ class BaseService:
         except Exception as e:
             self._metrics["error_count"] += 1
             self._metrics["last_error"] = str(e)
+            if isinstance(e, ConfigError):
+                raise
             raise ServiceError(
                 f"Failed to start service: {e}",
                 error_code=AppErrorCode.SERVICE_START_ERROR
