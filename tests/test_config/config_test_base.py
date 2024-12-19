@@ -1,10 +1,12 @@
 """Base utilities for configuration tests."""
 
 from typing import Type, Optional
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from micro_cold_spray.api.base.base_service import BaseService
+from micro_cold_spray.api.base.base_exceptions import ConfigError
 from micro_cold_spray.api.config.config_app import ConfigApp
 
 
@@ -45,4 +47,14 @@ async def test_service_lifecycle(service: BaseService):
     """
     assert service.is_running
     await service.stop()
-    assert not service.is_running 
+    assert not service.is_running
+
+
+@pytest.fixture
+def mock_service_error():
+    """Create standardized service error mock.
+    
+    Returns:
+        ConfigError: Standard error for service tests
+    """
+    return ConfigError("Service error")

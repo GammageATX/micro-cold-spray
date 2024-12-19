@@ -1,621 +1,197 @@
-"""Tests for config service."""
+"""Test configuration service."""
 
+import threading
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import MagicMock, AsyncMock, patch
 from datetime import datetime
-from unittest import mock
+import asyncio
 
+from micro_cold_spray.api.base.base_errors import ConfigError
 from micro_cold_spray.api.config.config_service import ConfigService
-from micro_cold_spray.api.base.base_exceptions import ConfigError
-from micro_cold_spray.api.config.models import (
-    ConfigData,
-    ConfigMetadata,
-    ConfigUpdate,
-    TagRemapRequest,
-    ConfigValidationResult
-)
+from micro_cold_spray.api.config.models import ConfigData
+from micro_cold_spray.api.config.utils.config_singleton import cleanup_config_service, get_config_service
 
 
 @pytest.fixture
-def mock_services():
-    """Create mock services."""
-    services = {
-        "cache": MagicMock(),
-        "file": MagicMock(),
-        "schema": MagicMock(),
-        "registry": MagicMock(),
-        "format": MagicMock()
-    }
-    
-    # Setup common async methods
-    for service in services.values():
-        service.start = AsyncMock()
-        service.stop = AsyncMock()
-    
-    # Setup specific async methods
-    services["cache"].get_cached_config = AsyncMock()
-    services["cache"].cache_config = AsyncMock()
-    services["cache"].invalidate = AsyncMock()
-    services["cache"].clear = AsyncMock()
-    
-    services["file"].load_config = AsyncMock()
-    services["file"].save_config = AsyncMock()
-    services["file"].create_backup = AsyncMock()
-    
-    services["registry"].validate_tag = AsyncMock()
-    services["registry"].update_tag_references = AsyncMock()
-    services["registry"].validate_references = AsyncMock()
-    
-    services["schema"].validate_config = AsyncMock()
-    
-    return services
-
-
-@pytest.fixture
-def config_service(mock_services, tmp_path):
-    """Create config service with mock dependencies."""
-    with patch('micro_cold_spray.api.config.service.ConfigCacheService', return_value=mock_services["cache"]), \
-         patch('micro_cold_spray.api.config.service.ConfigFileService', return_value=mock_services["file"]), \
-         patch('micro_cold_spray.api.config.service.SchemaService', return_value=mock_services["schema"]), \
-         patch('micro_cold_spray.api.config.service.RegistryService', return_value=mock_services["registry"]), \
-         patch('micro_cold_spray.api.config.service.FormatService', return_value=mock_services["format"]):
-        
-        service = ConfigService()
-        service._config_dir = tmp_path / "config"
-        service._schema_dir = service._config_dir / "schemas"
-        
-        # Initialize schema registry with test schemas
-        service._schema_registry = MagicMock()
-        service._schema_registry.__fields__ = {
-            "test": MagicMock(),
-            "application": MagicMock()
-        }
-        service._schema_registry.test = {
-            "type": "object",
-            "properties": {
-                "key": {"type": "string"}
-            }
-        }
-        service._schema_registry.application = {
-            "type": "object",
-            "properties": {
-                "tag": {"type": "string"}
-            }
-        }
-        
-        return service
+async def config_service():
+    """Create a config service instance."""
+    cleanup_config_service()  # Ensure clean state
+    service = ConfigService(service_name="config")
+    yield service
+    # Cleanup after each test
+    await service.stop()
+    cleanup_config_service()
 
 
 @pytest.mark.asyncio
-async def test_service_start(config_service, mock_services):
-    """Test service startup."""
-    # Mock schema loading
-    mock_services["schema"].get_schema = MagicMock(return_value={
-        "type": "object",
-        "properties": {}
-    })
-    
+async def test_health_check(config_service):
+    """Test health check."""
     # Start service
     await config_service.start()
     
-    # Verify all services were started
-    for service in mock_services.values():
-        service.start.assert_called_once()
-    
-    # Verify schema registry was loaded
-    assert config_service._schema_registry is not None
+    # Check health
+    health = await config_service.check_health()
+    assert health["status"] == "ok"
+    assert health["service_info"]["config_types"] == []
 
 
 @pytest.mark.asyncio
-async def test_service_start_error(config_service, mock_services):
-    """Test service startup with error."""
-    # Make schema service fail
-    mock_services["schema"].start.side_effect = Exception("Schema error")
-    
-    # Verify startup fails
-    with pytest.raises(Exception, match="Schema error"):
-        await config_service.start()
-
-
-@pytest.mark.asyncio
-async def test_service_stop(config_service, mock_services):
-    """Test service shutdown."""
-    # Start service first
-    mock_services["schema"].get_schema = MagicMock(return_value={
-        "type": "object",
-        "properties": {}
-    })
+async def test_service_lifecycle(config_service):
+    """Test service lifecycle."""
+    # Start service
     await config_service.start()
+    assert config_service.is_running
     
     # Stop service
     await config_service.stop()
-    
-    # Verify all services were stopped
-    for service in mock_services.values():
-        service.stop.assert_called_once()
+    assert not config_service.is_running
 
 
 @pytest.mark.asyncio
-async def test_service_stop_error(config_service, mock_services):
-    """Test service shutdown with error."""
-    # Start service first
-    mock_services["schema"].get_schema = MagicMock(return_value={
-        "type": "object",
-        "properties": {}
-    })
-    await config_service.start()
-    
-    # Make cache service fail during stop
-    mock_services["cache"].stop.side_effect = Exception("Cache error")
-    
-    # Verify shutdown fails
-    with pytest.raises(Exception, match="Cache error"):
-        await config_service.stop()
-
-
-@pytest.mark.asyncio
-async def test_get_config(config_service, mock_services):
+async def test_get_config(config_service):
     """Test getting configuration."""
-    # Start service
-    mock_services["schema"].get_schema = MagicMock(return_value={
-        "type": "object",
-        "properties": {}
-    })
-    await config_service.start()
+    # Register config type
+    config_service.register_config_type(ConfigData)
     
-    # Mock cache miss and file load
-    mock_services["cache"].get_cached_config.return_value = None
-    mock_config = ConfigData(
-        metadata=ConfigMetadata(
-            config_type="test",
-            last_modified=datetime.now(),
-            version="1.0.0"
-        ),
-        data={"key": "value"}
-    )
-    mock_services["file"].load_config.return_value = mock_config
-    
-    # Get config
-    config = await config_service.get_config("test")
-    
-    # Verify cache was checked and file was loaded
-    mock_services["cache"].get_cached_config.assert_called_once_with("test")
-    mock_services["file"].load_config.assert_called_once_with("test")
-    
-    # Verify config was cached
-    mock_services["cache"].cache_config.assert_called_once_with("test", mock_config)
-    
-    # Verify returned config
-    assert config == mock_config
+    # Get config type
+    config_type = config_service.get_config_type("ConfigData")
+    assert config_type == ConfigData
 
 
 @pytest.mark.asyncio
-async def test_get_config_cached(config_service, mock_services):
-    """Test getting cached configuration."""
-    # Start service
-    mock_services["schema"].get_schema = MagicMock(return_value={
-        "type": "object",
-        "properties": {}
-    })
-    await config_service.start()
-    
-    # Mock cache hit
-    mock_config = ConfigData(
-        metadata=ConfigMetadata(
-            config_type="test",
-            last_modified=datetime.now(),
-            version="1.0.0"
-        ),
-        data={"key": "value"}
-    )
-    mock_services["cache"].get_cached_config.return_value = mock_config
-    
-    # Get config
-    config = await config_service.get_config("test")
-    
-    # Verify cache was checked but file was not loaded
-    mock_services["cache"].get_cached_config.assert_called_once_with("test")
-    mock_services["file"].load_config.assert_not_called()
-    
-    # Verify returned config
-    assert config == mock_config
-
-
-@pytest.mark.asyncio
-async def test_get_config_error(config_service, mock_services):
-    """Test getting configuration with error."""
-    # Start service
-    mock_services["schema"].get_schema = MagicMock(return_value={
-        "type": "object",
-        "properties": {}
-    })
-    await config_service.start()
-    
-    # Mock cache miss and file error
-    mock_services["cache"].get_cached_config.return_value = None
-    mock_services["file"].load_config.side_effect = Exception("File error")
-    
-    # Verify error is wrapped
-    with pytest.raises(ConfigError, match="Failed to get config test"):
-        await config_service.get_config("test")
-
-
-@pytest.mark.asyncio
-async def test_update_config(config_service, mock_services):
+async def test_update_config(config_service):
     """Test updating configuration."""
     # Start service
-    mock_services["schema"].get_schema = MagicMock(return_value={
-        "type": "object",
-        "properties": {}
-    })
     await config_service.start()
     
-    # Mock successful validation
-    mock_services["schema"].validate_config.return_value = []
-    mock_services["registry"].validate_references.return_value = {
-        "valid": True,
-        "errors": [],
-        "warnings": []
-    }
+    # Create test config type
+    class TestConfig(ConfigData):
+        pass
     
-    # Create update request
-    update = ConfigUpdate(
-        config_type="test",
-        data={"key": "value"},
-        backup=True,
-        should_validate=True
-    )
-    
-    # Mock validation result
-    mock_validation = ConfigValidationResult(valid=True, errors=[], warnings=[])
-    config_service.validate_config = AsyncMock(return_value=mock_validation)
-    
-    # Mock cache service
-    config_service._cache_service = mock_services["cache"]
+    # Register config type
+    config_service.register_config_type(TestConfig)
     
     # Update config
-    result = await config_service.update_config(update)
-    
-    # Verify validation was successful
-    assert result.valid
-    
-    # Verify file was updated
-    mock_services["file"].save_config.assert_called_once()
-    
-    # Verify cache was updated
-    assert mock_services["cache"].cache_config.call_count == 1
-    call_args = mock_services["cache"].cache_config.call_args
-    assert call_args[0][0] == "test"  # First argument is config_type
-    assert isinstance(call_args[0][1], ConfigData)  # Second argument is ConfigData
-    assert call_args[0][1].metadata.config_type == "test"
-    assert call_args[0][1].data == {"key": "value"}
-
-
-@pytest.mark.asyncio
-async def test_update_config_validation_error(config_service, mock_services):
-    """Test updating configuration with validation error."""
-    # Start service
-    mock_services["schema"].get_schema = MagicMock(return_value={
-        "type": "object",
-        "properties": {}
-    })
-    await config_service.start()
-    
-    # Mock validation error
-    mock_services["schema"].validate_config.return_value = ["Invalid field"]
-    
-    # Create update request
-    update = ConfigUpdate(
-        config_type="test",
-        data={"key": "value"},
-        backup=True,
-        should_validate=True
+    config = TestConfig(
+        metadata={
+            "config_type": "TestConfig",  # Must match class name
+            "version": "1.0.0",
+            "last_modified": datetime.now().isoformat()
+        },
+        data={
+            "test_key": "test_value"
+        }
     )
-    
-    # Mock validation result
-    mock_validation = ConfigValidationResult(valid=False, errors=["Invalid field"], warnings=[])
-    config_service.validate_config = AsyncMock(return_value=mock_validation)
-    
-    # Update config
-    result = await config_service.update_config(update)
-    
-    # Verify validation failed
-    assert not result.valid
-    assert "Invalid field" in result.errors
-    
-    # Verify file was not updated
-    mock_services["file"].save_config.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_clear_cache(config_service, mock_services):
-    """Test clearing configuration cache."""
-    # Start service
-    mock_services["schema"].get_schema = MagicMock(return_value={
-        "type": "object",
-        "properties": {}
-    })
-    await config_service.start()
-    
-    # Mock cache service
-    config_service._cache_service = mock_services["cache"]
-    
-    # Clear cache
-    await config_service._cache_service.clear()
-    
-    # Verify cache was cleared
-    mock_services["cache"].clear.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_remap_tag(config_service, mock_services):
-    """Test remapping tag references."""
-    # Start service
-    mock_services["schema"].get_schema = MagicMock(return_value={
-        "type": "object",
-        "properties": {}
-    })
-    await config_service.start()
-    
-    # Mock successful validation and update
-    mock_services["registry"].validate_tag.return_value = True
-    mock_services["registry"].update_tag_references.return_value = True
-    
-    # Mock config data
-    mock_config = ConfigData(
-        metadata=ConfigMetadata(
-            config_type="test",
-            last_modified=datetime.now(),
-            version="1.0.0"
-        ),
-        data={"tag": "old_tag"}
-    )
-    mock_services["cache"].get_cached_config.return_value = mock_config
-    
-    # Mock validation result
-    mock_validation = ConfigValidationResult(valid=True, errors=[], warnings=[])
-    config_service.validate_config = AsyncMock(return_value=mock_validation)
-    
-    # Create remap request
-    request = TagRemapRequest(
-        old_tag="old_tag",
-        new_tag="new_tag",
-        should_validate=True
-    )
-    
-    # Remap tag
-    await config_service.remap_tag(request)
-    
-    # Verify tag was validated
-    mock_services["registry"].validate_tag.assert_called_once_with("new_tag")
-    
-    # Verify references were updated
-    mock_services["registry"].update_tag_references.assert_called()
+    await config_service.update_config(config)
     
     # Verify config was updated
-    mock_services["file"].save_config.assert_called()
+    stored_config = await config_service.get_config("TestConfig")
+    assert stored_config == config
 
 
 @pytest.mark.asyncio
-async def test_remap_tag_validation_error(config_service, mock_services):
-    """Test remapping tag with validation error."""
+async def test_clear_cache(config_service):
+    """Test clearing configuration cache."""
     # Start service
-    mock_services["schema"].get_schema = MagicMock(return_value={
-        "type": "object",
-        "properties": {}
-    })
     await config_service.start()
     
-    # Mock validation error
-    mock_services["registry"].validate_tag.return_value = False
+    # Create test config type
+    class TestConfig(ConfigData):
+        pass
     
-    # Mock registry service
-    config_service._registry_service = mock_services["registry"]
+    # Register config type
+    config_service.register_config_type(TestConfig)
     
-    # Create remap request
-    request = TagRemapRequest(
-        old_tag="old_tag",
-        new_tag="invalid_tag",
-        should_validate=True
+    # Update config
+    config = TestConfig(
+        metadata={
+            "config_type": "TestConfig",  # Must match class name
+            "version": "1.0.0",
+            "last_modified": datetime.now().isoformat()
+        },
+        data={
+            "test_key": "test_value"
+        }
     )
+    await config_service.update_config(config)
     
-    # Verify validation error is raised
-    with pytest.raises(ConfigError) as exc_info:
-        await config_service.remap_tag(request)
+    # Clear cache
+    await config_service.clear_cache()
     
-    # Verify error message
-    error_message = str(exc_info.value)
-    assert error_message == "Invalid tag: invalid_tag"
-    
-    # Verify references were not updated
-    mock_services["registry"].update_tag_references.assert_not_called()
-    mock_services["file"].save_config.assert_not_called()
+    # Verify config was cleared
+    with pytest.raises(ConfigError):
+        await config_service.get_config("TestConfig")
 
 
 @pytest.mark.asyncio
-async def test_validate_config_schema_registry_not_initialized():
-    """Test validation when schema registry is not initialized."""
-    service = ConfigService()
-    await service.start()
-    service._schema_registry = None  # Force schema registry to be None
+async def test_concurrent_operations(config_service):
+    """Test concurrent operations."""
+    # Start service
+    await config_service.start()
     
-    with pytest.raises(ConfigError) as exc_info:
-        await service.validate_config("application", {})
-    assert "Schema registry not initialized" in str(exc_info.value)
-
-
-@pytest.mark.asyncio
-async def test_validate_config_unknown_type():
-    """Test validation with unknown config type."""
-    service = ConfigService()
-    await service.start()
-    
-    with pytest.raises(ConfigError) as exc_info:
-        await service.validate_config("nonexistent", {})
-    assert "Unknown config type" in str(exc_info.value)
-
-
-@pytest.mark.asyncio
-async def test_update_config_with_backup(tmp_path):
-    """Test config update with backup creation."""
-    # Create a temporary config directory
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
-    
-    service = ConfigService()
-    service._config_dir = config_dir  # Use temporary directory
-    service._file_service._config_dir = config_dir  # Set config dir for file service
-    await service.start()
-    
-    # Create initial config file
-    config_data = ConfigData(
-        metadata=ConfigMetadata(
-            config_type="application",
-            last_modified=datetime.now()
-        ),
-        data={"environment": "test", "log_level": "INFO"}
-    )
-    await service._file_service.save_config("application", config_data.data)
-    
-    # Use valid application config data for update
-    update = ConfigUpdate(
-        config_type="application",
-        data={"environment": "prod", "log_level": "DEBUG"},  # Different data to verify backup
-        backup=True,
-        validate=True
-    )
-    
-    # Mock validation to succeed
-    async def mock_validate(*args):
-        return ConfigValidationResult(valid=True, errors=[], warnings=[])
-    
-    with mock.patch.object(service, 'validate_config', side_effect=mock_validate):
-        result = await service.update_config(update)
-        assert result.valid
+    # Create test config types
+    test_configs = []
+    for i in range(10):
+        class_name = f"TestConfig{i}"
+        TestConfig = type(class_name, (ConfigData,), {})
+        config_service.register_config_type(TestConfig)
         
-        # Verify backup was created - check backup directory for any file matching the pattern
-        backup_files = list(service._file_service._backup_dir.glob("application_*.bak"))
-        assert len(backup_files) > 0, "No backup file was created"
-        
-        # Verify original file still exists with new data
-        config_path = config_dir / "application.yaml"
-        assert config_path.exists()
+        config = TestConfig(
+            metadata={
+                "config_type": class_name,  # Must match class name
+                "version": "1.0.0",
+                "last_modified": datetime.now().isoformat()
+            },
+            data={
+                "test_key": f"test_value_{i}"
+            }
+        )
+        test_configs.append((class_name, config))
+    
+    # Create multiple tasks to update config
+    tasks = []
+    for _, config in test_configs:
+        task = config_service.update_config(config)
+        tasks.append(task)
+    
+    # Wait for all tasks to complete
+    await asyncio.gather(*tasks)
+    
+    # Verify all configs were updated
+    for class_name, config in test_configs:
+        stored_config = await config_service.get_config(class_name)
+        assert stored_config.data["test_key"] == config.data["test_key"]
 
 
 @pytest.mark.asyncio
-async def test_update_config_validation_failure():
-    """Test config update with validation failure."""
-    service = ConfigService()
-    await service.start()
+async def test_thread_safety():
+    """Test thread safety of ConfigService singleton."""
+    # Reset singleton state
+    cleanup_config_service()
     
-    # Mock validation to fail
-    async def mock_validate(*args):
-        return ConfigValidationResult(
-            valid=False,
-            errors=["Invalid config"],
-            warnings=[]
-        )
+    async def create_service():
+        """Create service instance."""
+        service = get_config_service()
+        await service.start()
+        return service
     
-    with mock.patch.object(service, 'validate_config', side_effect=mock_validate):
-        update = ConfigUpdate(
-            config_type="application",
-            data={"invalid": "data"},
-            validate=True
-        )
-        
-        result = await service.update_config(update)
-        assert not result.valid
-        assert "Invalid config" in result.errors
-
-
-@pytest.mark.asyncio
-async def test_remap_tag_validation_success():
-    """Test successful tag remapping with validation."""
-    service = ConfigService()
-    await service.start()
+    # Create multiple instances concurrently
+    tasks = []
+    instances = []
     
-    # Setup test data
-    old_tag = "old_tag"
-    new_tag = "new_tag"
+    for _ in range(10):
+        task = create_service()
+        tasks.append(task)
     
-    # Mock registry service validation
-    async def mock_validate_tag(*args):
-        return True
+    # Wait for all tasks and collect instances
+    results = await asyncio.gather(*tasks)
+    instances.extend(results)
     
-    # Mock get_config to return proper ConfigData
-    async def mock_get_config(*args):
-        return ConfigData(
-            metadata=ConfigMetadata(
-                config_type="test",
-                last_modified=datetime.now()
-            ),
-            data={}
-        )
+    # Verify all instances are the same object
+    first_instance = instances[0]
+    for instance in instances[1:]:
+        assert instance is first_instance
     
-    with mock.patch.object(service._registry_service, 'validate_tag', side_effect=mock_validate_tag), \
-         mock.patch.object(service, 'get_config', side_effect=mock_get_config):
-        request = TagRemapRequest(
-            old_tag=old_tag,
-            new_tag=new_tag,
-            validate=True
-        )
-        
-        await service.remap_tag(request)
-        # Success if no exception raised
-
-
-@pytest.mark.asyncio
-async def test_remap_tag_validation_failure():
-    """Test tag remapping with validation failure."""
-    service = ConfigService()
-    await service.start()
-    
-    # Mock registry service validation to fail
-    async def mock_validate_tag(*args):
-        return False
-    
-    with mock.patch.object(service._registry_service, 'validate_tag', side_effect=mock_validate_tag):
-        request = TagRemapRequest(
-            old_tag="old_tag",
-            new_tag="invalid_tag",
-            validate=True
-        )
-        
-        with pytest.raises(ConfigError) as exc_info:
-            await service.remap_tag(request)
-        assert "Invalid tag: invalid_tag" in str(exc_info.value)
-
-
-@pytest.mark.asyncio
-async def test_remap_tag_update_references():
-    """Test tag remapping updates references in configs."""
-    service = ConfigService()
-    await service.start()
-    
-    # Mock registry service with tag registry
-    service._registry_service._tag_registry = {"new_tag"}
-    
-    # Mock update_tag_references to indicate changes
-    async def mock_update_refs(*args):
-        return True
-    
-    # Mock get_config to return proper ConfigData
-    async def mock_get_config(*args):
-        return ConfigData(
-            metadata=ConfigMetadata(
-                config_type="test",
-                last_modified=datetime.now()
-            ),
-            data={}
-        )
-    
-    with mock.patch.object(service._registry_service, 'update_tag_references', side_effect=mock_update_refs), \
-         mock.patch.object(service, 'get_config', side_effect=mock_get_config):
-        request = TagRemapRequest(
-            old_tag="old_tag",
-            new_tag="new_tag",
-            validate=True  # Enable validation to test full path
-        )
-        
-        await service.remap_tag(request)
-        # Success if no exception raised
+    # Cleanup
+    await first_instance.stop()
+    cleanup_config_service()

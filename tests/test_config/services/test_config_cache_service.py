@@ -1,173 +1,148 @@
-"""Tests for config cache service."""
+"""Tests for configuration cache service."""
 
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import MagicMock, AsyncMock
 from datetime import datetime, timedelta
-import asyncio
 
-from micro_cold_spray.api.config.services.config_cache_service import ConfigCacheService, CacheEntry
-from micro_cold_spray.api.config.models import ConfigData, ConfigMetadata
-from micro_cold_spray.api.base.base_exceptions import ConfigError
-
-# Import base test utilities and fixtures
-from tests.test_config.config_test_base import test_service_lifecycle as base_service_lifecycle
-from tests.test_config.conftest import config_base_service  # noqa: F401
-from tests.test_config.config_test_base import mock_service_error  # noqa: F401
+from micro_cold_spray.api.config.services.config_cache_service import ConfigCacheService
+from micro_cold_spray.api.base.base_errors import ConfigError, ServiceError
+from micro_cold_spray.api.config.models import ConfigData
 
 
 @pytest.fixture
 async def cache_service():
-    """Create cache service.
-    
-    Returns:
-        ConfigCacheService: Cache service instance
-    """
-    service = ConfigCacheService()
-    await service.start()
-    yield service
-    await service.stop()
+    """Create a cache service instance."""
+    service = ConfigCacheService(service_name="cache")
+    return service
 
 
 @pytest.mark.asyncio
-async def test_service_lifecycle_pattern(cache_service):
-    """Test service lifecycle using base pattern.
+async def test_service_lifecycle(cache_service):
+    """Test service lifecycle."""
+    # Start service
+    await cache_service.start()
+    assert cache_service.is_running
     
-    Args:
-        cache_service: Cache service fixture
-    """
-    await base_service_lifecycle(cache_service)
+    # Stop service
+    await cache_service.stop()
+    assert not cache_service.is_running
 
 
 @pytest.mark.asyncio
-async def test_service_start_error():
-    """Test service startup with error."""
-    service = ConfigCacheService()
+async def test_service_start_error(cache_service):
+    """Test service start error handling."""
+    # Mock to raise error
+    cache_service._initialize = AsyncMock(side_effect=Exception("Test error"))
     
-    with patch.object(ConfigCacheService, 'start', side_effect=Exception("Service error")):
-        with pytest.raises(ConfigError) as exc_info:
-            await service.start()
-        assert "Service error" in str(exc_info.value)
+    with pytest.raises(ServiceError) as exc_info:
+        await cache_service.start()
+    assert "Test error" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
-async def test_service_stop_error():
-    """Test service shutdown with error."""
-    service = ConfigCacheService()
-    await service.start()
+async def test_service_stop_error(cache_service):
+    """Test service stop error handling."""
+    # Start service
+    await cache_service.start()
     
-    with patch.object(ConfigCacheService, 'stop', side_effect=Exception("Service error")):
-        with pytest.raises(ConfigError) as exc_info:
-            await service.stop()
-        assert "Service error" in str(exc_info.value)
+    # Mock to raise error
+    cache_service._cleanup = AsyncMock(side_effect=Exception("Test error"))
+    
+    with pytest.raises(ServiceError) as exc_info:
+        await cache_service.stop()
+    assert "Test error" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
-async def test_cache_entry_validation():
+async def test_cache_entry_validation(cache_service):
     """Test cache entry validation."""
-    # Create valid config first
-    valid_config = ConfigData(
-        metadata=ConfigMetadata(
-            config_type="test",
-            last_modified=datetime.now(),
-            version="1.0.0"
-        ),
-        data={"key": "value"}
-    )
+    # Start service
+    await cache_service.start()
     
-    # Test with None config
-    with pytest.raises(ValueError, match="Config data cannot be None"):
-        CacheEntry(None)
+    # Test invalid entry
+    with pytest.raises(ConfigError):
+        await cache_service.validate_cache_entry(None)
     
-    # Test with invalid data
-    invalid_config = valid_config.model_copy()
-    invalid_config.data = None
-    with pytest.raises(ValueError, match="Invalid config data"):
-        CacheEntry(invalid_config)
+    # Test valid entry
+    entry = {
+        "timestamp": datetime.now(),
+        "data": {"test": "data"}
+    }
+    assert await cache_service.validate_cache_entry(entry)
 
 
 @pytest.mark.asyncio
 async def test_cache_config(cache_service):
     """Test caching configuration."""
+    # Start service
+    await cache_service.start()
+    
     # Create test config
     config = ConfigData(
-        metadata=ConfigMetadata(
-            config_type="test",
-            last_modified=datetime.now(),
-            version="1.0.0"
-        ),
-        data={"key": "value"}
+        metadata={
+            "config_type": "test",
+            "version": "1.0.0",
+            "last_modified": datetime.now()
+        },
+        data={"test": "data"}
     )
     
     # Cache config
     await cache_service.cache_config("test", config)
     
-    # Verify config was cached
+    # Get cached config
     cached = await cache_service.get_cached_config("test")
     assert cached == config
-    
-    # Verify cache entry
-    assert "test" in cache_service._cache
-    assert isinstance(cache_service._cache["test"], CacheEntry)
-    assert cache_service._cache["test"].data == config
 
 
 @pytest.mark.asyncio
 async def test_get_cached_config_missing(cache_service):
-    """Test getting non-existent cached config."""
-    cached = await cache_service.get_cached_config("nonexistent")
-    assert cached is None
+    """Test getting missing cached config."""
+    # Start service
+    await cache_service.start()
+    
+    # Get non-existent config
+    result = await cache_service.get_cached_config("missing")
+    assert result is None
 
 
 @pytest.mark.asyncio
 async def test_get_cached_config_expired(cache_service):
     """Test getting expired cached config."""
-    # Create test config
-    config = ConfigData(
-        metadata=ConfigMetadata(
-            config_type="test",
-            last_modified=datetime.now(),
-            version="1.0.0"
-        ),
-        data={"key": "value"}
-    )
+    # Start service
+    await cache_service.start()
     
-    # Create expired cache entry
-    entry = CacheEntry(config, ttl=1)  # 1 second TTL
-    entry.timestamp = datetime.now() - timedelta(seconds=2)  # Make it expired
-    cache_service._cache["test"] = entry
+    # Create expired entry
+    expired_time = datetime.now() - timedelta(hours=2)
+    cache_service._cache["test"] = {
+        "timestamp": expired_time,
+        "data": {"test": "data"}
+    }
     
     # Get expired config
-    cached = await cache_service.get_cached_config("test")
-    assert cached is None
+    result = await cache_service.get_cached_config("test")
+    assert result is None
 
 
 @pytest.mark.asyncio
 async def test_cache_config_invalid(cache_service):
     """Test caching invalid config."""
-    # Try to cache None config
-    with pytest.raises(ConfigError, match="Config data cannot be None"):
-        await cache_service.cache_config("test", None)
+    # Start service
+    await cache_service.start()
     
-    # Try to cache with None type
-    with pytest.raises(ConfigError, match="Config type cannot be None"):
-        await cache_service.cache_config(None, ConfigData(
-            metadata=ConfigMetadata(
-                config_type="test",
-                last_modified=datetime.now(),
-                version="1.0.0"
-            ),
-            data={"key": "value"}
-        ))
+    with pytest.raises(ConfigError):
+        await cache_service.cache_config("test", None)
 
 
 @pytest.mark.asyncio
 async def test_cache_config_error(cache_service):
-    """Test caching config with error."""
-    # Create test config that will raise error
-    config = MagicMock()
-    config.data = None  # This will cause a TypeError when creating CacheEntry
-    config.metadata = None  # This will cause a TypeError when creating CacheEntry
+    """Test cache error handling."""
+    # Start service
+    await cache_service.start()
     
-    # Try to cache config
-    with pytest.raises(ConfigError, match="Failed to cache config"):
-        await cache_service.cache_config("test", config)
+    # Mock to raise error
+    cache_service._validate_config = AsyncMock(side_effect=Exception("Test error"))
+    
+    with pytest.raises(ConfigError) as exc_info:
+        await cache_service.cache_config("test", {"test": "data"})
+    assert "Test error" in str(exc_info.value)

@@ -1,25 +1,28 @@
-"""Schema service for configuration validation."""
+"""Configuration schema service implementation."""
 
-from pathlib import Path
-from typing import Dict, Any, Optional, List
 import json
-import re
+from pathlib import Path
+from typing import Dict, Optional
 
 from loguru import logger
 
-from micro_cold_spray.api.base import BaseService
-from micro_cold_spray.api.base.base_exceptions import ConfigError
+from micro_cold_spray.api.base.base_service import BaseService
+from micro_cold_spray.api.base.base_errors import ConfigError
 from micro_cold_spray.api.config.models.config_models import ConfigSchema
 
 
 class ConfigSchemaService(BaseService):
-    """Service for schema validation."""
+    """Configuration schema service implementation."""
 
-    def __init__(self, schema_dir: Path):
-        """Initialize schema service."""
-        super().__init__(service_name="schema")
+    def __init__(self, service_name: str, schema_dir: Path) -> None:
+        """Initialize service.
+
+        Args:
+            service_name: Service name
+            schema_dir: Schema directory
+        """
+        super().__init__(service_name)
         self._schema_dir = schema_dir
-        self._schema_dir.mkdir(parents=True, exist_ok=True)
         self._schemas: Dict[str, ConfigSchema] = {}
 
     async def _start(self) -> None:
@@ -38,212 +41,106 @@ class ConfigSchemaService(BaseService):
                 schema_type = schema_file.stem
                 with open(schema_file, 'r') as f:
                     schema_data = json.load(f)
-                    
+
                 if not isinstance(schema_data, dict):
                     raise ConfigError(
                         "Invalid schema format",
                         {"schema": schema_type}
                     )
-                    
+
                 self._schemas[schema_type] = ConfigSchema(**schema_data)
                 logger.debug("Loaded schema: {}", schema_type)
-                
+
         except Exception as e:
             raise ConfigError("Failed to load schemas", {"error": str(e)})
 
     def get_schema(self, schema_type: str) -> Optional[ConfigSchema]:
-        """Get schema by type."""
+        """Get schema by type.
+
+        Args:
+            schema_type: Schema type
+
+        Returns:
+            Schema if found, None otherwise
+        """
         return self._schemas.get(schema_type)
 
-    def build_schema(self, schema_data: Dict[str, Any]) -> ConfigSchema:
-        """Build a schema from raw data."""
-        return ConfigSchema(**schema_data)
+    async def add_schema(self, schema_type: str, schema: ConfigSchema) -> None:
+        """Add schema.
 
-    def validate_config(
-            self,
-            config_type: str,
-            config_data: Dict[str, Any]
-    ) -> List[str]:
-        """Validate configuration against schema."""
-        schema = self.get_schema(config_type)
-        if not schema:
-            raise ConfigError(
-                "Schema not found",
-                {
-                    "config_type": config_type,
-                    "available_schemas": list(self._schemas.keys())
-                }
-            )
-            
+        Args:
+            schema_type: Schema type
+            schema: Schema to add
+
+        Raises:
+            ConfigError: If schema already exists or save fails
+        """
+        if schema_type in self._schemas:
+            raise ConfigError(f"Schema {schema_type} already exists")
+
         try:
-            errors = []
-            self._validate_against_schema(config_data, schema, "", errors)
-            return errors
+            schema_file = self._schema_dir / f"{schema_type}.json"
+            with open(schema_file, 'w') as f:
+                json.dump(schema.model_dump(), f, indent=2)
+
+            self._schemas[schema_type] = schema
+            logger.info("Added schema: {}", schema_type)
         except Exception as e:
-            logger.error("Unexpected validation error: {}", e)
-            raise ConfigError(
-                "Validation failed",
-                {
-                    "config_type": config_type,
-                    "error": str(e)
-                }
-            )
+            raise ConfigError("Failed to add schema", {"error": str(e)})
 
-    def _validate_against_schema(
-            self,
-            data: Any,
-            schema: ConfigSchema,
-            path: str,
-            errors: List[str]
-    ) -> None:
-        """Validate data against schema recursively."""
-        validation_methods = {
-            "object": self._validate_object,
-            "array": self._validate_array,
-            "string": self._validate_string,
-            "number": self._validate_number,
-            "boolean": self._validate_boolean,
-            "tag": self._validate_reference,
-            "action": self._validate_reference,
-            "state": self._validate_reference,
-            "sequence": self._validate_reference
-        }
+    async def update_schema(self, schema_type: str, schema: ConfigSchema) -> None:
+        """Update schema.
 
-        validator = validation_methods.get(schema.type)
-        if validator:
-            validator(data, schema, path, errors)
-        else:
-            errors.append(f"{path}: Unknown schema type '{schema.type}'")
+        Args:
+            schema_type: Schema type
+            schema: Updated schema
 
-    def _validate_object(
-            self,
-            data: Any,
-            schema: ConfigSchema,
-            path: str,
-            errors: List[str]
-    ) -> None:
-        """Validate object type data."""
-        if not isinstance(data, dict):
-            errors.append(f"{path}: Expected object, got {type(data).__name__}")
-            return
+        Raises:
+            ConfigError: If schema not found or save fails
+        """
+        if schema_type not in self._schemas:
+            raise ConfigError(f"Schema {schema_type} not found")
 
-        self._validate_required_fields(data, schema, path, errors)
-        self._validate_object_properties(data, schema, path, errors)
+        try:
+            schema_file = self._schema_dir / f"{schema_type}.json"
+            with open(schema_file, 'w') as f:
+                json.dump(schema.model_dump(), f, indent=2)
 
-    def _validate_required_fields(
-            self,
-            data: Dict[str, Any],
-            schema: ConfigSchema,
-            path: str,
-            errors: List[str]
-    ) -> None:
-        """Validate required fields in object."""
-        if schema.required:
-            for field in schema.required:
-                if field not in data:
-                    errors.append(f"{path}: Missing required field '{field}'")
+            self._schemas[schema_type] = schema
+            logger.info("Updated schema: {}", schema_type)
+        except Exception as e:
+            raise ConfigError("Failed to update schema", {"error": str(e)})
 
-    def _validate_object_properties(
-            self,
-            data: Dict[str, Any],
-            schema: ConfigSchema,
-            path: str,
-            errors: List[str]
-    ) -> None:
-        """Validate object properties."""
-        if schema.properties:
-            for key, value in data.items():
-                if key in schema.properties:
-                    field_path = f"{path}.{key}" if path else key
-                    self._validate_against_schema(
-                        value,
-                        schema.properties[key],
-                        field_path,
-                        errors
-                    )
-                elif not schema.allow_unknown:
-                    errors.append(f"{path}: Unknown field '{key}'")
+    async def delete_schema(self, schema_type: str) -> None:
+        """Delete schema.
 
-    def _validate_array(
-            self,
-            data: Any,
-            schema: ConfigSchema,
-            path: str,
-            errors: List[str]
-    ) -> None:
-        """Validate array type data."""
-        if not isinstance(data, list):
-            errors.append(f"{path}: Expected array, got {type(data).__name__}")
-            return
+        Args:
+            schema_type: Schema type to delete
 
-        if schema.items:
-            for i, item in enumerate(data):
-                item_path = f"{path}[{i}]"
-                self._validate_against_schema(item, schema.items, item_path, errors)
+        Raises:
+            ConfigError: If schema not found or delete fails
+        """
+        if schema_type not in self._schemas:
+            raise ConfigError(f"Schema {schema_type} not found")
 
-    def _validate_string(
-            self,
-            data: Any,
-            schema: ConfigSchema,
-            path: str,
-            errors: List[str]
-    ) -> None:
-        """Validate string type data."""
-        if not isinstance(data, str):
-            errors.append(f"{path}: Expected string, got {type(data).__name__}")
-            return
+        try:
+            schema_file = self._schema_dir / f"{schema_type}.json"
+            schema_file.unlink()
+            del self._schemas[schema_type]
+            logger.info("Deleted schema: {}", schema_type)
+        except Exception as e:
+            raise ConfigError("Failed to delete schema", {"error": str(e)})
 
-        if schema.pattern and not re.match(schema.pattern, data):
-            errors.append(f"{path}: String does not match pattern '{schema.pattern}'")
+    async def check_health(self) -> dict:
+        """Check service health.
 
-        if schema.enum and data not in schema.enum:
-            errors.append(f"{path}: Value must be one of {schema.enum}")
-
-    def _validate_number(
-            self,
-            data: Any,
-            schema: ConfigSchema,
-            path: str,
-            errors: List[str]
-    ) -> None:
-        """Validate number type data."""
-        if not isinstance(data, (int, float)):
-            errors.append(f"{path}: Expected number, got {type(data).__name__}")
-            return
-
-        if schema.min_value is not None and data < schema.min_value:
-            errors.append(f"{path}: Value must be >= {schema.min_value}")
-
-        if schema.max_value is not None and data > schema.max_value:
-            errors.append(f"{path}: Value must be <= {schema.max_value}")
-
-    def _validate_boolean(
-            self,
-            data: Any,
-            schema: ConfigSchema,
-            path: str,
-            errors: List[str]
-    ) -> None:
-        """Validate boolean type data."""
-        if not isinstance(data, bool):
-            errors.append(f"{path}: Expected boolean, got {type(data).__name__}")
-
-    def _validate_reference(
-            self,
-            data: Any,
-            schema: ConfigSchema,
-            path: str,
-            errors: List[str]
-    ) -> None:
-        """Validate reference type data (tag, action, state, sequence)."""
-        if not isinstance(data, str):
-            errors.append(f"{path}: Expected string reference, got {type(data).__name__}")
-            return
-
-        if schema.references and data not in schema.references:
-            errors.append(f"{path}: Invalid reference '{data}'")
-
-        if schema.dependencies:
-            for dep in schema.dependencies:
-                if dep not in data:
-                    errors.append(f"{path}: Missing dependency '{dep}'")
+        Returns:
+            Health check result
+        """
+        health = await super().check_health()
+        health["service_info"].update({
+            "schema_dir": str(self._schema_dir),
+            "schema_count": len(self._schemas),
+            "schemas": list(self._schemas.keys())
+        })
+        return health

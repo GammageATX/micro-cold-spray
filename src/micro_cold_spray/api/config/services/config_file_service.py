@@ -1,180 +1,132 @@
-"""File service for config operations."""
+"""Configuration file service implementation."""
 
-from pathlib import Path
-from datetime import datetime
-import yaml
-from loguru import logger
-from typing import Dict, Any
+import json
 import shutil
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
 
-from micro_cold_spray.api.base import BaseService
-from micro_cold_spray.api.base.base_exceptions import ConfigError
-from micro_cold_spray.api.config.models.config_models import ConfigData, ConfigMetadata
+from loguru import logger
+
+from micro_cold_spray.api.base.base_service import BaseService
+from micro_cold_spray.api.base.base_errors import ConfigError
+from micro_cold_spray.api.config.models.config_models import ConfigData
 
 
 class ConfigFileService(BaseService):
-    """Service for file operations."""
+    """Configuration file service implementation."""
 
-    def __init__(self, config_dir: Path):
-        """Initialize file service."""
-        super().__init__(service_name="config_file")
+    def __init__(self, service_name: str, config_dir: Path) -> None:
+        """Initialize service.
+
+        Args:
+            service_name: Service name
+            config_dir: Configuration directory
+        """
+        super().__init__(service_name)
         self._config_dir = config_dir
-        self._backup_dir = config_dir / "backups"
-        self._backup_suffix = ".bak"
+        self._backup_dir = config_dir / "backup"
 
     async def _start(self) -> None:
         """Start file service."""
         try:
             self._config_dir.mkdir(exist_ok=True)
             self._backup_dir.mkdir(exist_ok=True)
-            logger.info("Config file service started")
+            logger.info("File service started")
         except Exception as e:
-            logger.error(f"Failed to start file service: {e}")
             raise ConfigError("Failed to start file service", {"error": str(e)})
+
+    def exists(self, config_type: str) -> bool:
+        """Check if configuration file exists.
+
+        Args:
+            config_type: Configuration type
+
+        Returns:
+            True if file exists
+        """
+        config_file = self._config_dir / f"{config_type}.json"
+        return config_file.exists()
 
     async def load_config(self, config_type: str) -> ConfigData:
         """Load configuration from file.
-        
-        Args:
-            config_type: Type of config to load
-            
-        Returns:
-            Loaded configuration data
-            
-        Raises:
-            ConfigError: If config cannot be loaded
-        """
-        config_path = self._get_config_path(config_type)
-        
-        if not config_path.exists():
-            raise ConfigError(
-                f"Config file not found: {config_type}",
-                {"config_type": config_type, "path": str(config_path)}
-            )
-            
-        try:
-            logger.debug(f"Loading config from {config_path}")
-            with open(config_path, 'r') as f:
-                data = yaml.safe_load(f)
-                logger.debug(f"Loaded YAML data: {data.keys()}")
-                
-            # Handle nested config structure
-            if config_type in data:
-                config_data = data[config_type]
-            else:
-                config_data = data  # For backward compatibility
-                
-            metadata = ConfigMetadata(
-                config_type=config_type,
-                last_modified=datetime.fromtimestamp(config_path.stat().st_mtime)
-            )
-            
-            return ConfigData(metadata=metadata, data=config_data)
-            
-        except Exception as e:
-            raise ConfigError(
-                f"Failed to load config: {str(e)}",
-                {
-                    "config_type": config_type,
-                    "path": str(config_path),
-                    "error": str(e)
-                }
-            )
 
-    async def save_config(self, config_type: str, data: Dict[str, Any], create_backup: bool = False) -> None:
+        Args:
+            config_type: Configuration type
+
+        Returns:
+            Configuration data
+
+        Raises:
+            ConfigError: If load fails
+        """
+        config_file = self._config_dir / f"{config_type}.json"
+        if not config_file.exists():
+            raise ConfigError(f"Config file not found: {config_file}")
+
+        try:
+            with open(config_file, "r") as f:
+                config_data = json.load(f)
+            return ConfigData(**config_data)
+        except Exception as e:
+            raise ConfigError("Failed to load config", {"error": str(e)})
+
+    async def save_config(self, config: ConfigData, create_backup: bool = True) -> None:
         """Save configuration to file.
-        
+
         Args:
-            config_type: Type of configuration to save
-            data: Configuration data to save
-            create_backup: Whether to create a backup before saving
-            
+            config: Configuration data
+            create_backup: Create backup of existing file
+
         Raises:
-            ConfigError: If config cannot be saved
+            ConfigError: If save fails
         """
-        config_path = self._get_config_path(config_type)
-        
+        config_file = self._config_dir / f"{config.metadata.config_type}.json"
+
         try:
-            # Create backup if requested
-            if create_backup:
-                # Ensure backup directory exists
-                self._backup_dir.mkdir(parents=True, exist_ok=True)
-                await self.create_backup(config_type)
-            
-            # Create config directory if it doesn't exist
-            config_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Write config file
-            with open(config_path, 'w') as f:
-                yaml.dump(data, f, Dumper=yaml.Dumper, sort_keys=False, default_flow_style=False)
-                
+            if create_backup and config_file.exists():
+                await self.create_backup(config.metadata.config_type)
+
+            with open(config_file, "w") as f:
+                json.dump(config.model_dump(), f, indent=2)
         except Exception as e:
-            logger.error(f"Failed to save config {config_type}: {e}")
-            raise ConfigError(
-                f"Failed to save config {config_type}",
-                {"config_type": config_type, "error": str(e)}
-            )
+            raise ConfigError("Failed to save config", {"error": str(e)})
 
-    async def config_exists(self, config_type: str) -> bool:
-        """Check if config file exists.
-        
+    async def create_backup(self, config_type: str) -> Optional[Path]:
+        """Create backup of configuration file.
+
         Args:
-            config_type: Type of configuration to check
-            
+            config_type: Configuration type
+
         Returns:
-            True if config file exists, False otherwise
-        """
-        if config_type.endswith(self._backup_suffix):
-            # For backup files, strip the suffix and check backup path
-            base_type = config_type[:-len(self._backup_suffix)]
-            return self._get_backup_path(base_type).exists()
-        return self._get_config_path(config_type).exists()
+            Backup file path if created
 
-    async def create_backup(self, config_type: str) -> None:
-        """Create a backup of the config file.
-        
-        Args:
-            config_type: Type of configuration to backup
-            
         Raises:
-            ConfigError: If backup creation fails
+            ConfigError: If backup fails
         """
-        source_path = self._get_config_path(config_type)
-        backup_path = self._get_backup_path(config_type)
-        
-        if not source_path.exists():
-            raise ConfigError(
-                f"Config file not found: {config_type}",
-                {"config_type": config_type, "path": str(source_path)}
-            )
-            
+        config_file = self._config_dir / f"{config_type}.json"
+        if not config_file.exists():
+            return None
+
         try:
-            shutil.copy2(source_path, backup_path)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_file = self._backup_dir / f"{config_type}_{timestamp}.json"
+            shutil.copy2(config_file, backup_file)
+            return backup_file
         except Exception as e:
-            raise ConfigError(
-                f"Failed to create backup for {config_type}",
-                {"config_type": config_type, "error": str(e)}
-            )
+            raise ConfigError("Failed to create backup", {"error": str(e)})
 
-    def _get_config_path(self, config_type: str) -> Path:
-        """Get the path to a config file.
-        
-        Args:
-            config_type: Type of configuration
-            
-        Returns:
-            Path to the config file
-        """
-        return self._config_dir / f"{config_type}.yaml"
+    async def check_health(self) -> dict:
+        """Check service health.
 
-    def _get_backup_path(self, config_type: str) -> Path:
-        """Get the path for a config backup file.
-        
-        Args:
-            config_type: Type of configuration
-            
         Returns:
-            Path for the backup file
+            Health check result
         """
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        return self._backup_dir / f"{config_type}_{timestamp}.bak"
+        health = await super().check_health()
+        health["service_info"].update({
+            "config_dir": str(self._config_dir),
+            "backup_dir": str(self._backup_dir),
+            "config_files": len(list(self._config_dir.glob("*.json"))),
+            "backup_files": len(list(self._backup_dir.glob("*.json")))
+        })
+        return health

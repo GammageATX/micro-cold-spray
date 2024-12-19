@@ -20,7 +20,7 @@ def reset_format_service():
 @pytest.fixture
 def format_service():
     """Create format service."""
-    service = ConfigFormatService()
+    service = ConfigFormatService(service_name="format")
     return service
 
 
@@ -35,7 +35,7 @@ async def test_service_start(format_service):
 @pytest.mark.asyncio
 async def test_service_start_error():
     """Test service startup with error."""
-    service = ConfigFormatService()
+    service = ConfigFormatService(service_name="format")
     
     # Mock logger.info to raise error
     with patch.object(logger, 'info', side_effect=Exception("Start error")):
@@ -45,8 +45,8 @@ async def test_service_start_error():
 
 def test_singleton():
     """Test format service singleton pattern."""
-    service1 = ConfigFormatService()
-    service2 = ConfigFormatService()
+    service1 = ConfigFormatService(service_name="format")
+    service2 = ConfigFormatService(service_name="format")
     assert service1 is service2
     assert service1._initialized == service2._initialized
 
