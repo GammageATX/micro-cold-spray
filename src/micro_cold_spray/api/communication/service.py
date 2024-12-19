@@ -189,7 +189,7 @@ class CommunicationService(ConfigurableService):
                 ssh_error = str(e)
             
             # Check services
-            status = {
+            services_status = {
                 "plc": plc_status,
                 "ssh": ssh_status,
                 "equipment": self._equipment and self._equipment.is_running,
@@ -206,24 +206,25 @@ class CommunicationService(ConfigurableService):
             if ssh_error:
                 details["ssh"] = ssh_error
             
-            for component, is_healthy in status.items():
+            for component, is_healthy in services_status.items():
                 if not is_healthy and component not in details:
                     details[component] = "Component not initialized or not running"
             
-            # If any component is unhealthy, raise an error
-            if not all(status.values()):
-                error_msg = "Communication service health check failed: "
-                error_msg += ", ".join(f"{k}: {v}" for k, v in details.items())
-                raise ServiceError(error_msg)
+            # Determine overall status
+            is_healthy = all(services_status.values())
             
-            logger.debug("All components healthy")
             return {
-                "status": "healthy",
-                "components": status
+                "status": "ok" if is_healthy else "error",
+                "service_info": {
+                    "name": self._service_name,
+                    "version": self.version,
+                    "running": self.is_running and is_healthy,
+                    "uptime": str(self.uptime)
+                },
+                "components": services_status,
+                "details": details if details else None
             }
             
-        except ServiceError:
-            raise
         except Exception as e:
             error_msg = f"Failed to check communication service health: {str(e)}"
             logger.error(error_msg)
@@ -254,12 +255,12 @@ class CommunicationService(ConfigurableService):
     def tag_cache(self) -> TagCacheService:
         """Get tag cache service."""
         if not self._tag_cache:
-            raise RuntimeError("Tag cache not initialized")
+            raise RuntimeError("Tag cache service not initialized")
         return self._tag_cache
 
     @property
     def tag_mapping(self) -> TagMappingService:
         """Get tag mapping service."""
         if not self._tag_mapping:
-            raise RuntimeError("Tag mapping not initialized")
+            raise RuntimeError("Tag mapping service not initialized")
         return self._tag_mapping

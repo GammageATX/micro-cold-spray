@@ -1,67 +1,87 @@
-"""Common test fixtures and configuration."""
+"""Root test configuration and shared fixtures."""
 
 import pytest
-from pathlib import Path
-from typing import Generator, Any
-from unittest.mock import AsyncMock, PropertyMock
+import asyncio
+from typing import AsyncGenerator, Generator
 from datetime import datetime
+from unittest.mock import AsyncMock, PropertyMock
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+import httpx
 
-from micro_cold_spray.api.config.models import ConfigData, ConfigMetadata
+from micro_cold_spray.api.base import BaseService
+
+
+# Use loop_scope instead of scope
+pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 
 @pytest.fixture
-def test_config() -> dict[str, Any]:
-    """Test configuration data."""
-    return {
-        "key": "value",
-        "number": 123,
-        "nested": {
-            "inner": "data"
+async def async_client(app: FastAPI) -> AsyncGenerator[httpx.AsyncClient, None]:
+    """Create async test client."""
+    async with httpx.AsyncClient(app=app, base_url="http://test") as client:
+        yield client
+
+
+@pytest.fixture
+def test_client(app: FastAPI) -> TestClient:
+    """Create FastAPI test client."""
+    return TestClient(app)
+
+
+@pytest.fixture
+def mock_base_service() -> AsyncMock:
+    """Create a mock base service."""
+    service = AsyncMock(spec=BaseService)
+    type(service).is_initialized = PropertyMock(return_value=True)
+    type(service).is_running = PropertyMock(return_value=True)
+    type(service)._service_name = PropertyMock(return_value="MockService")
+    type(service).version = PropertyMock(return_value="1.0.0")
+    type(service).uptime = PropertyMock(return_value="0:00:00")
+    
+    async def mock_check_health():
+        return {
+            "status": "ok",
+            "service_info": {
+                "name": "MockService",
+                "version": "1.0.0",
+                "running": True,
+                "uptime": "0:00:00",
+                "metrics": {
+                    "start_count": 1,
+                    "stop_count": 0,
+                    "error_count": 0
+                }
+            }
         }
-    }
+    service.check_health = AsyncMock(side_effect=mock_check_health)
+    return service
 
 
 @pytest.fixture
-def temp_log_dir(tmp_path: Path) -> Path:
-    """Create temporary log directory."""
-    log_dir = tmp_path / "logs"
-    log_dir.mkdir()
-    return log_dir
+def mock_app(mock_base_service: AsyncMock) -> FastAPI:
+    """Create FastAPI test app with mock service."""
+    app = FastAPI()
+    app.state.service = mock_base_service
+    return app
 
 
 @pytest.fixture(autouse=True)
-def setup_test_env() -> Generator[None, None, None]:
-    """Setup test environment before each test."""
-    # Clear service registry
-    from micro_cold_spray.api.base import _services
-    _services.clear()
-    yield
+def setup_logging(caplog: pytest.LogCaptureFixture) -> None:
+    """Set up logging for tests."""
+    import logging
+    caplog.set_level(logging.INFO)
 
 
 @pytest.fixture
-def mock_config_service():
-    """Create mock config service."""
-    service = AsyncMock()
-    type(service).is_initialized = PropertyMock(return_value=True)
-    type(service).is_running = PropertyMock(return_value=True)
+def mock_datetime(monkeypatch: pytest.MonkeyPatch) -> datetime:
+    """Mock datetime for consistent timestamps."""
+    FAKE_TIME = datetime(2023, 1, 1, 12, 0, 0)
     
-    # Mock get_config to return proper config data
-    async def mock_get_config(config_type: str):
-        return ConfigData(
-            metadata=ConfigMetadata(
-                config_type=config_type,
-                last_modified=datetime.now(),
-                version="1.0.0"
-            ),
-            data={
-                "test": "value",
-                "network": {
-                    "plc": {
-                        "host": "localhost",
-                        "port": 502
-                    }
-                }
-            }
-        )
-    service.get_config.side_effect = mock_get_config
-    return service
+    class MockDatetime:
+        @classmethod
+        def now(cls):
+            return FAKE_TIME
+            
+    monkeypatch.setattr("datetime.datetime", MockDatetime)
+    return FAKE_TIME

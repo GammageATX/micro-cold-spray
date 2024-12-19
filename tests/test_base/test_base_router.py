@@ -1,178 +1,154 @@
-"""Tests for base router functionality."""
+"""Test base router module."""
 
 import pytest
-from unittest.mock import AsyncMock
-from fastapi import FastAPI, status, HTTPException
+from fastapi import FastAPI, status
 from fastapi.testclient import TestClient
+from unittest.mock import AsyncMock, patch
+from datetime import datetime, timedelta
 
-from micro_cold_spray.api.base.router import add_health_endpoints, get_service_from_app
-from micro_cold_spray.api.base import BaseService, ConfigurableService
-from tests.utils import assert_error_response, assert_health_response
-
-
-@pytest.fixture
-def mock_base_service():
-    """Create a mock base service."""
-    service = AsyncMock(spec=BaseService)
-    service._service_name = "TestService"
-    return service
+from micro_cold_spray.api.base.base_errors import ServiceError, AppErrorCode
+from micro_cold_spray.api.base.base_service import BaseService
+from micro_cold_spray.api.base.base_router import BaseRouter, HealthResponse
 
 
-@pytest.fixture
-def app_with_service(mock_base_service):
-    """Create FastAPI app with mock service."""
-    app = FastAPI()
-    app.state.service = mock_base_service
-    router = app.router
-    add_health_endpoints(router, mock_base_service)
-    return TestClient(app)
+class MockService(BaseService):
+    """Mock service for testing."""
 
+    def __init__(self, name: str) -> None:
+        """Initialize mock service."""
+        super().__init__(name)
+        self._mock_metrics = {
+            "start_count": 0,
+            "stop_count": 0,
+            "error_count": 0,
+            "last_error": None,
+        }
+        self._start_time = datetime.now()
 
-class TestHealthEndpoint:
-    """Test health check endpoint functionality."""
-    
-    def test_health_check_success(self, app_with_service, mock_base_service):
-        """Test successful health check."""
-        mock_base_service.check_health.return_value = {
+    async def _start(self) -> None:
+        """Start mock service."""
+        self._mock_metrics["start_count"] += 1
+        self._is_running = True
+        self._is_initialized = True
+
+    async def _stop(self) -> None:
+        """Stop mock service."""
+        self._mock_metrics["stop_count"] += 1
+        self._is_running = False
+
+    async def check_health(self) -> dict:
+        """Check service health."""
+        if not self._is_running:
+            raise ServiceError(
+                "Service not running",
+                error_code=AppErrorCode.SERVICE_NOT_RUNNING,
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return {
             "status": "ok",
-            "message": "Service is healthy",
             "service_info": {
-                "name": "TestService",
-                "version": "1.0.0",
-                "running": True,
-                "uptime": "0:00:00"
+                "name": self.service_name,
+                "running": self.is_running,
+                "uptime": str(datetime.now() - self._start_time),
+                "metrics": self.metrics
             }
         }
-        response = app_with_service.get("/health")
-        assert response.status_code == status.HTTP_200_OK
+
+
+class TestBaseRouter:
+    """Test base router functionality."""
+
+    @pytest.fixture
+    def app(self):
+        """Create test app with router."""
+        app = FastAPI()
+        router = BaseRouter(service_class=MockService)
+        app.include_router(router)
+        return app
+
+    @pytest.fixture
+    def client(self, app):
+        """Create test client."""
+        return TestClient(app)
+
+    @pytest.fixture
+    def mock_service(self):
+        """Create and register mock service."""
+        from micro_cold_spray.api.base.base_registry import register_service, clear_services
+        clear_services()
+        service = MockService("test_service")
+        register_service(service)
+        yield service
+        clear_services()
+
+    def test_router_initialization(self):
+        """Test router initialization."""
+        router = BaseRouter(service_class=MockService)
+        assert router.service_class == MockService
+        routes = [route for route in router.routes if route.path == "/health"]
+        assert len(routes) == 1
+        assert routes[0].methods == {"GET"}
+        assert routes[0].response_model == HealthResponse
+
+    def test_health_check_success(self, client, mock_service):
+        """Test successful health check."""
+        # Start the service
+        import asyncio
+        asyncio.run(mock_service.start())
+
+        response = client.get("/health")
+        assert response.status_code == 200
         data = response.json()
-        assert_health_response(data, "TestService")
         assert data["status"] == "ok"
-        
-    def test_health_check_error(self, app_with_service, mock_base_service):
-        """Test health check with error."""
-        mock_base_service.check_health.side_effect = Exception("Service error")
-        response = app_with_service.get("/health")
+        assert data["service_info"]["name"] == "test_service"
+        assert data["service_info"]["running"] is True
+        assert "uptime" in data["service_info"]
+        assert "metrics" in data["service_info"]
+
+    def test_health_check_service_error(self, client, mock_service):
+        """Test health check with service error."""
+        # Don't start the service to trigger error
+        response = client.get("/health")
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
-        assert "Service error" in response.json()["detail"]
-        
-    def test_health_check_degraded(self, app_with_service, mock_base_service):
-        """Test health check with degraded status."""
-        mock_base_service.check_health.return_value = {
-            "status": "degraded",
-            "message": "Performance degraded",
-            "service_info": {
-                "name": "TestService",
-                "version": "1.0.0",
-                "running": True,
-                "uptime": "0:00:00"
-            }
-        }
-        response = app_with_service.get("/health")
-        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert_health_response(data, "TestService")
-        assert data["status"] == "degraded"
+        assert data["detail"]["detail"] == "Service not running"
+        assert data["detail"]["code"] == AppErrorCode.SERVICE_NOT_RUNNING
 
-    def test_health_check_warning(self, app_with_service, mock_base_service):
-        """Test health check with warning status but service running."""
-        mock_base_service.check_health.return_value = {
-            "status": "warning",
-            "message": "Resource usage high",
-            "service_info": {
-                "name": "TestService",
-                "version": "1.0.0",
-                "running": True,
-                "uptime": "0:00:00"
-            }
-        }
-        response = app_with_service.get("/health")
-        assert response.status_code == status.HTTP_200_OK
+    def test_health_check_unexpected_error(self, client, mock_service):
+        """Test health check with unexpected error."""
+        # Mock check_health to raise unexpected error
+        mock_service.check_health = AsyncMock(side_effect=RuntimeError("Unexpected error"))
+
+        response = client.get("/health")
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         data = response.json()
-        assert_health_response(data, "TestService")
-        assert data["status"] == "warning"
+        assert "Unexpected error during health check" in data["detail"]["detail"]
+        assert data["detail"]["code"] == AppErrorCode.INTERNAL_ERROR
 
-    def test_health_check_not_running(self, app_with_service, mock_base_service):
-        """Test health check when service is not running."""
-        mock_base_service.check_health.return_value = {
-            "status": "stopped",
-            "message": "Service stopped",
-            "service_info": {
-                "name": "TestService",
-                "version": "1.0.0",
-                "running": False,
-                "uptime": "0:00:00"
-            }
-        }
-        response = app_with_service.get("/health")
-        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
-        assert "Service is not running" in response.json()["detail"]
+    def test_health_response_validation(self, client, mock_service):
+        """Test health response validation."""
+        # Start the service
+        import asyncio
+        asyncio.run(mock_service.start())
 
+        # Mock check_health to return invalid response
+        async def invalid_health():
+            return {"invalid": "response"}
+        mock_service.check_health = invalid_health
 
-class TestControlEndpoint:
-    """Test control endpoint functionality."""
-    
-    def test_control_start(self, app_with_service, mock_base_service):
-        """Test start command."""
-        response = app_with_service.post("/control", json={"command": "start"})
-        assert response.status_code == status.HTTP_200_OK
-        mock_base_service.start.assert_called_once()
-        
-    def test_control_stop(self, app_with_service, mock_base_service):
-        """Test stop command."""
-        response = app_with_service.post("/control", json={"command": "stop"})
-        assert response.status_code == status.HTTP_200_OK
-        mock_base_service.stop.assert_called_once()
-        
-    def test_control_restart(self, app_with_service, mock_base_service):
-        """Test restart command."""
-        response = app_with_service.post("/control", json={"command": "restart"})
-        assert response.status_code == status.HTTP_200_OK
-        mock_base_service.restart.assert_called_once()
-        
-    def test_control_invalid_action(self, app_with_service):
-        """Test invalid control command."""
-        response = app_with_service.post("/control", json={"command": "invalid"})
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Invalid command" in response.json()["detail"]
-        
-    def test_control_error(self, app_with_service, mock_base_service):
-        """Test control command with error."""
-        mock_base_service.start.side_effect = Exception("Service error")
-        response = app_with_service.post("/control", json={"command": "start"})
-        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
-        assert "Service error" in response.json()["detail"]
+        response = client.get("/health")
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        data = response.json()
+        assert "Invalid health response format" in data["detail"]["detail"]
+        assert data["detail"]["code"] == AppErrorCode.INTERNAL_ERROR
 
+    def test_health_check_service_not_found(self, client):
+        """Test health check when service is not registered."""
+        from micro_cold_spray.api.base.base_registry import clear_services
+        clear_services()
 
-class TestServiceRetrieval:
-    """Test service retrieval functionality."""
-    
-    def test_get_service_success(self, mock_base_service):
-        """Test successful service retrieval."""
-        app = FastAPI()
-        app.state.service = mock_base_service
-        service = get_service_from_app(app, BaseService)
-        assert service == mock_base_service
-        
-    def test_get_service_wrong_type(self, mock_base_service):
-        """Test service retrieval with wrong type."""
-        app = FastAPI()
-        app.state.service = mock_base_service
-        with pytest.raises(HTTPException) as exc:
-            get_service_from_app(app, ConfigurableService)
-        assert_error_response(
-            exc,
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "Service ConfigurableService not initialized"
-        )
-        
-    def test_get_service_not_initialized(self):
-        """Test service retrieval when not initialized."""
-        app = FastAPI()
-        with pytest.raises(HTTPException) as exc:
-            get_service_from_app(app, BaseService)
-        assert_error_response(
-            exc,
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "Service BaseService not initialized"
-        )
+        response = client.get("/health")
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        data = response.json()
+        assert "Service MockService not initialized" in data["detail"]["detail"]
+        assert data["detail"]["code"] == AppErrorCode.INTERNAL_ERROR

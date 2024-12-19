@@ -1,15 +1,44 @@
 """Tag management endpoints."""
 
-from typing import Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from typing import Dict, Any, List
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
 from datetime import datetime
 from loguru import logger
+from pydantic import BaseModel, Field
 
-from ..models.tags import TagSubscription, TagUpdate, TagMappingUpdateRequest
+from ..models.tags import TagSubscription, TagMappingUpdateRequest
 from ..service import CommunicationService
-from ...base import get_service
+from ..dependencies import get_service
 from ...base.exceptions import ServiceError, ValidationError
-from ...base.errors import ErrorCode, format_error
+
+
+class TagResponse(BaseModel):
+    """Tag response model."""
+    status: str
+    message: str
+    timestamp: datetime
+
+
+class TagValueResponse(BaseModel):
+    """Tag value response model."""
+    status: str
+    tag_id: str
+    value: Any
+    timestamp: datetime
+
+
+class TagListResponse(BaseModel):
+    """Tag list response model."""
+    status: str
+    tags: List[Dict[str, Any]]
+    timestamp: datetime
+
+
+class WriteTagRequest(BaseModel):
+    """Write tag request model."""
+    tag_id: str = Field(..., description="Tag to write")
+    value: Any = Field(..., description="Value to write")
+
 
 router = APIRouter(prefix="/tags", tags=["tags"])
 
@@ -79,82 +108,160 @@ async def websocket_subscribe(
             pass
 
 
-@router.get("/values")
-async def get_tag_values(
-    tags: str,
-    service: CommunicationService = Depends(get_service(CommunicationService))
-) -> Dict[str, Any]:
-    """Get tag values."""
+@router.get(
+    "/value/{tag_id}",
+    response_model=TagValueResponse,
+    responses={
+        status.HTTP_404_NOT_FOUND: {"description": "Tag not found"},
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service error"}
+    }
+)
+async def get_tag_value(
+    tag_id: str,
+    service: CommunicationService = Depends(get_service)
+):
+    """Get tag value."""
     try:
-        tag_list = [tag.strip() for tag in tags.split(",")]
-        values = await service.tag_cache.get_values(tag_list)
-        return {"values": values}
+        # Get tag value
+        value = await service.tag_service.read_tag(tag_id)
+        
+        return TagValueResponse(
+            status="ok",
+            tag_id=tag_id,
+            value=value,
+            timestamp=datetime.now()
+        )
+        
     except ValidationError as e:
         raise HTTPException(
-            status_code=ErrorCode.VALIDATION_ERROR.get_status_code(),
-            detail=format_error(ErrorCode.VALIDATION_ERROR, str(e), e.context)
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
         )
     except ServiceError as e:
         raise HTTPException(
-            status_code=ErrorCode.SERVICE_UNAVAILABLE.get_status_code(),
-            detail=format_error(ErrorCode.SERVICE_UNAVAILABLE, str(e), e.context)
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e)
         )
     except Exception as e:
         raise HTTPException(
-            status_code=ErrorCode.INTERNAL_ERROR.get_status_code(),
-            detail=format_error(ErrorCode.INTERNAL_ERROR, str(e))
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
         )
 
 
-@router.post("/write")
+@router.get(
+    "/list",
+    response_model=TagListResponse,
+    responses={
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service error"}
+    }
+)
+async def list_tags(service: CommunicationService = Depends(get_service)):
+    """List available tags."""
+    try:
+        # Get tag list
+        tag_list = await service.tag_service.list_tags()
+        
+        return TagListResponse(
+            status="ok",
+            tags=tag_list,
+            timestamp=datetime.now()
+        )
+        
+    except ServiceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.post(
+    "/write",
+    response_model=TagResponse,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {"description": "Invalid request"},
+        status.HTTP_404_NOT_FOUND: {"description": "Tag not found"},
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {"description": "Validation error"},
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service error"}
+    }
+)
 async def write_tag_value(
-    request: TagUpdate,
-    service: CommunicationService = Depends(get_service(CommunicationService))
-) -> Dict[str, Any]:
+    request: WriteTagRequest,
+    service: CommunicationService = Depends(get_service)
+):
     """Write tag value."""
     try:
-        await service.tag_cache.write_value(request.tag, request.value)
-        return {"status": "ok"}
+        # Write tag value
+        await service.tag_service.write_tag(
+            tag_id=request.tag_id,
+            value=request.value
+        )
+        
+        return TagResponse(
+            status="ok",
+            message=f"Tag {request.tag_id} written with value {request.value}",
+            timestamp=datetime.now()
+        )
+        
     except ValidationError as e:
         raise HTTPException(
-            status_code=ErrorCode.VALIDATION_ERROR.get_status_code(),
-            detail=format_error(ErrorCode.VALIDATION_ERROR, str(e), e.context)
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e)
         )
     except ServiceError as e:
         raise HTTPException(
-            status_code=ErrorCode.SERVICE_UNAVAILABLE.get_status_code(),
-            detail=format_error(ErrorCode.SERVICE_UNAVAILABLE, str(e), e.context)
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e)
         )
     except Exception as e:
         raise HTTPException(
-            status_code=ErrorCode.INTERNAL_ERROR.get_status_code(),
-            detail=format_error(ErrorCode.INTERNAL_ERROR, str(e))
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
         )
 
 
-@router.post("/subscribe")
-async def subscribe_to_tags(
-    request: TagSubscription,
-    service: CommunicationService = Depends(get_service(CommunicationService))
-) -> Dict[str, Any]:
+@router.post(
+    "/subscribe/{tag_id}",
+    response_model=TagResponse,
+    responses={
+        status.HTTP_404_NOT_FOUND: {"description": "Tag not found"},
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service error"}
+    }
+)
+async def subscribe_to_tag(
+    tag_id: str,
+    service: CommunicationService = Depends(get_service)
+):
     """Subscribe to tag updates."""
     try:
-        await service.tag_cache.subscribe(request.tags, request.callback_url)
-        return {"status": "ok"}
+        # Subscribe to tag
+        await service.tag_service.subscribe_to_tag(tag_id)
+        
+        return TagResponse(
+            status="ok",
+            message=f"Subscribed to tag {tag_id}",
+            timestamp=datetime.now()
+        )
+        
     except ValidationError as e:
         raise HTTPException(
-            status_code=ErrorCode.VALIDATION_ERROR.get_status_code(),
-            detail=format_error(ErrorCode.VALIDATION_ERROR, str(e), e.context)
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
         )
     except ServiceError as e:
         raise HTTPException(
-            status_code=ErrorCode.SERVICE_UNAVAILABLE.get_status_code(),
-            detail=format_error(ErrorCode.SERVICE_UNAVAILABLE, str(e), e.context)
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e)
         )
     except Exception as e:
         raise HTTPException(
-            status_code=ErrorCode.INTERNAL_ERROR.get_status_code(),
-            detail=format_error(ErrorCode.INTERNAL_ERROR, str(e))
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
         )
 
 
@@ -169,18 +276,18 @@ async def unsubscribe_from_tags(
         return {"status": "ok"}
     except ValidationError as e:
         raise HTTPException(
-            status_code=ErrorCode.VALIDATION_ERROR.get_status_code(),
-            detail=format_error(ErrorCode.VALIDATION_ERROR, str(e), e.context)
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e)
         )
     except ServiceError as e:
         raise HTTPException(
-            status_code=ErrorCode.SERVICE_UNAVAILABLE.get_status_code(),
-            detail=format_error(ErrorCode.SERVICE_UNAVAILABLE, str(e), e.context)
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e)
         )
     except Exception as e:
         raise HTTPException(
-            status_code=ErrorCode.INTERNAL_ERROR.get_status_code(),
-            detail=format_error(ErrorCode.INTERNAL_ERROR, str(e))
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
         )
 
 
@@ -194,18 +301,18 @@ async def get_tag_mappings(
         return {"mappings": mappings}
     except ValidationError as e:
         raise HTTPException(
-            status_code=ErrorCode.VALIDATION_ERROR.get_status_code(),
-            detail=format_error(ErrorCode.VALIDATION_ERROR, str(e), e.context)
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e)
         )
     except ServiceError as e:
         raise HTTPException(
-            status_code=ErrorCode.SERVICE_UNAVAILABLE.get_status_code(),
-            detail=format_error(ErrorCode.SERVICE_UNAVAILABLE, str(e), e.context)
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e)
         )
     except Exception as e:
         raise HTTPException(
-            status_code=ErrorCode.INTERNAL_ERROR.get_status_code(),
-            detail=format_error(ErrorCode.INTERNAL_ERROR, str(e))
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
         )
 
 
@@ -220,18 +327,18 @@ async def update_tag_mapping(
         return {"status": "ok"}
     except ValidationError as e:
         raise HTTPException(
-            status_code=ErrorCode.VALIDATION_ERROR.get_status_code(),
-            detail=format_error(ErrorCode.VALIDATION_ERROR, str(e), e.context)
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e)
         )
     except ServiceError as e:
         raise HTTPException(
-            status_code=ErrorCode.SERVICE_UNAVAILABLE.get_status_code(),
-            detail=format_error(ErrorCode.SERVICE_UNAVAILABLE, str(e), e.context)
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e)
         )
     except Exception as e:
         raise HTTPException(
-            status_code=ErrorCode.INTERNAL_ERROR.get_status_code(),
-            detail=format_error(ErrorCode.INTERNAL_ERROR, str(e))
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
         )
 
 
@@ -259,12 +366,12 @@ async def get_tag_cache(
     except ServiceError as e:
         logger.error(f"Service error in get_tag_cache: {e}")
         raise HTTPException(
-            status_code=ErrorCode.SERVICE_UNAVAILABLE.get_status_code(),
-            detail=format_error(ErrorCode.SERVICE_UNAVAILABLE, str(e), e.context)
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e)
         )
     except Exception as e:
         logger.error(f"Error in get_tag_cache: {e}")
         raise HTTPException(
-            status_code=ErrorCode.INTERNAL_ERROR.get_status_code(),
-            detail=format_error(ErrorCode.INTERNAL_ERROR, str(e))
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
         )

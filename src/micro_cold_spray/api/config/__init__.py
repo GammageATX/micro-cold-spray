@@ -1,24 +1,38 @@
-"""Configuration API package."""
+"""Configuration service package."""
 
-from micro_cold_spray.api.base.exceptions import ConfigurationError
-from .models import (
+from micro_cold_spray.api.config.config_app import ConfigApp, create_app
+from micro_cold_spray.api.config.config_service import ConfigService
+from micro_cold_spray.api.config.models import (
     ConfigData,
     ConfigMetadata,
     ConfigUpdate,
-    ConfigStatus
+    ConfigValidationResult,
+    ConfigFieldInfo,
+    TagRemapRequest,
+    SchemaRegistry
 )
-from .service import ConfigService
-from .router import router
+from micro_cold_spray.api.config.utils import (
+    get_config_service,
+    set_config_service
+)
+from micro_cold_spray.api.config.endpoints import router
 
 __all__ = [
-    # Core components
+    # Main components
+    "ConfigApp",
     "ConfigService",
     "router",
     # Models
     "ConfigData",
     "ConfigMetadata",
     "ConfigUpdate",
-    "ConfigStatus",
-    # Exceptions
-    "ConfigurationError"
+    "ConfigValidationResult",
+    "ConfigFieldInfo",
+    "TagRemapRequest",
+    "SchemaRegistry",
+    # Factory functions
+    "create_app",
+    # Utilities
+    "get_config_service",
+    "set_config_service"
 ]

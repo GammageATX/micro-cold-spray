@@ -4,55 +4,66 @@ from pathlib import Path
 import yaml
 import shutil
 from datetime import datetime
+from typing import Dict, Any, Optional
 
 from micro_cold_spray.api.config.models import ConfigData, ConfigMetadata
 
 
-def get_config_dir() -> Path:
-    """Get the real config directory."""
-    return Path("micro_cold_spray/api/config")
-
-
-def get_schema_dir() -> Path:
-    """Get the real schema directory."""
-    return get_config_dir() / "schemas"
-
-
 def load_yaml_file(file_path: Path) -> dict:
-    """Load YAML file."""
+    """Load YAML file.
+    
+    Args:
+        file_path: Path to YAML file
+        
+    Returns:
+        dict: Loaded YAML data
+        
+    Raises:
+        FileNotFoundError: If file doesn't exist
+        yaml.YAMLError: If file contains invalid YAML
+    """
+    if not file_path.exists():
+        raise FileNotFoundError(f"File not found: {file_path}")
+    
     with open(file_path) as f:
-        return yaml.load(f, Loader=yaml.Loader)
+        try:
+            return yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            raise yaml.YAMLError(f"Invalid YAML in {file_path}: {e}")
 
 
-def load_config(name: str) -> dict:
-    """Load a config file from the real config directory."""
-    config_path = get_config_dir() / f"{name}.yaml"
-    return load_yaml_file(config_path)
-
-
-def create_config_data(name: str, data: dict = None) -> ConfigData:
-    """Create a ConfigData object for testing."""
+def create_config_data(
+    config_type: str,
+    data: Optional[Dict[str, Any]] = None,
+    version: str = "1.0.0"
+) -> ConfigData:
+    """Create a ConfigData object for testing.
+    
+    Args:
+        config_type: Configuration type
+        data: Configuration data (optional)
+        version: Configuration version (optional)
+        
+    Returns:
+        ConfigData: Created config data object
+    """
     if data is None:
-        data = load_config(name)
+        data = {"test_key": "test_value"}
     
     metadata = ConfigMetadata(
-        config_type=name,
+        config_type=config_type,
         last_modified=datetime.now(),
-        version="1.0.0"
+        version=version
     )
     return ConfigData(metadata=metadata, data=data)
 
 
-def setup_test_config(tmp_path: Path, name: str) -> Path:
-    """Set up a test config file using real config as template."""
-    real_config = get_config_dir() / f"{name}.yaml"
-    test_config = tmp_path / f"{name}.yaml"
-    shutil.copy2(real_config, test_config)
-    return test_config
-
-
-def create_test_config(tmp_path: Path, name: str, data: dict) -> Path:
-    """Create a test config file with given data.
+def create_test_config_file(
+    tmp_path: Path,
+    name: str,
+    data: Dict[str, Any]
+) -> Path:
+    """Create a test config file.
     
     Args:
         tmp_path: Temporary directory path
@@ -60,9 +71,68 @@ def create_test_config(tmp_path: Path, name: str, data: dict) -> Path:
         data: Config data to write
         
     Returns:
-        Path to created config file
+        Path: Path to created config file
+        
+    Raises:
+        yaml.YAMLError: If data cannot be serialized to YAML
     """
-    test_config = tmp_path / f"{name}.yaml"
-    with open(test_config, "w") as f:
-        yaml.dump(data, f)
-    return test_config
+    config_path = tmp_path / f"{name}.yaml"
+    with open(config_path, "w") as f:
+        try:
+            yaml.safe_dump(data, f)
+        except yaml.YAMLError as e:
+            raise yaml.YAMLError(f"Failed to write config data: {e}")
+    return config_path
+
+
+def copy_test_config(
+    src_path: Path,
+    dst_path: Path,
+    make_backup: bool = True
+) -> Path:
+    """Copy a test config file.
+    
+    Args:
+        src_path: Source file path
+        dst_path: Destination file path
+        make_backup: Whether to create backup of existing file
+        
+    Returns:
+        Path: Path to copied file
+        
+    Raises:
+        FileNotFoundError: If source file doesn't exist
+        OSError: If copy operation fails
+    """
+    if not src_path.exists():
+        raise FileNotFoundError(f"Source file not found: {src_path}")
+    
+    if make_backup and dst_path.exists():
+        backup_path = dst_path.with_suffix(".bak")
+        shutil.copy2(dst_path, backup_path)
+    
+    try:
+        return Path(shutil.copy2(src_path, dst_path))
+    except OSError as e:
+        raise OSError(f"Failed to copy config file: {e}")
+
+
+def compare_config_data(
+    config1: ConfigData,
+    config2: ConfigData,
+    ignore_metadata: bool = False
+) -> bool:
+    """Compare two ConfigData objects.
+    
+    Args:
+        config1: First config
+        config2: Second config
+        ignore_metadata: Whether to ignore metadata in comparison
+        
+    Returns:
+        bool: True if configs are equal
+    """
+    if not ignore_metadata:
+        return config1 == config2
+    
+    return config1.data == config2.data

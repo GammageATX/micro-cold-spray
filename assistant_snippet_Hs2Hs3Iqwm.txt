@@ -1,0 +1,136 @@
+1|# src/micro_cold_spray/api/process/app.py
+2|from fastapi import FastAPI, HTTPException, status, Depends
+3|from fastapi.middleware.cors import CORSMiddleware
+4|from contextlib import asynccontextmanager
+5|from datetime import datetime
+6|from loguru import logger
+7|
+8|from .service import ProcessService
+9|from .models import HealthResponse
+10|from ..base.errors import ServiceError, format_error, AppErrorCode
+11|from ..config import ConfigService
+12|from ..communication import CommunicationService
+13|from ..messaging import MessagingService
+14|from ..data_collection import DataCollectionService
+15|from ..validation import ValidationService
+16|
+17|# Global service instance
+18|_service: ProcessService = None
+19|
+20|@asynccontextmanager
+21|async def lifespan(app: FastAPI):
+22|    """Manage process service lifecycle."""
+23|    global _service
+24|    try:
+25|        # Get required services from app state
+26|        config_service = app.state.config_service
+27|        comm_service = app.state.comm_service
+28|        message_service = app.state.message_service
+29|        data_service = app.state.data_service
+30|        validation_service = app.state.validation_service
+31|
+32|        if not all([
+33|            config_service, comm_service, message_service,
+34|            data_service, validation_service
+35|        ]):
+36|            raise ServiceError("Required services not available")
+37|
+38|        # Initialize process service
+39|        _service = ProcessService(
+40|            config_service=config_service,
+41|            comm_service=comm_service,
+42|            message_service=message_service,
+43|            data_service=data_service,
+44|            validation_service=validation_service
+45|        )
+46|        await _service.start()
+47|        
+48|        # Store in app state
+49|        app.state.process_service = _service
+50|        
+51|        logger.info("Process service started successfully")
+52|        yield
+53|
+54|    finally:
+55|        if _service:
+56|            try:
+57|                await _service.stop()
+58|                logger.info("Process service stopped")
+59|            except Exception as e:
+60|                logger.error(f"Error stopping process service: {e}")
+61|            finally:
+62|                app.state.process_service = None
+63|                _service = None
+64|
+65|# Create FastAPI app
+66|app = FastAPI(
+67|    title="Process API",
+68|    description="Process control and monitoring endpoints",
+69|    version="1.0.0",
+70|    lifespan=lifespan
+71|)
+72|
+73|# Add CORS middleware
+74|app.add_middleware(
+75|    CORSMiddleware,
+76|    allow_origins=["*"],
+77|    allow_credentials=True,
+78|    allow_methods=["*"],
+79|    allow_headers=["*"]
+80|)
+81|
+82|def get_service() -> ProcessService:
+83|    """Get process service instance."""
+84|    if not _service or not _service.is_running:
+85|        raise HTTPException(
+86|            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+87|            detail=format_error(
+88|                AppErrorCode.SERVICE_ERROR,
+89|                "Process service not available"
+90|            )
+91|        )
+92|    return _service
+93|
+94|@app.get(
+95|    "/health",
+96|    response_model=HealthResponse,
+97|    responses={
+98|        status.HTTP_503_SERVICE_UNAVAILABLE: {
+99|            "description": "Service not available"
+100|        }
+101|    }
+102|)
+103|async def health_check(
+104|    service: ProcessService = Depends(get_service)
+105|):
+106|    """Check process service health."""
+107|    try:
+108|        await service.check_health()
+109|        return HealthResponse(
+110|            status="ok" if service.is_running else "error",
+111|            service_name=service._service_name,
+112|            version=getattr(service, "version", "1.0.0"),
+113|            is_running=service.is_running,
+114|            timestamp=datetime.now()
+115|        )
+116|    except ServiceError as e:
+117|        raise HTTPException(
+118|            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+119|            detail=format_error(
+120|                AppErrorCode.SERVICE_ERROR,
+121|                str(e),
+122|                getattr(e, "context", None)
+123|            )
+124|        )
+125|    except Exception as e:
+126|        raise HTTPException(
+127|            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+128|            detail=format_error(
+129|                AppErrorCode.SERVICE_ERROR,
+130|                str(e)
+131|            )
+132|        )
+133|
+134|# Include process router
+135|from .router import router
+136|app.include_router(router) 
