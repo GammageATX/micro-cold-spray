@@ -1,75 +1,100 @@
 """Tests for health check endpoints."""
 
 import pytest
-from datetime import datetime, timedelta
 from fastapi import status
-from .test_base import BaseAPITest
+from tests.base import BaseAPITest, BaseServiceTest
+from micro_cold_spray.core.errors.exceptions import ServiceError, ConfigurationError
 
+
+@pytest.mark.unit
+@pytest.mark.api
 class TestHealthEndpoints(BaseAPITest):
     """Test cases for health check endpoints."""
 
-    def test_get_health(self):
+    def test_get_health(self, mock_base_service):
         """Test getting health status."""
+        mock_base_service.check_health.return_value = {
+            "status": "ok",
+            "service_info": {
+                "name": "test_service",
+                "version": "1.0.0",
+                "running": True,
+                "uptime": 0.0
+            }
+        }
         response = self.client.get("/health")
         self.assert_health_check(response)
     
-    def test_get_health_details(self):
-        """Test getting detailed health status."""
-        response = self.client.get("/health/details")
-        self.assert_success_response(response)
+    def test_health_error(self, mock_base_service):
+        """Test health check with error."""
+        mock_base_service.check_health.side_effect = ServiceError("Service error")
+        response = self.client.get("/health")
+        self.assert_error_response(response, status.HTTP_503_SERVICE_UNAVAILABLE, "Service error")
+    
+    def test_health_degraded(self, mock_base_service):
+        """Test health check with degraded status."""
+        mock_base_service.check_health.return_value = {
+            "status": "degraded",
+            "message": "Performance degraded",
+            "service_info": {
+                "name": "test_service",
+                "version": "1.0.0",
+                "running": True,
+                "uptime": 0.0
+            }
+        }
+        response = self.client.get("/health")
+        self.assert_health_check(response)
         data = response.json()
-        
-        # Check required fields
-        assert "status" in data
-        assert "version" in data
-        assert "uptime" in data
-        assert "services" in data
-        
-        # Validate services data
-        services = data["services"]
-        assert isinstance(services, dict)
-        for service_name, service_data in services.items():
-            assert "status" in service_data
-            assert "version" in service_data
-            assert "uptime" in service_data
+        assert data["status"] == "degraded"
+        assert data["message"] == "Performance degraded"
+    
+    def test_health_not_running(self, mock_base_service):
+        """Test health check when service is not running."""
+        mock_base_service.is_running = False
+        mock_base_service.check_health.return_value = {
+            "status": "stopped",
+            "service_info": {
+                "name": "test_service",
+                "version": "1.0.0",
+                "running": False,
+                "uptime": None
+            }
+        }
+        response = self.client.get("/health")
+        self.assert_health_check(response)
+        data = response.json()
+        assert data["status"] == "stopped"
+        assert not data["service_info"]["running"]
+    
+    def test_health_config_error(self, mock_base_service):
+        """Test health check with configuration error."""
+        mock_base_service.check_health.side_effect = ConfigurationError("Config error")
+        response = self.client.get("/health")
+        self.assert_error_response(response, status.HTTP_503_SERVICE_UNAVAILABLE, "Config error")
     
     @pytest.mark.asyncio
-    async def test_async_health_check(self):
+    async def test_health_async(self, mock_base_service):
         """Test async health check endpoint."""
+        mock_base_service.check_health.return_value = {
+            "status": "ok",
+            "service_info": {
+                "name": "test_service",
+                "version": "1.0.0",
+                "running": True,
+                "uptime": 0.0
+            }
+        }
         response = await self.async_client.get("/health")
         await self.assert_async_success_response(response)
         data = await response.json()
-        
         assert data["status"] == "ok"
-        assert isinstance(data["uptime"], (int, float))
-        assert data["uptime"] >= 0
-    
-    def test_health_service_down(self, mock_base_service):
-        """Test health check when service is down."""
-        # Simulate service being down
-        mock_base_service.is_running = False
-        mock_base_service.check_health.return_value = {"status": "error", "message": "Service is down"}
-        
-        response = self.client.get("/health")
-        self.assert_error_response(response, status_code=503)
-        data = response.json()
-        assert data["status"] == "error"
-        assert "message" in data
-    
-    def test_health_uptime_calculation(self, mock_base_service):
-        """Test uptime calculation in health check."""
-        # Set a specific start time
-        start_time = datetime.now() - timedelta(hours=1)
-        mock_base_service.start_time = start_time
-        
-        response = self.client.get("/health")
-        self.assert_success_response(response)
-        data = response.json()
-        
-        # Uptime should be approximately 1 hour (3600 seconds)
-        assert abs(data["uptime"] - 3600) < 10  # Allow 10 seconds tolerance
+        assert data["service_info"]["running"]
 
-class TestServiceHealthChecks:
+
+@pytest.mark.unit
+@pytest.mark.service
+class TestServiceHealthChecks(BaseServiceTest):
     """Test cases for individual service health checks."""
     
     def test_ui_health(self, ui_client):

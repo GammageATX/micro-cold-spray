@@ -1,14 +1,13 @@
 """Communication service for hardware control."""
 
 from typing import Dict, Any, Optional
-from datetime import datetime
 from loguru import logger
 
 from micro_cold_spray.core.base.services.configurable_service import ConfigurableService
 from micro_cold_spray.core.errors.exceptions import CommunicationError
 from micro_cold_spray.core.config import ConfigService
 from micro_cold_spray.core.communication.clients import (
-    ClientFactory, BaseClient, PLCClient, SSHClient
+    PLCClient, SSHClient
 )
 from micro_cold_spray.core.communication.services.equipment import EquipmentService
 from micro_cold_spray.core.communication.services.feeder import FeederService

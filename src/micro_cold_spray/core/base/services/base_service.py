@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, Type
 from loguru import logger
 from pydantic import BaseModel
+from micro_cold_spray.core.errors.exceptions import ServiceError
 
 
 class BaseService:
@@ -65,6 +66,11 @@ class BaseService:
         return self._is_initialized
     
     @property
+    def start_time(self) -> Optional[datetime]:
+        """Get service start time."""
+        return self._start_time
+    
+    @property
     def uptime(self) -> Optional[timedelta]:
         """Get service uptime."""
         if self._start_time and self._is_running:
@@ -97,10 +103,13 @@ class BaseService:
         self._version = value
     
     async def start(self):
-        """Start service operation."""
+        """Start service operation.
+        
+        Raises:
+            ServiceError: If service fails to start or is already running
+        """
         if self._is_running:
-            logger.warning(f"{self._service_name} already running")
-            return
+            raise ServiceError("Service is already running")
         
         try:
             await self._start()
@@ -113,13 +122,16 @@ class BaseService:
         except Exception as e:
             self._error = str(e)
             logger.error(f"Failed to start {self._service_name}: {e}")
-            raise
+            raise ServiceError(f"Failed to start service: {str(e)}")
     
     async def stop(self):
-        """Stop service operation."""
+        """Stop service operation.
+        
+        Raises:
+            ServiceError: If service fails to stop or is not running
+        """
         if not self._is_running:
-            logger.warning(f"{self._service_name} not running")
-            return
+            raise ServiceError("Service is not running")
         
         try:
             await self._stop()
@@ -129,10 +141,16 @@ class BaseService:
         except Exception as e:
             self._error = str(e)
             logger.error(f"Failed to stop {self._service_name}: {e}")
-            raise
+            raise ServiceError(f"Failed to stop service: {str(e)}")
     
     async def restart(self):
-        """Restart service operation."""
+        """Restart service operation.
+        
+        Raises:
+            ServiceError: If service fails to restart or is not running
+        """
+        if not self._is_running:
+            raise ServiceError("Service is not running")
         await self.stop()
         await self.start()
     
@@ -153,18 +171,34 @@ class BaseService:
             # Add base service info
             base_info = {
                 "service_info": {
-                    "ready": self.is_running and not self._error,
-                    "version": getattr(self, "version", "1.0.0"),
-                    "uptime": self.uptime
+                    "name": self._service_name,
+                    "version": self._version,
+                    "running": self._is_running,
+                    "ready": self._is_running and not self._error,
+                    "uptime": self.uptime.total_seconds() if self.uptime else None
                 }
             }
+            
+            # Add error and message if present
+            if self._error:
+                base_info["service_info"]["error"] = self._error
+            if self._message:
+                base_info["service_info"]["message"] = self._message
             
             # Merge with service-specific info
             health_info.update(base_info)
             
-            # Ensure status field exists
-            if "status" not in health_info:
-                health_info["status"] = "ok" if health_info["service_info"]["ready"] else "not_ready"
+            # Set status based on conditions
+            if not self._is_running:
+                health_info["status"] = "stopped"
+            elif self._error:
+                health_info["status"] = "error"
+                health_info["error"] = self._error
+            elif self._message:
+                health_info["status"] = "degraded"
+                health_info["message"] = self._message
+            elif "status" not in health_info:
+                health_info["status"] = "ok"
             
             return health_info
             
@@ -172,12 +206,15 @@ class BaseService:
             logger.error(f"Health check failed for {self._service_name}: {e}")
             return {
                 "status": "error",
+                "error": str(e),
                 "service_info": {
+                    "name": self._service_name,
+                    "version": self._version,
+                    "running": self._is_running,
                     "ready": False,
-                    "version": getattr(self, "version", "1.0.0"),
-                    "uptime": self.uptime
-                },
-                "error": str(e)
+                    "uptime": self.uptime.total_seconds() if self.uptime else None,
+                    "error": str(e)
+                }
             }
     
     async def _start(self):

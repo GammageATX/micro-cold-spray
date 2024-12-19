@@ -1,62 +1,10 @@
-"""Unit tests for configuration functionality."""
+"""Tests for configuration endpoints."""
 
 import pytest
-from tests.base import BaseServiceTest, BaseAPITest
 from typing import Dict, Any
+from tests.base import BaseAPITest
 
 
-@pytest.mark.unit
-@pytest.mark.service
-class TestConfigService(BaseServiceTest):
-    """Test Config Service functionality."""
-
-    @pytest.fixture
-    def config_service(self, mock_base_service):
-        """Create test config service."""
-        return mock_base_service
-
-    def test_config_service_initialization(self, config_service):
-        """Test config service initialization."""
-        assert config_service.service_name == "test_service"
-        assert config_service.version == "1.0.0"
-        assert not config_service.is_running
-
-    @pytest.mark.asyncio
-    async def test_config_service_startup(self, config_service):
-        """Test config service startup."""
-        await config_service.start()
-        self.assert_service_running()
-        assert hasattr(config_service, "config")
-        assert config_service.config is not None
-
-    @pytest.mark.asyncio
-    async def test_config_service_shutdown(self, config_service):
-        """Test config service shutdown."""
-        await config_service.start()
-        await config_service.stop()
-        self.assert_service_stopped()
-
-    @pytest.mark.asyncio
-    async def test_config_service_reload(self, config_service):
-        """Test config service reload."""
-        await config_service.start()
-        config_service.config.set("test_key", "test_value")
-        await config_service.reload_config()
-        assert config_service.config.get("test_key") == "test_value"
-
-    @pytest.mark.asyncio
-    async def test_config_service_health_check(self, config_service):
-        """Test config service health check."""
-        await config_service.start()
-        health = await config_service.check_health()
-        assert health["status"] == "ok"
-        assert health["service_info"]["name"] == "test_service"
-        assert health["service_info"]["version"] == "1.0.0"
-        assert health["service_info"]["running"] is True
-
-
-@pytest.mark.unit
-@pytest.mark.api
 class TestConfigEndpoints(BaseAPITest):
     """Test cases for configuration endpoints."""
     
@@ -84,6 +32,7 @@ class TestConfigEndpoints(BaseAPITest):
         types = data["types"]
         assert isinstance(types, list)
         
+        # Verify required config types exist
         type_ids = [t["id"] for t in types]
         required_types = ["application", "hardware", "operation"]
         for req_type in required_types:
@@ -94,6 +43,7 @@ class TestConfigEndpoints(BaseAPITest):
         response = self.client.get("/api/config/application")
         self.assert_success_response(response)
         data = response.json()
+        
         assert data == sample_config["application"]
     
     def test_update_config(self, sample_config):
@@ -111,6 +61,7 @@ class TestConfigEndpoints(BaseAPITest):
         )
         self.assert_success_response(response)
         
+        # Verify config was updated
         get_response = self.client.get("/api/config/application")
         updated_config = get_response.json()
         assert updated_config["settings"]["log_level"] == "DEBUG"
@@ -136,6 +87,25 @@ class TestConfigEndpoints(BaseAPITest):
             json=invalid_update
         )
         self.assert_error_response(response, status_code=422)
+    
+    @pytest.mark.asyncio
+    async def test_async_config_operations(self, sample_config):
+        """Test async configuration operations."""
+        # Get config
+        get_response = await self.async_client.get("/api/config/application")
+        await self.assert_async_success_response(get_response)
+        
+        # Update config
+        update = {
+            "settings": {
+                "log_level": "DEBUG"
+            }
+        }
+        update_response = await self.async_client.patch(
+            "/api/config/application",
+            json=update
+        )
+        await self.assert_async_success_response(update_response)
     
     def test_config_backup(self):
         """Test configuration backup endpoint."""

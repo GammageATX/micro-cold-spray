@@ -4,7 +4,8 @@ Maps application-specific errors to standard HTTP status codes.
 """
 
 from enum import Enum
-from fastapi import status
+from typing import Dict, Any, Optional
+from fastapi import status, HTTPException
 
 
 class AppErrorCode(str, Enum):
@@ -41,3 +42,32 @@ class AppErrorCode(str, Enum):
             self.SERVICE_UNAVAILABLE: status.HTTP_503_SERVICE_UNAVAILABLE,
         }
         return error_status_codes[self]
+
+
+def raise_http_error(
+    error_code: AppErrorCode,
+    message: str,
+    context: Optional[Dict[str, Any]] = None
+) -> None:
+    """Raise an HTTP exception with formatted error details.
+    
+    Args:
+        error_code: Application error code
+        message: Error message
+        context: Additional error context
+        
+    Raises:
+        HTTPException: FastAPI HTTP exception with formatted error details
+    """
+    detail = {
+        "code": error_code.name,
+        "message": message
+    }
+    
+    if context:
+        detail.update(context)
+    
+    raise HTTPException(
+        status_code=error_code.get_status_code(),
+        detail=detail
+    )

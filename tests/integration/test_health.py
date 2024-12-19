@@ -1,8 +1,7 @@
 """Integration tests for health check endpoints."""
-
 import pytest
 from fastapi import status
-from fastapi.testclient import TestClient
+
 
 class TestHealthChecks:
     """Test cases for health check endpoints."""
@@ -106,4 +105,4 @@ class TestHealthChecks:
             assert data["service_name"] == service_name
         elif "service" in data:
             assert data["service"] == service_name
-        assert "version" in data 
+        assert "version" in data

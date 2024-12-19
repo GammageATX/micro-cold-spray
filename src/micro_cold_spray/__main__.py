@@ -1,5 +1,4 @@
 # src/micro_cold_spray/__main__.py
-import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 

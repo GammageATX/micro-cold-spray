@@ -2,7 +2,7 @@
 
 from typing import Dict, Any, Optional
 from fastapi import status
-from fastapi.testclient import TestClient
+
 
 def assert_success_response(response, expected_data: Optional[Dict[str, Any]] = None):
     """Assert that the response is successful and contains expected data.
@@ -15,6 +15,7 @@ def assert_success_response(response, expected_data: Optional[Dict[str, Any]] = 
     if expected_data:
         assert response.json() == expected_data
 
+
 def assert_error_response(response, status_code: int = 400, error_message: Optional[str] = None):
     """Assert that the response is an error with expected status and message.
     
@@ -26,6 +27,7 @@ def assert_error_response(response, status_code: int = 400, error_message: Optio
     assert response.status_code == status_code
     if error_message:
         assert response.json()["detail"] == error_message
+
 
 def assert_health_check(response):
     """Assert that a health check response is valid.
@@ -50,6 +52,7 @@ def assert_health_check(response):
         assert isinstance(data["uptime"], (int, float))
         assert data["uptime"] >= 0
 
+
 def assert_validation_error(response, field: str, message: str):
     """Assert that the response contains a validation error.
     
@@ -63,4 +66,19 @@ def assert_validation_error(response, field: str, message: str):
     assert any(
         error["loc"][0] == field and error["msg"] == message
         for error in errors
-    ) 
+    )
+
+
+def assert_service_info(data: Dict[str, Any]):
+    """Assert that service info contains required fields.
+    
+    Args:
+        data: Service info dictionary
+    """
+    assert "name" in data
+    assert "version" in data
+    assert "running" in data
+    assert isinstance(data["running"], bool)
+    if "uptime" in data:
+        assert isinstance(data["uptime"], (int, float))
+        assert data["uptime"] >= 0

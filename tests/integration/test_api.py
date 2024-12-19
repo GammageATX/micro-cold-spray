@@ -1,7 +1,6 @@
 """Integration tests for main API functionality."""
-
-import pytest
 from fastapi import status
+
 
 class TestMainAPI:
     """Test cases for main API functionality."""
@@ -67,4 +66,4 @@ class TestMainAPI:
         
         # Test cross-service access
         response = main_client.get("/api/config/state")
-        assert response.status_code == status.HTTP_404_NOT_FOUND 
+        assert response.status_code == status.HTTP_404_NOT_FOUND

@@ -1,12 +1,17 @@
 """Unit tests for base service functionality."""
 
 import pytest
-from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock
+from datetime import timedelta
+from unittest.mock import AsyncMock
+from tests.base import BaseServiceTest
 from micro_cold_spray.core.base.services.base_service import BaseService
 from micro_cold_spray.core.errors.exceptions import ServiceError
+import asyncio
 
-class TestBaseService:
+
+@pytest.mark.unit
+@pytest.mark.service
+class TestBaseService(BaseServiceTest):
     """Test cases for BaseService class."""
 
     @pytest.fixture
@@ -22,15 +27,11 @@ class TestBaseService:
 
         # Test start
         await service.start()
-        assert service.is_running
-        assert service.start_time is not None
-        assert service.uptime > 0
+        self.assert_service_running()
 
         # Test stop
         await service.stop()
-        assert not service.is_running
-        assert service.start_time is None
-        assert service.uptime is None
+        self.assert_service_stopped()
 
     @pytest.mark.asyncio
     async def test_service_restart(self, service):
@@ -39,7 +40,7 @@ class TestBaseService:
         first_start_time = service.start_time
 
         await service.restart()
-        assert service.is_running
+        self.assert_service_running()
         assert service.start_time > first_start_time
 
     @pytest.mark.asyncio
@@ -88,9 +89,7 @@ class TestBaseService:
         assert service.uptime is None
 
         await service.start()
-        assert service.is_running
-        assert isinstance(service.uptime, timedelta)
-        assert service.uptime.total_seconds() >= 0
+        self.assert_service_running()
 
     @pytest.mark.asyncio
     async def test_error_handling(self, service):
@@ -102,7 +101,9 @@ class TestBaseService:
         assert not service.is_running
         assert service._error == "Start failed"
 
-        # Test stop error
+        # Reset service for stop error test
+        service._start = AsyncMock()
+        await service.start()  # Start service first
         service._stop = AsyncMock(side_effect=Exception("Stop failed"))
         with pytest.raises(ServiceError, match="Stop failed"):
             await service.stop()
@@ -120,4 +121,52 @@ class TestBaseService:
         health = await service.check_health()
         assert health["status"] == "error"
         assert "Health check error" in health["error"]
-        assert health["service_info"]["error"] == "Health check error" 
+        assert health["service_info"]["error"] == "Health check error"
+
+    @pytest.mark.asyncio
+    async def test_double_start(self, service):
+        """Test starting an already running service."""
+        await service.start()
+        self.assert_service_running()
+        
+        # Try to start again
+        with pytest.raises(ServiceError, match="Service is already running"):
+            await service.start()
+
+    @pytest.mark.asyncio
+    async def test_stop_not_running(self, service):
+        """Test stopping a service that isn't running."""
+        with pytest.raises(ServiceError, match="Service is not running"):
+            await service.stop()
+
+    @pytest.mark.asyncio
+    async def test_restart_not_running(self, service):
+        """Test restarting a service that isn't running."""
+        with pytest.raises(ServiceError, match="Service is not running"):
+            await service.restart()
+
+    @pytest.mark.asyncio
+    async def test_custom_version(self):
+        """Test service with custom version."""
+        service = BaseService("test_service", version="2.0.0")
+        assert service.version == "2.0.0"
+        
+        health = await service.check_health()
+        assert health["service_info"]["version"] == "2.0.0"
+
+    @pytest.mark.asyncio
+    async def test_service_uptime_calculation(self, service):
+        """Test service uptime calculation."""
+        await service.start()
+        
+        # Wait a small amount of time
+        await asyncio.sleep(0.1)
+        
+        # Check uptime
+        uptime = service.uptime
+        assert isinstance(uptime, timedelta)
+        assert uptime.total_seconds() >= 0.1
+        
+        # Check health uptime
+        health = await service.check_health()
+        assert health["service_info"]["uptime"] >= 0.1
