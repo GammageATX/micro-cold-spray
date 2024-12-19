@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
+from loguru import logger
 
 from .base_errors import ServiceError, AppErrorCode
 
@@ -27,6 +28,7 @@ class BaseService:
             "error_count": 0,
             "last_error": None
         }
+        self.logger = logger.bind(service=service_name)
 
     @property
     def service_name(self) -> str:

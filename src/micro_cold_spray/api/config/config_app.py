@@ -1,11 +1,12 @@
 """Configuration service application."""
 
 from fastapi import FastAPI
+from fastapi.middleware.gzip import GZipMiddleware
 from pathlib import Path
 
 from micro_cold_spray.api.base import BaseApp
 from micro_cold_spray.api.config.config_service import ConfigService
-from micro_cold_spray.api.config.endpoints import router
+from micro_cold_spray.api.config.endpoints import config_endpoints
 
 
 class ConfigApp(BaseApp):
@@ -22,13 +23,17 @@ class ConfigApp(BaseApp):
             service_class=ConfigService,
             title="Configuration Service",
             service_name="config",
-            enable_cors=True,
-            enable_metrics=True,
             **kwargs
         )
 
-        # Include config router
-        self.include_router(router)
+        # Add GZip middleware
+        self.add_middleware(GZipMiddleware, minimum_size=1000)
+
+        # Initialize endpoints
+        config_endpoints.init_router(self)
+
+        # Store config dir
+        self.config_dir = config_dir
 
 
 def create_app(**kwargs) -> FastAPI:

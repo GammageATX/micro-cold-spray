@@ -29,6 +29,25 @@ async def config_base_service():
     """
     service = ConfigService()
     register_service(service)
+    
+    # Configure service with default config
+    config_data = ConfigData(
+        metadata=ConfigMetadata(
+            config_type="test",
+            last_modified=datetime.now(),
+            version="1.0.0"
+        ),
+        data={
+            "config_dir": "config",
+            "schema_dir": "config/schemas",
+            "enable_cache": True,
+            "cache_ttl": 300,
+            "backup_enabled": True,
+            "backup_dir": "config/backups"
+        }
+    )
+    
+    await service.configure(config_data.model_dump())
     await service.start()
     yield service
     await service.stop()

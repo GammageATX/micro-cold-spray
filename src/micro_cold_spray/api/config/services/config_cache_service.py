@@ -1,123 +1,114 @@
-"""Configuration cache service."""
+"""Configuration cache service implementation."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Optional
 
 from loguru import logger
 
-from micro_cold_spray.api.base import BaseService
-from micro_cold_spray.api.base.base_exceptions import ConfigError
+from micro_cold_spray.api.base.base_service import BaseService
+from micro_cold_spray.api.base.base_errors import ConfigError
 from micro_cold_spray.api.config.models.config_models import ConfigData
 
 
 class CacheEntry:
-    def __init__(self, data: ConfigData, ttl: int = 3600):
-        if not data:
-            raise ValueError("Config data cannot be None")
-        if not data.metadata or not data.data:
-            raise ValueError("Invalid config data")
-        self.data = data
+    """Cache entry."""
+
+    def __init__(self, config: ConfigData, ttl: int = 3600) -> None:
+        """Initialize cache entry.
+
+        Args:
+            config: Configuration data
+            ttl: Time to live in seconds
+        """
+        self.config = config
         self.timestamp = datetime.now()
         self.ttl = ttl
 
+    @property
+    def is_expired(self) -> bool:
+        """Check if entry is expired.
+
+        Returns:
+            True if expired
+        """
+        return datetime.now() > self.timestamp + timedelta(seconds=self.ttl)
+
 
 class ConfigCacheService(BaseService):
-    """Service for caching configuration data."""
+    """Configuration cache service implementation."""
 
-    def __init__(self):
-        """Initialize cache service."""
-        super().__init__(service_name="config_cache")
+    def __init__(self, service_name: str) -> None:
+        """Initialize service.
+
+        Args:
+            service_name: Service name
+        """
+        super().__init__(service_name)
         self._cache: Dict[str, CacheEntry] = {}
-        self._last_cleanup = datetime.now()
 
     async def _start(self) -> None:
-        """Start the cache service."""
-        try:
-            self._cache = {}
-            self._last_cleanup = datetime.now()
-            logger.info("Cache service started successfully")
-        except Exception as e:
-            logger.error(f"Failed to start cache service: {e}")
-            raise ConfigError(str(e))
-
-    async def _stop(self) -> None:
-        """Stop the cache service."""
-        try:
-            self._cache = {}
-            self._last_cleanup = datetime.now()
-            logger.info("Cache service stopped successfully")
-        except Exception as e:
-            logger.error(f"Failed to stop cache service: {e}")
-            raise ConfigError(str(e))
-
-    async def get_cached_config(self, config_type: str) -> Optional[ConfigData]:
-        """Get cached config with TTL check."""
-        if config_type is None:
-            raise ConfigError("Config type cannot be None")
-        self._cleanup_expired()
-        entry = self._cache.get(config_type)
-        if entry and not self._is_expired(entry):
-            return entry.data
-        return None
-
-    def _is_expired(self, entry: CacheEntry) -> bool:
-        """Check if cache entry is expired."""
-        return (datetime.now() - entry.timestamp).total_seconds() > entry.ttl
-
-    def _cleanup_expired(self) -> None:
-        """Remove expired entries."""
-        now = datetime.now()
-        if (now - self._last_cleanup).total_seconds() > 60:
-            self._cache = {
-                k: v for k, v in self._cache.items()
-                if not self._is_expired(v)
-            }
-            self._last_cleanup = now
-
-    async def cache_config(self, config_type: str, config_data: ConfigData) -> None:
-        """Cache configuration data.
-        
-        Args:
-            config_type: Type of configuration to cache
-            config_data: Configuration data to cache
-        """
-        if config_type is None:
-            raise ConfigError("Config type cannot be None")
-        if config_data is None:
-            raise ConfigError("Config data cannot be None")
-        try:
-            self._cache[config_type] = CacheEntry(config_data)
-        except Exception as e:
-            raise ConfigError(
-                f"Failed to cache config: {e}",
-                {"config_type": config_type}
-            )
-
-    async def clear_cache(self) -> None:
-        """Clear all cached configurations."""
+        """Start cache service."""
         try:
             self._cache.clear()
-            self._last_cleanup = datetime.now()
-            logger.info("Cache cleared successfully")
+            logger.info("Cache service started")
         except Exception as e:
-            logger.error(f"Failed to clear cache: {e}")
-            raise ConfigError("Failed to clear cache") from e
+            raise ConfigError("Failed to start cache service", {"error": str(e)})
 
-    async def remove_from_cache(self, config_type: str) -> None:
-        """Remove configuration from cache.
-        
+    async def _stop(self) -> None:
+        """Stop cache service."""
+        try:
+            self._cache.clear()
+            logger.info("Cache service stopped")
+        except Exception as e:
+            raise ConfigError("Failed to stop cache service", {"error": str(e)})
+
+    def get_cached_config(self, config_type: str) -> Optional[ConfigData]:
+        """Get cached configuration.
+
         Args:
-            config_type: Type of configuration to remove
+            config_type: Configuration type
+
+        Returns:
+            Cached configuration if found and not expired
         """
-        if config_type in self._cache:
-            del self._cache[config_type]
+        entry = self._cache.get(config_type)
+        if entry and not entry.is_expired:
+            return entry.config
+        return None
 
-    @property
-    def cache_size(self) -> int:
-        """Get number of cached configurations."""
-        return len(self._cache)
+    async def cache_config(self, config: ConfigData, ttl: int = 3600) -> None:
+        """Cache configuration.
 
-    @property
-    def last_update(self) -> Optional[datetime]:
-        """Get timestamp of last cache update."""
-        return self._last_cleanup
+        Args:
+            config: Configuration data
+            ttl: Time to live in seconds
+
+        Raises:
+            ConfigError: If caching fails
+        """
+        if not config:
+            raise ConfigError("Config data cannot be None")
+
+        try:
+            self._cache[config.metadata.config_type] = CacheEntry(config, ttl)
+            logger.debug("Cached config: {}", config.metadata.config_type)
+        except Exception as e:
+            raise ConfigError("Failed to cache config", {"error": str(e)})
+
+    async def clear_cache(self) -> None:
+        """Clear cache."""
+        self._cache.clear()
+        logger.info("Cache cleared")
+
+    async def check_health(self) -> dict:
+        """Check service health.
+
+        Returns:
+            Health check result
+        """
+        health = await super().check_health()
+        health["service_info"].update({
+            "cache_size": len(self._cache),
+            "cached_types": list(self._cache.keys())
+        })
+        return health

@@ -21,7 +21,7 @@ def schema_dir(tmp_path):
 @pytest.fixture
 def schema_service(schema_dir):
     """Create schema service instance."""
-    return ConfigSchemaService(schema_dir)
+    return ConfigSchemaService(service_name="schema", schema_dir=schema_dir)
 
 
 @pytest.fixture
@@ -51,7 +51,7 @@ async def test_service_start(schema_service):
 async def test_service_start_error():
     """Test service startup with error."""
     # Mock _load_schemas to raise an error
-    service = ConfigSchemaService(Path("/tmp/schemas"))
+    service = ConfigSchemaService(service_name="schema", schema_dir=Path("/tmp/schemas"))
     with patch.object(service, '_load_schemas', side_effect=Exception("Load error")):
         with pytest.raises(ConfigError, match="Failed to start schema service"):
             await service.start()
@@ -65,7 +65,7 @@ async def test_load_schemas(schema_dir, sample_schema):
     with open(schema_file, "w") as f:
         json.dump(sample_schema, f)
 
-    service = ConfigSchemaService(schema_dir)
+    service = ConfigSchemaService(service_name="schema", schema_dir=schema_dir)
     await service.start()
 
     assert "test" in service._schemas
@@ -83,7 +83,7 @@ async def test_load_schemas_invalid_format(schema_dir):
     with open(schema_file, "w") as f:
         json.dump(["invalid"], f)
 
-    service = ConfigSchemaService(schema_dir)
+    service = ConfigSchemaService(service_name="schema", schema_dir=schema_dir)
     with pytest.raises(ConfigError, match="Failed to start schema service"):
         await service.start()
 
@@ -96,7 +96,7 @@ async def test_load_schemas_invalid_json(schema_dir):
     with open(schema_file, "w") as f:
         f.write("invalid json")
 
-    service = ConfigSchemaService(schema_dir)
+    service = ConfigSchemaService(service_name="schema", schema_dir=schema_dir)
     with pytest.raises(ConfigError, match="Failed to start schema service"):
         await service.start()
 
@@ -520,7 +520,7 @@ async def test_schema_loading(tmp_path):
     with open(schema_dir / "valid.json", "w") as f:
         json.dump(valid_schema, f)
     
-    service = ConfigSchemaService(schema_dir)
+    service = ConfigSchemaService(service_name="schema", schema_dir=schema_dir)
     await service._start()
     
     # Valid schema should be loaded
