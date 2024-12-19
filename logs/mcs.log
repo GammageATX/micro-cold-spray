@@ -1,0 +1,9 @@
+2024-12-18 23:27:55.460 | INFO     | __main__:main:305 | Starting Micro Cold Spray system...
+2024-12-18 23:27:55.460 | INFO     | __main__:start_service:174 | Starting config service...
+2024-12-18 23:28:16.291 | INFO     | __main__:_signal_handler:159 | Received signal 2
+2024-12-18 23:28:16.292 | INFO     | __main__:stop_service:212 | Stopping config service...
+2024-12-18 23:28:16.296 | INFO     | __main__:stop_service:219 | config service stopped
+2024-12-18 23:28:22.247 | INFO     | __main__:_signal_handler:159 | Received signal 2
+2024-12-18 23:28:25.296 | INFO     | __main__:_signal_handler:159 | Received signal 2
+2024-12-18 23:28:26.262 | ERROR    | __main__:start_service:200 | config service failed to start
+2024-12-18 23:28:26.262 | ERROR    | __main__:start_all_services:233 | Failed to start config service

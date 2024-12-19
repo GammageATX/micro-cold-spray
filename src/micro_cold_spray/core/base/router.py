@@ -4,9 +4,10 @@ This module provides core routing functionality for both BaseService (used by Co
 and ConfigurableService (used by all other APIs).
 """
 
-from typing import Type, TypeVar, Callable
+from typing import Type, TypeVar, Callable, Dict, Any, Optional
 from fastapi import FastAPI, APIRouter, status, Request
 from loguru import logger
+from datetime import datetime
 
 from micro_cold_spray.core.base.services.base_service import BaseService
 from micro_cold_spray.core.base.services.configurable_service import ConfigurableService
@@ -16,6 +17,7 @@ from micro_cold_spray.core.errors.codes import (
     AppErrorCode, raise_http_error,
     ConfigurationError, ServiceError
 )
+from micro_cold_spray.core.errors.formatting import raise_http_error
 
 # Type variable for service types
 ServiceType = TypeVar('ServiceType', BaseService, ConfigurableService)

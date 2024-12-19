@@ -1,16 +1,14 @@
 """Communication service for hardware control."""
 
 from typing import Dict, Any, Optional
+from datetime import datetime
 from loguru import logger
 
-from micro_cold_spray.core.base import ConfigurableService
-from micro_cold_spray.core.errors import ServiceError, ValidationError
+from micro_cold_spray.core.base.services.configurable_service import ConfigurableService
+from micro_cold_spray.core.errors.exceptions import CommunicationError
 from micro_cold_spray.core.config import ConfigService
 from micro_cold_spray.core.communication.clients import (
-    create_plc_client,
-    create_ssh_client,
-    PLCClient,
-    SSHClient
+    ClientFactory, BaseClient, PLCClient, SSHClient
 )
 from micro_cold_spray.core.communication.services.equipment import EquipmentService
 from micro_cold_spray.core.communication.services.feeder import FeederService
@@ -48,12 +46,12 @@ class CommunicationService(ConfigurableService):
             await self._init_and_start_services()
             logger.info("Communication service started")
             
-        except (ServiceError, ValidationError):
+        except (CommunicationError, ValidationError):
             raise
         except Exception as e:
             error_msg = f"Failed to start communication service: {str(e)}"
             logger.error(error_msg)
-            raise ServiceError(error_msg)
+            raise CommunicationError(error_msg)
 
     async def _load_config_and_init_clients(self) -> None:
         """Load config and initialize hardware clients."""
@@ -74,7 +72,7 @@ class CommunicationService(ConfigurableService):
             
         except Exception as e:
             logger.error(f"Failed to load config and initialize clients: {e}")
-            raise ServiceError(
+            raise CommunicationError(
                 "Failed to initialize communication clients",
                 {"error": str(e)}
             )
@@ -176,7 +174,7 @@ class CommunicationService(ConfigurableService):
             Health status dictionary
             
         Raises:
-            ServiceError: If health check fails
+            CommunicationError: If health check fails
         """
         try:
             logger.debug("Checking communication service health")
@@ -227,7 +225,7 @@ class CommunicationService(ConfigurableService):
             if not all(status.values()):
                 error_msg = "Communication service health check failed: "
                 error_msg += ", ".join(f"{k}: {v}" for k, v in details.items())
-                raise ServiceError(error_msg)
+                raise CommunicationError(error_msg)
             
             logger.debug("All components healthy")
             return {
@@ -235,12 +233,12 @@ class CommunicationService(ConfigurableService):
                 "components": status
             }
             
-        except ServiceError:
+        except CommunicationError:
             raise
         except Exception as e:
             error_msg = f"Failed to check communication service health: {str(e)}"
             logger.error(error_msg)
-            raise ServiceError(error_msg)
+            raise CommunicationError(error_msg)
 
     @property
     def equipment(self) -> EquipmentService:
