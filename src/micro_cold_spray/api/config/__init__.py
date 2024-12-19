@@ -11,10 +11,7 @@ from micro_cold_spray.api.config.models import (
     TagRemapRequest,
     SchemaRegistry
 )
-from micro_cold_spray.api.config.utils import (
-    get_config_service,
-    set_config_service
-)
+from micro_cold_spray.api.config.utils import config_singleton as singleton
 from micro_cold_spray.api.config.endpoints import router
 
 __all__ = [
@@ -33,6 +30,5 @@ __all__ = [
     # Factory functions
     "create_app",
     # Utilities
-    "get_config_service",
-    "set_config_service"
+    "singleton"
 ]

@@ -33,8 +33,7 @@ class ConfigService(ConfigurableService):
 
     def __init__(self):
         """Initialize configuration service."""
-        super().__init__()
-        self._service_name = "config"
+        super().__init__(service_name="config", config_model=ConfigData)
         self._version = "1.0.0"
         
         # Initialize services

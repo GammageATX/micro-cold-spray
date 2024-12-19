@@ -4,11 +4,11 @@ from typing import Dict, Any, Set, Callable
 from loguru import logger
 
 from micro_cold_spray.api.base import BaseService
-from micro_cold_spray.api.base.base_exceptions import ConfigurationError, ValidationError
+from micro_cold_spray.api.base.base_exceptions import ConfigError, ValidationError
 from micro_cold_spray.api.config.models.config_models import ConfigValidationResult
 
 
-class RegistryService(BaseService):
+class ConfigRegistryService(BaseService):
     """Service for managing config references and registries."""
 
     def __init__(self):
@@ -28,7 +28,7 @@ class RegistryService(BaseService):
             logger.info("Registry service started")
         except Exception as e:
             logger.error(f"Failed to start registry service: {e}")
-            raise ConfigurationError(
+            raise ConfigError(
                 "Failed to start registry service",
                 {"error": str(e)}
             )
@@ -209,7 +209,7 @@ class RegistryService(BaseService):
             logger.info("Tag registry loaded")
         except Exception as e:
             logger.error(f"Failed to load tag registry: {e}")
-            raise ConfigurationError(
+            raise ConfigError(
                 "Failed to load tag registry",
                 {"error": str(e)}
             )
@@ -227,7 +227,7 @@ class RegistryService(BaseService):
             logger.info("Action registry loaded")
         except Exception as e:
             logger.error(f"Failed to load action registry: {e}")
-            raise ConfigurationError(
+            raise ConfigError(
                 "Failed to load action registry",
                 {"error": str(e)}
             )
@@ -245,7 +245,7 @@ class RegistryService(BaseService):
             logger.info("Validation registry loaded")
         except Exception as e:
             logger.error(f"Failed to load validation registry: {e}")
-            raise ConfigurationError(
+            raise ConfigError(
                 "Failed to load validation registry",
                 {"error": str(e)}
             )

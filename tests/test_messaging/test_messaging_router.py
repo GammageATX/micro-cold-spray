@@ -7,7 +7,7 @@ from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
 from micro_cold_spray.api.messaging.router import get_service, lifespan
-from micro_cold_spray.api.base.exceptions import MessageError, ConfigurationError
+from micro_cold_spray.api.base.exceptions import MessageError, ConfigError
 from micro_cold_spray.api.config.models import ConfigData, ConfigMetadata
 
 
@@ -327,9 +327,9 @@ class TestMessagingRouter:
     @pytest.mark.asyncio
     async def test_config_error_handling(self, mock_messaging_service, mock_config_service):
         """Test handling of configuration errors."""
-        mock_config_service.get_config.side_effect = ConfigurationError("Config error")
+        mock_config_service.get_config.side_effect = ConfigError("Config error")
         
-        with pytest.raises(ConfigurationError, match="Config error"):
+        with pytest.raises(ConfigError, match="Config error"):
             await mock_messaging_service._start()
 
     def test_health_check_includes_config(self, test_client, mock_messaging_service):

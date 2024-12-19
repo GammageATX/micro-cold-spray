@@ -8,7 +8,7 @@ from typing import Dict, Any
 import shutil
 
 from micro_cold_spray.api.base import BaseService
-from micro_cold_spray.api.base.base_exceptions import ConfigurationError
+from micro_cold_spray.api.base.base_exceptions import ConfigError
 from micro_cold_spray.api.config.models.config_models import ConfigData, ConfigMetadata
 
 
@@ -30,7 +30,7 @@ class ConfigFileService(BaseService):
             logger.info("Config file service started")
         except Exception as e:
             logger.error(f"Failed to start file service: {e}")
-            raise ConfigurationError("Failed to start file service", {"error": str(e)})
+            raise ConfigError("Failed to start file service", {"error": str(e)})
 
     async def load_config(self, config_type: str) -> ConfigData:
         """Load configuration from file.
@@ -42,12 +42,12 @@ class ConfigFileService(BaseService):
             Loaded configuration data
             
         Raises:
-            ConfigurationError: If config cannot be loaded
+            ConfigError: If config cannot be loaded
         """
         config_path = self._get_config_path(config_type)
         
         if not config_path.exists():
-            raise ConfigurationError(
+            raise ConfigError(
                 f"Config file not found: {config_type}",
                 {"config_type": config_type, "path": str(config_path)}
             )
@@ -72,7 +72,7 @@ class ConfigFileService(BaseService):
             return ConfigData(metadata=metadata, data=config_data)
             
         except Exception as e:
-            raise ConfigurationError(
+            raise ConfigError(
                 f"Failed to load config: {str(e)}",
                 {
                     "config_type": config_type,
@@ -90,7 +90,7 @@ class ConfigFileService(BaseService):
             create_backup: Whether to create a backup before saving
             
         Raises:
-            ConfigurationError: If config cannot be saved
+            ConfigError: If config cannot be saved
         """
         config_path = self._get_config_path(config_type)
         
@@ -110,7 +110,7 @@ class ConfigFileService(BaseService):
                 
         except Exception as e:
             logger.error(f"Failed to save config {config_type}: {e}")
-            raise ConfigurationError(
+            raise ConfigError(
                 f"Failed to save config {config_type}",
                 {"config_type": config_type, "error": str(e)}
             )
@@ -137,13 +137,13 @@ class ConfigFileService(BaseService):
             config_type: Type of configuration to backup
             
         Raises:
-            ConfigurationError: If backup creation fails
+            ConfigError: If backup creation fails
         """
         source_path = self._get_config_path(config_type)
         backup_path = self._get_backup_path(config_type)
         
         if not source_path.exists():
-            raise ConfigurationError(
+            raise ConfigError(
                 f"Config file not found: {config_type}",
                 {"config_type": config_type, "path": str(source_path)}
             )
@@ -151,7 +151,7 @@ class ConfigFileService(BaseService):
         try:
             shutil.copy2(source_path, backup_path)
         except Exception as e:
-            raise ConfigurationError(
+            raise ConfigError(
                 f"Failed to create backup for {config_type}",
                 {"config_type": config_type, "error": str(e)}
             )

@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from loguru import logger
 
 from micro_cold_spray.api.base import BaseRouter
-from micro_cold_spray.api.base.base_exceptions import ConfigurationError, ServiceError
+from micro_cold_spray.api.base.base_exceptions import ConfigError, ServiceError
 from micro_cold_spray.api.base.base_errors import AppErrorCode, format_error
 from micro_cold_spray.api.config.config_service import ConfigService
 from micro_cold_spray.api.config.utils import get_config_service
@@ -60,7 +60,7 @@ async def get_config(service: ConfigService = Depends(get_service)):
             config=config,
             timestamp=datetime.now()
         )
-    except ConfigurationError as e:
+    except ConfigError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=format_error(AppErrorCode.CONFIGURATION_ERROR, str(e), e.context)
@@ -98,7 +98,7 @@ async def reload_config(
             message=message,
             timestamp=datetime.now()
         )
-    except ConfigurationError as e:
+    except ConfigError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=format_error(AppErrorCode.CONFIGURATION_ERROR, str(e), e.context)

@@ -3,6 +3,7 @@
 from .base_service import BaseService
 from .base_configurable import ConfigurableService
 from .base_app import BaseApp
+from .base_router import BaseRouter
 from .base_errors import (
     BaseError,
     ServiceError,
@@ -22,6 +23,7 @@ __all__ = [
     'BaseService',
     'ConfigurableService',
     'BaseApp',
+    'BaseRouter',
     'BaseError',
     'ServiceError',
     'ConfigError',

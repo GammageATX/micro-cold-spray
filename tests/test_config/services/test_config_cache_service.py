@@ -1,7 +1,7 @@
 """Tests for config cache service."""
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch, MagicMock, AsyncMock
 from datetime import datetime, timedelta
 import asyncio
 
@@ -9,19 +9,15 @@ from micro_cold_spray.api.config.services.config_cache_service import ConfigCach
 from micro_cold_spray.api.config.models import ConfigData, ConfigMetadata
 from micro_cold_spray.api.base.base_exceptions import ConfigError
 
-# Import base test utilities
-from tests.test_config.config_test_base import test_service_lifecycle
-# Import fixtures but don't redefine them
+# Import base test utilities and fixtures
+from tests.test_config.config_test_base import test_service_lifecycle as base_service_lifecycle
 from tests.test_config.conftest import config_base_service  # noqa: F401
 from tests.test_config.config_test_base import mock_service_error  # noqa: F401
 
 
 @pytest.fixture
-async def cache_service(config_base_service):
+async def cache_service():
     """Create cache service.
-    
-    Args:
-        config_base_service: Base config service fixture
     
     Returns:
         ConfigCacheService: Cache service instance
@@ -33,44 +29,36 @@ async def cache_service(config_base_service):
 
 
 @pytest.mark.asyncio
-async def test_service_lifecycle(cache_service):
+async def test_service_lifecycle_pattern(cache_service):
     """Test service lifecycle using base pattern.
     
     Args:
         cache_service: Cache service fixture
     """
-    await test_service_lifecycle(cache_service)
+    await base_service_lifecycle(cache_service)
 
 
 @pytest.mark.asyncio
-async def test_service_start_error(mock_service_error):
-    """Test service startup with error.
-    
-    Args:
-        mock_service_error: Standard service error mock
-    """
+async def test_service_start_error():
+    """Test service startup with error."""
     service = ConfigCacheService()
     
-    with patch.object(ConfigCacheService, 'start', side_effect=mock_service_error):
+    with patch.object(ConfigCacheService, 'start', side_effect=Exception("Service error")):
         with pytest.raises(ConfigError) as exc_info:
             await service.start()
-        assert str(mock_service_error) in str(exc_info.value)
+        assert "Service error" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
-async def test_service_stop_error(mock_service_error):
-    """Test service shutdown with error.
-    
-    Args:
-        mock_service_error: Standard service error mock
-    """
+async def test_service_stop_error():
+    """Test service shutdown with error."""
     service = ConfigCacheService()
     await service.start()
     
-    with patch.object(ConfigCacheService, 'stop', side_effect=mock_service_error):
+    with patch.object(ConfigCacheService, 'stop', side_effect=Exception("Service error")):
         with pytest.raises(ConfigError) as exc_info:
             await service.stop()
-        assert str(mock_service_error) in str(exc_info.value)
+        assert "Service error" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
