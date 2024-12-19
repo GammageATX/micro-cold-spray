@@ -109,7 +109,7 @@ async def test_register_format_error(format_service):
     """Test registering format with error."""
     await format_service.start()
     
-    with patch('micro_cold_spray.api.config.services.format_service.FormatMetadata') as mock_metadata:
+    with patch('micro_cold_spray.api.config.services.config_format_service.FormatMetadata') as mock_metadata:
         mock_metadata.side_effect = Exception("Metadata error")
         with pytest.raises(ConfigError) as exc_info:
             format_service.register_format(
@@ -268,7 +268,8 @@ def test_validate_path(format_service):
     assert "parent directory references" in format_service._validate_path("../parent/path")
 
     # Test error handling
-    with patch('micro_cold_spray.api.config.services.format_service.Path', side_effect=Exception("Path error")):
+    with patch('micro_cold_spray.api.config.services.config_format_service.Path') as mock_path:
+        mock_path.side_effect = Exception("Path error")
         error = format_service._validate_path("/some/path")
         assert "Invalid path format: Path error" in error
 
