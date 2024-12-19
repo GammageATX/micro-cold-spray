@@ -7,11 +7,11 @@ from typing import Dict, Any, Optional, Callable, List
 from loguru import logger
 
 from micro_cold_spray.api.base import BaseService
-from micro_cold_spray.api.base.base_exceptions import ConfigurationError, ValidationError
+from micro_cold_spray.api.base.base_exceptions import ConfigError, ValidationError
 from micro_cold_spray.api.config.models.config_models import FormatMetadata
 
 
-class FormatService(BaseService):
+class ConfigFormatService(BaseService):
     """Service for validating special data formats."""
 
     # Singleton instance
@@ -21,18 +21,18 @@ class FormatService(BaseService):
     def __new__(cls):
         """Ensure only one instance is created."""
         if cls._instance is None:
-            cls._instance = super(FormatService, cls).__new__(cls)
+            cls._instance = super(ConfigFormatService, cls).__new__(cls)
         return cls._instance
 
     def __init__(self):
         """Initialize format service."""
         # Only initialize once
-        if not FormatService._initialized:
+        if not ConfigFormatService._initialized:
             super().__init__(service_name="format")
             self._format_validators: Dict[str, Callable] = {}
             self._format_metadata: Dict[str, FormatMetadata] = {}
             self._register_default_validators()
-            FormatService._initialized = True
+            ConfigFormatService._initialized = True
 
     async def _start(self) -> None:
         """Start format service."""
@@ -42,7 +42,7 @@ class FormatService(BaseService):
                 len(self._format_validators)
             )
         except Exception as e:
-            raise ConfigurationError("Failed to start format service", {"error": str(e)})
+            raise ConfigError("Failed to start format service", {"error": str(e)})
 
     def register_format(
         self,
@@ -53,7 +53,7 @@ class FormatService(BaseService):
     ) -> None:
         """Register a new format validator."""
         if format_type in self._format_validators:
-            raise ConfigurationError(
+            raise ConfigError(
                 "Format already registered",
                 {"format": format_type}
             )
@@ -68,7 +68,7 @@ class FormatService(BaseService):
             logger.debug("Registered format validator: {}", format_type)
             
         except Exception as e:
-            raise ConfigurationError(
+            raise ConfigError(
                 "Failed to register format",
                 {
                     "format": format_type,

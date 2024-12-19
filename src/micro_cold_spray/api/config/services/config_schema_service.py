@@ -8,11 +8,11 @@ import re
 from loguru import logger
 
 from micro_cold_spray.api.base import BaseService
-from micro_cold_spray.api.base.base_exceptions import ConfigurationError
+from micro_cold_spray.api.base.base_exceptions import ConfigError
 from micro_cold_spray.api.config.models.config_models import ConfigSchema
 
 
-class SchemaService(BaseService):
+class ConfigSchemaService(BaseService):
     """Service for schema validation."""
 
     def __init__(self, schema_dir: Path):
@@ -29,7 +29,7 @@ class SchemaService(BaseService):
             await self._load_schemas()
             logger.info("Schema service started with {} schemas", len(self._schemas))
         except Exception as e:
-            raise ConfigurationError("Failed to start schema service", {"error": str(e)})
+            raise ConfigError("Failed to start schema service", {"error": str(e)})
 
     async def _load_schemas(self) -> None:
         """Load all schema files."""
@@ -40,7 +40,7 @@ class SchemaService(BaseService):
                     schema_data = json.load(f)
                     
                 if not isinstance(schema_data, dict):
-                    raise ConfigurationError(
+                    raise ConfigError(
                         "Invalid schema format",
                         {"schema": schema_type}
                     )
@@ -49,7 +49,7 @@ class SchemaService(BaseService):
                 logger.debug("Loaded schema: {}", schema_type)
                 
         except Exception as e:
-            raise ConfigurationError("Failed to load schemas", {"error": str(e)})
+            raise ConfigError("Failed to load schemas", {"error": str(e)})
 
     def get_schema(self, schema_type: str) -> Optional[ConfigSchema]:
         """Get schema by type."""
@@ -67,7 +67,7 @@ class SchemaService(BaseService):
         """Validate configuration against schema."""
         schema = self.get_schema(config_type)
         if not schema:
-            raise ConfigurationError(
+            raise ConfigError(
                 "Schema not found",
                 {
                     "config_type": config_type,
@@ -81,7 +81,7 @@ class SchemaService(BaseService):
             return errors
         except Exception as e:
             logger.error("Unexpected validation error: {}", e)
-            raise ConfigurationError(
+            raise ConfigError(
                 "Validation failed",
                 {
                     "config_type": config_type,

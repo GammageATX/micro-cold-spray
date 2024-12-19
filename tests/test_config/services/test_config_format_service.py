@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 from loguru import logger
 
-from micro_cold_spray.api.config.services.config_format_service import FormatService
+from micro_cold_spray.api.config.services.config_format_service import ConfigFormatService
 from micro_cold_spray.api.base.base_exceptions import ConfigError, ValidationError
 from micro_cold_spray.api.config.models import FormatMetadata
 
@@ -12,15 +12,15 @@ from micro_cold_spray.api.config.models import FormatMetadata
 @pytest.fixture(autouse=True)
 def reset_format_service():
     """Reset format service singleton between tests."""
-    FormatService._instance = None
-    FormatService._initialized = False
+    ConfigFormatService._instance = None
+    ConfigFormatService._initialized = False
     yield
 
 
 @pytest.fixture
 def format_service():
     """Create format service."""
-    service = FormatService()
+    service = ConfigFormatService()
     return service
 
 
@@ -35,18 +35,18 @@ async def test_service_start(format_service):
 @pytest.mark.asyncio
 async def test_service_start_error():
     """Test service startup with error."""
-    service = FormatService()
+    service = ConfigFormatService()
     
     # Mock logger.info to raise error
     with patch.object(logger, 'info', side_effect=Exception("Start error")):
-        with pytest.raises(ConfigurationError, match="Failed to start format service"):
+        with pytest.raises(ConfigError, match="Failed to start format service"):
             await service.start()
 
 
 def test_singleton():
     """Test format service singleton pattern."""
-    service1 = FormatService()
-    service2 = FormatService()
+    service1 = ConfigFormatService()
+    service2 = ConfigFormatService()
     assert service1 is service2
     assert service1._initialized == service2._initialized
 
@@ -94,7 +94,7 @@ async def test_register_format_duplicate(format_service):
         ["example"]
     )
     
-    with pytest.raises(ConfigurationError) as exc_info:
+    with pytest.raises(ConfigError) as exc_info:
         format_service.register_format(
             "test",
             validator,
@@ -111,7 +111,7 @@ async def test_register_format_error(format_service):
     
     with patch('micro_cold_spray.api.config.services.format_service.FormatMetadata') as mock_metadata:
         mock_metadata.side_effect = Exception("Metadata error")
-        with pytest.raises(ConfigurationError) as exc_info:
+        with pytest.raises(ConfigError) as exc_info:
             format_service.register_format(
                 "test",
                 lambda x: None,
@@ -332,7 +332,7 @@ def test_validate_format_integration(format_service):
 
 def test_default_validators_registration():
     """Test that default validators are properly registered."""
-    service = FormatService()
+    service = ConfigFormatService()
     
     expected_formats = {
         "12bit",

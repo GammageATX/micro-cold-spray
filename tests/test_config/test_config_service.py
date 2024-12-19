@@ -236,7 +236,7 @@ async def test_get_config_error(config_service, mock_services):
     mock_services["file"].load_config.side_effect = Exception("File error")
     
     # Verify error is wrapped
-    with pytest.raises(ConfigurationError, match="Failed to get config test"):
+    with pytest.raises(ConfigError, match="Failed to get config test"):
         await config_service.get_config("test")
 
 
@@ -420,7 +420,7 @@ async def test_remap_tag_validation_error(config_service, mock_services):
     )
     
     # Verify validation error is raised
-    with pytest.raises(ConfigurationError) as exc_info:
+    with pytest.raises(ConfigError) as exc_info:
         await config_service.remap_tag(request)
     
     # Verify error message
@@ -439,7 +439,7 @@ async def test_validate_config_schema_registry_not_initialized():
     await service.start()
     service._schema_registry = None  # Force schema registry to be None
     
-    with pytest.raises(ConfigurationError) as exc_info:
+    with pytest.raises(ConfigError) as exc_info:
         await service.validate_config("application", {})
     assert "Schema registry not initialized" in str(exc_info.value)
 
@@ -450,7 +450,7 @@ async def test_validate_config_unknown_type():
     service = ConfigService()
     await service.start()
     
-    with pytest.raises(ConfigurationError) as exc_info:
+    with pytest.raises(ConfigError) as exc_info:
         await service.validate_config("nonexistent", {})
     assert "Unknown config type" in str(exc_info.value)
 
@@ -581,7 +581,7 @@ async def test_remap_tag_validation_failure():
             validate=True
         )
         
-        with pytest.raises(ConfigurationError) as exc_info:
+        with pytest.raises(ConfigError) as exc_info:
             await service.remap_tag(request)
         assert "Invalid tag: invalid_tag" in str(exc_info.value)
 

@@ -1,5 +1,6 @@
 """Configuration service singleton."""
 
+import threading
 from typing import Optional
 from loguru import logger
 
@@ -7,28 +8,38 @@ from micro_cold_spray.api.config.config_service import ConfigService
 
 
 _config_service: Optional[ConfigService] = None
+_lock = threading.Lock()
 
 
-def get_config_service() -> Optional[ConfigService]:
+def get_config_service() -> ConfigService:
     """Get configuration service singleton instance.
     
     Returns:
-        Optional[ConfigService]: Service instance if initialized
+        ConfigService: Service instance
     """
     global _config_service
+    
+    # Double-check locking pattern
+    if _config_service is None:
+        with _lock:
+            if _config_service is None:
+                _config_service = ConfigService()
+                logger.debug("Created new config service instance")
+    
     return _config_service
 
 
-def set_config_service(service: ConfigService) -> None:
-    """Set configuration service singleton instance.
-    
-    Args:
-        service: Service instance to set
-    """
+def cleanup_config_service() -> None:
+    """Clean up configuration service singleton instance."""
     global _config_service
     
-    if _config_service and _config_service.is_running:
-        logger.warning("Replacing running config service instance")
-        
-    _config_service = service
-    logger.debug("Config service instance set")
+    with _lock:
+        if _config_service is not None:
+            if _config_service.is_running:
+                logger.warning("Cleaning up running config service instance")
+            _config_service = None
+            logger.debug("Config service instance cleaned up")
+
+
+# Expose for testing
+_lock = threading.Lock()

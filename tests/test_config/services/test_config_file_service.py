@@ -135,7 +135,7 @@ async def test_load_invalid_config(file_service, tmp_path):
         f.write("invalid: yaml: content")
     
     # Attempt to load invalid config
-    with pytest.raises(ConfigurationError):
+    with pytest.raises(ConfigError):
         await file_service.load_config(invalid_config.name)
 
 

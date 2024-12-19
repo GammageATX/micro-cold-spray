@@ -4,14 +4,14 @@ import pytest
 from unittest.mock import patch
 from loguru import logger
 
-from micro_cold_spray.api.config.services.config_registry_service import RegistryService
+from micro_cold_spray.api.config.services.config_registry_service import ConfigRegistryService
 from micro_cold_spray.api.base.base_exceptions import ConfigError, ValidationError
 
 
 @pytest.fixture
 def registry_service():
     """Create registry service instance."""
-    return RegistryService()
+    return ConfigRegistryService()
 
 
 @pytest.mark.asyncio
@@ -26,11 +26,11 @@ async def test_service_start(registry_service):
 @pytest.mark.asyncio
 async def test_service_start_error():
     """Test service startup with error."""
-    service = RegistryService()
+    service = ConfigRegistryService()
     
     # Mock logger.info to raise error
     with patch.object(logger, 'info', side_effect=Exception("Start error")):
-        with pytest.raises(ConfigurationError, match="Failed to start registry service"):
+        with pytest.raises(ConfigError, match="Failed to start registry service"):
             await service.start()
 
 
@@ -140,30 +140,30 @@ def test_validation_exists_error(registry_service):
 @pytest.mark.asyncio
 async def test_load_tag_registry_error():
     """Test tag registry loading with error."""
-    service = RegistryService()
+    service = ConfigRegistryService()
     
     with patch.object(logger, 'info', side_effect=Exception("Load error")):
-        with pytest.raises(ConfigurationError, match="Failed to load tag registry"):
+        with pytest.raises(ConfigError, match="Failed to load tag registry"):
             await service._load_tag_registry()
 
 
 @pytest.mark.asyncio
 async def test_load_action_registry_error():
     """Test action registry loading with error."""
-    service = RegistryService()
+    service = ConfigRegistryService()
     
     with patch.object(logger, 'info', side_effect=Exception("Load error")):
-        with pytest.raises(ConfigurationError, match="Failed to load action registry"):
+        with pytest.raises(ConfigError, match="Failed to load action registry"):
             await service._load_action_registry()
 
 
 @pytest.mark.asyncio
 async def test_load_validation_registry_error():
     """Test validation registry loading with error."""
-    service = RegistryService()
+    service = ConfigRegistryService()
     
     with patch.object(logger, 'info', side_effect=Exception("Load error")):
-        with pytest.raises(ConfigurationError, match="Failed to load validation registry"):
+        with pytest.raises(ConfigError, match="Failed to load validation registry"):
             await service._load_validation_registry()
 
 

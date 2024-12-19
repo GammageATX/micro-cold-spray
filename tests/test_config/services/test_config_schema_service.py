@@ -5,7 +5,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 
-from micro_cold_spray.api.config.services.config_schema_service import SchemaService
+from micro_cold_spray.api.config.services.config_schema_service import ConfigSchemaService
 from micro_cold_spray.api.base.base_exceptions import ConfigError
 from micro_cold_spray.api.config.models import ConfigSchema
 
@@ -21,7 +21,7 @@ def schema_dir(tmp_path):
 @pytest.fixture
 def schema_service(schema_dir):
     """Create schema service instance."""
-    return SchemaService(schema_dir)
+    return ConfigSchemaService(schema_dir)
 
 
 @pytest.fixture
@@ -51,9 +51,9 @@ async def test_service_start(schema_service):
 async def test_service_start_error():
     """Test service startup with error."""
     # Mock _load_schemas to raise an error
-    service = SchemaService(Path("/tmp/schemas"))
+    service = ConfigSchemaService(Path("/tmp/schemas"))
     with patch.object(service, '_load_schemas', side_effect=Exception("Load error")):
-        with pytest.raises(ConfigurationError, match="Failed to start schema service"):
+        with pytest.raises(ConfigError, match="Failed to start schema service"):
             await service.start()
 
 
@@ -65,7 +65,7 @@ async def test_load_schemas(schema_dir, sample_schema):
     with open(schema_file, "w") as f:
         json.dump(sample_schema, f)
 
-    service = SchemaService(schema_dir)
+    service = ConfigSchemaService(schema_dir)
     await service.start()
 
     assert "test" in service._schemas
@@ -83,8 +83,8 @@ async def test_load_schemas_invalid_format(schema_dir):
     with open(schema_file, "w") as f:
         json.dump(["invalid"], f)
 
-    service = SchemaService(schema_dir)
-    with pytest.raises(ConfigurationError, match="Failed to start schema service"):
+    service = ConfigSchemaService(schema_dir)
+    with pytest.raises(ConfigError, match="Failed to start schema service"):
         await service.start()
 
 
@@ -96,8 +96,8 @@ async def test_load_schemas_invalid_json(schema_dir):
     with open(schema_file, "w") as f:
         f.write("invalid json")
 
-    service = SchemaService(schema_dir)
-    with pytest.raises(ConfigurationError, match="Failed to start schema service"):
+    service = ConfigSchemaService(schema_dir)
+    with pytest.raises(ConfigError, match="Failed to start schema service"):
         await service.start()
 
 
@@ -165,7 +165,7 @@ async def test_validate_config(schema_service, sample_schema):
 @pytest.mark.asyncio
 async def test_validate_config_schema_not_found(schema_service):
     """Test validation with non-existent schema."""
-    with pytest.raises(ConfigurationError, match="Schema not found"):
+    with pytest.raises(ConfigError, match="Schema not found"):
         schema_service.validate_config("nonexistent", {})
 
 
@@ -176,7 +176,7 @@ async def test_validate_config_unexpected_error(schema_service, sample_schema):
     
     # Mock _validate_against_schema to raise unexpected error
     with patch.object(schema_service, '_validate_against_schema', side_effect=Exception("Unexpected")):
-        with pytest.raises(ConfigurationError, match="Validation failed"):
+        with pytest.raises(ConfigError, match="Validation failed"):
             schema_service.validate_config("test", {})
 
 
@@ -520,7 +520,7 @@ async def test_schema_loading(tmp_path):
     with open(schema_dir / "valid.json", "w") as f:
         json.dump(valid_schema, f)
     
-    service = SchemaService(schema_dir)
+    service = ConfigSchemaService(schema_dir)
     await service._start()
     
     # Valid schema should be loaded
@@ -533,7 +533,7 @@ async def test_schema_loading(tmp_path):
         f.write(invalid_schema)
     
     # Reload schemas should fail
-    with pytest.raises(ConfigurationError) as exc_info:
+    with pytest.raises(ConfigError) as exc_info:
         await service._load_schemas()
     assert "Failed to load schemas" in str(exc_info.value)
 
@@ -656,7 +656,7 @@ async def test_nested_object_validation(schema_service):
 async def test_error_handling(schema_service):
     """Test error handling for various edge cases."""
     # Test with non-existent schema
-    with pytest.raises(ConfigurationError) as exc_info:
+    with pytest.raises(ConfigError) as exc_info:
         schema_service.validate_config("non_existent", {})
     assert "Schema not found" in str(exc_info.value)
     

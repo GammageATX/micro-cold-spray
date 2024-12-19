@@ -193,7 +193,7 @@ def test_get_config_success(test_client, mock_config_service):
 def test_get_config_not_found(test_client, mock_config_service):
     """Test getting non-existent configuration."""
     mock_config_service.get_config = AsyncMock(
-        side_effect=ConfigurationError("Config not found")
+        side_effect=ConfigError("Config not found")
     )
     
     response = test_client.get("/config/nonexistent")
@@ -230,7 +230,7 @@ def test_update_config_success(test_client, mock_config_service):
 def test_update_config_validation_error(test_client, mock_config_service):
     """Test updating configuration with validation error."""
     mock_config_service.update_config = AsyncMock(
-        side_effect=ConfigurationError("Invalid config", {"field": "key"})
+        side_effect=ConfigError("Invalid config", {"field": "key"})
     )
     
     config_data = {"key": "invalid"}

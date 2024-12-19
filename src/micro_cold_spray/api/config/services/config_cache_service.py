@@ -6,7 +6,7 @@ from typing import Dict, Optional
 from loguru import logger
 
 from micro_cold_spray.api.base import BaseService
-from micro_cold_spray.api.base.base_exceptions import ConfigurationError
+from micro_cold_spray.api.base.base_exceptions import ConfigError
 from micro_cold_spray.api.config.models.config_models import ConfigData
 
 
@@ -38,7 +38,7 @@ class ConfigCacheService(BaseService):
             logger.info("Cache service started successfully")
         except Exception as e:
             logger.error(f"Failed to start cache service: {e}")
-            raise ConfigurationError(str(e))
+            raise ConfigError(str(e))
 
     async def _stop(self) -> None:
         """Stop the cache service."""
@@ -48,12 +48,12 @@ class ConfigCacheService(BaseService):
             logger.info("Cache service stopped successfully")
         except Exception as e:
             logger.error(f"Failed to stop cache service: {e}")
-            raise ConfigurationError(str(e))
+            raise ConfigError(str(e))
 
     async def get_cached_config(self, config_type: str) -> Optional[ConfigData]:
         """Get cached config with TTL check."""
         if config_type is None:
-            raise ConfigurationError("Config type cannot be None")
+            raise ConfigError("Config type cannot be None")
         self._cleanup_expired()
         entry = self._cache.get(config_type)
         if entry and not self._is_expired(entry):
@@ -82,13 +82,13 @@ class ConfigCacheService(BaseService):
             config_data: Configuration data to cache
         """
         if config_type is None:
-            raise ConfigurationError("Config type cannot be None")
+            raise ConfigError("Config type cannot be None")
         if config_data is None:
-            raise ConfigurationError("Config data cannot be None")
+            raise ConfigError("Config data cannot be None")
         try:
             self._cache[config_type] = CacheEntry(config_data)
         except Exception as e:
-            raise ConfigurationError(
+            raise ConfigError(
                 f"Failed to cache config: {e}",
                 {"config_type": config_type}
             )
@@ -101,7 +101,7 @@ class ConfigCacheService(BaseService):
             logger.info("Cache cleared successfully")
         except Exception as e:
             logger.error(f"Failed to clear cache: {e}")
-            raise ConfigurationError("Failed to clear cache") from e
+            raise ConfigError("Failed to clear cache") from e
 
     async def remove_from_cache(self, config_type: str) -> None:
         """Remove configuration from cache.
