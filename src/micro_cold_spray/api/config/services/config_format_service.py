@@ -3,6 +3,7 @@
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Callable, Any
+from datetime import datetime
 
 from loguru import logger
 
@@ -97,6 +98,26 @@ class ConfigFormatService(BaseService):
         except Exception as e:
             raise ConfigError("Failed to start format service", {"error": str(e)})
 
+    async def start(self) -> None:
+        """Start service.
+
+        Raises:
+            ConfigError: If service fails to start
+        """
+        if self.is_running:
+            return
+
+        try:
+            await self._start()
+            self._is_running = True
+            self._is_initialized = True
+            self._start_time = datetime.now()
+            self._metrics["start_count"] += 1
+        except Exception as e:
+            self._metrics["error_count"] += 1
+            self._metrics["last_error"] = str(e)
+            raise ConfigError("Failed to start format service") from e
+
     def register_format(self, format_type: str, validator: Callable, description: str, examples: List[str]) -> None:
         """Register format validator.
 
@@ -109,15 +130,16 @@ class ConfigFormatService(BaseService):
         Raises:
             ConfigError: If format already exists or registration fails
         """
-        try:
-            if format_type in self._format_validators:
-                raise ConfigError("Format already registered", {"format": format_type})
+        if format_type in self._format_validators:
+            raise ConfigError("Format already registered", {"format": format_type})
 
-            self._format_validators[format_type] = validator
-            self._format_metadata[format_type] = FormatMetadata(
+        try:
+            metadata = FormatMetadata(
                 description=description,
                 examples=examples
             )
+            self._format_validators[format_type] = validator
+            self._format_metadata[format_type] = metadata
         except Exception as e:
             raise ConfigError("Failed to register format", {"error": str(e)})
 
@@ -276,11 +298,15 @@ class ConfigFormatService(BaseService):
             if len(value) > 260:
                 return "Path too long"
 
-            path = Path(value)
-            if ".." in path.parts:
-                return "Path cannot contain parent directory references"
+            try:
+                path = Path(value)
+                if ".." in path.parts:
+                    return "Path cannot contain parent directory references"
+            except Exception as e:
+                return f"Invalid path format: {str(e)}"
 
-            invalid_chars = '<>:"|?*'
+            # Allow backslashes for Windows paths
+            invalid_chars = '<>"|?*'
             if any(c in value for c in invalid_chars):
                 return "Path contains invalid characters"
 
