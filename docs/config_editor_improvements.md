@@ -11,14 +11,6 @@ This document outlines planned improvements to make the configuration editor mor
   - SSH connection settings
   - Timeout and retry configurations
 
-### Physical Hardware Layout
-
-- Visual editor for:
-  - Nozzle positions and offsets
-  - Stage dimensions
-  - Substrate holder configuration
-- Interactive diagram showing hardware relationships
-
 ### Safety Settings
 
 - Slider-based interface for:
@@ -27,14 +19,6 @@ This document outlines planned improvements to make the configuration editor mor
   - Motion safety parameters
 - Visual indicators for safety thresholds
 - Real-time validation
-
-## Process Configuration
-
-- Step-by-step configuration wizard
-- Visual parameter relationship diagrams
-- Real-time validation with immediate feedback
-- Process simulation preview
-- Parameter dependency visualization
 
 ## Tag Configuration
 
@@ -77,13 +61,6 @@ This document outlines planned improvements to make the configuration editor mor
 - Path browser for file/directory settings
 - Service configuration wizards
 - Environment variable management
-
-## File Format Configuration
-
-- Template-based format creation
-- Format validation tools
-- Example data preview
-- Schema builder interface
 
 ## Common Features Across All Editors
 

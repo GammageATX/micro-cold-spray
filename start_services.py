@@ -2,13 +2,13 @@
 
 import asyncio
 import sys
-from pathlib import Path
 import uvicorn
 from loguru import logger
 
 from micro_cold_spray.api.config.service import ConfigService
 from micro_cold_spray.api.messaging.service import MessagingService
 from micro_cold_spray.api.communication.service import CommunicationService
+
 
 async def main():
     """Start required services."""
@@ -47,4 +47,4 @@ async def main():
         sys.exit(1)
 
 if __name__ == "__main__":
-    asyncio.run(main()) 
+    asyncio.run(main())

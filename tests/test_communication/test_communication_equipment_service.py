@@ -1,11 +1,12 @@
 """Tests for equipment service."""
 
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 from micro_cold_spray.api.base.exceptions import HardwareError, ValidationError
 from micro_cold_spray.api.communication.services.equipment import EquipmentService
 from micro_cold_spray.api.communication.clients import PLCClient
+from micro_cold_spray.api.config import ConfigService
 
 
 @pytest.fixture
@@ -16,9 +17,16 @@ def mock_plc_client():
 
 
 @pytest.fixture
-def equipment_service(mock_plc_client):
+def mock_config_service():
+    """Create mock config service."""
+    service = MagicMock(spec=ConfigService)
+    return service
+
+
+@pytest.fixture
+def equipment_service(mock_plc_client, mock_config_service):
     """Create equipment service instance."""
-    return EquipmentService(mock_plc_client)
+    return EquipmentService(mock_plc_client, mock_config_service)
 
 
 class TestEquipmentService:

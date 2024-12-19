@@ -5,8 +5,8 @@ from unittest.mock import patch, MagicMock, AsyncMock
 from datetime import datetime
 from unittest import mock
 
-from micro_cold_spray.api.config.service import ConfigService
-from micro_cold_spray.api.base.exceptions import ConfigurationError
+from micro_cold_spray.api.config.config_service import ConfigService
+from micro_cold_spray.api.base.base_exceptions import ConfigError
 from micro_cold_spray.api.config.models import (
     ConfigData,
     ConfigMetadata,

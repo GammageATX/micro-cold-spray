@@ -1,14 +1,13 @@
 """Tests for equipment endpoints."""
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, status
 from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock
 
 from micro_cold_spray.api.communication.endpoints.equipment import router
 from micro_cold_spray.api.communication.service import CommunicationService
-from micro_cold_spray.api.base.exceptions import ServiceError
-from micro_cold_spray.api.base import _services
+from micro_cold_spray.api.base.exceptions import ServiceError, ValidationError
 
 
 @pytest.fixture
@@ -22,7 +21,7 @@ def mock_equipment_service():
 def mock_communication_service(mock_equipment_service):
     """Create mock communication service with equipment service."""
     service = AsyncMock(spec=CommunicationService)
-    service.equipment = mock_equipment_service
+    service.equipment_service = mock_equipment_service
     return service
 
 
@@ -30,11 +29,7 @@ def mock_communication_service(mock_equipment_service):
 def test_app(mock_communication_service):
     """Create test FastAPI app with equipment router."""
     app = FastAPI()
-    
-    # Initialize service
-    _services[CommunicationService] = mock_communication_service
-    
-    # Mount router without prefix (it's already defined in the router)
+    app.state.service = mock_communication_service
     app.include_router(router)
     return app
 
@@ -43,13 +38,6 @@ def test_app(mock_communication_service):
 def client(test_app):
     """Create test client."""
     return TestClient(test_app)
-
-
-@pytest.fixture(autouse=True)
-def cleanup_services():
-    """Clean up services after each test."""
-    yield
-    _services.clear()
 
 
 class TestEquipmentEndpoints:
@@ -75,34 +63,45 @@ class TestEquipmentEndpoints:
             }
         }
 
-        response = client.get("/equipment/status")
-        assert response.status_code == 200
+        response = client.get("/equipment/status/main")
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
 
-        assert data["gas"]["main"]["flow"] == 50.0
-        assert data["gas"]["feeder"]["valve"] is True
-        assert data["pressure"]["nozzle"] == 75.0
-        assert data["vacuum"]["shutter"] is True
+        assert data["status"] == "ok"
+        assert data["equipment_id"] == "main"
+        assert data["state"]["gas"]["main"]["flow"] == 50.0
+        assert data["state"]["gas"]["feeder"]["valve"] is True
+        assert data["state"]["pressure"]["nozzle"] == 75.0
+        assert data["state"]["vacuum"]["shutter"] is True
+
+    def test_get_equipment_status_not_found(self, client, mock_equipment_service):
+        """Test equipment status with validation error."""
+        mock_equipment_service.get_status.side_effect = ValidationError(
+            "Equipment not found: invalid"
+        )
+
+        response = client.get("/equipment/status/invalid")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        data = response.json()
+        assert "Equipment not found: invalid" in data["detail"]
 
     def test_get_equipment_status_service_error(self, client, mock_equipment_service):
         """Test equipment status with service error."""
         mock_equipment_service.get_status.side_effect = ServiceError(
-            "Failed to get status",
-            {"component": "equipment"}
+            "Failed to get status"
         )
 
-        response = client.get("/equipment/status")
-        assert response.status_code == 400
+        response = client.get("/equipment/status/main")
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         data = response.json()
-        assert "Failed to get status" in data["detail"]["error"]
-        assert data["detail"]["context"]["component"] == "equipment"
+        assert "Failed to get status" in data["detail"]
 
     def test_get_equipment_status_unexpected_error(self, client, mock_equipment_service):
         """Test equipment status with unexpected error."""
         mock_equipment_service.get_status.side_effect = Exception("Unexpected error")
 
-        response = client.get("/equipment/status")
-        assert response.status_code == 500
+        response = client.get("/equipment/status/main")
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         data = response.json()
         assert "Unexpected error" == data["detail"]
 
@@ -114,130 +113,72 @@ class TestEquipmentEndpoints:
         }
 
         response = client.post("/equipment/gas/flow", json=request_data)
-        assert response.status_code == 200
-        assert response.json()["status"] == "ok"
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["status"] == "ok"
+        assert data["message"] == "Gas flow main set to 50.0"
 
-        mock_equipment_service.set_gas_flow.assert_called_once_with("main", 50.0)
+        mock_equipment_service.set_gas_flow.assert_called_once_with(
+            flow_type="main",
+            value=50.0
+        )
 
-    def test_set_gas_flow_validation_error(self, client):
-        """Test gas flow with invalid request data."""
-        # Test invalid flow type
-        response = client.post("/equipment/gas/flow", json={
-            "flow_type": "invalid",
-            "value": 50.0
-        })
-        assert response.status_code == 422  # Validation error
+    def test_set_gas_flow_validation_error(self, client, mock_equipment_service):
+        """Test gas flow with validation error."""
+        mock_equipment_service.set_gas_flow.side_effect = ValidationError(
+            "Invalid flow value: 150.0"
+        )
 
-        # Test invalid value range
         response = client.post("/equipment/gas/flow", json={
             "flow_type": "main",
-            "value": 150.0  # Over maximum
+            "value": 150.0
         })
-        assert response.status_code == 422
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        data = response.json()
+        assert "Invalid flow value: 150.0" in data["detail"]
 
     def test_set_gas_flow_service_error(self, client, mock_equipment_service):
         """Test gas flow with service error."""
         mock_equipment_service.set_gas_flow.side_effect = ServiceError(
-            "Failed to set flow",
-            {"flow_type": "main"}
+            "Failed to set flow"
         )
 
         response = client.post("/equipment/gas/flow", json={
             "flow_type": "main",
             "value": 50.0
         })
-        assert response.status_code == 400
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         data = response.json()
-        assert "Failed to set flow" in data["detail"]["error"]
-        assert data["detail"]["context"]["flow_type"] == "main"
+        assert "Failed to set flow" in data["detail"]
 
-    def test_set_gas_valve_success(self, client, mock_equipment_service):
-        """Test successful gas valve control."""
-        request_data = {
-            "valve": "main",
-            "state": True
-        }
+    def test_set_valve_state_success(self, client, mock_equipment_service):
+        """Test successful valve control."""
+        response = client.post("/equipment/valve/main/state?state=true")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["status"] == "ok"
+        assert data["message"] == "Valve main opened"
 
-        response = client.post("/equipment/gas/valve", json=request_data)
-        assert response.status_code == 200
-        assert response.json()["status"] == "ok"
+        mock_equipment_service.set_valve_state.assert_called_once_with("main", True)
 
-        mock_equipment_service.set_gas_valve.assert_called_once_with("main", True)
-
-    def test_set_gas_valve_validation_error(self, client):
-        """Test gas valve with invalid request data."""
-        # Test invalid valve type
-        response = client.post("/equipment/gas/valve", json={
-            "valve": "invalid",
-            "state": True
-        })
-        assert response.status_code == 422
-
-    def test_set_vacuum_pump_success(self, client, mock_equipment_service):
-        """Test successful vacuum pump control."""
-        request_data = {
-            "pump": "mechanical",
-            "state": True
-        }
-
-        response = client.post("/equipment/vacuum/pump", json=request_data)
-        assert response.status_code == 200
-        assert response.json()["status"] == "ok"
-
-        mock_equipment_service.control_vacuum_pump.assert_called_once_with("mechanical", True)
-
-    def test_set_vacuum_pump_validation_error(self, client):
-        """Test vacuum pump with invalid request data."""
-        # Test invalid pump type
-        response = client.post("/equipment/vacuum/pump", json={
-            "pump": "invalid",
-            "state": True
-        })
-        assert response.status_code == 422
-
-    def test_set_shutter_success(self, client, mock_equipment_service):
-        """Test successful shutter control."""
-        request_data = {
-            "state": True
-        }
-
-        response = client.post("/equipment/shutter", json=request_data)
-        assert response.status_code == 200
-        assert response.json()["status"] == "ok"
-
-        mock_equipment_service.control_shutter.assert_called_once_with(True)
-
-    def test_set_gate_valve_success(self, client, mock_equipment_service):
-        """Test successful gate valve control."""
-        request_data = {
-            "position": "open"
-        }
-
-        response = client.post("/equipment/vacuum/gate", json=request_data)
-        assert response.status_code == 200
-        assert response.json()["status"] == "ok"
-
-        mock_equipment_service.control_gate_valve.assert_called_once_with("open")
-
-    def test_set_gate_valve_validation_error(self, client):
-        """Test gate valve with invalid request data."""
-        # Test invalid position
-        response = client.post("/equipment/vacuum/gate", json={
-            "position": "invalid"
-        })
-        assert response.status_code == 422
-
-    def test_set_gate_valve_service_error(self, client, mock_equipment_service):
-        """Test gate valve with service error."""
-        mock_equipment_service.control_gate_valve.side_effect = ServiceError(
-            "Failed to control gate valve",
-            {"position": "open"}
+    def test_set_valve_state_not_found(self, client, mock_equipment_service):
+        """Test valve control with validation error."""
+        mock_equipment_service.set_valve_state.side_effect = ValidationError(
+            "Valve not found: invalid"
         )
 
-        response = client.post("/equipment/vacuum/gate", json={
-            "position": "open"
-        })
-        assert response.status_code == 400
+        response = client.post("/equipment/valve/invalid/state?state=true")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
         data = response.json()
-        assert "Failed to control gate valve" in data["detail"]["error"]
-        assert data["detail"]["context"]["position"] == "open"
+        assert "Valve not found: invalid" in data["detail"]
+
+    def test_set_valve_state_service_error(self, client, mock_equipment_service):
+        """Test valve control with service error."""
+        mock_equipment_service.set_valve_state.side_effect = ServiceError(
+            "Failed to set valve state"
+        )
+
+        response = client.post("/equipment/valve/main/state?state=true")
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        data = response.json()
+        assert "Failed to set valve state" in data["detail"]

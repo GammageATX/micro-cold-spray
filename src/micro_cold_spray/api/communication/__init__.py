@@ -1,7 +1,8 @@
 """Communication API package."""
 
 from .service import CommunicationService
-from .router import router, init_router
+from .router import router
+from .dependencies import get_service
 from .services import (
     EquipmentService,
     MotionService,
@@ -14,7 +15,7 @@ __all__ = [
     # Core components
     "CommunicationService",
     "router",
-    "init_router",
+    "get_service",
     # Services
     "EquipmentService",
     "MotionService",

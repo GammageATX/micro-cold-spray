@@ -65,6 +65,7 @@ Database Guidelines
 
 Testing Guidelines
 
+- Use pytest for testing, handle warings by looking up website provided by pytest
 - Write comprehensive unit tests for all components
 - Use pytest fixtures for test setup/teardown
 - Mock external dependencies appropriately

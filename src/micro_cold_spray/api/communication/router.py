@@ -10,9 +10,9 @@ from loguru import logger
 
 from .service import CommunicationService
 from .endpoints import equipment_router, motion_router, tags_router
+from .dependencies import get_service
 from ..config.singleton import get_config_service
-from ..base.exceptions import ServiceError, CommunicationError
-from ..base.errors import AppErrorCode, format_error
+from ..base.exceptions import ServiceError
 
 
 class HealthResponse(BaseModel):
@@ -90,16 +90,6 @@ app.add_middleware(
 )
 
 
-def get_service() -> CommunicationService:
-    """Get service instance."""
-    if not _service or not _service.is_running:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=format_error(AppErrorCode.SERVICE_ERROR, "CommunicationService not initialized")
-        )
-    return _service
-
-
 @router.get(
     "/health",
     response_model=HealthResponse,
@@ -110,29 +100,37 @@ def get_service() -> CommunicationService:
 async def health_check(service: CommunicationService = Depends(get_service)):
     """Check service health."""
     try:
-        # Directly check service health without storing result
-        await service.check_health()
-        return HealthResponse(
-            status="ok" if service.is_running else "error",
+        # Get health status
+        health = await service.check_health()
+        
+        # Create response
+        response = HealthResponse(
+            status=health["status"],
             service_name=service._service_name,
-            version=getattr(service, "version", "1.0.0"),
-            is_running=service.is_running,
+            version=health["service_info"]["version"],
+            is_running=health["service_info"]["running"],
             timestamp=datetime.now()
         )
-    except CommunicationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=format_error(AppErrorCode.COMMUNICATION_ERROR, str(e), e.context)
-        )
+        
+        # Return 503 if service is not running
+        if not response.is_running:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Service is not running"
+            )
+        
+        return response
     except ServiceError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e), e.context)
+            detail=str(e)
         )
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e))
+            detail=str(e)
         )
 
 
@@ -140,7 +138,7 @@ async def health_check(service: CommunicationService = Depends(get_service)):
     "/control",
     response_model=ServiceResponse,
     responses={
-        status.HTTP_400_BAD_REQUEST: {"description": "Invalid action"},
+        status.HTTP_400_BAD_REQUEST: {"description": "Invalid control command"},
         status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service error"}
     }
 )
@@ -149,12 +147,12 @@ async def control_service(
     background_tasks: BackgroundTasks,
     service: CommunicationService = Depends(get_service)
 ):
-    """Control service operation."""
+    """Control service state."""
     valid_actions = ["start", "stop", "restart"]
     if action not in valid_actions:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=format_error(AppErrorCode.INVALID_ACTION, f"Invalid action: {action}. Valid actions are {valid_actions}")
+            detail=f"Invalid action: {action}. Valid actions are {valid_actions}"
         )
 
     try:
@@ -176,20 +174,15 @@ async def control_service(
             timestamp=datetime.now()
         )
             
-    except CommunicationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=format_error(AppErrorCode.COMMUNICATION_ERROR, str(e), e.context)
-        )
     except ServiceError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e), e.context)
+            detail=str(e)
         )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=format_error(AppErrorCode.SERVICE_ERROR, str(e))
+            detail=str(e)
         )
 
 

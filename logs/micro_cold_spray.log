@@ -1,58 +1,7 @@
-2024-12-18 00:41:39.984 | INFO     | __main__:main:398 - Starting Micro Cold Spray application
-2024-12-18 00:41:39.984 | INFO     | __main__:start_service:190 - Starting ui service...
-2024-12-18 00:41:43.058 | WARNING  | __main__:check_service_health:104 - Service on port 8000 returned status code: 500
-2024-12-18 00:41:47.106 | WARNING  | __main__:check_service_health:104 - Service on port 8000 returned status code: 500
-2024-12-18 00:41:51.183 | WARNING  | __main__:check_service_health:104 - Service on port 8000 returned status code: 500
-2024-12-18 00:41:55.248 | WARNING  | __main__:check_service_health:104 - Service on port 8000 returned status code: 500
-2024-12-18 00:41:59.292 | WARNING  | __main__:check_service_health:104 - Service on port 8000 returned status code: 500
-2024-12-18 00:41:59.292 | WARNING  | __main__:start_service:221 - Non-critical service ui failed health check but continuing
-2024-12-18 00:41:59.292 | INFO     | __main__:start_service:190 - Starting config service...
-2024-12-18 00:42:01.311 | INFO     | __main__:start_service:190 - Starting messaging service...
-2024-12-18 00:42:23.472 | INFO     | __main__:stop_service:245 - Removed messaging service from process list
-2024-12-18 00:42:23.473 | INFO     | __main__:stop_service:245 - Removed config service from process list
-2024-12-18 00:42:23.473 | INFO     | __main__:stop_service:245 - Removed ui service from process list
-2024-12-18 00:42:23.473 | INFO     | __main__:main:474 - Application shutdown complete
-2024-12-18 00:43:19.858 | INFO     | __main__:main:398 - Starting Micro Cold Spray application
-2024-12-18 00:43:19.858 | INFO     | __main__:start_service:190 - Starting ui service...
-2024-12-18 00:43:22.939 | WARNING  | __main__:check_service_health:104 - Service on port 8000 returned status code: 500
-2024-12-18 00:43:27.012 | WARNING  | __main__:check_service_health:104 - Service on port 8000 returned status code: 500
-2024-12-18 00:43:31.066 | WARNING  | __main__:check_service_health:104 - Service on port 8000 returned status code: 500
-2024-12-18 00:43:35.107 | WARNING  | __main__:check_service_health:104 - Service on port 8000 returned status code: 500
-2024-12-18 00:43:39.192 | WARNING  | __main__:check_service_health:104 - Service on port 8000 returned status code: 500
-2024-12-18 00:43:39.193 | WARNING  | __main__:start_service:221 - Non-critical service ui failed health check but continuing
-2024-12-18 00:43:39.193 | INFO     | __main__:start_service:190 - Starting config service...
-2024-12-18 00:43:41.214 | INFO     | __main__:start_service:190 - Starting messaging service...
-2024-12-18 00:44:05.423 | INFO     | __main__:stop_service:245 - Removed messaging service from process list
-2024-12-18 00:44:05.423 | INFO     | __main__:stop_service:245 - Removed config service from process list
-2024-12-18 00:44:05.424 | INFO     | __main__:stop_service:245 - Removed ui service from process list
-2024-12-18 00:44:05.424 | INFO     | __main__:main:474 - Application shutdown complete
-2024-12-18 00:44:38.939 | INFO     | __main__:main:398 - Starting Micro Cold Spray application
-2024-12-18 00:44:38.939 | INFO     | __main__:start_service:190 - Starting ui service...
-2024-12-18 00:44:42.008 | WARNING  | __main__:check_service_health:104 - Service on port 8000 returned status code: 500
-2024-12-18 00:44:46.030 | WARNING  | __main__:check_service_health:104 - Service on port 8000 returned status code: 500
-2024-12-18 00:44:50.083 | WARNING  | __main__:check_service_health:104 - Service on port 8000 returned status code: 500
-2024-12-18 00:44:54.132 | WARNING  | __main__:check_service_health:104 - Service on port 8000 returned status code: 500
-2024-12-18 00:44:58.153 | WARNING  | __main__:check_service_health:104 - Service on port 8000 returned status code: 500
-2024-12-18 00:44:58.154 | WARNING  | __main__:start_service:221 - Non-critical service ui failed health check but continuing
-2024-12-18 00:44:58.154 | INFO     | __main__:start_service:190 - Starting config service...
-2024-12-18 00:45:01.199 | WARNING  | __main__:check_config_ready:135 - Config endpoint not ready (attempt 1/10)
-2024-12-18 00:45:01.200 | INFO     | __main__:start_service:190 - Starting messaging service...
-2024-12-18 00:45:04.259 | WARNING  | __main__:check_service_health:90 - Service on port 8007 starting up (health endpoint not ready)
-2024-12-18 00:45:06.302 | WARNING  | __main__:check_config_ready:135 - Config endpoint not ready (attempt 2/10)
-2024-12-18 00:45:09.330 | WARNING  | __main__:check_service_health:90 - Service on port 8007 starting up (health endpoint not ready)
-2024-12-18 00:45:11.365 | WARNING  | __main__:check_config_ready:135 - Config endpoint not ready (attempt 3/10)
-2024-12-18 00:45:14.385 | WARNING  | __main__:check_service_health:90 - Service on port 8007 starting up (health endpoint not ready)
-2024-12-18 00:45:16.429 | WARNING  | __main__:check_config_ready:135 - Config endpoint not ready (attempt 4/10)
-2024-12-18 00:45:19.447 | WARNING  | __main__:check_service_health:90 - Service on port 8007 starting up (health endpoint not ready)
-2024-12-18 00:45:21.496 | WARNING  | __main__:check_config_ready:135 - Config endpoint not ready (attempt 5/10)
-2024-12-18 00:45:24.489 | WARNING  | __main__:check_service_health:90 - Service on port 8007 starting up (health endpoint not ready)
-2024-12-18 00:45:26.565 | WARNING  | __main__:check_config_ready:135 - Config endpoint not ready (attempt 6/10)
-2024-12-18 00:45:29.535 | WARNING  | __main__:check_service_health:90 - Service on port 8007 starting up (health endpoint not ready)
-2024-12-18 00:45:31.626 | WARNING  | __main__:check_config_ready:135 - Config endpoint not ready (attempt 7/10)
-2024-12-18 00:45:34.583 | WARNING  | __main__:check_service_health:90 - Service on port 8007 starting up (health endpoint not ready)
-2024-12-18 00:45:36.654 | WARNING  | __main__:check_config_ready:135 - Config endpoint not ready (attempt 8/10)
-2024-12-18 00:45:41.658 | WARNING  | __main__:check_service_health:106 - Service on port 8007 not responding (attempt 8/10)
-2024-12-18 00:45:41.658 | INFO     | __main__:stop_service:245 - Removed messaging service from process list
-2024-12-18 00:45:41.659 | INFO     | __main__:stop_service:245 - Removed config service from process list
-2024-12-18 00:45:41.659 | INFO     | __main__:stop_service:245 - Removed ui service from process list
-2024-12-18 00:45:41.659 | INFO     | __main__:main:474 - Application shutdown complete
+2024-12-19 09:09:40.752 | INFO     | __main__:main:398 - Starting Micro Cold Spray application
+2024-12-19 09:09:40.752 | INFO     | __main__:start_service:190 - Starting ui service...
+2024-12-19 09:09:43.847 | WARNING  | __main__:check_service_health:104 - Service on port 8000 returned status code: 500
+2024-12-19 09:09:47.875 | WARNING  | __main__:check_service_health:104 - Service on port 8000 returned status code: 500
+2024-12-19 09:09:53.951 | WARNING  | __main__:check_service_health:106 - Service on port 8000 not responding (attempt 3/5)
+2024-12-19 09:09:53.952 | INFO     | __main__:stop_service:245 - Removed ui service from process list
+2024-12-19 09:09:53.952 | INFO     | __main__:main:474 - Application shutdown complete

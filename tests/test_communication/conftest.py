@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 import httpx
 from httpx import ASGITransport
 
-from micro_cold_spray.api.communication.router import router, init_router
+from micro_cold_spray.api.communication.router import router
 from micro_cold_spray.api.communication.service import CommunicationService
 from micro_cold_spray.api.base.router import add_health_endpoints
 
@@ -36,10 +36,22 @@ def mock_communication_service():
     service.stop = AsyncMock()
     service.check_health = AsyncMock(return_value={
         "status": "ok",
-        "connected": True,
-        "active_connections": 1,
-        "messages_sent": 0,
-        "messages_received": 0
+        "service_info": {
+            "name": "communication",
+            "version": "1.0.0",
+            "running": True,
+            "uptime": "0:00:00"
+        },
+        "components": {
+            "plc": True,
+            "ssh": True,
+            "equipment": True,
+            "feeder": True,
+            "motion": True,
+            "tag_cache": True,
+            "tag_mapping": True
+        },
+        "details": None
     })
     service.connect = AsyncMock()
     service.disconnect = AsyncMock()
@@ -54,7 +66,8 @@ def mock_communication_service():
 def app(mock_communication_service):
     """Create FastAPI test application."""
     app = FastAPI()
-    init_router(mock_communication_service)
+    # Store service in app state for dependency injection
+    app.state.service = mock_communication_service
     add_health_endpoints(app, mock_communication_service)
     app.include_router(router)
     return app
