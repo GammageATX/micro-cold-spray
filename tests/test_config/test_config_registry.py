@@ -1,6 +1,7 @@
 """Configuration registry service tests."""
 
 import pytest
+from typing import AsyncGenerator
 from fastapi import status
 
 from micro_cold_spray.api.base.base_errors import create_error
@@ -12,7 +13,7 @@ class TestConfigRegistry(BaseConfigTest):
     """Configuration registry service tests."""
 
     @pytest.fixture
-    async def registry_service(self) -> ConfigRegistryService:
+    async def registry_service(self) -> AsyncGenerator[ConfigRegistryService, None]:
         """Create registry service fixture."""
         service = ConfigRegistryService()
         await service.start()

@@ -8,29 +8,29 @@ from micro_cold_spray.api.base.base_errors import create_error
 from micro_cold_spray.api.base.base_service import BaseService
 
 
-T = TypeVar("T", bound=BaseModel)
+ConfigType = TypeVar("ConfigType", bound=BaseModel)
 
 
-class ConfigurableService(Generic[T]):
-    """Base class for services that require configuration."""
+class ConfigurableService(Generic[ConfigType]):
+    """Mixin for services that require configuration."""
 
-    def __init__(self, config_type: type[T]):
+    def __init__(self, config_type: type[ConfigType]):
         """Initialize configurable service.
         
         Args:
             config_type: Configuration model type
         """
-        self._config: Optional[T] = None
+        self._config: Optional[ConfigType] = None
         self._config_type = config_type
 
-    async def configure(self, config: T | Dict[str, Any]) -> None:
+    async def configure(self, config: ConfigType | Dict[str, Any]) -> None:
         """Configure the service.
         
         Args:
             config: Configuration data or dictionary
             
         Raises:
-            HTTPException: If configuration is invalid (422) or service is in invalid state (409)
+            HTTPException: If configuration is invalid or service is running
         """
         if not isinstance(self, BaseService):
             raise create_error(
@@ -48,39 +48,26 @@ class ConfigurableService(Generic[T]):
 
         try:
             if isinstance(config, dict):
-                self._config = self._config_type(**config)
-            elif isinstance(config, BaseModel):
-                self._config = config
+                self._config = self._config_type.model_validate(config)
             else:
-                raise create_error(
-                    message="Invalid configuration type",
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    context={
-                        "service": self.name,
-                        "expected": self._config_type.__name__,
-                        "received": type(config).__name__
-                    }
-                )
+                self._config = config
         except ValidationError as e:
             raise create_error(
                 message="Configuration validation failed",
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                context={
-                    "service": self.name,
-                    "errors": e.errors()
-                },
+                context={"service": self.name, "errors": e.errors()},
                 cause=e
             )
 
     @property
-    def config(self) -> T:
+    def config(self) -> ConfigType:
         """Get current configuration.
         
         Returns:
             Current configuration
             
         Raises:
-            HTTPException: If service is not configured (409)
+            HTTPException: If service is not configured
         """
         if not self._config:
             raise create_error(

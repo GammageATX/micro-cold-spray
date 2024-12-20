@@ -1,48 +1,23 @@
 """Root test configuration and shared fixtures."""
 
 import pytest
-from typing import AsyncGenerator
 from datetime import datetime
-import httpx
-from fastapi import FastAPI
+import asyncio
 
-from micro_cold_spray.api.base import BaseService
-
-
-class MockBaseService(BaseService):
-    """Mock base service for testing."""
-
-    def __init__(self, name: str = None):
-        """Initialize test service."""
-        super().__init__(name or "test_service")
-        self._is_running = False
-
-    async def _start(self) -> None:
-        """Start the service."""
-        self._is_running = True
-
-    async def _stop(self) -> None:
-        """Stop the service."""
-        self._is_running = False
-
-    @property
-    def metrics(self):
-        """Get service metrics."""
-        return {"test_metric": 123}
+from micro_cold_spray.api.base.base_service import BaseService
 
 
-@pytest.fixture
-async def base_service():
-    """Create base service fixture."""
-    service = MockBaseService()
-    yield service
-
-
-@pytest.fixture
-async def async_client(test_app: FastAPI) -> AsyncGenerator[httpx.AsyncClient, None]:
-    """Create async test client."""
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=test_app), base_url="http://test") as client:
-        yield client
+@pytest.fixture(scope="session")
+def event_loop():
+    """Create event loop for tests.
+    
+    This overrides pytest-asyncio's event_loop fixture to ensure
+    we have a new loop for each test session.
+    """
+    policy = asyncio.get_event_loop_policy()
+    loop = policy.new_event_loop()
+    yield loop
+    loop.close()
 
 
 @pytest.fixture
@@ -57,11 +32,3 @@ def mock_datetime(monkeypatch: pytest.MonkeyPatch) -> datetime:
             
     monkeypatch.setattr("datetime.datetime", MockDatetime)
     return FAKE_TIME
-
-
-@pytest.fixture
-async def test_app(router) -> FastAPI:
-    """Create test FastAPI app."""
-    app = FastAPI()
-    app.include_router(router)
-    return app

@@ -9,25 +9,23 @@ service-based architecture with clear separation of concerns.
 
 ### Base Module Components
 
-1. **BaseService**: Foundation for all services
-    * Lifecycle management (start/stop)
+1. **BaseService**: Service lifecycle management
+    * Async start/stop operations
+    * Running state tracking
     * Health monitoring
-    * State tracking
-    * Async operation support
+    * Minimal interface for subclassing
 
-2. **ConfigurableService**: Configuration management
-    * Extends BaseService
+2. **ConfigurableService**: Configuration management mixin
     * Pydantic model validation
-    * Dynamic configuration updates
     * Type-safe configuration
-    * Configuration state tracking
+    * Runtime configuration validation
+    * Service state validation
 
 3. **ErrorHandling** (base_errors)
-    * Simple, consistent error pattern:
-        * Create errors with status code, message, and optional context
-        * All errors include timestamps
-        * Support error cause chaining
-        * Context dictionary for additional details
+    * Extends FastAPI's HTTPException
+    * Adds timestamps to all errors
+    * Optional context dictionary
+    * Exception cause chaining
     * Example:
 
         ```python
@@ -40,39 +38,36 @@ service-based architecture with clear separation of concerns.
         ```
 
 4. **ServiceRegistry** (base_registry)
-    * Service discovery
-    * Type-based service lookup
+    * Service registration
+    * Type-safe service lookup
     * Name-based service lookup
-    * Service lifecycle tracking
-    * Cleanup management
+    * Lifecycle cleanup
 
-5. **BaseRouter**: FastAPI router with common endpoints
-    * Health check endpoints
-    * Service status monitoring
-    * Standard HTTP method decorators
-    * Error handling middleware
+5. **BaseRouter**: FastAPI router with health endpoint
+    * Pydantic response models
+    * Service health monitoring
+    * Aggregate health status
 
 6. **BaseApp**: FastAPI application factory
-    * Service initialization
-    * Middleware configuration
-    * CORS setup
-    * Logging configuration
-    * Router integration
+    * Service lifecycle management
+    * Built-in CORS support
+    * Health check endpoint
+    * FastAPI dependency injection
 
 ### Component Relationships
 
-* BaseApp uses BaseRouter for endpoint management
-* BaseService provides core functionality for ConfigurableService
-* All components use ErrorHandling for consistent error responses
-* ServiceRegistry manages all service instances
-* BaseRouter accesses services through ServiceRegistry
+* BaseApp manages service lifecycle via FastAPI lifespan
+* ConfigurableService mixes into BaseService
+* All components use FastAPI's built-in features where possible
+* ServiceRegistry manages service instances
+* BaseRouter provides health monitoring
 
 ### Service Architecture
 
 1. **Service Hierarchy**
-    * BaseService: Core base class with lifecycle management
-    * ConfigurableService: Extends BaseService with configuration capabilities
-    * Specific Services: Inherit from ConfigurableService for specialized functionality
+    * BaseService: Core lifecycle management
+    * ConfigurableService: Optional configuration mixin
+    * Specific Services: Inherit and implement core methods
         * DataCollection
         * State
         * Messaging
@@ -80,33 +75,32 @@ service-based architecture with clear separation of concerns.
         * Hardware
 
 2. **Service Lifecycle**
-    * Initialization: Configure required parameters
-    * Start: Establish connections and prepare resources
-    * Operation: Handle service-specific tasks
-    * Stop: Clean up resources and connections
-    * Error Handling: Manage failures at each stage
+    * Initialization: Basic setup
+    * Configuration: Optional Pydantic model validation
+    * Start: Resource acquisition
+    * Operation: Service-specific tasks
+    * Stop: Resource cleanup
+    * Error Handling: FastAPI HTTP exceptions
 
 3. **Service Management**
-    * Use async context managers for resource lifecycle
-    * Implement proper startup/shutdown sequences
-    * Handle dependencies between services
-    * Maintain service registry for discovery
-    * Monitor service health and status
+    * FastAPI dependency injection
+    * Async context managers
+    * Type-safe service registry
+    * Health monitoring
 
 ## Development Guidelines
 
 ### Error Handling and Validation
 
 1. **HTTP Status Codes**
-    * 400 Bad Request: Client errors (invalid input, bad parameters)
+    * 400 Bad Request: Client errors
     * 401 Unauthorized: Authentication required
     * 403 Forbidden: Permission denied
-    * 404 Not Found: Resource doesn't exist (missing services, configs, etc.)
-    * 409 Conflict: Resource state conflict (already running, not running, already registered)
-    * 422 Unprocessable Entity: Validation errors (invalid config format/data)
-    * 500 Internal Server Error: Unexpected server errors
-    * 501 Not Implemented: Required method not implemented
-    * 503 Service Unavailable: Service not ready/available (startup/shutdown failures)
+    * 404 Not Found: Resource doesn't exist
+    * 409 Conflict: Resource state conflict
+    * 422 Unprocessable Entity: Validation errors
+    * 500 Internal Server Error: Unexpected errors
+    * 503 Service Unavailable: Service issues
 
 2. **Error Response Format**
 
@@ -117,128 +111,76 @@ service-based architecture with clear separation of concerns.
             "timestamp": "ISO format timestamp",
             "context": {
                 "service": "Service name or type",
-                "path": "Request path (for HTTP errors)",
-                "errors": ["Validation details if applicable"],
-                "expected": "Expected type/value in validation errors",
-                "received": "Received type/value in validation errors",
-                "service_type": "Service type name in registry errors",
-                "error": "Original error message in service errors"
+                "error": "Original error message"
             }
         }
     }
     ```
 
-    Context fields by error type:
-    * Service errors: service, error
-    * Validation errors: service, errors, expected, received
-    * HTTP errors: path, service
-    * Registry errors: service, service_type
-
 3. **Error Handling Principles**
-    * Use explicit status codes - no defaults
-    * Include relevant context in error responses
-    * Chain original exceptions when wrapping errors
-    * Use consistent error format across all services
-    * Log errors appropriately at source
+    * Use FastAPI's exception handling
+    * Add timestamps and context
+    * Chain original exceptions
+    * Use consistent format
 
 ### Code Style
 
 1. **Python Best Practices**
-    * Use async/await for I/O operations
-    * Use type hints consistently
-    * Leverage Pydantic models
-    * Use descriptive variable names with auxiliary verbs
-    * Follow consistent file naming: lowercase with underscores
+    * Leverage FastAPI features
+    * Use Pydantic models
+    * Type hints everywhere
+    * Async/await for I/O
+    * Clear naming
 
 2. **Module Structure**
-    * Organize code into logical API modules
-    * Use dependency injection
-    * Maintain clear separation of concerns
+    * Minimal base classes
+    * FastAPI dependency injection
+    * Clear separation of concerns
 
 ### Testing Guidelines
 
 1. **Test Structure**
-    * Use pytest for testing
-    * Write comprehensive unit tests
-    * Use fixtures for setup/teardown
-    * Mock external dependencies
-    * Test both success and error paths
+    * pytest for testing
+    * FastAPI test client
+    * Async test support
+    * Mocked services
 
 2. **Test Organization**
-    * Root fixtures in `tests/conftest.py`:
-        * Base service mocks
-        * Common test utilities
-        * Shared fixtures
-    * Module-specific fixtures in `tests/module_name/conftest.py`:
-        * Inherit from root fixtures
-        * Add module-specific setup
-        * Override behavior as needed
-    * Test files mirror source structure:
-        * `test_base_service.py` tests `base_service.py`
-        * Use consistent naming patterns
-        * Group related tests in classes
+    * Root fixtures in conftest.py
+    * Service-specific fixtures
+    * FastAPI test client fixtures
 
-3. **Test Inheritance**
-    * MockBaseService in root conftest:
-        * Provides core service functionality
-        * Used by all service tests
-        * Implements required interfaces
-    * Service-specific test classes:
-        * Inherit from MockBaseService
-        * Add specific test behavior
-        * Override methods as needed
-    * Example:
-
-        ```python
-        # In tests/conftest.py
-        class MockBaseService(BaseService):
-            async def _start(self) -> None:
-                self._is_running = True
-
-        # In tests/test_module/test_service.py
-        class TestSpecificService(MockBaseService):
-            async def _start(self) -> None:
-                await super()._start()
-                # Add specific behavior
-        ```
-
-4. **Test Patterns**
-    * Ensure proper database cleanup
-    * Use proper async test patterns
-    * Handle warnings appropriately
+3. **Test Patterns**
+    * Mock service implementations
+    * FastAPI dependency overrides
+    * Async test functions
+    * Health check validation
 
 ### Database Guidelines
 
 1. **Data Management**
-    * Use PostgreSQL for relational data storage
-    * Store configuration files as YAML
-    * Use parameterized queries for safety
-    * Handle errors gracefully
-    * Clean up resources properly
-    * Use connection pooling for efficiency
+    * PostgreSQL with asyncpg
+    * YAML configuration
+    * FastAPI dependency injection
+    * Connection pooling
 
 2. **File Organization**
-    * Configuration files in `config/`
-    * Data files in organized subdirectories:
-        * `data/patterns/`: Raster patterns
-        * `data/parameters/`: System parameters
-        * `data/runs/`: Run data and logs
-        * `data/powders/`: Powder configurations
-        * `data/sequences/`: Operation sequences
+    * Configuration in `config/`
+    * Data in organized subdirectories
+    * Clear separation of concerns
 
 3. **Database Operations**
-    * Use asyncpg for async database operations
-    * Implement proper connection pooling
-    * Handle transaction management carefully
-    * Use prepared statements for efficiency
-    * Implement proper error handling and retries
+    * Async operations
+    * FastAPI dependencies
+    * Proper error handling
+    * Transaction management
 
 ## Dependencies
 
-* FastAPI: API framework
+* FastAPI: Core framework
 * Pydantic: Data validation
-* asyncpg: PostgreSQL async driver
-* PyYAML: Configuration file handling
+* asyncpg: PostgreSQL driver
+* PyYAML: Configuration
 * pytest: Testing
 * loguru: Logging
   
