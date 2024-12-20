@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from micro_cold_spray.api.base.base_service import BaseService
-from micro_cold_spray.api.base.base_exceptions import ConfigError
+from micro_cold_spray.api.base.base_errors import ConfigError
 from micro_cold_spray.api.config.config_app import ConfigApp
 
 

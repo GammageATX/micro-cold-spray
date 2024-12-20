@@ -115,7 +115,18 @@ class TestMain:
         """Test successful health check."""
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {"status": "ok"}
+        mock_response.json.return_value = {
+            "is_healthy": True,
+            "status": "running",
+            "context": {
+                "service": "test_service",
+                "metrics": {
+                    "start_count": 1,
+                    "stop_count": 0,
+                    "error_count": 0
+                }
+            }
+        }
         
         with patch('requests.get', return_value=mock_response):
             result = await check_service_health(8000)
@@ -126,11 +137,18 @@ class TestMain:
         """Test degraded health check."""
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {"status": "degraded"}
+        mock_response.json.return_value = {
+            "is_healthy": False,
+            "status": "degraded",
+            "context": {
+                "service": "test_service",
+                "error": "Service degraded"
+            }
+        }
         
         with patch('requests.get', return_value=mock_response):
             result = await check_service_health(8000)
-            assert result is True
+            assert result is True  # Degraded is still considered running
 
     @pytest.mark.asyncio
     async def test_check_service_health_404(self):
@@ -174,7 +192,14 @@ class TestMain:
         """Test unhealthy status."""
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {"status": "unhealthy"}
+        mock_response.json.return_value = {
+            "is_healthy": False,
+            "status": "error",
+            "context": {
+                "service": "test_service",
+                "error": "Service unhealthy"
+            }
+        }
         
         with patch('requests.get', return_value=mock_response):
             result = await check_service_health(8000, retries=1)

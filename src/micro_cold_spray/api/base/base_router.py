@@ -1,92 +1,89 @@
 """Base router module."""
 
-from typing import Dict, Any
+from typing import Dict, Any, Callable, Awaitable
 
-from fastapi import APIRouter, status, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, status
+from fastapi.routing import APIRoute
 
-from micro_cold_spray.api.base.base_errors import ServiceError, AppErrorCode
-from micro_cold_spray.api.base.base_service import BaseService
-from micro_cold_spray.api.base.base_registry import get_service
-
-
-class HealthResponse(BaseModel):
-    """Health check response model."""
-
-    status: str
-    service_info: Dict[str, Any]
+from .base_errors import create_http_error
 
 
 class BaseRouter(APIRouter):
-    """Base router with health endpoint."""
+    """Base router with health check endpoint."""
 
-    def __init__(self, service_class: type[BaseService], **kwargs: Any) -> None:
-        """Initialize base router.
-        
-        Args:
-            service_class: Service class to check health for
-            **kwargs: Additional router arguments
-        """
+    def __init__(self, **kwargs: Any):
+        """Initialize base router."""
         super().__init__(**kwargs)
-        self.service_class = service_class
+        self.services = []
+        self.root = None
 
-        # Add health endpoint
-        self.add_api_route(
-            "/health",
-            self._health_check,
-            methods=["GET"],
-            response_model=HealthResponse,
-            responses={
-                status.HTTP_503_SERVICE_UNAVAILABLE: {
-                    "description": "Service unavailable",
-                    "content": {
-                        "application/json": {
-                            "example": {
-                                "detail": "Service not available",
-                                "code": AppErrorCode.SERVICE_UNAVAILABLE
-                            }
-                        }
-                    }
-                }
-            }
-        )
+        # Add health check endpoint
+        self.add_api_route("/health", self._health_check, methods=["GET"])
 
-    async def _health_check(self) -> HealthResponse:
-        """Check service health.
-        
-        Returns:
-            Health check response
-            
-        Raises:
-            HTTPException: If service is not available or other errors occur
-        """
-        try:
-            service_factory = get_service(self.service_class)
-            service = service_factory()
-            health_info = await service.check_health()
+    async def _health_check(self) -> Dict[str, Any]:
+        """Get health status of all services."""
+        services = []
+        is_healthy = True
+        service_status = "running"
+
+        for service in self.services:
             try:
-                return HealthResponse(**health_info)
+                health = await service.health()
+                services.append(health)
+                if not health["is_healthy"]:
+                    is_healthy = False
+                    service_status = "error"
             except Exception as e:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail={
-                        "detail": f"Invalid health response format: {e}",
-                        "code": AppErrorCode.INTERNAL_ERROR
+                is_healthy = False
+                service_status = "error"
+                services.append({
+                    "is_healthy": False,
+                    "status": "error",
+                    "context": {
+                        "service": service.name,
+                        "error": str(e)
                     }
-                )
-        except ServiceError as e:
-            raise HTTPException(
-                status_code=e.status_code,
-                detail={
-                    "detail": str(e),
-                    "code": e.error_code
-                }
-            )
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={
-                    "detail": f"Unexpected error during health check: {e}",
-                    "code": AppErrorCode.INTERNAL_ERROR
-                }
-            )
+                })
+
+        return {
+            "is_healthy": is_healthy,
+            "status": service_status,
+            "context": {
+                "services": services
+            }
+        }
+
+    def get(self, path: str, **kwargs):
+        """Add GET route."""
+        def decorator(func: Callable) -> Callable:
+            self.add_api_route(path, func, methods=["GET"], **kwargs)
+            return func
+        return decorator
+
+    def post(self, path: str, **kwargs):
+        """Add POST route."""
+        def decorator(func: Callable) -> Callable:
+            self.add_api_route(path, func, methods=["POST"], **kwargs)
+            return func
+        return decorator
+
+    def put(self, path: str, **kwargs):
+        """Add PUT route."""
+        def decorator(func: Callable) -> Callable:
+            self.add_api_route(path, func, methods=["PUT"], **kwargs)
+            return func
+        return decorator
+
+    def delete(self, path: str, **kwargs):
+        """Add DELETE route."""
+        def decorator(func: Callable) -> Callable:
+            self.add_api_route(path, func, methods=["DELETE"], **kwargs)
+            return func
+        return decorator
+
+    def patch(self, path: str, **kwargs):
+        """Add PATCH route."""
+        def decorator(func: Callable) -> Callable:
+            self.add_api_route(path, func, methods=["PATCH"], **kwargs)
+            return func
+        return decorator

@@ -6,9 +6,16 @@ from pathlib import Path
 from typing import Dict, List, Optional, Type, Set, Any
 
 from loguru import logger
+from fastapi import status, HTTPException
 
 from micro_cold_spray.api.base.base_service import BaseService
-from micro_cold_spray.api.base.base_exceptions import ConfigError, ValidationError
+from micro_cold_spray.api.base.base_errors import (
+    create_error,
+    AppErrorCode,
+    service_error,
+    validation_error,
+    config_error
+)
 from micro_cold_spray.api.config.models.config_models import ConfigData, ConfigMetadata
 
 
@@ -42,7 +49,7 @@ class ConfigRegistryService(BaseService):
         """Start service.
 
         Raises:
-            ConfigError: If service fails to start
+            HTTPException: If service fails to start (503)
         """
         if self.is_running:
             return
@@ -56,7 +63,10 @@ class ConfigRegistryService(BaseService):
         except Exception as e:
             self._metrics["error_count"] += 1
             self._metrics["last_error"] = str(e)
-            raise ConfigError("Failed to start registry service") from e
+            raise service_error(
+                message="Failed to start registry service",
+                context={"error": str(e)}
+            )
 
     async def _start(self) -> None:
         """Start registry service."""
@@ -68,7 +78,10 @@ class ConfigRegistryService(BaseService):
             await self._load_validation_registry()
             logger.info("Registry service started")
         except Exception as e:
-            raise ConfigError("Failed to start registry service", {"error": str(e)})
+            raise service_error(
+                message="Failed to start registry service",
+                context={"error": str(e)}
+            )
 
     async def _load_tag_registry(self) -> None:
         """Load tag registry."""
@@ -76,7 +89,12 @@ class ConfigRegistryService(BaseService):
             # Load tags from configuration or database
             logger.info("Tag registry loaded")
         except Exception as e:
-            raise ConfigError("Failed to load tag registry", {"error": str(e)})
+            raise create_error(
+                message="Failed to load tag registry",
+                error_code=AppErrorCode.CONFIG_ERROR,
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                context={"error": str(e)}
+            )
 
     async def _load_action_registry(self) -> None:
         """Load action registry."""
@@ -84,7 +102,12 @@ class ConfigRegistryService(BaseService):
             # Load actions from configuration or database
             logger.info("Action registry loaded")
         except Exception as e:
-            raise ConfigError("Failed to load action registry", {"error": str(e)})
+            raise create_error(
+                message="Failed to load action registry",
+                error_code=AppErrorCode.CONFIG_ERROR,
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                context={"error": str(e)}
+            )
 
     async def _load_validation_registry(self) -> None:
         """Load validation registry."""
@@ -92,7 +115,12 @@ class ConfigRegistryService(BaseService):
             # Load validations from configuration or database
             logger.info("Validation registry loaded")
         except Exception as e:
-            raise ConfigError("Failed to load validation registry", {"error": str(e)})
+            raise create_error(
+                message="Failed to load validation registry",
+                error_code=AppErrorCode.CONFIG_ERROR,
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                context={"error": str(e)}
+            )
 
     def _tag_exists(self, tag: str) -> bool:
         """Check if tag exists.
@@ -104,12 +132,15 @@ class ConfigRegistryService(BaseService):
             True if tag exists
 
         Raises:
-            ValidationError: If check fails
+            HTTPException: If check fails (422)
         """
         try:
             return tag in self._tags
         except Exception as e:
-            raise ValidationError("Failed to check tag existence", {"error": str(e)})
+            raise validation_error(
+                message="Failed to check tag existence",
+                context={"tag": tag, "error": str(e)}
+            )
 
     def _action_exists(self, action: str) -> bool:
         """Check if action exists.
@@ -121,12 +152,15 @@ class ConfigRegistryService(BaseService):
             True if action exists
 
         Raises:
-            ValidationError: If check fails
+            HTTPException: If check fails (422)
         """
         try:
             return action in self._actions
         except Exception as e:
-            raise ValidationError("Failed to check action existence", {"error": str(e)})
+            raise validation_error(
+                message="Failed to check action existence",
+                context={"action": action, "error": str(e)}
+            )
 
     def _validation_exists(self, validation: str) -> bool:
         """Check if validation exists.
@@ -138,12 +172,15 @@ class ConfigRegistryService(BaseService):
             True if validation exists
 
         Raises:
-            ValidationError: If check fails
+            HTTPException: If check fails (422)
         """
         try:
             return validation in self._validations
         except Exception as e:
-            raise ValidationError("Failed to check validation existence", {"error": str(e)})
+            raise validation_error(
+                message="Failed to check validation existence",
+                context={"validation": validation, "error": str(e)}
+            )
 
     def _validate_reference(self, data: Dict[str, Any], path: str, field: str, ref_type: str, exists_check, errors: List[str]) -> None:
         """Validate reference.
@@ -157,13 +194,21 @@ class ConfigRegistryService(BaseService):
             errors: List to accumulate errors
 
         Raises:
-            ValidationError: If validation fails
+            HTTPException: If validation fails (422)
         """
         try:
             if field in data and not exists_check(data[field]):
                 errors.append(f"{path}Unknown {ref_type} reference: {data[field]}")
         except Exception as e:
-            raise ValidationError("Reference validation failed", {"path": path, "type": ref_type, "error": str(e)})
+            raise validation_error(
+                message="Reference validation failed",
+                context={
+                    "path": path,
+                    "type": ref_type,
+                    "field": field,
+                    "error": str(e)
+                }
+            )
 
     def _validate_tag_references(self, data: Dict[str, Any], path: str, errors: List[str]) -> None:
         """Validate tag references.
@@ -174,12 +219,15 @@ class ConfigRegistryService(BaseService):
             errors: List to accumulate errors
 
         Raises:
-            ValidationError: If validation fails
+            HTTPException: If validation fails (422)
         """
         try:
             self._validate_reference(data, path, "tag", "tag", self._tag_exists, errors)
         except Exception as e:
-            raise ValidationError("Tag reference validation failed", {"error": str(e)})
+            raise validation_error(
+                message="Tag reference validation failed",
+                context={"error": str(e)}
+            )
 
     def _validate_action_references(self, data: Dict[str, Any], path: str, errors: List[str]) -> None:
         """Validate action references.
@@ -190,12 +238,15 @@ class ConfigRegistryService(BaseService):
             errors: List to accumulate errors
 
         Raises:
-            ValidationError: If validation fails
+            HTTPException: If validation fails (422)
         """
         try:
             self._validate_reference(data, path, "action", "action", self._action_exists, errors)
         except Exception as e:
-            raise ValidationError("Action reference validation failed", {"error": str(e)})
+            raise validation_error(
+                message="Action reference validation failed",
+                context={"error": str(e)}
+            )
 
     def _validate_validation_references(self, data: Dict[str, Any], path: str, errors: List[str]) -> None:
         """Validate validation references.
@@ -206,12 +257,15 @@ class ConfigRegistryService(BaseService):
             errors: List to accumulate errors
 
         Raises:
-            ValidationError: If validation fails
+            HTTPException: If validation fails (422)
         """
         try:
             self._validate_reference(data, path, "validation", "validation", self._validation_exists, errors)
         except Exception as e:
-            raise ValidationError("Validation reference validation failed", {"error": str(e)})
+            raise validation_error(
+                message="Validation reference validation failed",
+                context={"error": str(e)}
+            )
 
     async def validate_references(self, data: Dict[str, Any], path: str = "") -> ValidationResult:
         """Validate references in data.
@@ -224,7 +278,7 @@ class ConfigRegistryService(BaseService):
             Validation result
 
         Raises:
-            ValidationError: If validation fails with an unexpected error
+            HTTPException: If validation fails with an unexpected error (422)
         """
         result = ValidationResult()
 
@@ -237,7 +291,7 @@ class ConfigRegistryService(BaseService):
                 self._validate_tag_references(data, path, result.errors)
                 self._validate_action_references(data, path, result.errors)
                 self._validate_validation_references(data, path, result.errors)
-            except ValidationError as e:
+            except HTTPException as e:
                 result.errors.append(str(e))
                 result.valid = False
                 return result
@@ -248,18 +302,15 @@ class ConfigRegistryService(BaseService):
                     nested_result = await self.validate_references(value, f"{path}{key}.")
                     result.errors.extend(nested_result.errors)
                     result.warnings.extend(nested_result.warnings)
-                elif isinstance(value, list):
-                    for i, item in enumerate(value):
-                        if isinstance(item, dict):
-                            nested_result = await self.validate_references(item, f"{path}{key}[{i}].")
-                            result.errors.extend(nested_result.errors)
-                            result.warnings.extend(nested_result.warnings)
 
-            result.valid = not result.errors
+            result.valid = len(result.errors) == 0
             return result
 
         except Exception as e:
-            raise ValidationError("Reference validation failed", {"error": str(e)})
+            raise validation_error(
+                message="Reference validation failed",
+                context={"error": str(e)}
+            )
 
     def register_config_type(self, config_type: Type[ConfigData]) -> None:
         """Register configuration type.
@@ -268,24 +319,40 @@ class ConfigRegistryService(BaseService):
             config_type: Configuration type to register
 
         Raises:
-            ConfigError: If type already exists
+            HTTPException: If type already exists (409)
         """
         if config_type.__name__ in self._config_types:
-            raise ConfigError(f"Config type {config_type.__name__} already registered")
+            raise create_error(
+                message=f"Config type {config_type.__name__} already exists",
+                error_code=AppErrorCode.CONFIG_ERROR,
+                status_code=status.HTTP_409_CONFLICT,
+                context={"type": config_type.__name__}
+            )
 
         self._config_types[config_type.__name__] = config_type
         logger.info("Registered config type: {}", config_type.__name__)
 
-    def get_config_type(self, type_name: str) -> Optional[Type[ConfigData]]:
-        """Get configuration type by name.
+    def get_config_type(self, type_name: str) -> Type[ConfigData]:
+        """Get configuration type.
 
         Args:
             type_name: Configuration type name
 
         Returns:
-            Configuration type if found
+            Configuration type
+
+        Raises:
+            HTTPException: If type not found (404)
         """
-        return self._config_types.get(type_name)
+        if type_name not in self._config_types:
+            raise create_error(
+                message=f"Config type {type_name} not found",
+                error_code=AppErrorCode.CONFIG_NOT_FOUND,
+                status_code=status.HTTP_404_NOT_FOUND,
+                context={"type": type_name}
+            )
+
+        return self._config_types[type_name]
 
     def get_config_types(self) -> List[str]:
         """Get registered configuration types.
@@ -305,27 +372,38 @@ class ConfigRegistryService(BaseService):
             ConfigError: If registration fails
         """
         if not config.metadata.config_type:
-            raise ConfigError("Config type not specified")
+            raise config_error("Config type not specified")
 
         if config.metadata.config_type not in self._config_types:
-            raise ConfigError(f"Config type {config.metadata.config_type} not registered")
+            raise config_error(f"Config type {config.metadata.config_type} not registered")
 
         try:
             self._configs[config.metadata.config_type] = config
             logger.info("Registered config: {}", config.metadata.config_type)
         except Exception as e:
-            raise ConfigError("Failed to register config", {"error": str(e)})
+            raise config_error("Failed to register config", {"error": str(e)})
 
-    async def get_config(self, config_type: str) -> Optional[ConfigData]:
-        """Get configuration by type.
+    async def get_config(self, config_type: str) -> ConfigData:
+        """Get configuration.
 
         Args:
             config_type: Configuration type
 
         Returns:
-            Configuration data if found
+            Configuration data
+
+        Raises:
+            HTTPException: If config not found (404)
         """
-        return self._configs.get(config_type)
+        if config_type not in self._configs:
+            raise create_error(
+                message=f"Config {config_type} not found",
+                error_code=AppErrorCode.CONFIG_NOT_FOUND,
+                status_code=status.HTTP_404_NOT_FOUND,
+                context={"type": config_type}
+            )
+
+        return self._configs[config_type]
 
     async def update_config(self, config: ConfigData) -> None:
         """Update configuration.
@@ -334,20 +412,16 @@ class ConfigRegistryService(BaseService):
             config: Configuration data
 
         Raises:
-            ConfigError: If update fails
+            HTTPException: If update fails (400)
         """
-        if not config.metadata.config_type:
-            raise ConfigError("Config type not specified")
-
-        if config.metadata.config_type not in self._config_types:
-            raise ConfigError(f"Config type {config.metadata.config_type} not registered")
-
         try:
-            config.metadata.last_modified = datetime.now()
             self._configs[config.metadata.config_type] = config
             logger.info("Updated config: {}", config.metadata.config_type)
         except Exception as e:
-            raise ConfigError("Failed to update config", {"error": str(e)})
+            raise config_error(
+                message="Failed to update config",
+                context={"error": str(e)}
+            )
 
     async def delete_config(self, config_type: str) -> None:
         """Delete configuration.
@@ -356,16 +430,26 @@ class ConfigRegistryService(BaseService):
             config_type: Configuration type
 
         Raises:
-            ConfigError: If delete fails
+            HTTPException: If config not found (404) or delete fails (500)
         """
         if config_type not in self._configs:
-            raise ConfigError(f"Config {config_type} not found")
+            raise create_error(
+                message=f"Config {config_type} not found",
+                error_code=AppErrorCode.CONFIG_NOT_FOUND,
+                status_code=status.HTTP_404_NOT_FOUND,
+                context={"type": config_type}
+            )
 
         try:
             del self._configs[config_type]
             logger.info("Deleted config: {}", config_type)
         except Exception as e:
-            raise ConfigError("Failed to delete config", {"error": str(e)})
+            raise create_error(
+                message="Failed to delete config",
+                error_code=AppErrorCode.CONFIG_ERROR,
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                context={"error": str(e)}
+            )
 
     async def check_health(self) -> dict:
         """Check service health.
@@ -375,7 +459,10 @@ class ConfigRegistryService(BaseService):
         """
         health = await super().check_health()
         health["service_info"].update({
-            "config_types": list(self._config_types.keys()),
-            "configs": list(self._configs.keys())
+            "config_types": len(self._config_types),
+            "configs": len(self._configs),
+            "tags": len(self._tags),
+            "actions": len(self._actions),
+            "validations": len(self._validations)
         })
         return health

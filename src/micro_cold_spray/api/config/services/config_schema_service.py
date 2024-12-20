@@ -7,9 +7,16 @@ import re
 from datetime import datetime
 
 from loguru import logger
+from fastapi import status, HTTPException
 
 from micro_cold_spray.api.base.base_service import BaseService
-from micro_cold_spray.api.base.base_exceptions import ConfigError
+from micro_cold_spray.api.base.base_errors import (
+    create_error,
+    AppErrorCode,
+    service_error,
+    config_error,
+    validation_error
+)
 from micro_cold_spray.api.config.models.config_models import ConfigSchema
 
 
@@ -31,7 +38,7 @@ class ConfigSchemaService(BaseService):
         """Start service.
 
         Raises:
-            ConfigError: If schema loading fails
+            HTTPException: If schema loading fails (503)
         """
         if self.is_running:
             return
@@ -45,7 +52,10 @@ class ConfigSchemaService(BaseService):
         except Exception as e:
             self._metrics["error_count"] += 1
             self._metrics["last_error"] = str(e)
-            raise ConfigError("Failed to start schema service") from e
+            raise service_error(
+                message="Failed to start schema service",
+                context={"error": str(e)}
+            )
 
     async def _start(self) -> None:
         """Start schema service."""
@@ -60,6 +70,7 @@ class ConfigSchemaService(BaseService):
     async def _load_schemas(self) -> None:
         """Load all schema files."""
         has_errors = False
+        error_details = []
         for schema_file in self._schema_dir.glob("*.json"):
             try:
                 with open(schema_file, 'r') as f:
@@ -67,6 +78,7 @@ class ConfigSchemaService(BaseService):
 
                 if not isinstance(schema_data, dict):
                     logger.warning("Invalid schema format in {}", schema_file)
+                    error_details.append(f"Invalid format in {schema_file.name}")
                     has_errors = True
                     continue
 
@@ -74,11 +86,17 @@ class ConfigSchemaService(BaseService):
                 logger.debug("Loaded schema: {}", schema_file.stem)
             except Exception as e:
                 logger.warning("Failed to load schema {}: {}", schema_file, e)
+                error_details.append(f"Failed to load {schema_file.name}: {str(e)}")
                 has_errors = True
                 continue
 
         if has_errors:
-            raise ConfigError("Failed to load schemas")
+            raise create_error(
+                message="Failed to load one or more schemas",
+                error_code=AppErrorCode.CONFIG_ERROR,
+                status_code=status.HTTP_400_BAD_REQUEST,
+                context={"errors": error_details}
+            )
 
     def get_schema(self, schema_type: str) -> Optional[ConfigSchema]:
         """Get schema by type.
@@ -101,14 +119,17 @@ class ConfigSchemaService(BaseService):
             Built schema
 
         Raises:
-            ValueError: If schema is invalid
+            HTTPException: If schema is invalid (400)
         """
         try:
             if isinstance(schema_data, ConfigSchema):
                 return schema_data
             return ConfigSchema(**schema_data)
         except Exception as e:
-            raise ValueError(str(e))
+            raise config_error(
+                message=f"Invalid schema format: {str(e)}",
+                context={"error": str(e)}
+            )
 
     def validate_config(self, schema_type: str, config: Dict[str, Any]) -> List[str]:
         """Validate configuration against schema.
@@ -121,16 +142,32 @@ class ConfigSchemaService(BaseService):
             List of validation errors, empty if valid
 
         Raises:
-            ConfigError: If schema not found or validation fails
+            HTTPException: If schema not found (404) or validation fails (422)
         """
         schema = self.get_schema(schema_type)
         if not schema:
-            raise ConfigError("Schema not found")
+            raise create_error(
+                message=f"Schema {schema_type} not found",
+                error_code=AppErrorCode.CONFIG_NOT_FOUND,
+                status_code=status.HTTP_404_NOT_FOUND,
+                context={"schema_type": schema_type}
+            )
 
         try:
-            return self._validate_against_schema(config, schema)
-        except Exception:
-            raise ConfigError("Validation failed")
+            errors = self._validate_against_schema(config, schema)
+            if errors:
+                raise validation_error(
+                    message="Configuration validation failed",
+                    context={"errors": errors}
+                )
+            return errors
+        except Exception as e:
+            if isinstance(e, HTTPException):
+                raise e
+            raise validation_error(
+                message="Validation failed",
+                context={"error": str(e)}
+            )
 
     def _validate_type(self, data: Any, expected_type: str, path: str) -> Optional[str]:
         """Validate type of data.
@@ -289,10 +326,15 @@ class ConfigSchemaService(BaseService):
             schema: Schema to add
 
         Raises:
-            ConfigError: If schema already exists or save fails
+            HTTPException: If schema already exists (409) or save fails (500)
         """
         if schema_type in self._schemas:
-            raise ConfigError(f"Schema {schema_type} already exists")
+            raise create_error(
+                message=f"Schema {schema_type} already exists",
+                error_code=AppErrorCode.CONFIG_ERROR,
+                status_code=status.HTTP_409_CONFLICT,
+                context={"schema_type": schema_type}
+            )
 
         try:
             schema_file = self._schema_dir / f"{schema_type}.json"
@@ -302,7 +344,12 @@ class ConfigSchemaService(BaseService):
             self._schemas[schema_type] = schema
             logger.info("Added schema: {}", schema_type)
         except Exception as e:
-            raise ConfigError(f"Failed to add schema: {str(e)}")
+            raise create_error(
+                message=f"Failed to add schema: {str(e)}",
+                error_code=AppErrorCode.CONFIG_ERROR,
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                context={"error": str(e)}
+            )
 
     async def update_schema(self, schema_type: str, schema: ConfigSchema) -> None:
         """Update schema.
@@ -312,10 +359,15 @@ class ConfigSchemaService(BaseService):
             schema: Updated schema
 
         Raises:
-            ConfigError: If schema not found or save fails
+            HTTPException: If schema not found (404) or save fails (500)
         """
         if schema_type not in self._schemas:
-            raise ConfigError(f"Schema {schema_type} not found")
+            raise create_error(
+                message=f"Schema {schema_type} not found",
+                error_code=AppErrorCode.CONFIG_NOT_FOUND,
+                status_code=status.HTTP_404_NOT_FOUND,
+                context={"schema_type": schema_type}
+            )
 
         try:
             schema_file = self._schema_dir / f"{schema_type}.json"
@@ -325,7 +377,12 @@ class ConfigSchemaService(BaseService):
             self._schemas[schema_type] = schema
             logger.info("Updated schema: {}", schema_type)
         except Exception as e:
-            raise ConfigError(f"Failed to update schema: {str(e)}")
+            raise create_error(
+                message=f"Failed to update schema: {str(e)}",
+                error_code=AppErrorCode.CONFIG_ERROR,
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                context={"error": str(e)}
+            )
 
     async def delete_schema(self, schema_type: str) -> None:
         """Delete schema.
@@ -334,10 +391,15 @@ class ConfigSchemaService(BaseService):
             schema_type: Schema type to delete
 
         Raises:
-            ConfigError: If schema not found or delete fails
+            HTTPException: If schema not found (404) or delete fails (500)
         """
         if schema_type not in self._schemas:
-            raise ConfigError(f"Schema {schema_type} not found")
+            raise create_error(
+                message=f"Schema {schema_type} not found",
+                error_code=AppErrorCode.CONFIG_NOT_FOUND,
+                status_code=status.HTTP_404_NOT_FOUND,
+                context={"schema_type": schema_type}
+            )
 
         try:
             schema_file = self._schema_dir / f"{schema_type}.json"
@@ -345,7 +407,12 @@ class ConfigSchemaService(BaseService):
             del self._schemas[schema_type]
             logger.info("Deleted schema: {}", schema_type)
         except Exception as e:
-            raise ConfigError(f"Failed to delete schema: {str(e)}")
+            raise create_error(
+                message=f"Failed to delete schema: {str(e)}",
+                error_code=AppErrorCode.CONFIG_ERROR,
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                context={"error": str(e)}
+            )
 
     async def check_health(self) -> dict:
         """Check service health.

@@ -1,154 +1,114 @@
 """Test base router module."""
 
 import pytest
-from fastapi import FastAPI, status
+from fastapi import status, Request
 from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock, patch
-from datetime import datetime, timedelta
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from pydantic import BaseModel, Field
 
-from micro_cold_spray.api.base.base_errors import ServiceError, AppErrorCode
-from micro_cold_spray.api.base.base_service import BaseService
-from micro_cold_spray.api.base.base_router import BaseRouter, HealthResponse
+from micro_cold_spray.api.base.base_router import BaseRouter
+from tests.conftest import MockBaseService
 
 
-class MockService(BaseService):
-    """Mock service for testing."""
+@pytest.fixture
+def router():
+    """Create test router."""
+    router = BaseRouter()
+    router.services = []  # Initialize empty services list
+    return router
 
-    def __init__(self, name: str) -> None:
-        """Initialize mock service."""
-        super().__init__(name)
-        self._mock_metrics = {
-            "start_count": 0,
-            "stop_count": 0,
-            "error_count": 0,
-            "last_error": None,
-        }
-        self._start_time = datetime.now()
 
-    async def _start(self) -> None:
-        """Start mock service."""
-        self._mock_metrics["start_count"] += 1
-        self._is_running = True
-        self._is_initialized = True
+@pytest.fixture
+def client(router):
+    """Create test client."""
+    from fastapi import FastAPI
+    app = FastAPI()
+    
+    @app.exception_handler(ValueError)
+    async def value_error_handler(request: Request, exc: ValueError):
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"detail": str(exc)}
+        )
+        
+    @app.exception_handler(RequestValidationError)
+    async def validation_error_handler(request: Request, exc: RequestValidationError):
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": str(exc)}
+        )
+    
+    @router.get("/error")
+    async def error_endpoint():
+        raise ValueError("Test error")
 
-    async def _stop(self) -> None:
-        """Stop mock service."""
-        self._mock_metrics["stop_count"] += 1
-        self._is_running = False
+    class TestModel(BaseModel):
+        value: int = Field(ge=0)
 
-    async def check_health(self) -> dict:
-        """Check service health."""
-        if not self._is_running:
-            raise ServiceError(
-                "Service not running",
-                error_code=AppErrorCode.SERVICE_NOT_RUNNING,
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-        return {
-            "status": "ok",
-            "service_info": {
-                "name": self.service_name,
-                "running": self.is_running,
-                "uptime": str(datetime.now() - self._start_time),
-                "metrics": self.metrics
-            }
-        }
+    @router.post("/validate")
+    async def validate_endpoint(data: TestModel):
+        return data
+        
+    app.include_router(router)
+    return TestClient(app)
 
 
 class TestBaseRouter:
-    """Test base router functionality."""
+    """Test base router."""
 
-    @pytest.fixture
-    def app(self):
-        """Create test app with router."""
-        app = FastAPI()
-        router = BaseRouter(service_class=MockService)
-        app.include_router(router)
-        return app
-
-    @pytest.fixture
-    def client(self, app):
-        """Create test client."""
-        return TestClient(app)
-
-    @pytest.fixture
-    def mock_service(self):
-        """Create and register mock service."""
-        from micro_cold_spray.api.base.base_registry import register_service, clear_services
-        clear_services()
-        service = MockService("test_service")
-        register_service(service)
-        yield service
-        clear_services()
-
-    def test_router_initialization(self):
-        """Test router initialization."""
-        router = BaseRouter(service_class=MockService)
-        assert router.service_class == MockService
-        routes = [route for route in router.routes if route.path == "/health"]
-        assert len(routes) == 1
-        assert routes[0].methods == {"GET"}
-        assert routes[0].response_model == HealthResponse
-
-    def test_health_check_success(self, client, mock_service):
-        """Test successful health check."""
-        # Start the service
-        import asyncio
-        asyncio.run(mock_service.start())
-
+    @pytest.mark.asyncio
+    async def test_health_check_success(self, client):
+        """Test health check endpoint."""
         response = client.get("/health")
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "ok"
-        assert data["service_info"]["name"] == "test_service"
-        assert data["service_info"]["running"] is True
-        assert "uptime" in data["service_info"]
-        assert "metrics" in data["service_info"]
+        assert data["is_healthy"] is True
+        assert data["status"] == "running"
+        assert "services" in data["context"]
 
-    def test_health_check_service_error(self, client, mock_service):
-        """Test health check with service error."""
-        # Don't start the service to trigger error
+    @pytest.mark.asyncio
+    async def test_health_check_with_service(self, client, router):
+        """Test health check with service."""
+        service = MockBaseService()
+        service._is_running = True  # Ensure service is running
+        router.services.append(service)
+        
         response = client.get("/health")
-        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.status_code == 200
         data = response.json()
-        assert data["detail"]["detail"] == "Service not running"
-        assert data["detail"]["code"] == AppErrorCode.SERVICE_NOT_RUNNING
+        assert data["is_healthy"] is True
+        assert data["status"] == "running"
+        assert len(data["context"]["services"]) == 1
+        assert data["context"]["services"][0]["is_healthy"] is True
 
-    def test_health_check_unexpected_error(self, client, mock_service):
-        """Test health check with unexpected error."""
-        # Mock check_health to raise unexpected error
-        mock_service.check_health = AsyncMock(side_effect=RuntimeError("Unexpected error"))
-
+    @pytest.mark.asyncio
+    async def test_health_check_with_failing_service(self, client, router):
+        """Test health check with failing service."""
+        service = MockBaseService()
+        service._is_running = False
+        router.services.append(service)
+        
         response = client.get("/health")
-        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert response.status_code == 200
         data = response.json()
-        assert "Unexpected error during health check" in data["detail"]["detail"]
-        assert data["detail"]["code"] == AppErrorCode.INTERNAL_ERROR
+        assert data["is_healthy"] is False
+        assert data["status"] == "error"
+        assert len(data["context"]["services"]) == 1
+        assert data["context"]["services"][0]["is_healthy"] is False
 
-    def test_health_response_validation(self, client, mock_service):
-        """Test health response validation."""
-        # Start the service
-        import asyncio
-        asyncio.run(mock_service.start())
+    @pytest.mark.asyncio
+    async def test_router_error_handling(self, client):
+        """Test error handling."""
+        response = client.get("/error")
+        assert response.status_code == 500
+        assert "detail" in response.json()
+        assert "Test error" in response.json()["detail"]
 
-        # Mock check_health to return invalid response
-        async def invalid_health():
-            return {"invalid": "response"}
-        mock_service.check_health = invalid_health
-
-        response = client.get("/health")
-        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-        data = response.json()
-        assert "Invalid health response format" in data["detail"]["detail"]
-        assert data["detail"]["code"] == AppErrorCode.INTERNAL_ERROR
-
-    def test_health_check_service_not_found(self, client):
-        """Test health check when service is not registered."""
-        from micro_cold_spray.api.base.base_registry import clear_services
-        clear_services()
-
-        response = client.get("/health")
-        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-        data = response.json()
-        assert "Service MockService not initialized" in data["detail"]["detail"]
-        assert data["detail"]["code"] == AppErrorCode.INTERNAL_ERROR
+    @pytest.mark.asyncio
+    async def test_router_validation_error(self, client):
+        """Test validation error handling."""
+        response = client.post("/validate", json={"value": -1})
+        assert response.status_code == 422
+        assert "detail" in response.json()
+        assert "greater than or equal to 0" in response.json()["detail"]

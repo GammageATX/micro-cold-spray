@@ -1,1 +1,0 @@
-1|AssertionError: assert {'service': 'test'} == <AppErrorCode.SERVICE_ERROR: 'SERVICE_ERROR'> 

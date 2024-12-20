@@ -4,9 +4,15 @@ from datetime import datetime, timedelta
 from typing import Dict, Optional, Union
 
 from loguru import logger
+from fastapi import status, HTTPException
 
 from micro_cold_spray.api.base.base_service import BaseService
-from micro_cold_spray.api.base.base_errors import ConfigError, ServiceError
+from micro_cold_spray.api.base.base_errors import (
+    create_error,
+    AppErrorCode,
+    service_error,
+    config_error
+)
 from micro_cold_spray.api.config.models import ConfigData
 
 
@@ -52,7 +58,10 @@ class ConfigCacheService(BaseService):
             await self._initialize()
             logger.info("Cache service started")
         except Exception as e:
-            raise ServiceError(str(e), error_code="SERVICE_START_ERROR")
+            raise service_error(
+                message="Failed to start cache service",
+                context={"error": str(e)}
+            )
 
     async def _stop(self) -> None:
         """Stop implementation."""
@@ -60,7 +69,10 @@ class ConfigCacheService(BaseService):
             await self._cleanup()
             logger.info("Cache service stopped")
         except Exception as e:
-            raise ServiceError(str(e), error_code="SERVICE_STOP_ERROR")
+            raise service_error(
+                message="Failed to stop cache service",
+                context={"error": str(e)}
+            )
 
     async def _initialize(self) -> None:
         """Initialize cache."""
@@ -80,16 +92,25 @@ class ConfigCacheService(BaseService):
             True if valid
 
         Raises:
-            ConfigError: If validation fails
+            HTTPException: If validation fails (422)
         """
         if not entry:
-            raise ConfigError("Cache entry cannot be None")
+            raise config_error(
+                message="Cache entry cannot be None",
+                context={"entry": None}
+            )
 
         if not isinstance(entry, dict):
-            raise ConfigError("Cache entry must be dictionary")
+            raise config_error(
+                message="Cache entry must be dictionary",
+                context={"entry_type": type(entry).__name__}
+            )
 
         if "timestamp" not in entry or "data" not in entry:
-            raise ConfigError("Cache entry must have timestamp and data")
+            raise config_error(
+                message="Cache entry must have timestamp and data",
+                context={"missing_fields": [f for f in ["timestamp", "data"] if f not in entry]}
+            )
 
         return True
 
@@ -122,10 +143,13 @@ class ConfigCacheService(BaseService):
             config: Configuration data
 
         Raises:
-            ConfigError: If validation fails
+            HTTPException: If validation fails (422)
         """
         if not config:
-            raise ConfigError("Config data cannot be None")
+            raise config_error(
+                message="Config data cannot be None",
+                context={"config": None}
+            )
 
     async def cache_config(self, config_type: str, config: ConfigData, ttl: int = 3600) -> None:
         """Cache configuration.
@@ -136,16 +160,19 @@ class ConfigCacheService(BaseService):
             ttl: Time to live in seconds
 
         Raises:
-            ConfigError: If caching fails
+            HTTPException: If caching fails (400)
         """
         try:
             await self._validate_config(config)
             self._cache[config_type] = CacheEntry(config, ttl)
             logger.debug("Cached config: {}", config_type)
-        except ConfigError:
+        except HTTPException:
             raise
         except Exception as e:
-            raise ConfigError(f"Failed to cache config: {str(e)}")
+            raise config_error(
+                message=f"Failed to cache config: {str(e)}",
+                context={"error": str(e)}
+            )
 
     async def clear_cache(self) -> None:
         """Clear cache."""

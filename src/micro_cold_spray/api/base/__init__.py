@@ -4,17 +4,10 @@ from .base_service import BaseService
 from .base_configurable import ConfigurableService
 from .base_app import BaseApp
 from .base_router import BaseRouter
-from .base_errors import (
-    BaseError,
-    ServiceError,
-    ConfigError,
-    ValidationError,
-    AppErrorCode
-)
+from .base_errors import create_http_error
 from .base_registry import (
     get_service,
     register_service,
-    get_service_by_name,
     clear_services,
     _services  # Expose for testing
 )
@@ -24,14 +17,9 @@ __all__ = [
     'ConfigurableService',
     'BaseApp',
     'BaseRouter',
-    'BaseError',
-    'ServiceError',
-    'ConfigError',
-    'ValidationError',
-    'AppErrorCode',
+    'create_http_error',
     'get_service',
     'register_service',
-    'get_service_by_name',
     'clear_services',
     '_services'  # Expose for testing
 ]

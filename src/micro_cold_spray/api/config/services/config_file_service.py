@@ -1,54 +1,80 @@
 """Configuration file service implementation."""
 
-import json
-import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any
+import yaml
 
 from loguru import logger
+from fastapi import HTTPException, status
 
 from micro_cold_spray.api.base.base_service import BaseService
-from micro_cold_spray.api.base.base_errors import ConfigError
-from micro_cold_spray.api.config.models.config_models import ConfigData
 
 
 class ConfigFileService(BaseService):
     """Configuration file service implementation."""
 
-    def __init__(self, service_name: str, config_dir: Path) -> None:
+    def __init__(self, config_dir: Path, backup_dir: Path, service_name: str = "file") -> None:
         """Initialize service.
 
         Args:
-            service_name: Service name
             config_dir: Configuration directory
+            backup_dir: Backup directory
+            service_name: Service name
         """
         super().__init__(service_name)
         self._config_dir = config_dir
-        self._backup_dir = config_dir / "backup"
+        self._backup_dir = backup_dir
+        self.backup_enabled = True
 
     async def _start(self) -> None:
-        """Start file service."""
-        try:
-            self._config_dir.mkdir(exist_ok=True)
-            self._backup_dir.mkdir(exist_ok=True)
-            logger.info("File service started")
-        except Exception as e:
-            raise ConfigError("Failed to start file service", {"error": str(e)})
+        """Start implementation."""
+        # Create directories if they don't exist
+        self._config_dir.mkdir(exist_ok=True)
+        self._backup_dir.mkdir(exist_ok=True)
+        logger.info("File service started")
 
-    def exists(self, config_type: str) -> bool:
-        """Check if configuration file exists.
+    async def _stop(self) -> None:
+        """Stop implementation."""
+        logger.info("File service stopped")
+
+    async def exists(self, config_type: str) -> bool:
+        """Check if configuration exists.
 
         Args:
             config_type: Configuration type
 
         Returns:
-            True if file exists
+            True if exists
         """
-        config_file = self._config_dir / f"{config_type}.json"
+        config_file = self._config_dir / config_type
         return config_file.exists()
 
-    async def load_config(self, config_type: str) -> ConfigData:
+    async def create_backup(self, config_file: Path) -> Optional[Path]:
+        """Create backup of configuration file.
+
+        Args:
+            config_file: Configuration file path
+
+        Returns:
+            Backup file path if created
+        """
+        if not self.backup_enabled or not config_file.exists():
+            return None
+
+        # Create backup filename with timestamp including microseconds
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        backup_name = f"{config_file.stem}_{timestamp}.bak"
+        backup_path = self._backup_dir / backup_name
+
+        # Copy file to backup
+        with open(config_file, "r") as src, open(backup_path, "w") as dst:
+            dst.write(src.read())
+
+        logger.debug("Created backup: {}", backup_path)
+        return backup_path
+
+    async def load_config(self, config_type: str) -> Dict[str, Any]:
         """Load configuration from file.
 
         Args:
@@ -58,63 +84,84 @@ class ConfigFileService(BaseService):
             Configuration data
 
         Raises:
-            ConfigError: If load fails
+            HTTPException: If load fails
         """
-        config_file = self._config_dir / f"{config_type}.json"
+        config_file = self._config_dir / config_type
         if not config_file.exists():
-            raise ConfigError(f"Config file not found: {config_file}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "message": "Config file not found",
+                    "file": str(config_file)
+                }
+            )
 
         try:
-            with open(config_file, "r") as f:
-                config_data = json.load(f)
-            return ConfigData(**config_data)
+            with open(config_file) as f:
+                data = yaml.safe_load(f)
+                if data is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail={
+                            "message": "Config file is empty",
+                            "file": str(config_file)
+                        }
+                    )
+                return data
+        except yaml.YAMLError as e:
+            logger.error("Failed to parse YAML in {}: {}", config_type, str(e))
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "message": "Invalid YAML format",
+                    "file": str(config_file),
+                    "error": str(e)
+                }
+            )
         except Exception as e:
-            raise ConfigError("Failed to load config", {"error": str(e)})
+            logger.error("Failed to load config {}: {}", config_type, str(e))
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={
+                    "message": "Failed to load config",
+                    "file": str(config_file),
+                    "error": str(e)
+                }
+            )
 
-    async def save_config(self, config: ConfigData, create_backup: bool = True) -> None:
+    async def save_config(self, config_type: str, config: Dict[str, Any], create_backup: bool = True) -> None:
         """Save configuration to file.
 
         Args:
+            config_type: Configuration type
             config: Configuration data
             create_backup: Create backup of existing file
 
         Raises:
-            ConfigError: If save fails
+            HTTPException: If save fails
         """
-        config_file = self._config_dir / f"{config.metadata.config_type}.json"
+        config_file = self._config_dir / config_type
 
         try:
+            # Create backup if enabled
             if create_backup and config_file.exists():
-                await self.create_backup(config.metadata.config_type)
+                await self.create_backup(config_file)
 
+            # Save config
             with open(config_file, "w") as f:
-                json.dump(config.model_dump(), f, indent=2)
+                yaml.safe_dump(config, f)
+
+            logger.debug("Saved config: {}", config_type)
         except Exception as e:
-            raise ConfigError("Failed to save config", {"error": str(e)})
-
-    async def create_backup(self, config_type: str) -> Optional[Path]:
-        """Create backup of configuration file.
-
-        Args:
-            config_type: Configuration type
-
-        Returns:
-            Backup file path if created
-
-        Raises:
-            ConfigError: If backup fails
-        """
-        config_file = self._config_dir / f"{config_type}.json"
-        if not config_file.exists():
-            return None
-
-        try:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_file = self._backup_dir / f"{config_type}_{timestamp}.json"
-            shutil.copy2(config_file, backup_file)
-            return backup_file
-        except Exception as e:
-            raise ConfigError("Failed to create backup", {"error": str(e)})
+            logger.error("Failed to save config {}: {}", config_type, str(e))
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={
+                    "message": "Failed to save config",
+                    "file": str(config_file),
+                    "error": str(e)
+                }
+            )
 
     async def check_health(self) -> dict:
         """Check service health.
@@ -126,7 +173,6 @@ class ConfigFileService(BaseService):
         health["service_info"].update({
             "config_dir": str(self._config_dir),
             "backup_dir": str(self._backup_dir),
-            "config_files": len(list(self._config_dir.glob("*.json"))),
-            "backup_files": len(list(self._backup_dir.glob("*.json")))
+            "backup_enabled": self.backup_enabled
         })
         return health
