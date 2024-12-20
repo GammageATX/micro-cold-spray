@@ -3,17 +3,10 @@
 import pytest
 from typing import AsyncGenerator
 from datetime import datetime
-from fastapi import FastAPI
 import httpx
+from fastapi import FastAPI
 
 from micro_cold_spray.api.base import BaseService
-
-
-@pytest.fixture
-async def async_client(app: FastAPI) -> AsyncGenerator[httpx.AsyncClient, None]:
-    """Create async test client."""
-    async with httpx.AsyncClient(app=app, base_url="http://test") as client:
-        yield client
 
 
 class MockBaseService(BaseService):
@@ -39,9 +32,17 @@ class MockBaseService(BaseService):
 
 
 @pytest.fixture
-def base_service():
+async def base_service():
     """Create base service fixture."""
-    return MockBaseService()
+    service = MockBaseService()
+    yield service
+
+
+@pytest.fixture
+async def async_client(test_app: FastAPI) -> AsyncGenerator[httpx.AsyncClient, None]:
+    """Create async test client."""
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=test_app), base_url="http://test") as client:
+        yield client
 
 
 @pytest.fixture
@@ -56,3 +57,11 @@ def mock_datetime(monkeypatch: pytest.MonkeyPatch) -> datetime:
             
     monkeypatch.setattr("datetime.datetime", MockDatetime)
     return FAKE_TIME
+
+
+@pytest.fixture
+async def test_app(router) -> FastAPI:
+    """Create test FastAPI app."""
+    app = FastAPI()
+    app.include_router(router)
+    return app

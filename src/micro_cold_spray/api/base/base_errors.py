@@ -1,37 +1,49 @@
-"""Base errors module."""
+"""Base error handling utilities."""
 
-from typing import Dict, Any, Optional
 from datetime import datetime
-from fastapi import HTTPException
+from typing import Any, Optional
+
+from fastapi import HTTPException, status
 
 
 def create_error(
-    status_code: int,
     message: str,
-    context: Optional[Dict[str, Any]] = None,
-    cause: Optional[Exception] = None
+    status_code: int = status.HTTP_400_BAD_REQUEST,
+    context: Optional[dict[str, Any]] = None,
+    cause: Optional[Exception] = None,
 ) -> HTTPException:
-    """Create error with context.
-    
-    Args:
-        status_code: HTTP status code
-        message: Error message
-        context: Optional error context
-        cause: Optional cause exception
-        
-    Returns:
-        HTTPException with formatted detail
-    """
-    # Build error detail
-    detail = {
-        "message": message,
-        "timestamp": datetime.now().isoformat()
-    }
-        
-    if context:
-        detail["context"] = context
-        
-    error = HTTPException(status_code=status_code, detail=detail)
+    """Create an HTTP error with consistent format."""
+    error = HTTPException(
+        status_code=status_code,
+        detail={
+            "message": message,
+            "timestamp": datetime.now().isoformat(),
+            "context": context or {},
+        },
+    )
     if cause:
         error.__cause__ = cause
     return error
+
+
+class ConfigError(HTTPException):
+    """Configuration error."""
+
+    def __init__(
+        self,
+        message: str,
+        context: Optional[dict[str, Any]] = None,
+        cause: Optional[Exception] = None,
+    ) -> None:
+        """Initialize config error."""
+        detail = {
+            "message": message,
+            "timestamp": datetime.now().isoformat(),
+            "context": context or {},
+        }
+        super().__init__(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail,
+        )
+        if cause:
+            self.__cause__ = cause
