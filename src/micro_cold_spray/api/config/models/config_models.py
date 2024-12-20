@@ -1,125 +1,82 @@
-"""Configuration data models."""
+"""Configuration models."""
 
-from typing import Dict, Any, Optional, List
-from datetime import datetime
-from pydantic import BaseModel, Field, field_validator
-
-
-class FormatMetadata(BaseModel):
-    """Metadata for format validators."""
-    description: str
-    examples: List[str]
+from typing import Dict, Any, List, Optional
+from pydantic import BaseModel, Field
 
 
-class ConfigSchema(BaseModel):
-    """Schema definition for config validation."""
-    type: str = Field(description="Basic types: string, number, boolean, object, array")
-    title: Optional[str] = None
-    required: Optional[List[str]] = None
-    min_value: Optional[float] = None
-    max_value: Optional[float] = None
-    enum: Optional[List[Any]] = None
-    pattern: Optional[str] = None
-    properties: Optional[Dict[str, 'ConfigSchema']] = None
-    items: Optional['ConfigSchema'] = None
-    description: Optional[str] = None
-    format: Optional[str] = None
-    references: Optional[List[str]] = None
-    dependencies: Optional[List[str]] = None
-    allow_unknown: bool = False
+class ConfigRequest(BaseModel):
+    """Configuration request model."""
 
-    @field_validator('type')
-    @classmethod
-    def validate_type(cls, v: str) -> str:
-        allowed_types = {'string', 'number', 'boolean', 'object', 'array', 'state', 'tag', 'action', 'sequence'}
-        if v not in allowed_types:
-            raise ValueError(f'Type must be one of {allowed_types}')
-        return v
+    data: Dict[str, Any] = Field(
+        ...,
+        description="Configuration data"
+    )
+    format: str = Field(
+        default="json",
+        description="Format type (json or yaml)"
+    )
 
 
-class SchemaRegistry(BaseModel):
-    """Registry of known config schemas."""
-    application: ConfigSchema
-    hardware: ConfigSchema
-    process: ConfigSchema
-    tags: ConfigSchema
-    state: ConfigSchema
-    file_format: ConfigSchema
+class ConfigResponse(BaseModel):
+    """Configuration response model."""
+
+    name: str = Field(
+        ...,
+        description="Configuration name"
+    )
+    data: Dict[str, Any] = Field(
+        ...,
+        description="Configuration data"
+    )
+    format: str = Field(
+        ...,
+        description="Format type"
+    )
 
 
-class ConfigReference(BaseModel):
-    """Reference to another config value."""
-    config_type: str
-    path: str
-    required: bool = True
+class SchemaRequest(BaseModel):
+    """Schema request model."""
+
+    schema: Dict[str, Any] = Field(
+        ...,
+        description="JSON schema definition"
+    )
 
 
-class ConfigValidationResult(BaseModel):
-    """Result of config validation."""
-    valid: bool
-    errors: List[str]
-    warnings: List[str]
+class SchemaResponse(BaseModel):
+    """Schema response model."""
+
+    name: str = Field(
+        ...,
+        description="Schema name"
+    )
+    schema: Dict[str, Any] = Field(
+        ...,
+        description="JSON schema definition"
+    )
 
 
-class ConfigMetadata(BaseModel):
-    """Configuration metadata."""
-    config_type: str
-    last_modified: datetime
-    version: str = "1.0.0"
-    description: Optional[str] = None
-    json_schema: Optional[ConfigSchema] = None
+class HealthResponse(BaseModel):
+    """Health check response model."""
+
+    status: str = Field(
+        ...,
+        description="Service status (healthy/unhealthy)"
+    )
+    is_healthy: bool = Field(
+        ...,
+        description="Whether service is healthy"
+    )
+    services: Dict[str, Dict[str, Any]] = Field(
+        ...,
+        description="Service health details"
+    )
 
 
-class ConfigData(BaseModel):
-    """Configuration data container."""
-    metadata: ConfigMetadata
-    data: Dict[str, Any]
+class MessageResponse(BaseModel):
+    """Generic message response model."""
 
-    def get(self, key: str, default: Any = None) -> Any:
-        """Get value from config data with optional default."""
-        if not isinstance(self.data, dict):
-            return default
-            
-        keys = key.split(".")
-        current = self.data
-        
-        for k in keys:
-            if not isinstance(current, dict):
-                return default
-            current = current.get(k, default)
-            if current == default:
-                return default
-                
-        return current
-
-
-class ConfigUpdate(BaseModel):
-    """Configuration update request."""
-    config_type: str
-    data: Dict[str, Any]
-    backup: bool = True
-    should_validate: bool = True
-
-
-class ConfigStatus(BaseModel):
-    """Configuration service status."""
-    is_running: bool
-    cache_size: int
-    last_error: Optional[str] = None
-    last_update: Optional[datetime] = None
-
-
-class TagRemapRequest(BaseModel):
-    """Request to remap a tag."""
-    old_tag: str
-    new_tag: str
-    should_validate: bool = True
-
-
-class ConfigFieldInfo(BaseModel):
-    """Information about an editable config field."""
-    path: str
-    type: str
-    description: str
-    constraints: Dict[str, Any]
-    current_value: Any
+    message: str = Field(
+        ...,
+        description="Response message"
+    )

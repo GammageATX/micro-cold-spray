@@ -1,191 +1,154 @@
 """Configuration registry service implementation."""
 
-from typing import Dict, List, Type, Set, Any, Optional
-from loguru import logger
+from typing import Dict, Any, Optional
 from fastapi import status
-from datetime import datetime
+from loguru import logger
 
-from micro_cold_spray.api.base.base_service import BaseService
-from micro_cold_spray.api.base.base_errors import create_error
-from micro_cold_spray.api.config.models.config_models import ConfigData
+from micro_cold_spray.api.base import create_error
+from micro_cold_spray.api.config.services.base_config_service import BaseConfigService
 
 
-class ConfigRegistryService(BaseService):
+class RegistryService(BaseConfigService):
     """Configuration registry service implementation."""
 
-    def __init__(self, service_name: str = "registry") -> None:
-        """Initialize service.
-        
-        Args:
-            service_name: Service name
-        """
-        super().__init__(service_name)
-        self._config_types: Dict[str, Type[ConfigData]] = {}
-        self._configs: Dict[str, ConfigData] = {}
-        self._tags: Set[str] = set()
-        self._actions: Set[str] = {"read", "write", "monitor"}
-        self._validations: Set[str] = {"range", "enum", "pattern"}
-        self._start_time: Optional[datetime] = None
-
-    @property
-    def uptime(self) -> float:
-        """Get service uptime in seconds.
-        
-        Returns:
-            float: Service uptime in seconds
-        """
-        if not self._start_time:
-            return 0.0
-        return (datetime.now() - self._start_time).total_seconds()
+    def __init__(self):
+        """Initialize service."""
+        super().__init__(name="registry")
+        self._registry: Dict[str, Dict[str, Any]] = {}
 
     async def _start(self) -> None:
-        """Start registry service."""
-        try:
-            await self._load_tag_registry()
-            await self._load_action_registry()
-            await self._load_validation_registry()
-            self._start_time = datetime.now()
-            self._is_running = True
-            logger.info("Registry service started")
-        except Exception as e:
-            logger.error(f"Failed to start registry service: {e}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to start registry service",
-                context={"error": str(e)},
-                cause=e
-            )
+        """Start implementation."""
+        self._registry.clear()
+        logger.info("Registry service started")
 
     async def _stop(self) -> None:
-        """Stop registry service."""
-        try:
-            self._config_types.clear()
-            self._configs.clear()
-            self._tags.clear()
-            self._actions = {"read", "write", "monitor"}
-            self._validations = {"range", "enum", "pattern"}
-            self._start_time = None
-            self._is_running = False
-            logger.info("Registry service stopped")
-        except Exception as e:
-            logger.error(f"Failed to stop registry service: {e}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to stop registry service",
-                context={"error": str(e)},
-                cause=e
-            )
+        """Stop implementation."""
+        self._registry.clear()
+        logger.info("Registry service stopped")
 
-    async def check_health(self) -> Dict[str, Any]:
-        """Check service health.
-        
-        Returns:
-            Dict[str, Any]: Health check response
-        """
-        return {
-            "status": "running" if self.is_running else "stopped",
-            "is_healthy": self.is_running,
-            "uptime": self.uptime,
-            "context": {
-                "service": "registry",
-                "config_types": len(self._config_types),
-                "configs": len(self._configs),
-                "tags": len(self._tags),
-                "actions": len(self._actions),
-                "validations": len(self._validations)
-            }
-        }
-
-    async def _load_tag_registry(self) -> None:
-        """Load tag registry."""
-        try:
-            # Load tags from configuration or database
-            logger.info("Tag registry loaded")
-        except Exception as e:
-            logger.error(f"Failed to load tag registry: {e}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to load tag registry",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def _load_action_registry(self) -> None:
-        """Load action registry."""
-        try:
-            # Load actions from configuration or database
-            logger.info("Action registry loaded")
-        except Exception as e:
-            logger.error(f"Failed to load action registry: {e}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to load action registry",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def _load_validation_registry(self) -> None:
-        """Load validation registry."""
-        try:
-            # Load validations from configuration or database
-            logger.info("Validation registry loaded")
-        except Exception as e:
-            logger.error(f"Failed to load validation registry: {e}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to load validation registry",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def register_config_type(self, config_type: Type[ConfigData]) -> None:
-        """Register configuration type.
+    def register(self, name: str, config: Dict[str, Any]) -> None:
+        """Register configuration.
         
         Args:
-            config_type: Configuration type to register
+            name: Configuration name
+            config: Configuration data
             
         Raises:
-            HTTPException: If service not running (503) or type already exists (409)
+            HTTPException: If service not running or config already exists
         """
         if not self.is_running:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Registry service is not running"
+                message="Registry service not running"
             )
 
-        if config_type.__name__ in self._config_types:
+        if name in self._registry:
             raise create_error(
                 status_code=status.HTTP_409_CONFLICT,
-                message=f"Config type {config_type.__name__} already exists",
-                context={"type": config_type.__name__}
+                message=f"Configuration already exists: {name}"
             )
 
-        self._config_types[config_type.__name__] = config_type
-        logger.info(f"Registered config type: {config_type.__name__}")
+        self._registry[name] = config.copy()
+        logger.info(f"Registered configuration: {name}")
 
-    def get_config_type(self, type_name: str) -> Type[ConfigData]:
-        """Get configuration type by name.
+    def get(self, name: str) -> Optional[Dict[str, Any]]:
+        """Get registered configuration.
         
         Args:
-            type_name: Configuration type name
+            name: Configuration name
             
         Returns:
-            Type[ConfigData]: Configuration type
+            Optional[Dict[str, Any]]: Configuration if found
             
         Raises:
-            HTTPException: If service not running (503) or type not found (404)
+            HTTPException: If service not running
         """
         if not self.is_running:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Registry service is not running"
+                message="Registry service not running"
             )
 
-        if type_name not in self._config_types:
+        config = self._registry.get(name)
+        if not config:
             raise create_error(
                 status_code=status.HTTP_404_NOT_FOUND,
-                message=f"Config type {type_name} not found",
-                context={"type": type_name}
+                message=f"Configuration not found: {name}"
             )
 
-        return self._config_types[type_name]
+        return config.copy()
+
+    def update(self, name: str, config: Dict[str, Any]) -> None:
+        """Update registered configuration.
+        
+        Args:
+            name: Configuration name
+            config: New configuration data
+            
+        Raises:
+            HTTPException: If service not running or config not found
+        """
+        if not self.is_running:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Registry service not running"
+            )
+
+        if name not in self._registry:
+            raise create_error(
+                status_code=status.HTTP_404_NOT_FOUND,
+                message=f"Configuration not found: {name}"
+            )
+
+        self._registry[name] = config.copy()
+        logger.info(f"Updated configuration: {name}")
+
+    def delete(self, name: str) -> None:
+        """Delete registered configuration.
+        
+        Args:
+            name: Configuration name
+            
+        Raises:
+            HTTPException: If service not running or config not found
+        """
+        if not self.is_running:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Registry service not running"
+            )
+
+        if name not in self._registry:
+            raise create_error(
+                status_code=status.HTTP_404_NOT_FOUND,
+                message=f"Configuration not found: {name}"
+            )
+
+        del self._registry[name]
+        logger.info(f"Deleted configuration: {name}")
+
+    def list_configs(self) -> list[str]:
+        """List registered configurations.
+        
+        Returns:
+            list[str]: List of configuration names
+            
+        Raises:
+            HTTPException: If service not running
+        """
+        if not self.is_running:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Registry service not running"
+            )
+
+        return list(self._registry.keys())
+
+    async def health(self) -> dict:
+        """Get service health status."""
+        health = await super().health()
+        health.update({
+            "config_count": len(self._registry),
+            "configs": list(self._registry.keys())
+        })
+        return health

@@ -1,208 +1,141 @@
 """Configuration format service implementation."""
 
-import re
-from pathlib import Path
-from typing import Dict, List, Optional, Callable, Any
-
-from loguru import logger
+import json
+import yaml
+from typing import Dict, Any
 from fastapi import status
+from loguru import logger
 
-from micro_cold_spray.api.base.base_service import BaseService
-from micro_cold_spray.api.base.base_errors import create_error
-from micro_cold_spray.api.config.models.config_models import FormatMetadata
+from micro_cold_spray.api.base import create_error
+from micro_cold_spray.api.config.services.base_config_service import BaseConfigService
 
 
-class FormatService(BaseService):
+class FormatService(BaseConfigService):
     """Configuration format service implementation."""
 
-    _instance = None
-    _initialized = False
+    def __init__(self):
+        """Initialize service."""
+        super().__init__(name="format")
+        self._formatters = {
+            "json": self._format_json,
+            "yaml": self._format_yaml
+        }
 
-    def __new__(cls, service_name: str = "format") -> "FormatService":
-        """Create or return singleton instance.
+    async def _start(self) -> None:
+        """Start implementation."""
+        logger.info("Format service started")
 
-        Args:
-            service_name: Service name
+    async def _stop(self) -> None:
+        """Stop implementation."""
+        logger.info("Format service stopped")
 
-        Returns:
-            Service instance
-        """
-        if not cls._instance:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-
-    def __init__(self, service_name: str = "format") -> None:
-        """Initialize service.
+    def _format_json(self, data: Dict[str, Any]) -> str:
+        """Format data as JSON.
         
         Args:
-            service_name: Service name
-        """
-        if self._initialized:
-            return
-
-        super().__init__(service_name)
-        self._format_validators: Dict[str, Callable] = {}
-        self._format_metadata: Dict[str, FormatMetadata] = {}
-        self._register_default_validators()
-        self._initialized = True
-
-    def _register_default_validators(self) -> None:
-        """Register default format validators."""
-        self.register_format(
-            "12bit",
-            self._validate_12bit,
-            "12-bit integer value (0-4095)",
-            ["0", "2048", "4095"]
-        )
-        self.register_format(
-            "percentage",
-            self._validate_percentage,
-            "Percentage value (0-100)",
-            ["0", "50", "100"]
-        )
-        self.register_format(
-            "ip_address",
-            self._validate_ip_address,
-            "IPv4 address",
-            ["192.168.1.1", "10.0.0.0"]
-        )
-        self.register_format(
-            "hostname",
-            self._validate_hostname,
-            "Valid hostname",
-            ["localhost", "example.com"]
-        )
-        self.register_format(
-            "port",
-            self._validate_port,
-            "TCP/UDP port number (1-65535)",
-            ["80", "8080", "443"]
-        )
-        self.register_format(
-            "path",
-            self._validate_path,
-            "File system path",
-            ["/path/to/file", "C:\\Windows\\System32"]
-        )
-        self.register_format(
-            "tag_path",
-            self._validate_tag_path,
-            "Tag path (group.subgroup.tag)",
-            ["tag", "group.tag"]
-        )
-
-    def register_format(
-        self,
-        format_name: str,
-        validator: Callable[[str], bool],
-        description: str,
-        examples: List[str]
-    ) -> None:
-        """Register format validator.
-        
-        Args:
-            format_name: Format name
-            validator: Validation function
-            description: Format description
-            examples: Example values
-        """
-        self._format_validators[format_name] = validator
-        self._format_metadata[format_name] = FormatMetadata(
-            description=description,
-            examples=examples
-        )
-
-    def validate_format(self, format_name: str, value: str) -> bool:
-        """Validate value against format.
-        
-        Args:
-            format_name: Format name
-            value: Value to validate
+            data: Data to format
             
         Returns:
-            True if valid
+            str: Formatted JSON string
             
         Raises:
-            HTTPException: If format not found (404)
+            HTTPException: If formatting fails
+        """
+        try:
+            return json.dumps(data, indent=2)
+        except Exception as e:
+            raise create_error(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                message=f"Failed to format JSON: {str(e)}"
+            )
+
+    def _format_yaml(self, data: Dict[str, Any]) -> str:
+        """Format data as YAML.
+        
+        Args:
+            data: Data to format
+            
+        Returns:
+            str: Formatted YAML string
+            
+        Raises:
+            HTTPException: If formatting fails
+        """
+        try:
+            return yaml.dump(data, default_flow_style=False)
+        except Exception as e:
+            raise create_error(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                message=f"Failed to format YAML: {str(e)}"
+            )
+
+    def format(self, data: Dict[str, Any], format_type: str = "json") -> str:
+        """Format configuration data.
+        
+        Args:
+            data: Configuration data to format
+            format_type: Format type (json or yaml)
+            
+        Returns:
+            str: Formatted configuration string
+            
+        Raises:
+            HTTPException: If service not running or formatting fails
         """
         if not self.is_running:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Service not running",
-                context={"service": self.name}
+                message="Format service not running"
             )
 
-        validator = self._format_validators.get(format_name)
-        if not validator:
+        formatter = self._formatters.get(format_type.lower())
+        if not formatter:
             raise create_error(
-                status_code=status.HTTP_404_NOT_FOUND,
-                message=f"Format {format_name} not found",
-                context={"format": format_name}
+                status_code=status.HTTP_400_BAD_REQUEST,
+                message=f"Unsupported format type: {format_type}"
             )
 
-        return validator(value)
+        return formatter(data)
 
-    def get_format_metadata(self) -> Dict[str, FormatMetadata]:
-        """Get format metadata.
+    def parse(self, content: str, format_type: str = "json") -> Dict[str, Any]:
+        """Parse formatted configuration string.
         
+        Args:
+            content: Formatted configuration string
+            format_type: Format type (json or yaml)
+            
         Returns:
-            Format metadata by name
+            Dict[str, Any]: Parsed configuration data
             
         Raises:
-            HTTPException: If service not running (503)
+            HTTPException: If service not running or parsing fails
         """
         if not self.is_running:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Service not running",
-                context={"service": self.name}
+                message="Format service not running"
             )
 
-        return self._format_metadata
-
-    def _validate_12bit(self, value: str) -> bool:
-        """Validate 12-bit integer value."""
         try:
-            val = int(value)
-            return 0 <= val <= 4095
-        except ValueError:
-            return False
+            if format_type.lower() == "json":
+                return json.loads(content)
+            elif format_type.lower() == "yaml":
+                return yaml.safe_load(content)
+            else:
+                raise create_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message=f"Unsupported format type: {format_type}"
+                )
+        except Exception as e:
+            raise create_error(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                message=f"Failed to parse {format_type}: {str(e)}"
+            )
 
-    def _validate_percentage(self, value: str) -> bool:
-        """Validate percentage value."""
-        try:
-            val = float(value)
-            return 0 <= val <= 100
-        except ValueError:
-            return False
-
-    def _validate_ip_address(self, value: str) -> bool:
-        """Validate IPv4 address."""
-        pattern = r"^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$"
-        return bool(re.match(pattern, value))
-
-    def _validate_hostname(self, value: str) -> bool:
-        """Validate hostname."""
-        pattern = r"^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
-        return bool(re.match(pattern, value))
-
-    def _validate_port(self, value: str) -> bool:
-        """Validate TCP/UDP port number."""
-        try:
-            val = int(value)
-            return 1 <= val <= 65535
-        except ValueError:
-            return False
-
-    def _validate_path(self, value: str) -> bool:
-        """Validate file system path."""
-        try:
-            Path(value)
-            return True
-        except Exception:
-            return False
-
-    def _validate_tag_path(self, value: str) -> bool:
-        """Validate tag path."""
-        pattern = r"^[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z][a-zA-Z0-9_]*)*$"
-        return bool(re.match(pattern, value))
+    async def health(self) -> dict:
+        """Get service health status."""
+        health = await super().health()
+        health.update({
+            "supported_formats": list(self._formatters.keys())
+        })
+        return health
