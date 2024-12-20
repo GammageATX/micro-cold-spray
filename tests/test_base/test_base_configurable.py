@@ -61,6 +61,7 @@ class TestConfigurableService:
         with pytest.raises(Exception) as exc:
             service.configure("invalid")
         assert exc.value.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert "Invalid configuration type" in str(exc.value.detail)
 
     def test_configure_missing_required(self, service):
         """Test missing required configuration."""
@@ -68,6 +69,18 @@ class TestConfigurableService:
             service.configure({})
         assert exc.value.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
         assert "required" in str(exc.value.detail)
+
+    def test_configure_unexpected_error(self, service, monkeypatch):
+        """Test unexpected error during configuration."""
+        def mock_validate(*args, **kwargs):
+            raise RuntimeError("Unexpected error")
+            
+        monkeypatch.setattr(_TestConfig, "model_validate", mock_validate)
+        
+        with pytest.raises(Exception) as exc:
+            service.configure({"value": 42})
+        assert exc.value.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert "Unexpected error" in str(exc.value.detail)
 
     def test_is_configured(self, service):
         """Test is_configured property."""

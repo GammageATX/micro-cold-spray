@@ -31,8 +31,8 @@ class BaseService:
         if not self.is_running:
             raise ValueError("Service is not running")
         
-        self._is_running = False
         await self._stop()
+        self._is_running = False
 
     async def _start(self) -> None:
         """Start implementation."""
