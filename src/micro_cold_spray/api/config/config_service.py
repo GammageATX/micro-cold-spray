@@ -3,9 +3,15 @@
 from typing import Dict, Type, Optional
 import threading
 from loguru import logger
+from fastapi import status
 
 from micro_cold_spray.api.base.base_service import BaseService
-from micro_cold_spray.api.base.base_errors import ConfigError
+from micro_cold_spray.api.base.base_errors import (
+    create_error,
+    AppErrorCode,
+    service_error,
+    config_error
+)
 from micro_cold_spray.api.config.models.config_models import ConfigData
 
 
@@ -74,10 +80,15 @@ class ConfigService(BaseService):
             Configuration type
         
         Raises:
-            ConfigError: If type not found
+            HTTPException: If type not found (404)
         """
         if type_name not in self._config_types:
-            raise ConfigError(f"Config type {type_name} not found")
+            raise create_error(
+                message=f"Config type {type_name} not found",
+                error_code=AppErrorCode.CONFIG_NOT_FOUND,
+                status_code=status.HTTP_404_NOT_FOUND,
+                context={"type_name": type_name}
+            )
         return self._config_types[type_name]
 
     async def get_config(self, config_type: str) -> ConfigData:
@@ -90,16 +101,29 @@ class ConfigService(BaseService):
             Configuration data
             
         Raises:
-            ConfigError: If config not found
+            HTTPException: If service not running (503) or config not found (404)
         """
         if not self.is_running:
-            raise ConfigError("Service not running")
+            raise service_error(
+                message="Service not running",
+                context={"service": self.service_name}
+            )
 
         if config_type not in self._config_types:
-            raise ConfigError(f"Config type {config_type} not found")
+            raise create_error(
+                message=f"Config type {config_type} not found",
+                error_code=AppErrorCode.CONFIG_NOT_FOUND,
+                status_code=status.HTTP_404_NOT_FOUND,
+                context={"type_name": config_type}
+            )
 
         if config_type not in self._config_cache:
-            raise ConfigError(f"No configuration found for type {config_type}")
+            raise create_error(
+                message=f"No configuration found for type {config_type}",
+                error_code=AppErrorCode.CONFIG_NOT_FOUND,
+                status_code=status.HTTP_404_NOT_FOUND,
+                context={"type_name": config_type}
+            )
 
         return self._config_cache[config_type]
 
@@ -110,13 +134,21 @@ class ConfigService(BaseService):
             config: Configuration data
             
         Raises:
-            ConfigError: If update fails
+            HTTPException: If service not running (503) or config type not found (404)
         """
         if not self.is_running:
-            raise ConfigError("Service not running")
+            raise service_error(
+                message="Service not running",
+                context={"service": self.service_name}
+            )
 
         if config.metadata.config_type not in self._config_types:
-            raise ConfigError(f"Config type {config.metadata.config_type} not found")
+            raise create_error(
+                message=f"Config type {config.metadata.config_type} not found",
+                error_code=AppErrorCode.CONFIG_NOT_FOUND,
+                status_code=status.HTTP_404_NOT_FOUND,
+                context={"type_name": config.metadata.config_type}
+            )
 
         self._config_cache[config.metadata.config_type] = config
 

@@ -5,7 +5,7 @@ from unittest.mock import patch
 from loguru import logger
 
 from micro_cold_spray.api.config.services.config_registry_service import ConfigRegistryService
-from micro_cold_spray.api.base.base_exceptions import ConfigError, ValidationError
+from micro_cold_spray.api.base.base_errors import ConfigError, ValidationError
 
 
 @pytest.fixture

@@ -5,3 +5,12 @@
 2024-12-19 09:09:53.951 | WARNING  | __main__:check_service_health:106 - Service on port 8000 not responding (attempt 3/5)
 2024-12-19 09:09:53.952 | INFO     | __main__:stop_service:245 - Removed ui service from process list
 2024-12-19 09:09:53.952 | INFO     | __main__:main:474 - Application shutdown complete
+2024-12-19 19:49:23.468 | INFO     | __main__:main:398 - Starting Micro Cold Spray application
+2024-12-19 19:49:23.468 | INFO     | __main__:start_service:190 - Starting ui service...
+2024-12-19 19:49:26.526 | WARNING  | __main__:check_service_health:104 - Service on port 8000 returned status code: 500
+2024-12-19 19:49:30.603 | WARNING  | __main__:check_service_health:104 - Service on port 8000 returned status code: 500
+2024-12-19 19:49:34.656 | WARNING  | __main__:check_service_health:104 - Service on port 8000 returned status code: 500
+2024-12-19 19:49:38.689 | WARNING  | __main__:check_service_health:104 - Service on port 8000 returned status code: 500
+2024-12-19 19:49:38.849 | INFO     | __main__:stop_service:234 - Stopping ui service...
+2024-12-19 19:49:38.854 | INFO     | __main__:stop_service:245 - Removed ui service from process list
+2024-12-19 19:49:38.854 | INFO     | __main__:main:474 - Application shutdown complete

@@ -5,7 +5,7 @@ from unittest.mock import patch, MagicMock
 from loguru import logger
 
 from micro_cold_spray.api.config.services.config_format_service import ConfigFormatService
-from micro_cold_spray.api.base.base_exceptions import ConfigError, ValidationError
+from micro_cold_spray.api.base.base_errors import ConfigError, ValidationError
 from micro_cold_spray.api.config.models import FormatMetadata
 
 

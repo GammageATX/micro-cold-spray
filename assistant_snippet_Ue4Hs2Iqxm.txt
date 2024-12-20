@@ -1,0 +1,1 @@
+1|1|TypeError: super(type, obj): obj (instance of function) is not an instance or subtype of type (BaseRouter) 

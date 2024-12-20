@@ -116,6 +116,24 @@ def mock_service_factory(
         return_value=str(datetime.now() - start_time)
     )
     
+    async def mock_health():
+        return {
+            "is_healthy": is_running,
+            "status": "running" if is_running else "stopped",
+            "context": {
+                "service": service_name,
+                "version": version,
+                "uptime": str(datetime.now() - start_time),
+                "metrics": {
+                    "start_count": 1 if is_running else 0,
+                    "stop_count": 0 if is_running else 1,
+                    "error_count": 0,
+                    "last_error": None
+                }
+            }
+        }
+    service.health = AsyncMock(side_effect=mock_health)
+    
     return service
 
 
@@ -134,23 +152,27 @@ def assert_json_structure(data: dict, expected_keys: list) -> None:
 def assert_error_response(
     response: Any,
     status_code: int,
-    error_code: str,
-    message: str = None
+    message: str = None,
+    context: dict = None
 ) -> None:
     """Assert that an error response matches expected format.
     
     Args:
         response: FastAPI response
         status_code: Expected HTTP status code
-        error_code: Expected error code
         message: Expected error message (optional)
+        context: Expected error context (optional)
     """
     assert response.status_code == status_code
     data = response.json()
-    assert "error" in data
-    assert data["error"]["code"] == error_code
+    assert "detail" in data
+    assert "message" in data["detail"]
     if message:
-        assert message.lower() in data["error"]["message"].lower()
+        assert message.lower() in data["detail"]["message"].lower()
+    if context:
+        assert "context" in data["detail"]
+        for key, value in context.items():
+            assert data["detail"]["context"][key] == value
 
 
 def assert_health_response(response: Any, service_name: str) -> None:
@@ -162,9 +184,11 @@ def assert_health_response(response: Any, service_name: str) -> None:
     """
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] in ["ok", "error"]
-    assert data["service_name"] == service_name
-    assert "version" in data
-    assert "is_running" in data
-    assert "timestamp" in data
-    assert "uptime" in data
+    assert "is_healthy" in data
+    assert "status" in data
+    assert data["status"] in ["running", "stopped", "error", "degraded"]
+    assert "context" in data
+    assert data["context"]["service"] == service_name
+    assert "version" in data["context"]
+    assert "uptime" in data["context"]
+    assert "metrics" in data["context"]

@@ -1,96 +1,55 @@
-"""Base configurable class for services that need configuration."""
+"""Base configurable service module."""
 
-from typing import Any, Dict, Optional, Type
-from pydantic import BaseModel
+from typing import TypeVar, Generic, Type
+from fastapi import status, HTTPException
+from pydantic import BaseModel, ValidationError
 
 from .base_service import BaseService
-from .base_errors import ConfigError, ValidationError
+from .base_errors import create_http_error
 
 
-class ConfigurableService(BaseService):
-    """Base class for services that require configuration."""
+ConfigType = TypeVar("ConfigType", bound=BaseModel)
 
-    def __init__(self, service_name: str, config_model: Type[BaseModel]):
-        """Initialize configurable service.
-        
-        Args:
-            service_name: Name of the service
-            config_model: Pydantic model class for configuration validation
-        """
-        super().__init__(service_name)
-        self._config_model = config_model
-        self._config: Optional[BaseModel] = None
-        self._is_configured = False
+
+class ConfigurableService(BaseService, Generic[ConfigType]):
+    """Base configurable service."""
+
+    def __init__(self, config_class: Type[ConfigType], name: str = None):
+        """Initialize configurable service."""
+        super().__init__(name)
+        self.config_class = config_class
+        self.config = None
+
+    def configure(self, config: ConfigType | dict) -> None:
+        """Configure the service."""
+        try:
+            if isinstance(config, dict):
+                config = self.config_class(**config)
+            elif not isinstance(config, BaseModel):
+                raise create_http_error(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    message="Invalid configuration type"
+                )
+            
+            # Validate the config even if it's already a BaseModel
+            if isinstance(config, BaseModel):
+                config = self.config_class.model_validate(config)
+                
+            self.config = config
+        except ValidationError as e:
+            raise create_http_error(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                message=str(e)
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise create_http_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=str(e)
+            )
 
     @property
     def is_configured(self) -> bool:
         """Check if service is configured."""
-        return self._is_configured
-
-    @property
-    def config(self) -> Optional[BaseModel]:
-        """Get current configuration."""
-        return self._config
-
-    async def configure(self, config: Dict[str, Any]) -> None:
-        """Configure the service with the provided configuration.
-        
-        Args:
-            config: Configuration dictionary
-            
-        Raises:
-            ConfigError: If configuration is invalid
-            ValidationError: If configuration fails validation
-        """
-        try:
-            # Validate configuration using Pydantic model
-            validated_config = self._config_model(**config)
-            
-            # Additional service-specific validation
-            await self._validate_config(validated_config)
-            
-            self._config = validated_config
-            self._is_configured = True
-            
-        except ValidationError as e:
-            raise ConfigError(
-                f"Invalid configuration: {str(e)}",
-                {"validation_errors": e.context}
-            )
-        except Exception as e:
-            raise ConfigError(f"Failed to configure service: {str(e)}")
-
-    async def _validate_config(self, config: BaseModel) -> None:
-        """Validate configuration.
-        
-        Args:
-            config: Validated configuration model
-            
-        Raises:
-            ValidationError: If configuration is invalid
-        """
-        # Override this method to add custom validation logic
-        pass
-
-    async def start(self) -> None:
-        """Start the service.
-        
-        Raises:
-            ConfigError: If service is not configured
-            ServiceError: If service fails to start
-        """
-        if not self.is_configured:
-            raise ConfigError("Service must be configured before starting")
-        await super().start()
-
-    async def check_health(self) -> Dict[str, Any]:
-        """Check service health.
-        
-        Returns:
-            Health check response including configuration status
-        """
-        health = await super().check_health()
-        health["service_info"]["configured"] = self.is_configured
-        if self._config:
-            health["service_info"]["config"] = self._config.model_dump()
-        return health
+        return self.config is not None

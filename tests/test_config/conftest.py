@@ -10,7 +10,7 @@ from micro_cold_spray.__main__ import get_test_config
 from micro_cold_spray.api.config.models import ConfigData, ConfigMetadata
 from micro_cold_spray.api.config.config_service import ConfigService
 from micro_cold_spray.api.config.config_app import ConfigApp
-from micro_cold_spray.api.base.base_exceptions import ConfigError
+from micro_cold_spray.api.base.base_errors import ConfigError
 from micro_cold_spray.api.base.base_registry import register_service
 import uvicorn
 

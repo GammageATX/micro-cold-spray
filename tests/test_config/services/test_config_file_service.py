@@ -6,7 +6,7 @@ import yaml
 import shutil
 
 from micro_cold_spray.api.config.services.config_file_service import ConfigFileService
-from micro_cold_spray.api.base.base_exceptions import ConfigError
+from micro_cold_spray.api.base.base_errors import ConfigError
 
 
 @pytest.fixture
