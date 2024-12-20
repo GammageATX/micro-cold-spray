@@ -3,8 +3,10 @@
 from contextlib import asynccontextmanager
 from typing import Type, Any
 
-from fastapi import FastAPI, status
+from fastapi import FastAPI, status, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, Response
 from loguru import logger
 
 from micro_cold_spray.api.base.base_service import BaseService
@@ -85,11 +87,33 @@ class BaseApp(FastAPI):
         router = BaseRouter()
         self.include_router(router)
 
-    async def _log_request(self, request, call_next):
-        """Log request middleware."""
-        response = await call_next(request)
-        logger.info(
-            f"HTTP Request: {request.method} {request.url} "
-            f"\"{response.status_code} {response.headers.get('status', '')}\""
+    async def _handle_error(self, request: Request, exc: Exception) -> JSONResponse:
+        """Handle errors in a consistent way."""
+        if isinstance(exc, RequestValidationError):
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                content={"detail": exc.errors()},
+            )
+        
+        error = create_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            message=str(exc),
+            context={"path": request.url.path},
+            cause=exc
         )
-        return response
+        return JSONResponse(
+            status_code=error.status_code,
+            content={"detail": error.detail},
+        )
+
+    async def _log_request(self, request: Request, call_next) -> Response:
+        """Log request details."""
+        try:
+            response = await call_next(request)
+            logger.info(
+                f"HTTP Request: {request.method} {request.url} "
+                f"\"{response.status_code} {response.headers.get('status', '')}\""
+            )
+            return response
+        except Exception as exc:
+            return await self._handle_error(request, exc)

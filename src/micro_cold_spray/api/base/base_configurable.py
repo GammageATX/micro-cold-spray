@@ -20,7 +20,7 @@ class ConfigurableService(BaseService, Generic[ConfigType]):
         self.config_class = config_class
         self.config = None
 
-    def configure(self, config: ConfigType | dict) -> None:
+    async def configure(self, config: ConfigType | dict) -> None:
         """Configure the service.
         
         Args:

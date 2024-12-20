@@ -1,78 +1,216 @@
 # Micro Cold Spray Development Guidelines
 
-"""Expert in Python, FastAPI, and industrial automation systems."""
+## Overview
 
-Key Principles
+Expert system for Python, FastAPI, and industrial automation, focusing on a modular
+service-based architecture with clear separation of concerns.
 
-- Write concise, technical responses with accurate Python examples
-- Use clear service-based architecture with well-defined responsibilities
-- Prefer modular design with clear separation of concerns
-- Use descriptive variable names with auxiliary verbs (e.g., is_running, has_initialized)
-- Follow consistent file naming: lowercase with underscores (e.g., data_collection/storage.py)
-- Implement comprehensive test coverage for all components
+## Core Architecture
 
-Python/FastAPI
+### Base Module Components
 
-- Use async/await for I/O operations (database, external services)
-- Use type hints consistently, especially for public interfaces
-- Leverage Pydantic models for data validation and serialization
-- Structure code into logical API modules (state, messaging, data_collection)
-- Follow consistent error handling patterns across services
-- Use dependency injection for service management
+1. **BaseService**: Foundation for all services
+    * Lifecycle management (start/stop)
+    * Health monitoring
+    * State tracking
+    * Async operation support
 
-Error Handling and Validation
+2. **ConfigurableService**: Configuration management
+    * Extends BaseService
+    * Pydantic model validation
+    * Dynamic configuration updates
+    * Type-safe configuration
+    * Configuration state tracking
 
-- Use standard HTTP status codes from FastAPI's status module:
-  - 400 Bad Request: Client errors (invalid input, bad parameters)
-  - 401 Unauthorized: Authentication required
-  - 403 Forbidden: Permission denied
-  - 404 Not Found: Resource doesn't exist
-  - 409 Conflict: Resource state conflict
-  - 422 Unprocessable Entity: Validation errors
-  - 500 Internal Server Error: Unexpected server errors
-  - 503 Service Unavailable: Service not ready/available
+3. **ErrorHandling** (base_errors)
+    * Simple, consistent error pattern:
+        * Create errors with status code, message, and optional context
+        * All errors include timestamps
+        * Support error cause chaining
+        * Context dictionary for additional details
+    * Example:
 
-Dependencies
+        ```python
+        raise create_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            message="Invalid configuration",
+            context={"service": service_name},
+            cause=original_error
+        )
+        ```
 
-- FastAPI for API framework
-- Pydantic for data validation
-- asyncpg for PostgreSQL/TimescaleDB
-- pytest for testing
-- loguru for logging
+4. **ServiceRegistry** (base_registry)
+    * Service discovery
+    * Type-based service lookup
+    * Name-based service lookup
+    * Service lifecycle tracking
+    * Cleanup management
 
-Service Architecture
+5. **BaseRouter**: FastAPI router with common endpoints
+    * Health check endpoints
+    * Service status monitoring
+    * Standard HTTP method decorators
+    * Error handling middleware
 
-- Base services inherit from BaseService/ConfigurableService
-- Each service handles specific functionality (DataCollection, State, Messaging)
-- Services manage their own lifecycle (initialize, start, stop)
-- Use async context managers for resource management
-- Implement proper cleanup in service shutdown
+6. **BaseApp**: FastAPI application factory
+    * Service initialization
+    * Middleware configuration
+    * CORS setup
+    * Logging configuration
+    * Router integration
 
-Database Guidelines
+### Component Relationships
 
-- Use TimescaleDB for time-series data
-- Implement proper connection pooling
-- Use parameterized queries to prevent SQL injection
-- Handle database errors gracefully
-- Clean up connections and resources properly
+* BaseApp uses BaseRouter for endpoint management
+* BaseService provides core functionality for ConfigurableService
+* All components use ErrorHandling for consistent error responses
+* ServiceRegistry manages all service instances
+* BaseRouter accesses services through ServiceRegistry
 
-Testing Guidelines
+### Service Architecture
 
-- Use pytest for testing, handle warings by looking up website provided by pytest
-- Write comprehensive unit tests for all components
-- Use pytest fixtures for test setup/teardown
-- Mock external dependencies appropriately
-- Test both success and error paths
-- Ensure proper database cleanup between tests
-- Use proper async test patterns
+1. **Service Hierarchy**
+    * BaseService: Core base class with lifecycle management
+    * ConfigurableService: Extends BaseService with configuration capabilities
+    * Specific Services: Inherit from ConfigurableService for specialized functionality
+        * DataCollection
+        * State
+        * Messaging
+        * Process
+        * Hardware
 
-Performance Considerations
+2. **Service Lifecycle**
+    * Initialization: Configure required parameters
+    * Start: Establish connections and prepare resources
+    * Operation: Handle service-specific tasks
+    * Stop: Clean up resources and connections
+    * Error Handling: Manage failures at each stage
 
-- Use connection pooling for database operations
-- Implement proper caching strategies
-- Handle concurrent operations safely
-- Monitor and optimize database queries
-- Use appropriate batch operations when possible
+3. **Service Management**
+    * Use async context managers for resource lifecycle
+    * Implement proper startup/shutdown sequences
+    * Handle dependencies between services
+    * Maintain service registry for discovery
+    * Monitor service health and status
 
-Refer to project documentation for specific implementation details and patterns.
+## Development Guidelines
+
+### Error Handling and Validation
+
+1. **HTTP Status Codes**
+    * 400 Bad Request: Client errors (invalid input, bad parameters)
+    * 401 Unauthorized: Authentication required
+    * 403 Forbidden: Permission denied
+    * 404 Not Found: Resource doesn't exist
+    * 409 Conflict: Resource state conflict
+    * 422 Unprocessable Entity: Validation errors
+    * 500 Internal Server Error: Unexpected server errors
+    * 503 Service Unavailable: Service not ready/available
+
+2. **Error Creation Pattern**
+    * Always use create_error function
+    * Include meaningful context
+    * Chain original exceptions when wrapping
+    * Use consistent status codes
+
+### Code Style
+
+1. **Python Best Practices**
+    * Use async/await for I/O operations
+    * Use type hints consistently
+    * Leverage Pydantic models
+    * Use descriptive variable names with auxiliary verbs
+    * Follow consistent file naming: lowercase with underscores
+
+2. **Module Structure**
+    * Organize code into logical API modules
+    * Use dependency injection
+    * Maintain clear separation of concerns
+
+### Testing Guidelines
+
+1. **Test Structure**
+    * Use pytest for testing
+    * Write comprehensive unit tests
+    * Use fixtures for setup/teardown
+    * Mock external dependencies
+    * Test both success and error paths
+
+2. **Test Organization**
+    * Root fixtures in `tests/conftest.py`:
+        * Base service mocks
+        * Common test utilities
+        * Shared fixtures
+    * Module-specific fixtures in `tests/module_name/conftest.py`:
+        * Inherit from root fixtures
+        * Add module-specific setup
+        * Override behavior as needed
+    * Test files mirror source structure:
+        * `test_base_service.py` tests `base_service.py`
+        * Use consistent naming patterns
+        * Group related tests in classes
+
+3. **Test Inheritance**
+    * MockBaseService in root conftest:
+        * Provides core service functionality
+        * Used by all service tests
+        * Implements required interfaces
+    * Service-specific test classes:
+        * Inherit from MockBaseService
+        * Add specific test behavior
+        * Override methods as needed
+    * Example:
+
+        ```python
+        # In tests/conftest.py
+        class MockBaseService(BaseService):
+            async def _start(self) -> None:
+                self._is_running = True
+
+        # In tests/test_module/test_service.py
+        class TestSpecificService(MockBaseService):
+            async def _start(self) -> None:
+                await super()._start()
+                # Add specific behavior
+        ```
+
+4. **Test Patterns**
+    * Ensure proper database cleanup
+    * Use proper async test patterns
+    * Handle warnings appropriately
+
+### Database Guidelines
+
+1. **Data Management**
+    * Use PostgreSQL for relational data storage
+    * Store configuration files as YAML
+    * Use parameterized queries for safety
+    * Handle errors gracefully
+    * Clean up resources properly
+    * Use connection pooling for efficiency
+
+2. **File Organization**
+    * Configuration files in `config/`
+    * Data files in organized subdirectories:
+        * `data/patterns/`: Raster patterns
+        * `data/parameters/`: System parameters
+        * `data/runs/`: Run data and logs
+        * `data/powders/`: Powder configurations
+        * `data/sequences/`: Operation sequences
+
+3. **Database Operations**
+    * Use asyncpg for async database operations
+    * Implement proper connection pooling
+    * Handle transaction management carefully
+    * Use prepared statements for efficiency
+    * Implement proper error handling and retries
+
+## Dependencies
+
+* FastAPI: API framework
+* Pydantic: Data validation
+* asyncpg: PostgreSQL async driver
+* PyYAML: Configuration file handling
+* pytest: Testing
+* loguru: Logging
   

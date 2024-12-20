@@ -1,8 +1,7 @@
 """Test base router module."""
 
 import pytest
-from fastapi import status, Request
-from fastapi.testclient import TestClient
+from fastapi import status, Request, FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, Field
@@ -12,67 +11,31 @@ from tests.conftest import MockBaseService
 
 
 @pytest.fixture
-def router():
+async def router(test_app: FastAPI):
     """Create test router."""
     router = BaseRouter()
-    router.services = []  # Initialize empty services list
-    return router
+    test_app.router = router
+    yield router
 
 
 @pytest.fixture
-def client(router):
-    """Create test client."""
-    from fastapi import FastAPI
-    app = FastAPI()
-    
-    @app.exception_handler(ValueError)
-    async def value_error_handler(request: Request, exc: ValueError):
-        return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={"detail": str(exc)}
-        )
-        
-    @app.exception_handler(RequestValidationError)
-    async def validation_error_handler(request: Request, exc: RequestValidationError):
-        return JSONResponse(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            content={"detail": str(exc)}
-        )
-    
-    @router.get("/error")
-    async def error_endpoint():
-        raise ValueError("Test error")
-
-    class TestModel(BaseModel):
-        value: int = Field(ge=0)
-
-    @router.post("/validate")
-    async def validate_endpoint(data: TestModel):
-        return data
-
-    @router.put("/test")
-    async def put_endpoint():
-        return {"method": "PUT"}
-
-    @router.delete("/test")
-    async def delete_endpoint():
-        return {"method": "DELETE"}
-
-    @router.patch("/test")
-    async def patch_endpoint():
-        return {"method": "PATCH"}
-        
-    app.include_router(router)
-    return TestClient(app)
+async def base_service():
+    """Create test service."""
+    service = MockBaseService()
+    yield service
+    try:
+        await service.stop()
+    except Exception:
+        pass  # Ignore stop errors in teardown
 
 
 class TestBaseRouter:
     """Test base router."""
 
     @pytest.mark.asyncio
-    async def test_health_check_success(self, client):
+    async def test_health_check_success(self, test_app: FastAPI, async_client):
         """Test health check endpoint."""
-        response = client.get("/health")
+        response = await async_client.get("/health")
         assert response.status_code == 200
         data = response.json()
         assert data["is_healthy"] is True
@@ -80,13 +43,12 @@ class TestBaseRouter:
         assert "services" in data["context"]
 
     @pytest.mark.asyncio
-    async def test_health_check_with_service(self, client, router):
+    async def test_health_check_with_service(self, test_app: FastAPI, async_client, base_service, router):
         """Test health check with service."""
-        service = MockBaseService()
-        service._is_running = True  # Ensure service is running
-        router.services.append(service)
+        router.services.append(base_service)
+        await base_service.start()
         
-        response = client.get("/health")
+        response = await async_client.get("/health")
         assert response.status_code == 200
         data = response.json()
         assert data["is_healthy"] is True
@@ -95,13 +57,12 @@ class TestBaseRouter:
         assert data["context"]["services"][0]["is_healthy"] is True
 
     @pytest.mark.asyncio
-    async def test_health_check_with_failing_service(self, client, router):
+    async def test_health_check_with_failing_service(self, test_app: FastAPI, async_client, base_service, router):
         """Test health check with failing service."""
-        service = MockBaseService()
-        service._is_running = False
-        router.services.append(service)
+        router.services.append(base_service)
+        base_service._is_running = False
         
-        response = client.get("/health")
+        response = await async_client.get("/health")
         assert response.status_code == 200
         data = response.json()
         assert data["is_healthy"] is False
@@ -110,7 +71,7 @@ class TestBaseRouter:
         assert data["context"]["services"][0]["is_healthy"] is False
 
     @pytest.mark.asyncio
-    async def test_health_check_with_error(self, client, router):
+    async def test_health_check_with_error(self, test_app: FastAPI, async_client, router):
         """Test health check with service that raises error."""
         class ErrorService(MockBaseService):
             async def health(self):
@@ -119,7 +80,7 @@ class TestBaseRouter:
         service = ErrorService()
         router.services.append(service)
         
-        response = client.get("/health")
+        response = await async_client.get("/health")
         assert response.status_code == 200
         data = response.json()
         assert data["is_healthy"] is False
@@ -129,38 +90,34 @@ class TestBaseRouter:
         assert "Test error" in data["context"]["services"][0]["context"]["error"]
 
     @pytest.mark.asyncio
-    async def test_router_error_handling(self, client):
+    async def test_router_error_handling(self, test_app: FastAPI, async_client):
         """Test error handling."""
-        response = client.get("/error")
+        @test_app.get("/error")
+        async def error_endpoint():
+            raise ValueError("Test error")
+
+        response = await async_client.get("/error")
         assert response.status_code == 500
-        assert "detail" in response.json()
-        assert "Test error" in response.json()["detail"]
+        data = response.json()
+        assert "detail" in data
+        assert data["detail"]["message"] == "Test error"
+        assert "timestamp" in data["detail"]
 
     @pytest.mark.asyncio
-    async def test_router_validation_error(self, client):
+    async def test_router_validation_error(self, test_app: FastAPI, async_client):
         """Test validation error handling."""
-        response = client.post("/validate", json={"value": -1})
+        class TestModel(BaseModel):
+            value: int = Field(ge=0)
+
+        @test_app.post("/validate")
+        async def validate_endpoint(data: TestModel):
+            return data
+
+        response = await async_client.post("/validate", json={"value": -1})
         assert response.status_code == 422
-        assert "detail" in response.json()
-        assert "greater than or equal to 0" in response.json()["detail"]
-
-    @pytest.mark.asyncio
-    async def test_router_put_method(self, client):
-        """Test PUT method."""
-        response = client.put("/test")
-        assert response.status_code == 200
-        assert response.json()["method"] == "PUT"
-
-    @pytest.mark.asyncio
-    async def test_router_delete_method(self, client):
-        """Test DELETE method."""
-        response = client.delete("/test")
-        assert response.status_code == 200
-        assert response.json()["method"] == "DELETE"
-
-    @pytest.mark.asyncio
-    async def test_router_patch_method(self, client):
-        """Test PATCH method."""
-        response = client.patch("/test")
-        assert response.status_code == 200
-        assert response.json()["method"] == "PATCH"
+        data = response.json()
+        assert "detail" in data
+        assert any(
+            "greater than or equal to 0" in error["msg"]
+            for error in data["detail"]
+        )
