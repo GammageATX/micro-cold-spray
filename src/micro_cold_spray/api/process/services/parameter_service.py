@@ -1,145 +1,253 @@
-"""Parameter management service."""
+"""Process parameter service implementation."""
 
 from typing import Dict, Any, List
-from pathlib import Path
-import yaml
+from datetime import datetime
 from loguru import logger
+from fastapi import status
 
-from ...base import BaseService
-from ...config import ConfigService
-from ..exceptions import ProcessError
+from micro_cold_spray.api.base.base_service import BaseService
+from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.api.process.models import ParameterSet
 
 
 class ParameterService(BaseService):
-    """Service for managing process parameters."""
+    """Process parameter service implementation."""
 
-    def __init__(self, config_service: ConfigService):
+    def __init__(self, name: str = "parameter"):
         """Initialize parameter service.
         
         Args:
-            config_service: Configuration service
+            name: Service name
         """
-        super().__init__(service_name="parameter", config_service=config_service)
-        self._config: Dict[str, Any] = {}
-        self._parameter_sets: Dict[str, Dict[str, Any]] = {}
+        super().__init__(name=name)
+        self._parameter_sets: Dict[str, ParameterSet] = {}
 
     async def _start(self) -> None:
-        """Initialize parameter service."""
+        """Start parameter service."""
         try:
-            # Load configuration
-            config = await self._config_service.get_config("process")
-            self._config = config.get("process", {})
-            
-            # Load parameter sets
-            await self._load_parameter_sets()
-            
+            # Initialize parameter sets
+            self._parameter_sets = {}
             logger.info("Parameter service started")
-            
         except Exception as e:
-            error_context = {
-                "source": "parameter_service",
-                "error": str(e)
-            }
-            logger.error("Failed to start parameter service", extra=error_context)
-            raise ProcessError("Failed to start parameter service", error_context)
+            logger.error(f"Failed to start parameter service: {e}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message="Failed to start parameter service",
+                context={"error": str(e)},
+                cause=e
+            )
 
-    async def get_parameter_set(self, set_id: str) -> Dict[str, Any]:
-        """Get parameter set by ID.
+    async def _stop(self) -> None:
+        """Stop parameter service."""
+        try:
+            # Clear parameter sets
+            self._parameter_sets.clear()
+            logger.info("Parameter service stopped")
+        except Exception as e:
+            logger.error(f"Failed to stop parameter service: {e}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message="Failed to stop parameter service",
+                context={"error": str(e)},
+                cause=e
+            )
+
+    async def create_parameter_set(self, parameter_set: ParameterSet) -> None:
+        """Create parameter set.
         
         Args:
-            set_id: Parameter set ID
-            
-        Returns:
-            Parameter set data
+            parameter_set: Parameter set to create
             
         Raises:
-            ProcessError: If parameter set not found
+            HTTPException: If creation fails
         """
-        if set_id not in self._parameter_sets:
-            raise ProcessError(f"Parameter set not found: {set_id}")
+        if not self.is_running:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Service not running",
+                context={"service": self.name}
+            )
             
-        return self._parameter_sets[set_id]
+        try:
+            # Validate parameter set
+            if parameter_set.id in self._parameter_sets:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"Parameter set {parameter_set.id} already exists",
+                    context={"parameter_set_id": parameter_set.id}
+                )
+                
+            # Store parameter set
+            self._parameter_sets[parameter_set.id] = parameter_set
+            logger.info(f"Created parameter set: {parameter_set.id}")
+            
+        except Exception as e:
+            logger.error(f"Failed to create parameter set: {e}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message="Failed to create parameter set",
+                context={"error": str(e)},
+                cause=e
+            )
+
+    async def get_parameter_set(self, parameter_set_id: str) -> ParameterSet:
+        """Get parameter set.
+        
+        Args:
+            parameter_set_id: Parameter set ID
+            
+        Returns:
+            Parameter set
+            
+        Raises:
+            HTTPException: If parameter set not found
+        """
+        if not self.is_running:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Service not running",
+                context={"service": self.name}
+            )
+            
+        try:
+            if parameter_set_id not in self._parameter_sets:
+                raise create_error(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    message=f"Parameter set {parameter_set_id} not found",
+                    context={"parameter_set_id": parameter_set_id}
+                )
+                
+            return self._parameter_sets[parameter_set_id]
+            
+        except Exception as e:
+            logger.error(f"Failed to get parameter set {parameter_set_id}: {e}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=f"Failed to get parameter set {parameter_set_id}",
+                context={
+                    "parameter_set_id": parameter_set_id,
+                    "error": str(e)
+                },
+                cause=e
+            )
+
+    async def update_parameter_set(self, parameter_set: ParameterSet) -> None:
+        """Update parameter set.
+        
+        Args:
+            parameter_set: Parameter set to update
+            
+        Raises:
+            HTTPException: If update fails
+        """
+        if not self.is_running:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Service not running",
+                context={"service": self.name}
+            )
+            
+        try:
+            if parameter_set.id not in self._parameter_sets:
+                raise create_error(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    message=f"Parameter set {parameter_set.id} not found",
+                    context={"parameter_set_id": parameter_set.id}
+                )
+                
+            # Update parameter set
+            self._parameter_sets[parameter_set.id] = parameter_set
+            logger.info(f"Updated parameter set: {parameter_set.id}")
+            
+        except Exception as e:
+            logger.error(f"Failed to update parameter set: {e}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message="Failed to update parameter set",
+                context={"error": str(e)},
+                cause=e
+            )
+
+    async def delete_parameter_set(self, parameter_set_id: str) -> None:
+        """Delete parameter set.
+        
+        Args:
+            parameter_set_id: Parameter set ID to delete
+            
+        Raises:
+            HTTPException: If deletion fails
+        """
+        if not self.is_running:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Service not running",
+                context={"service": self.name}
+            )
+            
+        try:
+            if parameter_set_id not in self._parameter_sets:
+                raise create_error(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    message=f"Parameter set {parameter_set_id} not found",
+                    context={"parameter_set_id": parameter_set_id}
+                )
+                
+            # Delete parameter set
+            del self._parameter_sets[parameter_set_id]
+            logger.info(f"Deleted parameter set: {parameter_set_id}")
+            
+        except Exception as e:
+            logger.error(f"Failed to delete parameter set: {e}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message="Failed to delete parameter set",
+                context={"error": str(e)},
+                cause=e
+            )
 
     async def list_parameter_sets(self) -> List[Dict[str, Any]]:
-        """List available parameter sets.
+        """List parameter sets.
         
         Returns:
-            List of parameter sets with metadata
-        """
-        return [
-            {
-                "id": set_id,
-                "name": params.get("name", set_id),
-                "description": params.get("description", ""),
-                "metadata": params.get("metadata", {})
-            }
-            for set_id, params in self._parameter_sets.items()
-        ]
-
-    async def validate_parameters(self, parameters: Dict[str, Any]) -> None:
-        """Validate parameter values.
-        
-        Args:
-            parameters: Parameter values to validate
+            List of parameter sets
             
         Raises:
-            ProcessError: If parameters are invalid
+            HTTPException: If listing fails
         """
-        try:
-            schema = self._config.get("parameters", {}).get("schema", {})
+        if not self.is_running:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Service not running",
+                context={"service": self.name}
+            )
             
-            # Basic schema validation
-            for param_name, param_value in parameters.items():
-                if param_name not in schema:
-                    raise ProcessError(f"Unknown parameter: {param_name}")
-                    
-                param_schema = schema[param_name]
-                param_type = param_schema.get("type")
-                
-                # Type validation
-                if param_type == "number":
-                    if not isinstance(param_value, (int, float)):
-                        raise ProcessError(f"Invalid type for {param_name}: expected number")
-                        
-                    # Range validation
-                    min_val = param_schema.get("min")
-                    max_val = param_schema.get("max")
-                    
-                    if min_val is not None and param_value < min_val:
-                        raise ProcessError(f"Parameter {param_name} below minimum: {min_val}")
-                    if max_val is not None and param_value > max_val:
-                        raise ProcessError(f"Parameter {param_name} above maximum: {max_val}")
-                        
-                elif param_type == "string":
-                    if not isinstance(param_value, str):
-                        raise ProcessError(f"Invalid type for {param_name}: expected string")
-                        
-                    # Enum validation
-                    allowed_values = param_schema.get("enum")
-                    if allowed_values and param_value not in allowed_values:
-                        raise ProcessError(f"Invalid value for {param_name}: must be one of {allowed_values}")
-                        
-                elif param_type == "boolean":
-                    if not isinstance(param_value, bool):
-                        raise ProcessError(f"Invalid type for {param_name}: expected boolean")
-
-        except ProcessError:
-            raise
-        except Exception as e:
-            raise ProcessError("Parameter validation failed", {"error": str(e)})
-
-    async def _load_parameter_sets(self) -> None:
-        """Load parameter sets from files."""
         try:
-            param_path = Path(self._config["paths"]["data"]["parameters"]["root"])
-            
-            for file_path in param_path.glob("*.yaml"):
-                try:
-                    with open(file_path) as f:
-                        data = yaml.load(f, Loader=yaml.Loader)(f)
-                        self._parameter_sets[file_path.stem] = data
-                except Exception as e:
-                    logger.warning(f"Error loading parameter file {file_path}: {e}")
-                    
+            return [
+                {
+                    "id": ps.id,
+                    "name": ps.name,
+                    "description": ps.description,
+                    "metadata": ps.metadata
+                }
+                for ps in self._parameter_sets.values()
+            ]
         except Exception as e:
-            raise ProcessError("Failed to load parameter sets", {"error": str(e)})
+            logger.error(f"Failed to list parameter sets: {e}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message="Failed to list parameter sets",
+                context={"error": str(e)},
+                cause=e
+            )
+
+    async def health(self) -> dict:
+        """Get service health status.
+        
+        Returns:
+            Health check result
+        """
+        health = await super().health()
+        health["context"].update({
+            "parameter_sets": len(self._parameter_sets)
+        })
+        return health

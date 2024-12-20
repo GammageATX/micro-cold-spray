@@ -5,7 +5,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 
-from micro_cold_spray.api.config.services.config_schema_service import ConfigSchemaService
+from micro_cold_spray.api.config.services.schema_service import ConfigSchemaService
 from micro_cold_spray.api.base.base_errors import ConfigError
 from micro_cold_spray.api.config.models import ConfigSchema
 

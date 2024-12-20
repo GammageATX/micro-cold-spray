@@ -2,10 +2,11 @@
 
 from typing import Dict, Any, List
 from dataclasses import dataclass
+from fastapi import status
 
-from ...messaging import MessagingService
-from ..exceptions import ValidationError
-from .base import BaseValidator
+from micro_cold_spray.api.messaging import MessagingService
+from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.api.validation.validators.base_validator import BaseValidator
 
 
 @dataclass
@@ -48,7 +49,7 @@ class HardwareValidator(BaseValidator):
             Dict containing validation results
             
         Raises:
-            ValidationError: If validation fails
+            HTTPException: If validation fails
         """
         errors = []
         warnings = []
@@ -80,7 +81,12 @@ class HardwareValidator(BaseValidator):
             }
 
         except Exception as e:
-            raise ValidationError("Hardware validation failed", {"error": str(e)})
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message="Hardware validation failed",
+                context={"error": str(e)},
+                cause=e
+            )
 
     async def _get_hardware_state(self) -> HardwareState:
         """Get current hardware state.
@@ -89,7 +95,7 @@ class HardwareValidator(BaseValidator):
             Current hardware state
             
         Raises:
-            ValidationError: If state cannot be retrieved
+            HTTPException: If state cannot be retrieved
         """
         try:
             return HardwareState(
@@ -104,7 +110,12 @@ class HardwareValidator(BaseValidator):
                 feeder_flow_setpoint=await self._get_tag_value("gas_control.feeder_flow.setpoint")
             )
         except Exception as e:
-            raise ValidationError("Failed to get hardware state", {"error": str(e)})
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Failed to get hardware state",
+                context={"error": str(e)},
+                cause=e
+            )
 
     async def _validate_chamber_pressure(self, state: HardwareState) -> List[str]:
         """Validate chamber pressure.

@@ -4,8 +4,8 @@ from typing import TypeVar, Generic, Type
 from fastapi import status, HTTPException
 from pydantic import BaseModel, ValidationError
 
-from .base_service import BaseService
-from .base_errors import create_http_error
+from micro_cold_spray.api.base.base_service import BaseService
+from micro_cold_spray.api.base.base_errors import create_error
 
 
 ConfigType = TypeVar("ConfigType", bound=BaseModel)
@@ -21,14 +21,26 @@ class ConfigurableService(BaseService, Generic[ConfigType]):
         self.config = None
 
     def configure(self, config: ConfigType | dict) -> None:
-        """Configure the service."""
+        """Configure the service.
+        
+        Args:
+            config: Configuration data
+            
+        Raises:
+            HTTPException: If configuration is invalid
+        """
         try:
             if isinstance(config, dict):
                 config = self.config_class(**config)
             elif not isinstance(config, BaseModel):
-                raise create_http_error(
+                raise create_error(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    message="Invalid configuration type"
+                    message="Invalid configuration type",
+                    context={
+                        "service": self.name,
+                        "expected": self.config_class.__name__,
+                        "received": type(config).__name__
+                    }
                 )
             
             # Validate the config even if it's already a BaseModel
@@ -37,16 +49,25 @@ class ConfigurableService(BaseService, Generic[ConfigType]):
                 
             self.config = config
         except ValidationError as e:
-            raise create_http_error(
+            raise create_error(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                message=str(e)
+                message="Configuration validation failed",
+                context={
+                    "service": self.name,
+                    "errors": e.errors()
+                }
             )
         except HTTPException:
             raise
         except Exception as e:
-            raise create_http_error(
+            raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=str(e)
+                message="Failed to configure service",
+                context={
+                    "service": self.name,
+                    "error": str(e)
+                },
+                cause=e
             )
 
     @property

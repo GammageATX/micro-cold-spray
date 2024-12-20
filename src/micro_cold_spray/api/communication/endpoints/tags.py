@@ -7,9 +7,9 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from ..models.tags import TagSubscription, TagMappingUpdateRequest
-from ..service import CommunicationService
+from ..communication_service import CommunicationService
 from ..dependencies import get_service
-from ...base.exceptions import ServiceError, ValidationError
+from ...base import ServiceError, ValidationError
 
 
 class TagResponse(BaseModel):

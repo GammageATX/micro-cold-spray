@@ -2,11 +2,12 @@
 
 from typing import Dict, Any, Set
 from datetime import datetime
+from fastapi import status
 from loguru import logger
 
-from ...base import ConfigurableService
-from ...base.exceptions import ServiceError, ValidationError
-from ...config import ConfigService
+from micro_cold_spray.api.base.base_configurable import ConfigurableService
+from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.api.config import ConfigService
 from .tag_mapping import TagMappingService
 from ..models.tags import TagValue, TagMetadata, TagCacheResponse
 
@@ -36,15 +37,22 @@ class TagCacheService(ConfigurableService):
             logger.debug("Loading tag configuration")
             tag_config = await self._config_service.get_config("tags")
             if not tag_config:
-                logger.error("Tag configuration is empty")
-                raise ValidationError("Tag configuration is empty")
+                raise create_error(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    message="Tag configuration not found"
+                )
                 
             logger.debug("Building tag cache")
             await self._build_cache(tag_config)
             logger.info("Tag cache initialized")
         except Exception as e:
             logger.error(f"Failed to start tag cache service: {e}")
-            raise
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=f"Failed to start tag cache service: {e}",
+                context={"error": str(e)},
+                cause=e
+            )
 
     async def _stop(self) -> None:
         """Cleanup service."""
@@ -58,194 +66,123 @@ class TagCacheService(ConfigurableService):
         """Build tag cache from config."""
         try:
             self._cache.clear()
-            logger.debug("Processing tag groups")
             
-            def process_tag_group(group_name: str, group_data: Dict[str, Any], parent_path: str = "") -> None:
-                """Process a group of tags recursively."""
-                for tag_name, tag_data in group_data.items():
-                    # Skip non-dict entries
-                    if not isinstance(tag_data, dict):
-                        continue
-                        
-                    # Build the full path
-                    current_path = f"{parent_path}.{tag_name}" if parent_path else f"{group_name}.{tag_name}"
+            for group_name, group in config.get("tag_groups", {}).items():
+                for tag_path, tag_def in group.items():
+                    mapped_name = f"{group_name}.{tag_path}"
                     
-                    # If this is a tag definition (has type field)
-                    if "type" in tag_data:
-                        logger.debug(f"Adding tag: {current_path}")
-                        metadata = TagMetadata(
-                            type=tag_data["type"],
-                            access=tag_data["access"],
-                            description=tag_data.get("description", ""),
-                            unit=tag_data.get("unit"),
-                            range=tag_data.get("range"),
-                            states=tag_data.get("states"),
-                            options=tag_data.get("options"),
-                            internal=not tag_data.get("mapped", False),
-                            group=group_name
-                        )
-                        
-                        self._cache[current_path] = TagValue(
-                            value=None,
-                            metadata=metadata,
-                            timestamp=datetime.now()
-                        )
-                    # If this is a nested group, process recursively
-                    else:
-                        logger.debug(f"Processing nested group: {current_path}")
-                        process_tag_group(group_name, tag_data, current_path)
+                    # Create tag metadata
+                    metadata = TagMetadata(
+                        name=mapped_name,
+                        description=tag_def.get("description", ""),
+                        units=tag_def.get("units", ""),
+                        min_value=tag_def.get("min"),
+                        max_value=tag_def.get("max"),
+                        is_mapped=tag_def.get("mapped", False)
+                    )
+                    
+                    # Initialize tag value
+                    self._cache[mapped_name] = TagValue(
+                        metadata=metadata,
+                        value=None,
+                        timestamp=datetime.now()
+                    )
+                    
+            logger.info(f"Built cache for {len(self._cache)} tags")
             
-            # Process all tag groups
-            tag_groups = config.get("tag_groups", {})
-            logger.debug(f"Found {len(tag_groups)} tag groups")
-            for group_name, group_data in tag_groups.items():
-                logger.debug(f"Processing group: {group_name}")
-                process_tag_group(group_name, group_data)
-                    
-            logger.info(f"Built cache with {len(self._cache)} tags")
         except Exception as e:
-            logger.error(f"Failed to build tag cache: {e}")
-            raise ServiceError(
-                "Failed to build tag cache",
-                {"error": str(e)}
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message="Failed to build tag cache",
+                context={"error": str(e)},
+                cause=e
             )
 
-    def update_tag(self, tag_path: str, value: Any) -> None:
-        """Update tag value in cache."""
-        if tag_path not in self._cache:
-            raise ValidationError(
-                f"Tag not in cache: {tag_path}",
-                {"tag_path": tag_path}
-            )
-            
-        try:
-            # Validate value before caching
-            self.validate_value(tag_path, value)
-            
-            # Update cache
-            self._cache[tag_path] = TagValue(
-                value=value,
-                metadata=self._cache[tag_path].metadata,
-                timestamp=datetime.now()
-            )
-        except ValidationError:
-            raise
-        except Exception as e:
-            raise ServiceError(
-                f"Failed to update tag {tag_path}",
-                {"tag_path": tag_path, "value": value, "error": str(e)}
-            )
-
-    def validate_value(self, tag_path: str, value: Any) -> None:
-        """Validate value against tag metadata."""
-        if tag_path not in self._cache:
-            raise ValidationError(
-                f"Tag not in cache: {tag_path}",
-                {"tag_path": tag_path}
-            )
-            
-        metadata = self._cache[tag_path].metadata
+    async def get_tag(self, tag_path: str) -> TagValue:
+        """Get tag value and metadata.
         
-        # Type validation
-        if metadata.type == "float":
-            if not isinstance(value, (int, float)):
-                raise ValidationError(
-                    "Value must be numeric",
-                    {"tag_path": tag_path, "value": value, "type": metadata.type}
-                )
-        elif metadata.type == "bool":
-            if not isinstance(value, bool):
-                raise ValidationError(
-                    "Value must be boolean",
-                    {"tag_path": tag_path, "value": value, "type": metadata.type}
-                )
-        elif metadata.type == "string":
-            if not isinstance(value, str):
-                raise ValidationError(
-                    "Value must be string",
-                    {"tag_path": tag_path, "value": value, "type": metadata.type}
-                )
-                
-        # Range validation
-        if metadata.range and isinstance(value, (int, float)):
-            min_val, max_val = metadata.range
-            if value < min_val or value > max_val:
-                raise ValidationError(
-                    f"Value out of range [{min_val}, {max_val}]",
-                    {
-                        "tag_path": tag_path,
-                        "value": value,
-                        "range": metadata.range
-                    }
-                )
+        Args:
+            tag_path: Tag path to get
             
-        # Options validation
-        if metadata.options and isinstance(value, str):
-            if value not in metadata.options:
-                raise ValidationError(
-                    f"Invalid option. Must be one of: {metadata.options}",
-                    {
-                        "tag_path": tag_path,
-                        "value": value,
-                        "options": metadata.options
-                    }
-                )
-
-    def get_tag(self, tag_path: str) -> Any:
-        """Get tag value from cache."""
-        if tag_path not in self._cache:
-            raise ValidationError(
-                f"Tag not in cache: {tag_path}",
-                {"tag_path": tag_path}
-            )
+        Returns:
+            Tag value and metadata
             
-        return self._cache[tag_path].value
-
-    def get_tag_with_metadata(self, tag_path: str) -> TagValue:
-        """Get tag value with metadata."""
-        if tag_path not in self._cache:
-            raise ValidationError(
-                f"Tag not in cache: {tag_path}",
-                {"tag_path": tag_path}
-            )
-            
-        return self._cache[tag_path]
-
-    def filter_tags(
-        self,
-        groups: Set[str] = None,
-        types: Set[str] = None,
-        access: Set[str] = None
-    ) -> TagCacheResponse:
-        """Get filtered tag values."""
+        Raises:
+            HTTPException: If tag not found
+        """
         try:
-            filtered_tags = {}
-            for tag_path, tag_value in self._cache.items():
-                # Apply filters
-                if groups and tag_value.metadata.group not in groups:
-                    continue
-                    
-                if types and tag_value.metadata.type not in types:
-                    continue
-                    
-                if access and tag_value.metadata.access not in access:
-                    continue
-                    
-                filtered_tags[tag_path] = tag_value
+            return self._cache[tag_path]
+        except KeyError:
+            raise create_error(
+                status_code=status.HTTP_404_NOT_FOUND,
+                message=f"Tag not found: {tag_path}",
+                context={"tag": tag_path}
+            )
+
+    async def update_tag(self, tag_path: str, value: Any) -> None:
+        """Update tag value.
+        
+        Args:
+            tag_path: Tag to update
+            value: New value
+            
+        Raises:
+            HTTPException: If tag not found or validation fails
+        """
+        try:
+            tag = self._cache[tag_path]
+            
+            # Validate value range if defined
+            if tag.metadata.min_value is not None and value < tag.metadata.min_value:
+                raise create_error(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    message=f"Value {value} below minimum {tag.metadata.min_value}",
+                    context={
+                        "tag": tag_path,
+                        "value": value,
+                        "min": tag.metadata.min_value
+                    }
+                )
                 
-            # Get unique groups in response
-            result_groups = {v.metadata.group for v in filtered_tags.values()}
+            if tag.metadata.max_value is not None and value > tag.metadata.max_value:
+                raise create_error(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    message=f"Value {value} above maximum {tag.metadata.max_value}",
+                    context={
+                        "tag": tag_path,
+                        "value": value,
+                        "max": tag.metadata.max_value
+                    }
+                )
                 
-            return TagCacheResponse(
-                tags=filtered_tags,
-                timestamp=datetime.now(),
-                groups=result_groups
+            # Update value and timestamp
+            tag.value = value
+            tag.timestamp = datetime.now()
+            
+        except KeyError:
+            raise create_error(
+                status_code=status.HTTP_404_NOT_FOUND,
+                message=f"Tag not found: {tag_path}",
+                context={"tag": tag_path}
             )
         except Exception as e:
-            raise ServiceError(
-                "Failed to filter tags",
-                {"error": str(e)}
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=f"Failed to update tag {tag_path}",
+                context={"tag": tag_path, "value": value, "error": str(e)},
+                cause=e
             )
+
+    async def get_all_tags(self) -> TagCacheResponse:
+        """Get all tag values and metadata.
+        
+        Returns:
+            All tag values and metadata
+        """
+        return TagCacheResponse(
+            tags=self._cache,
+            timestamp=datetime.now()
+        )
 
     @property
     def is_running(self) -> bool:

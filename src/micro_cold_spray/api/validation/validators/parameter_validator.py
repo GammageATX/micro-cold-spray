@@ -1,10 +1,11 @@
 """Parameter validator."""
 
 from typing import Dict, Any, List
+from fastapi import status, HTTPException
 
-from ...messaging import MessagingService
-from ..exceptions import ValidationError
-from .base import BaseValidator
+from micro_cold_spray.api.messaging import MessagingService
+from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.api.validation.validators.base_validator import BaseValidator
 
 
 class ParameterValidator(BaseValidator):
@@ -33,7 +34,7 @@ class ParameterValidator(BaseValidator):
             Dict containing validation results
             
         Raises:
-            ValidationError: If validation fails
+            HTTPException: If validation fails
         """
         errors = []
         warnings = []
@@ -69,7 +70,14 @@ class ParameterValidator(BaseValidator):
             }
 
         except Exception as e:
-            raise ValidationError("Parameter validation failed", {"error": str(e)})
+            if isinstance(e, HTTPException):
+                raise e
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message="Parameter validation failed",
+                context={"error": str(e)},
+                cause=e
+            )
 
     async def _validate_gas_parameters(self, gas_data: Dict[str, Any]) -> List[str]:
         """Validate gas flow parameters.

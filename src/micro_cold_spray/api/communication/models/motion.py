@@ -1,57 +1,21 @@
-"""Motion control request and response models."""
+"""Motion control models."""
 
-from typing import Dict
+from typing import Optional
 from pydantic import BaseModel, Field
 
 
-class SingleAxisMoveRequest(BaseModel):
-    """Request for single axis move."""
-    axis: str = Field(
-        description="Axis to move (x, y, z)",
-        pattern="^[xyz]$"
-    )
-    position: float = Field(
-        description="Target position in mm",
-        ge=-1000.0,
-        le=1000.0
-    )
-    velocity: float = Field(
-        description="Move velocity in mm/s",
-        ge=0.0,
-        le=100.0
-    )
+class Position(BaseModel):
+    """Position model with XYZ coordinates."""
+
+    x: Optional[float] = Field(None, description="X position in mm")
+    y: Optional[float] = Field(None, description="Y position in mm")
+    z: Optional[float] = Field(None, description="Z position in mm")
 
 
-class CoordinatedMoveRequest(BaseModel):
-    """Request for coordinated XY move."""
-    x_position: float = Field(
-        description="X target position in mm",
-        ge=-1000.0,
-        le=1000.0
-    )
-    y_position: float = Field(
-        description="Y target position in mm",
-        ge=-1000.0,
-        le=1000.0
-    )
-    velocity: float = Field(
-        description="Move velocity in mm/s",
-        ge=0.0,
-        le=100.0
-    )
+class Velocity(BaseModel):
+    """Velocity model with XYZ components."""
 
-
-class AxisStatus(BaseModel):
-    """Status for a single axis."""
-    position: float = Field(description="Current position in mm")
-    moving: bool = Field(description="Axis in motion")
-    complete: bool = Field(description="Move complete")
-    status: int = Field(description="Detailed axis status")
-
-
-class MotionStatus(BaseModel):
-    """Current motion system status."""
-    position: Dict[str, float] = Field(description="Current axis positions")
-    moving: Dict[str, bool] = Field(description="Axis motion states")
-    complete: Dict[str, bool] = Field(description="Axis completion states")
-    status: Dict[str, int] = Field(description="Detailed axis status values")
+    x: Optional[float] = Field(None, description="X velocity in mm/s")
+    y: Optional[float] = Field(None, description="Y velocity in mm/s")
+    z: Optional[float] = Field(None, description="Z velocity in mm/s")
+    path: Optional[float] = Field(None, description="Path velocity in mm/s")

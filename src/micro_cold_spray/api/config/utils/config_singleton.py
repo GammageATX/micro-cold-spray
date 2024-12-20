@@ -7,7 +7,7 @@ from loguru import logger
 from fastapi import status
 
 from micro_cold_spray.api.base.base_registry import get_service
-from micro_cold_spray.api.base.base_errors import create_error, AppErrorCode
+from micro_cold_spray.api.base.base_errors import create_error
 from micro_cold_spray.api.config.config_service import ConfigService
 
 # Global singleton instance
@@ -35,10 +35,10 @@ def get_config_service() -> ConfigService:
                 except Exception as e:
                     logger.error(f"Failed to initialize config service: {e}")
                     raise create_error(
-                        message=f"Failed to initialize config service: {e}",
-                        error_code=AppErrorCode.SERVICE_START_ERROR,
                         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        context={"error": str(e)}
+                        message="Failed to initialize config service",
+                        context={"error": str(e)},
+                        cause=e
                     )
 
     return _config_service

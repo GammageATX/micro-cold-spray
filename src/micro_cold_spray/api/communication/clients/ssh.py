@@ -3,10 +3,10 @@
 import asyncssh
 from pathlib import Path
 from typing import Any, Dict, Optional
-
+from fastapi import status
 from loguru import logger
 
-from ...base.exceptions import ServiceError, ValidationError
+from micro_cold_spray.api.base.base_errors import create_error
 from .base import CommunicationClient
 
 
@@ -29,22 +29,24 @@ class SSHClient(CommunicationClient):
             
             # Validate we have either key file or password
             if (not self._key_file or not self._key_file.exists()) and not self._password:
-                raise ValidationError(
-                    "No valid authentication method provided",
-                    {"host": self._host}
+                raise create_error(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    message="No valid authentication method provided",
+                    context={"host": self._host}
                 )
 
         except KeyError as e:
-            raise ValidationError(
-                f"Missing required SSH config field: {e}",
-                {"field": str(e)}
+            raise create_error(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                message=f"Missing required SSH config field: {e}",
+                context={"field": str(e)}
             )
-        except ValidationError:
-            raise
         except Exception as e:
-            raise ServiceError(
-                f"Failed to initialize SSH client: {e}",
-                {"error": str(e)}
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=f"Failed to initialize SSH client: {e}",
+                context={"error": str(e)},
+                cause=e
             )
 
         self._connection: Optional[asyncssh.SSHClientConnection] = None
@@ -54,7 +56,7 @@ class SSHClient(CommunicationClient):
         """Establish SSH connection.
         
         Raises:
-            ServiceError: If connection fails
+            HTTPException: If connection fails
         """
         try:
             # Setup connection options
@@ -78,13 +80,18 @@ class SSHClient(CommunicationClient):
         except Exception as e:
             error_msg = f"Failed to connect to {self._host}: {str(e)}"
             logger.error(error_msg)
-            raise ServiceError(error_msg, {"host": self._host})
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg,
+                context={"host": self._host},
+                cause=e
+            )
 
     async def disconnect(self) -> None:
         """Close SSH connection.
         
         Raises:
-            ServiceError: If disconnect fails
+            HTTPException: If disconnect fails
         """
         try:
             if self._connection:
@@ -95,7 +102,12 @@ class SSHClient(CommunicationClient):
         except Exception as e:
             error_msg = f"Error disconnecting from {self._host}: {str(e)}"
             logger.error(error_msg)
-            raise ServiceError(error_msg, {"host": self._host})
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg,
+                context={"host": self._host},
+                cause=e
+            )
 
     async def read_tag(self, tag: str) -> Any:
         """Read tag value via SSH command.
@@ -107,11 +119,14 @@ class SSHClient(CommunicationClient):
             Tag value
             
         Raises:
-            ServiceError: If read fails
-            ValidationError: If tag not found
+            HTTPException: If read fails
         """
         if not self._connection:
-            raise ServiceError("Not connected", {"host": self._host})
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Not connected",
+                context={"host": self._host}
+            )
             
         try:
             # Execute read command
@@ -119,9 +134,10 @@ class SSHClient(CommunicationClient):
             result = await self._connection.run(command)
             
             if result.exit_status != 0:
-                raise ValidationError(
-                    f"Failed to read tag: {result.stderr}",
-                    {
+                raise create_error(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    message=f"Failed to read tag: {result.stderr}",
+                    context={
                         "tag": tag,
                         "exit_status": result.exit_status
                     }
@@ -130,12 +146,15 @@ class SSHClient(CommunicationClient):
             # Parse result
             return float(result.stdout.strip())  # Adjust parsing as needed
             
-        except ValidationError:
-            raise
         except Exception as e:
             error_msg = f"Failed to read tag {tag}: {str(e)}"
             logger.error(error_msg)
-            raise ServiceError(error_msg, {"tag": tag})
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg,
+                context={"tag": tag},
+                cause=e
+            )
 
     async def write_tag(self, tag: str, value: Any) -> None:
         """Write tag value via SSH command.
@@ -145,11 +164,14 @@ class SSHClient(CommunicationClient):
             value: Value to write
             
         Raises:
-            ServiceError: If write fails
-            ValidationError: If tag not found
+            HTTPException: If write fails
         """
         if not self._connection:
-            raise ServiceError("Not connected", {"host": self._host})
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Not connected",
+                context={"host": self._host}
+            )
             
         try:
             # Execute write command
@@ -157,24 +179,25 @@ class SSHClient(CommunicationClient):
             result = await self._connection.run(command)
             
             if result.exit_status != 0:
-                raise ValidationError(
-                    f"Failed to write tag: {result.stderr}",
-                    {
+                raise create_error(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    message=f"Failed to write tag: {result.stderr}",
+                    context={
                         "tag": tag,
                         "value": value,
                         "exit_status": result.exit_status
                     }
                 )
                 
-        except ValidationError:
-            raise
         except Exception as e:
             error_msg = f"Failed to write tag {tag}: {str(e)}"
             logger.error(error_msg)
-            raise ServiceError(
-                error_msg,
-                {
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg,
+                context={
                     "tag": tag,
                     "value": value
-                }
+                },
+                cause=e
             )

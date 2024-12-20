@@ -2,13 +2,14 @@
 
 from abc import ABC, abstractmethod
 from typing import Dict, Any
+from fastapi import status
 from loguru import logger
 
-from ...base import BaseService
-from ...base.exceptions import ServiceError
+from micro_cold_spray.api.base.base_configurable import ConfigurableService
+from micro_cold_spray.api.base.base_errors import create_error
 
 
-class CommunicationClient(ABC, BaseService):
+class CommunicationClient(ABC, ConfigurableService):
     """Base class for hardware communication clients."""
 
     def __init__(self, client_name: str, config: Dict[str, Any]):
@@ -33,7 +34,7 @@ class CommunicationClient(ABC, BaseService):
         """Establish connection to hardware.
         
         Raises:
-            ServiceError: If connection fails
+            HTTPException: If connection fails
         """
         pass
 
@@ -42,7 +43,7 @@ class CommunicationClient(ABC, BaseService):
         """Close connection to hardware.
         
         Raises:
-            ServiceError: If disconnect fails
+            HTTPException: If disconnect fails
         """
         pass
 
@@ -57,7 +58,7 @@ class CommunicationClient(ABC, BaseService):
             Tag value
             
         Raises:
-            ServiceError: If read fails
+            HTTPException: If read fails
         """
         pass
 
@@ -70,7 +71,7 @@ class CommunicationClient(ABC, BaseService):
             value: Value to write
             
         Raises:
-            ServiceError: If write fails
+            HTTPException: If write fails
         """
         pass
 
@@ -82,7 +83,12 @@ class CommunicationClient(ABC, BaseService):
         except Exception as e:
             error_msg = f"Failed to start {self._service_name}: {str(e)}"
             logger.error(error_msg)
-            raise ServiceError(error_msg, {"device": self._service_name})
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg,
+                context={"device": self._service_name},
+                cause=e
+            )
 
     async def _stop(self) -> None:
         """Stop client service."""
@@ -93,7 +99,12 @@ class CommunicationClient(ABC, BaseService):
         except Exception as e:
             error_msg = f"Failed to stop {self._service_name}: {str(e)}"
             logger.error(error_msg)
-            raise ServiceError(error_msg, {"device": self._service_name})
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg,
+                context={"device": self._service_name},
+                cause=e
+            )
 
     async def check_connection(self) -> bool:
         """Check if connection is healthy.

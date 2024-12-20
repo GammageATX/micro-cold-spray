@@ -1,20 +1,16 @@
 """Messaging API package."""
 
-from fastapi import FastAPI
-from .service import MessagingService
-from .router import router, lifespan
-from micro_cold_spray.api.base.exceptions import MessageError, ValidationError
-
-# Create FastAPI app with lifespan
-app = FastAPI(lifespan=lifespan)
-app.include_router(router)
+from .messaging_service import MessagingService
+from .messaging_router import router, app, lifespan
+from .messaging_models import MessageHandler, MessageStats
 
 __all__ = [
     # Core components
     "MessagingService",
     "router",
     "app",
-    # Exceptions
-    "MessageError",
-    "ValidationError"
+    "lifespan",
+    # Models
+    "MessageHandler",
+    "MessageStats"
 ]

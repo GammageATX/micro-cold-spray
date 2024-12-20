@@ -2,11 +2,12 @@
 
 from typing import Dict, Any, List
 from datetime import datetime
+from fastapi import status, HTTPException
 
-from ...messaging import MessagingService
-from ..exceptions import ValidationError
-from .base import BaseValidator
-from .hardware_validator import HardwareValidator
+from micro_cold_spray.api.messaging import MessagingService
+from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.api.validation.validators.base_validator import BaseValidator
+from micro_cold_spray.api.validation.validators.hardware_validator import HardwareValidator
 
 
 class SequenceValidator(BaseValidator):
@@ -36,7 +37,7 @@ class SequenceValidator(BaseValidator):
             Dict containing validation results
             
         Raises:
-            ValidationError: If validation fails
+            HTTPException: If validation fails
         """
         errors = []
         warnings = []
@@ -66,12 +67,11 @@ class SequenceValidator(BaseValidator):
                 # Check max steps first
                 max_steps = self._rules["sequences"].get("max_steps", 100)
                 if len(data["steps"]) > max_steps:
-                    errors.append(f"Sequence exceeds maximum steps: {max_steps}")
-                    return {
-                        "valid": False,
-                        "errors": errors,
-                        "warnings": warnings
-                    }
+                    raise create_error(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        message="Sequence exceeds maximum steps",
+                        context={"max_steps": max_steps, "steps": len(data["steps"])}
+                    )
                 
                 # Validate each step
                 for i, step in enumerate(data["steps"]):
@@ -94,12 +94,15 @@ class SequenceValidator(BaseValidator):
                 "warnings": warnings
             }
 
-        except ValidationError as e:
-            # Re-raise validation errors with context
-            raise ValidationError(str(e), e.context)
         except Exception as e:
-            # Wrap other exceptions
-            raise ValidationError("Sequence validation failed", {"error": str(e)})
+            if isinstance(e, HTTPException):
+                raise e
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message="Sequence validation failed",
+                context={"error": str(e)},
+                cause=e
+            )
 
     async def _validate_metadata(self, metadata: Dict[str, Any]) -> List[str]:
         """Validate sequence metadata.
@@ -188,8 +191,11 @@ class SequenceValidator(BaseValidator):
             type_rules = self._rules["sequences"]["types"].get(sequence_type)
             
             if not type_rules:
-                errors.append(f"Unknown sequence type: {sequence_type}")
-                return errors
+                raise create_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message="Unknown sequence type",
+                    context={"type": sequence_type}
+                )
             
             # Check required steps first
             if "required_steps" in type_rules:
@@ -216,6 +222,8 @@ class SequenceValidator(BaseValidator):
                     errors.extend(order_errors)
                 
         except Exception as e:
+            if isinstance(e, HTTPException):
+                raise e
             errors.append(f"Sequence type validation error: {str(e)}")
         return errors
 
@@ -226,20 +234,27 @@ class SequenceValidator(BaseValidator):
             List of error messages
             
         Raises:
-            ValidationError: If hardware validation fails
+            HTTPException: If hardware validation fails
         """
         try:
             # Use hardware validator for safety checks
             result = await self._hardware_validator.validate({})
             if not result["valid"]:
-                raise ValidationError("Safety validation failed", {"errors": result["errors"]})
+                raise create_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message="Safety validation failed",
+                    context={"errors": result["errors"]}
+                )
             return result.get("errors", [])
-        except ValidationError as e:
-            # Re-raise validation errors with context
-            raise ValidationError("Safety validation failed", e.context)
         except Exception as e:
-            # Wrap other exceptions
-            raise ValidationError("Safety validation failed", {"error": str(e)})
+            if isinstance(e, HTTPException):
+                raise e
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message="Safety validation failed",
+                context={"error": str(e)},
+                cause=e
+            )
 
     def _validate_step_order(
         self,

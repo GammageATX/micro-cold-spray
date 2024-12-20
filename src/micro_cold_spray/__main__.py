@@ -4,9 +4,10 @@ import sys
 from pathlib import Path
 from multiprocessing import Process
 import signal
-import requests
-from typing import Dict
+import aiohttp
+from typing import Dict, Optional
 import time
+import os
 
 from loguru import logger
 import uvicorn
@@ -15,6 +16,31 @@ from micro_cold_spray.ui.router import app as ui_app
 
 BASE_DIR = Path(__file__).parent.parent.parent
 LOG_DIR = BASE_DIR / "logs"
+CONFIG_DIR = BASE_DIR / "config"
+DATA_DIR = BASE_DIR / "data"
+
+# Service definitions
+SERVICE_PORTS = {
+    'config': (8901, 8001),  # (test_port, prod_port)
+    'messaging': (8907, 8007),
+    'communication': (8902, 8002),
+    'state': (8904, 8004),
+    'process': (8903, 8003),
+    'data_collection': (8905, 8005),
+    'validation': (8906, 8006),
+    'ui': (8900, 8000)
+}
+
+SERVICE_MODULES = {
+    'config': "micro_cold_spray.api.config.config_app:create_app",
+    'messaging': "micro_cold_spray.api.messaging.messaging_app:create_app",
+    'communication': "micro_cold_spray.api.communication.communication_app:create_app",
+    'state': "micro_cold_spray.api.state.state_app:create_app",
+    'process': "micro_cold_spray.api.process.process_app:create_app",
+    'data_collection': "micro_cold_spray.api.data_collection.data_collection_app:create_app",
+    'validation': "micro_cold_spray.api.validation.validation_app:create_app",
+    'ui': "micro_cold_spray.ui.router:app"
+}
 
 
 def setup_logging() -> None:
@@ -29,198 +55,218 @@ def setup_logging() -> None:
 
     log_format = f"{time_fmt} | {level_fmt} | {location_fmt} - {message_fmt}"
 
+    # Add console logging
     logger.add(
         sys.stderr,
         format=log_format,
         level="INFO",
-        enqueue=True
+        enqueue=True,
+        backtrace=True,
+        diagnose=True
     )
 
     # Create log directory if it doesn't exist
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Add file logging with absolute path
+    # Add file logging with rotation
     logger.add(
         str(LOG_DIR / "micro_cold_spray.log"),
         rotation="1 day",
         retention="30 days",
         compression="zip",
         level="INFO",
-        enqueue=True
+        enqueue=True,
+        backtrace=True,
+        diagnose=True
     )
 
 
 def ensure_directories() -> None:
     """Create necessary directories if they don't exist."""
     dirs = [
-        "logs",
-        "config",
-        "config/schemas",
-        "data",
-        "data/parameters",
-        "data/patterns",
-        "data/sequences",
-        "data/powders",
-        "data/runs"
+        LOG_DIR,
+        CONFIG_DIR,
+        CONFIG_DIR / "schemas",
+        DATA_DIR,
+        DATA_DIR / "parameters",
+        DATA_DIR / "patterns",
+        DATA_DIR / "sequences",
+        DATA_DIR / "powders",
+        DATA_DIR / "runs"
     ]
-    for dir_name in dirs:
-        (BASE_DIR / dir_name).mkdir(parents=True, exist_ok=True)
+    for dir_path in dirs:
+        dir_path.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Ensured directory exists: {dir_path}")
 
 
 async def check_service_health(port: int, retries: int = 5, delay: float = 2.0, is_critical: bool = False) -> bool:
-    """Check if a service is healthy by polling its health endpoint.
-    
-    Args:
-        port: Port number to check
-        retries: Number of retry attempts
-        delay: Delay between retries in seconds
-        is_critical: Whether this is a critical service (increases retries and delay)
-    """
-    # Increase retries and delay for critical services
+    """Check if a service is healthy by polling its health endpoint."""
     if is_critical:
-        retries = 10  # Double the retries for critical services
-        delay = 3.0   # Increase delay for critical services
+        retries = 10
+        delay = 3.0
         
     url = f"http://localhost:{port}/health"
-    for attempt in range(retries):
-        try:
-            response = requests.get(url, timeout=5)
-            # Consider 404 as service starting up
-            if response.status_code == 404:
-                logger.warning(f"Service on port {port} starting up (health endpoint not ready)")
-                if attempt < retries - 1:
-                    await asyncio.sleep(delay)
-                continue
-                
-            if response.status_code == 200:
-                health_data = response.json()
-                status = health_data.get("status")
-                if status == "ok":
-                    logger.info(f"Service on port {port} is healthy (status: {status})")
-                    return True
-                else:
-                    logger.warning(f"Service on port {port} reported unhealthy status: {status}")
-            else:
-                logger.warning(f"Service on port {port} returned status code: {response.status_code}")
-        except requests.ConnectionError:
-            logger.warning(f"Service on port {port} not responding (attempt {attempt + 1}/{retries})")
-        except Exception as e:
-            logger.warning(f"Error checking service health on port {port}: {str(e)}")
+    async with aiohttp.ClientSession() as session:
+        for attempt in range(retries):
+            try:
+                async with session.get(url, timeout=5) as response:
+                    if response.status == 404:
+                        logger.warning(f"Service on port {port} starting up (health endpoint not ready)")
+                        if attempt < retries - 1:
+                            await asyncio.sleep(delay)
+                        continue
+                        
+                    if response.status == 200:
+                        data = await response.json()
+                        status = data.get("status")
+                        if status == "ok":
+                            logger.info(f"Service on port {port} is healthy")
+                            return True
+                        logger.warning(f"Service on port {port} reported unhealthy status: {status}")
+                    else:
+                        logger.warning(f"Service on port {port} returned status code: {response.status}")
+            except aiohttp.ClientError:
+                logger.warning(f"Service on port {port} not responding (attempt {attempt + 1}/{retries})")
+            except Exception as e:
+                logger.warning(f"Error checking service health on port {port}: {str(e)}")
+            
+            if attempt < retries - 1:
+                await asyncio.sleep(delay)
         
-        if attempt < retries - 1:
-            await asyncio.sleep(delay)
-    
-    return False
+        return False
 
 
 async def check_config_ready(port: int) -> bool:
-    """Specifically check if config service is ready by attempting to get config.
-    
-    Args:
-        port: Config service port number
-    """
+    """Check if config service is ready by attempting to get config."""
     url = f"http://localhost:{port}/config/application"
     retries = 10
     delay = 3.0
     
-    for attempt in range(retries):
-        try:
-            response = requests.get(url, timeout=5)
-            if response.status_code == 200:
-                config_data = response.json()
-                if config_data and "config" in config_data:
-                    logger.info("Config service is ready with configuration data")
-                    return True
-            elif response.status_code == 404:
-                logger.warning(f"Config endpoint not ready (attempt {attempt + 1}/{retries})")
-            else:
-                logger.warning(f"Config service returned status {response.status_code}")
-        except Exception as e:
-            logger.warning(f"Config service not ready (attempt {attempt + 1}/{retries}): {str(e)}")
+    async with aiohttp.ClientSession() as session:
+        for attempt in range(retries):
+            try:
+                async with session.get(url, timeout=5) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        if data and "config" in data:
+                            logger.info("Config service is ready")
+                            return True
+                    elif response.status == 404:
+                        logger.warning(f"Config endpoint not ready (attempt {attempt + 1}/{retries})")
+                    else:
+                        logger.warning(f"Config service returned status {response.status}")
+            except Exception as e:
+                logger.warning(f"Config service not ready (attempt {attempt + 1}/{retries}): {str(e)}")
+            
+            if attempt < retries - 1:
+                await asyncio.sleep(delay)
         
-        if attempt < retries - 1:
-            await asyncio.sleep(delay)
-    
-    return False
+        return False
 
 
 async def wait_for_service(port: int, timeout: float = 30.0) -> bool:
     """Wait for a service to start accepting connections."""
     start_time = time.time()
-    while time.time() - start_time < timeout:
-        try:
-            requests.get(f"http://localhost:{port}/", timeout=1)
-            return True
-        except requests.exceptions.RequestException:
-            await asyncio.sleep(0.5)
-    return False
+    async with aiohttp.ClientSession() as session:
+        while time.time() - start_time < timeout:
+            try:
+                async with session.get(f"http://localhost:{port}/", timeout=1):
+                    return True
+            except aiohttp.ClientError:
+                await asyncio.sleep(0.5)
+        return False
+
+
+def run_service(service_name: str, test_mode: bool = False) -> None:
+    """Run a service using uvicorn.
+    
+    Args:
+        service_name: Name of service to run
+        test_mode: Whether to run in test mode
+    """
+    try:
+        port = SERVICE_PORTS[service_name][0 if test_mode else 1]
+        module_path = SERVICE_MODULES[service_name]
+        
+        # Split module path into module and attribute
+        module_str, attr = module_path.split(":")
+        
+        config = uvicorn.Config(
+            module_str,
+            factory=True if attr == "create_app" else False,
+            host="127.0.0.1" if test_mode else "0.0.0.0",
+            port=port,
+            reload=False,
+            log_level="error" if test_mode else "info",
+            workers=1
+        )
+        server = uvicorn.Server(config)
+        asyncio.run(server.serve())
+    except Exception as e:
+        logger.error(f"Error running service {service_name}: {e}")
+        sys.exit(1)
 
 
 class ServiceManager:
     """Manages service processes and their dependencies."""
     
     def __init__(self, test_mode: bool = False):
-        self.processes: Dict[str, Process] = {}
-        # Add test ports that are different from production
-        self.test_ports = {
-            'config': 8901,
-            'messaging': 8907,
-            'communication': 8902,
-            'state': 8904,
-            'process': 8903,
-            'data_collection': 8905,
-            'validation': 8906,
-            'ui': 8900
-        }
-        self.prod_ports = {
-            'config': 8001,
-            'messaging': 8007,
-            'communication': 8002,
-            'state': 8004,
-            'process': 8003,
-            'data_collection': 8005,
-            'validation': 8006,
-            'ui': 8000
-        }
-        self.ports = self.test_ports if test_mode else self.prod_ports
+        """Initialize service manager.
         
-    async def start_service(self, name: str, runner: callable, critical: bool = False, port: int = None) -> bool:
-        """Start a service and verify it's running."""
+        Args:
+            test_mode: Whether to use test ports
+        """
+        self.processes: Dict[str, Process] = {}
+        self.test_mode = test_mode
+        self.ports = {name: ports[0 if test_mode else 1]
+                      for name, ports in SERVICE_PORTS.items()}
+        
+    async def start_service(self, name: str, critical: bool = False) -> bool:
+        """Start a service and verify it's running.
+        
+        Args:
+            name: Service name
+            critical: Whether this is a critical service
+            
+        Returns:
+            bool: True if service started successfully, False otherwise
+        """
         try:
             logger.info(f"Starting {name} service...")
-            process = Process(target=runner)
+            process = Process(
+                target=run_service,
+                args=(name, self.test_mode),
+                name=f"Service-{name}"
+            )
             process.start()
             self.processes[name] = process
             
-            # Skip health checks for services without ports
-            if port is None and name not in self.ports:
-                return True
+            # Get port for health check
+            port = self.ports.get(name)
+            if not port:
+                logger.warning(f"No port configured for service {name}")
+                return True  # Assume success for services without ports
             
-            service_port = port or self.ports[name]
-            
-            # First wait for the service to start accepting connections
-            if not await wait_for_service(service_port):
+            # Wait for service to start accepting connections
+            if not await wait_for_service(port):
                 logger.error(f"Service {name} failed to start accepting connections")
                 return False
             
             # For config service, do additional readiness check
             if name == 'config':
-                if not await check_config_ready(service_port):
+                if not await check_config_ready(port):
                     logger.error("Config service failed readiness check")
                     return False
                 logger.info("Config service passed readiness check")
             
-            # Then check its health
-            is_healthy = await check_service_health(service_port, is_critical=critical)
+            # Check service health
+            is_healthy = await check_service_health(port, is_critical=critical)
+            if not is_healthy and critical:
+                logger.error(f"Critical service {name} failed health check")
+                return False
+            elif not is_healthy:
+                logger.warning(f"Non-critical service {name} failed health check but continuing")
             
-            if not is_healthy:
-                if critical:
-                    logger.error(f"Critical service {name} failed health check")
-                    return False
-                else:
-                    logger.warning(f"Non-critical service {name} failed health check but continuing")
-                    return True
-                
             return True
             
         except Exception as e:
@@ -228,7 +274,11 @@ class ServiceManager:
             return False
 
     def stop_service(self, name: str) -> None:
-        """Stop a service gracefully."""
+        """Stop a service gracefully.
+        
+        Args:
+            name: Service name to stop
+        """
         process = self.processes.get(name)
         if process and process.is_alive():
             logger.info(f"Stopping {name} service...")
@@ -239,7 +289,6 @@ class ServiceManager:
                 process.kill()
                 process.join()
         
-        # Remove the process from the dictionary
         if name in self.processes:
             del self.processes[name]
             logger.info(f"Removed {name} service from process list")
@@ -250,146 +299,16 @@ class ServiceManager:
             self.stop_service(name)
 
 
-def run_ui_process():
-    """Process function to run the UI service."""
-    config = uvicorn.Config(
-        ui_app,
-        host="0.0.0.0",
-        port=8000,
-        reload=False,
-        log_level="info"
-    )
-    server = uvicorn.Server(config)
-    asyncio.run(server.serve())
-
-
-def run_config_api_process():
-    """Process function to run the Config API service."""
-    config = uvicorn.Config(
-        "micro_cold_spray.api.config.router:app",
-        host="0.0.0.0",
-        port=8001,
-        reload=False,
-        log_level="info"
-    )
-    server = uvicorn.Server(config)
-    asyncio.run(server.serve())
-
-
-def run_communication_api_process():
-    """Process function to run the Communication API service."""
-    config = uvicorn.Config(
-        "micro_cold_spray.api.communication.router:app",
-        host="0.0.0.0",
-        port=8002,
-        reload=False,
-        log_level="info"
-    )
-    server = uvicorn.Server(config)
-    asyncio.run(server.serve())
-
-
-def run_messaging_api_process():
-    """Process function to run the Messaging API service."""
-    config = uvicorn.Config(
-        "micro_cold_spray.api.messaging.router:app",
-        host="0.0.0.0",
-        port=8007,
-        reload=False,
-        log_level="info"
-    )
-    server = uvicorn.Server(config)
-    asyncio.run(server.serve())
-
-
-def run_process_api_process():
-    """Process function to run the Process API service."""
-    config = uvicorn.Config(
-        "micro_cold_spray.api.process.router:app",
-        host="0.0.0.0",
-        port=8003,
-        reload=False,
-        log_level="info"
-    )
-    server = uvicorn.Server(config)
-    asyncio.run(server.serve())
-
-
-def run_state_api_process():
-    """Process function to run the State API service."""
-    config = uvicorn.Config(
-        "micro_cold_spray.api.state.router:app",
-        host="0.0.0.0",
-        port=8004,
-        reload=False,
-        log_level="info"
-    )
-    server = uvicorn.Server(config)
-    asyncio.run(server.serve())
-
-
-def run_data_collection_api_process():
-    """Process function to run the Data Collection API service."""
-    config = uvicorn.Config(
-        "micro_cold_spray.api.data_collection.router:app",
-        host="0.0.0.0",
-        port=8005,
-        reload=False,
-        log_level="info"
-    )
-    server = uvicorn.Server(config)
-    asyncio.run(server.serve())
-
-
-def run_validation_api_process():
-    """Process function to run the Validation API service."""
-    config = uvicorn.Config(
-        "micro_cold_spray.api.validation.router:app",
-        host="0.0.0.0",
-        port=8006,
-        reload=False,
-        log_level="info"
-    )
-    server = uvicorn.Server(config)
-    asyncio.run(server.serve())
-
-
-def get_test_config(service: str) -> uvicorn.Config:
-    """Get test configuration for a service."""
-    port_map = {
-        'config': 8901,
-        'messaging': 8907,
-        'communication': 8902,
-        'state': 8904,
-        'process': 8903,
-        'data_collection': 8905,
-        'validation': 8906,
-        'ui': 8900
-    }
+async def main(test_mode: bool = False) -> int:
+    """Application entry point.
     
-    service_map = {
-        'config': "micro_cold_spray.api.config.router:app",
-        'messaging': "micro_cold_spray.api.messaging.router:app",
-        'communication': "micro_cold_spray.api.communication.router:app",
-        'state': "micro_cold_spray.api.state.router:app",
-        'process': "micro_cold_spray.api.process.router:app",
-        'data_collection': "micro_cold_spray.api.data_collection.router:app",
-        'validation': "micro_cold_spray.api.validation.router:app",
-        'ui': "micro_cold_spray.ui.router:app"
-    }
-    
-    return uvicorn.Config(
-        service_map[service],
-        host="127.0.0.1",  # Use localhost for tests
-        port=port_map[service],
-        reload=False,
-        log_level="error"  # Reduce noise in tests
-    )
-
-
-async def main():
-    """Application entry point with improved service management."""
-    service_manager = ServiceManager()
+    Args:
+        test_mode: Whether to run in test mode
+        
+    Returns:
+        int: Exit code (0 for success, 1 for error)
+    """
+    service_manager = ServiceManager(test_mode=test_mode)
     exit_code = 1  # Default to error exit code
 
     try:
@@ -397,36 +316,27 @@ async def main():
         ensure_directories()
         logger.info("Starting Micro Cold Spray application")
 
-        # Define service startup sequence with dependencies
+        # Define service startup sequence
         startup_sequence = [
-            # UI first for fast loading
-            ('ui', run_ui_process, False),
-            
-            # Critical services in parallel
-            ('config', run_config_api_process, True),
-            ('messaging', run_messaging_api_process, True),
-            
-            # Non-critical services
-            ('communication', run_communication_api_process, False),
-            ('state', run_state_api_process, False),
-            ('process', run_process_api_process, False),
-            ('data_collection', run_data_collection_api_process, False),
-            ('validation', run_validation_api_process, False)
+            ('ui', False),
+            ('config', True),
+            ('messaging', True),
+            ('communication', False),
+            ('state', False),
+            ('process', False),
+            ('data_collection', False),
+            ('validation', False)
         ]
 
-        # Create a map of service names to their runners
-        startup_map = {name: runner for name, runner, _ in startup_sequence}
-
         # Start UI first
-        success = await service_manager.start_service('ui', run_ui_process, False)
+        success = await service_manager.start_service('ui', False)
         if not success:
             logger.warning("UI service failed to start, but continuing...")
 
         # Start critical services in parallel
         critical_tasks = []
-        for name in ['config', 'messaging']:
-            runner = startup_map[name]
-            task = asyncio.create_task(service_manager.start_service(name, runner, True))
+        for name, is_critical in startup_sequence[1:3]:  # config and messaging
+            task = asyncio.create_task(service_manager.start_service(name, True))
             critical_tasks.append((name, task))
 
         # Wait for critical services
@@ -438,9 +348,8 @@ async def main():
 
         # Start non-critical services in parallel
         non_critical_tasks = []
-        for name in ['communication', 'state', 'process', 'data_collection', 'validation']:
-            runner = startup_map[name]
-            task = asyncio.create_task(service_manager.start_service(name, runner, False))
+        for name, is_critical in startup_sequence[3:]:
+            task = asyncio.create_task(service_manager.start_service(name, False))
             non_critical_tasks.append((name, task))
 
         def shutdown_handler(sig, frame):
@@ -461,7 +370,7 @@ async def main():
                         return 1
                     else:
                         logger.warning(f"Non-critical service {name} died - attempting restart")
-                        await service_manager.start_service(name, startup_map[name], False)
+                        await service_manager.start_service(name, False)
             await asyncio.sleep(5)
 
     except KeyboardInterrupt:
@@ -476,4 +385,6 @@ async def main():
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    # Get test mode from environment
+    TEST_MODE = os.getenv("TEST_MODE", "").lower() in ("true", "1", "yes")
+    sys.exit(asyncio.run(main(test_mode=TEST_MODE)))

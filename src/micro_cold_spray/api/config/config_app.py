@@ -5,9 +5,9 @@ from fastapi.middleware.gzip import GZipMiddleware
 from pathlib import Path
 
 from micro_cold_spray.api.base import BaseApp
-from micro_cold_spray.api.base.base_errors import create_error, AppErrorCode
+from micro_cold_spray.api.base.base_errors import create_error
 from micro_cold_spray.api.config.config_service import ConfigService
-from micro_cold_spray.api.config.endpoints import config_endpoints
+from micro_cold_spray.api.config.endpoints import ConfigRouter
 
 
 class ConfigApp(BaseApp):
@@ -35,17 +35,18 @@ class ConfigApp(BaseApp):
             self.add_middleware(GZipMiddleware, minimum_size=1000)
 
             # Initialize endpoints
-            config_endpoints.init_router(self)
+            config_router = ConfigRouter(self.service)
+            self.include_router(config_router.router)
 
             # Store config dir
             self.config_dir = config_dir
             
         except Exception as e:
             raise create_error(
-                message=f"Failed to initialize config application: {e}",
-                error_code=AppErrorCode.APP_STARTUP_ERROR,
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                context={"error": str(e)}
+                message="Failed to initialize config application",
+                context={"error": str(e)},
+                cause=e
             )
 
 
@@ -62,8 +63,8 @@ def create_app(**kwargs) -> FastAPI:
         return ConfigApp(**kwargs)
     except Exception as e:
         raise create_error(
-            message=f"Failed to create config application: {e}",
-            error_code=AppErrorCode.APP_STARTUP_ERROR,
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            context={"error": str(e)}
+            message="Failed to create config application",
+            context={"error": str(e)},
+            cause=e
         )

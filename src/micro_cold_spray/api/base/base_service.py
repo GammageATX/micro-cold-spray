@@ -3,7 +3,7 @@
 from typing import Dict, Any
 from fastapi import status
 
-from .base_errors import create_http_error
+from micro_cold_spray.api.base.base_errors import create_error
 
 
 class BaseService:
@@ -21,7 +21,11 @@ class BaseService:
     async def start(self) -> None:
         """Start the service."""
         if self.is_running:
-            raise ValueError("Service is already running")
+            raise create_error(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                message="Service is already running",
+                context={"service": self.name}
+            )
         
         await self._start()
         self._is_running = True
@@ -29,18 +33,30 @@ class BaseService:
     async def stop(self) -> None:
         """Stop the service."""
         if not self.is_running:
-            raise ValueError("Service is not running")
+            raise create_error(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                message="Service is not running",
+                context={"service": self.name}
+            )
         
         await self._stop()
         self._is_running = False
 
     async def _start(self) -> None:
         """Start implementation."""
-        raise ValueError("Service does not implement start")
+        raise create_error(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            message="Service does not implement start",
+            context={"service": self.name}
+        )
 
     async def _stop(self) -> None:
         """Stop implementation."""
-        raise ValueError("Service does not implement stop")
+        raise create_error(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            message="Service does not implement stop",
+            context={"service": self.name}
+        )
 
     async def health(self) -> Dict[str, Any]:
         """Get service health status."""
