@@ -1,24 +1,6 @@
-"""State management API package."""
+"""State service package."""
 
+from micro_cold_spray.api.state.state_app import create_state_service
 from micro_cold_spray.api.state.state_service import StateService
-from micro_cold_spray.api.state.state_router import router, app
-from micro_cold_spray.api.state.state_models import (
-    StateCondition,
-    StateConfig,
-    StateTransition,
-    StateRequest,
-    StateResponse
-)
 
-__all__ = [
-    # Core components
-    "StateService",
-    "router",
-    "app",
-    # Models
-    "StateCondition",
-    "StateConfig",
-    "StateTransition",
-    "StateRequest",
-    "StateResponse"
-]
+__all__ = ["create_state_service", "StateService"]
