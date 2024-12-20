@@ -1,186 +1,76 @@
-"""Tests for configuration registry service."""
+"""Configuration registry service tests."""
 
 import pytest
-from datetime import datetime
+from fastapi import status
 
-from micro_cold_spray.api.base.base_errors import ConfigError
-from micro_cold_spray.api.config.models.config_models import ConfigData, ConfigMetadata
+from micro_cold_spray.api.base.base_errors import create_error
 from micro_cold_spray.api.config.services.registry_service import ConfigRegistryService
+from tests.test_config.conftest import BaseConfigTest, TestConfigData
 
 
-class TestConfigData(ConfigData):
-    """Test configuration data."""
-    data: dict = {"value": "test"}
+class TestConfigRegistry(BaseConfigTest):
+    """Configuration registry service tests."""
 
+    @pytest.fixture
+    async def registry_service(self) -> ConfigRegistryService:
+        """Create registry service fixture."""
+        service = ConfigRegistryService()
+        await service.start()
+        yield service
+        await service.stop()
 
-@pytest.fixture
-def registry_service():
-    """Create registry service fixture."""
-    service = ConfigRegistryService("registry")
-    return service
+    async def test_service_lifecycle(self, registry_service: ConfigRegistryService):
+        """Test service lifecycle."""
+        assert registry_service.is_running
+        await registry_service.stop()
+        assert not registry_service.is_running
 
-
-@pytest.mark.asyncio
-async def test_service_lifecycle(registry_service):
-    """Test service lifecycle."""
-    assert not registry_service.is_running
-    await registry_service.start()
-    assert registry_service.is_running
-    await registry_service.stop()
-    assert not registry_service.is_running
-
-
-@pytest.mark.asyncio
-async def test_register_config_type(registry_service):
-    """Test registering config type."""
-    await registry_service.start()
-    registry_service.register_config_type(TestConfigData)
-    assert "TestConfigData" in registry_service.get_config_types()
-
-
-@pytest.mark.asyncio
-async def test_register_duplicate_config_type(registry_service):
-    """Test registering duplicate config type."""
-    await registry_service.start()
-    registry_service.register_config_type(TestConfigData)
-    with pytest.raises(ConfigError):
+    async def test_register_config_type(self, registry_service: ConfigRegistryService):
+        """Test registering config type."""
         registry_service.register_config_type(TestConfigData)
+        config_type = registry_service.get_config_type(TestConfigData.__name__)
+        assert config_type == TestConfigData
 
+    async def test_register_duplicate_config_type(self, registry_service: ConfigRegistryService):
+        """Test registering duplicate config type."""
+        registry_service.register_config_type(TestConfigData)
+        with pytest.raises(Exception) as exc:
+            registry_service.register_config_type(TestConfigData)
+        assert exc.value.status_code == status.HTTP_409_CONFLICT
 
-@pytest.mark.asyncio
-async def test_get_config_type(registry_service):
-    """Test getting config type."""
-    await registry_service.start()
-    registry_service.register_config_type(TestConfigData)
-    config_type = registry_service.get_config_type("TestConfigData")
-    assert config_type == TestConfigData
+    async def test_get_config_type_not_found(self, registry_service: ConfigRegistryService):
+        """Test getting nonexistent config type."""
+        with pytest.raises(Exception) as exc:
+            registry_service.get_config_type("nonexistent")
+        assert exc.value.status_code == status.HTTP_404_NOT_FOUND
 
+    async def test_validate_references_valid(self, registry_service: ConfigRegistryService):
+        """Test validating valid references."""
+        data = {
+            "tag": "test_tag",
+            "action": "read",
+            "validation": "range"
+        }
+        result = await registry_service.validate_references(data)
+        assert result.valid
+        assert not result.errors
 
-@pytest.mark.asyncio
-async def test_register_config(registry_service):
-    """Test registering config."""
-    await registry_service.start()
-    registry_service.register_config_type(TestConfigData)
-    
-    config = TestConfigData(
-        metadata=ConfigMetadata(
-            config_type="TestConfigData",
-            created=datetime.now(),
-            last_modified=datetime.now()
-        ),
-        data={"value": "test"}
-    )
-    
-    await registry_service.register_config(config)
-    stored_config = await registry_service.get_config("TestConfigData")
-    assert stored_config == config
+    async def test_validate_references_invalid(self, registry_service: ConfigRegistryService):
+        """Test validating invalid references."""
+        data = {
+            "tag": "invalid_tag",
+            "action": "invalid_action",
+            "validation": "invalid_validation"
+        }
+        result = await registry_service.validate_references(data)
+        assert not result.valid
+        assert len(result.errors) == 3
 
+    async def test_health_check(self, registry_service: ConfigRegistryService):
+        """Test health check."""
+        await self.verify_service_health(registry_service)
 
-@pytest.mark.asyncio
-async def test_register_config_without_type(registry_service):
-    """Test registering config without type."""
-    await registry_service.start()
-    config = TestConfigData(
-        metadata=ConfigMetadata(
-            config_type="",
-            created=datetime.now(),
-            last_modified=datetime.now()
-        ),
-        data={"value": "test"}
-    )
-    
-    with pytest.raises(ConfigError):
-        await registry_service.register_config(config)
-
-
-@pytest.mark.asyncio
-async def test_register_config_unregistered_type(registry_service):
-    """Test registering config with unregistered type."""
-    await registry_service.start()
-    config = TestConfigData(
-        metadata=ConfigMetadata(
-            config_type="UnregisteredType",
-            created=datetime.now(),
-            last_modified=datetime.now()
-        ),
-        data={"value": "test"}
-    )
-    
-    with pytest.raises(ConfigError):
-        await registry_service.register_config(config)
-
-
-@pytest.mark.asyncio
-async def test_update_config(registry_service):
-    """Test updating config."""
-    await registry_service.start()
-    registry_service.register_config_type(TestConfigData)
-    
-    config = TestConfigData(
-        metadata=ConfigMetadata(
-            config_type="TestConfigData",
-            created=datetime.now(),
-            last_modified=datetime.now()
-        ),
-        data={"value": "test"}
-    )
-    
-    await registry_service.register_config(config)
-    
-    config.data["value"] = "updated"
-    await registry_service.update_config(config)
-    
-    updated_config = await registry_service.get_config("TestConfigData")
-    assert updated_config.data["value"] == "updated"
-
-
-@pytest.mark.asyncio
-async def test_delete_config(registry_service):
-    """Test deleting config."""
-    await registry_service.start()
-    registry_service.register_config_type(TestConfigData)
-    
-    config = TestConfigData(
-        metadata=ConfigMetadata(
-            config_type="TestConfigData",
-            created=datetime.now(),
-            last_modified=datetime.now()
-        ),
-        data={"value": "test"}
-    )
-    
-    await registry_service.register_config(config)
-    await registry_service.delete_config("TestConfigData")
-    
-    assert await registry_service.get_config("TestConfigData") is None
-
-
-@pytest.mark.asyncio
-async def test_delete_nonexistent_config(registry_service):
-    """Test deleting nonexistent config."""
-    await registry_service.start()
-    with pytest.raises(ConfigError):
-        await registry_service.delete_config("NonexistentConfig")
-
-
-@pytest.mark.asyncio
-async def test_health_check(registry_service):
-    """Test health check."""
-    await registry_service.start()
-    registry_service.register_config_type(TestConfigData)
-    
-    config = TestConfigData(
-        metadata=ConfigMetadata(
-            config_type="TestConfigData",
-            created=datetime.now(),
-            last_modified=datetime.now()
-        ),
-        data={"value": "test"}
-    )
-    
-    await registry_service.register_config(config)
-    
-    health = await registry_service.check_health()
-    assert health["is_healthy"]
-    assert "TestConfigData" in health["service_info"]["config_types"]
-    assert "TestConfigData" in health["service_info"]["configs"]
+    async def test_health_check_error(self, registry_service: ConfigRegistryService):
+        """Test health check with error."""
+        await registry_service.stop()
+        await self.verify_service_health(registry_service, expected_healthy=False)

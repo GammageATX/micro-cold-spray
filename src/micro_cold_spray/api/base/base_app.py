@@ -1,119 +1,154 @@
-"""Base FastAPI application with service management."""
+"""Base application module."""
 
-from contextlib import asynccontextmanager
-from typing import Type, Any
-
-from fastapi import FastAPI, status, Request
-from fastapi.exceptions import RequestValidationError
+import logging
+from typing import Type, Optional, Any, Dict
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
-from loguru import logger
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 
-from micro_cold_spray.api.base.base_service import BaseService
-from micro_cold_spray.api.base.base_router import BaseRouter
 from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.api.base.base_router import BaseRouter
+from micro_cold_spray.api.base.base_service import BaseService
 
 
 class BaseApp(FastAPI):
-    """Base FastAPI application with service management."""
+    """Base application class."""
 
     def __init__(
         self,
         service_class: Type[BaseService],
         title: str,
         service_name: str,
-        enable_cors: bool = True,
+        enable_metrics: bool = False,
         **kwargs: Any,
-    ) -> None:
+    ):
         """Initialize base application.
         
         Args:
             service_class: Service class to instantiate
-            title: API title
+            title: Application title
             service_name: Service name
-            enable_cors: Whether to enable CORS
+            enable_metrics: Enable metrics endpoint
             **kwargs: Additional FastAPI arguments
         """
-        # Create lifespan context manager
-        @asynccontextmanager
-        async def lifespan(app: FastAPI):
-            """Lifespan context manager for FastAPI app."""
-            try:
-                # Initialize service
-                app.state.service = service_class()
-                await app.state.service.start()
-                if not app.state.service.is_running:
-                    raise create_error(
-                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        message=f"{service_name} service failed to start"
-                    )
-                logger.info(f"{service_name} service started successfully")
+        super().__init__(title=title, **kwargs)
 
-                yield
+        # Create service instance
+        self.state.service = service_class(service_name)
+        self.router = BaseRouter()
 
-            finally:
-                # Cleanup on shutdown
-                logger.info(f"{service_name} service shutting down")
-                if hasattr(app.state, "service") and app.state.service:
-                    try:
-                        await app.state.service.stop()
-                        logger.info(f"{service_name} service stopped successfully")
-                    except Exception as e:
-                        logger.error(f"Error stopping {service_name} service: {e}")
-                    finally:
-                        app.state.service = None
+        # Add middleware
+        self.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
-        # Initialize FastAPI with lifespan
-        super().__init__(title=title, lifespan=lifespan, **kwargs)
+        # Add exception handlers
+        self.add_exception_handler(RequestValidationError, self._handle_validation_error)
+        self.add_exception_handler(Exception, self._handle_error)
 
-        # Store service info
-        self.service_class = service_class
-        self.service_name = service_name
-
-        # Add CORS middleware if enabled
-        if enable_cors:
-            self.add_middleware(
-                CORSMiddleware,
-                allow_origins=["*"],
-                allow_credentials=False,
-                allow_methods=["*"],
-                allow_headers=["*"],
-            )
-
-        # Add logging middleware
+        # Add middleware for logging
         self.middleware("http")(self._log_request)
 
-        # Create and add base router
-        router = BaseRouter()
-        self.include_router(router)
+        # Add lifespan events
+        self.router.lifespan_context = self._lifespan_context
 
-    async def _handle_error(self, request: Request, exc: Exception) -> JSONResponse:
-        """Handle errors in a consistent way."""
-        if isinstance(exc, RequestValidationError):
-            return JSONResponse(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                content={"detail": exc.errors()},
-            )
+    async def _lifespan_context(self, app: FastAPI):
+        """Manage service lifecycle.
         
+        Args:
+            app: FastAPI application instance
+            
+        Raises:
+            HTTPException: If service fails to start (503)
+        """
+        try:
+            await app.state.service.start()
+            yield
+        except Exception as e:
+            raise create_error(
+                message=f"{app.state.service.name} service failed to start",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                context={"service": app.state.service.name},
+                cause=e
+            )
+        finally:
+            try:
+                await app.state.service.stop()
+            except Exception as e:
+                logging.error(f"Error stopping service: {str(e)}")
+
+    async def _log_request(self, request: Request, call_next):
+        """Log request details.
+        
+        Args:
+            request: FastAPI request
+            call_next: Next middleware/handler
+            
+        Raises:
+            HTTPException: If request handling fails (500)
+        """
+        try:
+            response = await call_next(request)
+            return response
+        except Exception as e:
+            raise create_error(
+                message=str(e),
+                status_code=getattr(e, "status_code", status.HTTP_500_INTERNAL_SERVER_ERROR),
+                context={"path": request.url.path},
+                cause=e
+            )
+
+    async def _handle_validation_error(
+        self,
+        request: Request,
+        exc: RequestValidationError
+    ) -> JSONResponse:
+        """Handle validation errors.
+        
+        Args:
+            request: FastAPI request
+            exc: Validation error
+            
+        Returns:
+            JSON response with error details (422)
+        """
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": exc.errors()}
+        )
+
+    async def _handle_error(
+        self,
+        request: Request,
+        exc: Exception
+    ) -> JSONResponse:
+        """Handle general errors.
+        
+        Args:
+            request: FastAPI request
+            exc: Exception
+            
+        Returns:
+            JSON response with error details (500 or status from exception)
+        """
+        if isinstance(exc, Exception) and hasattr(exc, "detail"):
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"detail": exc.detail}
+            )
+
         error = create_error(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             message=str(exc),
+            status_code=getattr(exc, "status_code", status.HTTP_500_INTERNAL_SERVER_ERROR),
             context={"path": request.url.path},
             cause=exc
         )
         return JSONResponse(
             status_code=error.status_code,
-            content={"detail": error.detail},
+            content={"detail": error.detail}
         )
-
-    async def _log_request(self, request: Request, call_next) -> Response:
-        """Log request details."""
-        try:
-            response = await call_next(request)
-            logger.info(
-                f"HTTP Request: {request.method} {request.url} "
-                f"\"{response.status_code} {response.headers.get('status', '')}\""
-            )
-            return response
-        except Exception as exc:
-            return await self._handle_error(request, exc)

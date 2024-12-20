@@ -101,17 +101,45 @@ service-based architecture with clear separation of concerns.
     * 400 Bad Request: Client errors (invalid input, bad parameters)
     * 401 Unauthorized: Authentication required
     * 403 Forbidden: Permission denied
-    * 404 Not Found: Resource doesn't exist
-    * 409 Conflict: Resource state conflict
-    * 422 Unprocessable Entity: Validation errors
+    * 404 Not Found: Resource doesn't exist (missing services, configs, etc.)
+    * 409 Conflict: Resource state conflict (already running, not running, already registered)
+    * 422 Unprocessable Entity: Validation errors (invalid config format/data)
     * 500 Internal Server Error: Unexpected server errors
-    * 503 Service Unavailable: Service not ready/available
+    * 501 Not Implemented: Required method not implemented
+    * 503 Service Unavailable: Service not ready/available (startup/shutdown failures)
 
-2. **Error Creation Pattern**
-    * Always use create_error function
-    * Include meaningful context
-    * Chain original exceptions when wrapping
-    * Use consistent status codes
+2. **Error Response Format**
+
+    ```json
+    {
+        "detail": {
+            "message": "Human readable error message",
+            "timestamp": "ISO format timestamp",
+            "context": {
+                "service": "Service name or type",
+                "path": "Request path (for HTTP errors)",
+                "errors": ["Validation details if applicable"],
+                "expected": "Expected type/value in validation errors",
+                "received": "Received type/value in validation errors",
+                "service_type": "Service type name in registry errors",
+                "error": "Original error message in service errors"
+            }
+        }
+    }
+    ```
+
+    Context fields by error type:
+    * Service errors: service, error
+    * Validation errors: service, errors, expected, received
+    * HTTP errors: path, service
+    * Registry errors: service, service_type
+
+3. **Error Handling Principles**
+    * Use explicit status codes - no defaults
+    * Include relevant context in error responses
+    * Chain original exceptions when wrapping errors
+    * Use consistent error format across all services
+    * Log errors appropriately at source
 
 ### Code Style
 

@@ -1,22 +1,31 @@
-"""Configuration test package.
+"""Configuration service tests."""
 
-This package contains tests for the configuration service and related components.
-Tests are organized into submodules for different aspects of the configuration system:
-
-- endpoints: Tests for API endpoints
-- models: Tests for data models
-- services: Tests for service components
-- utils: Tests for utility functions
-"""
-
-from tests.test_config.config_test_base import (
-    create_test_app,
-    create_test_client,
-    test_service_lifecycle
+from tests.test_config.conftest import (
+    BaseConfigTest,
+    test_config_dir,
+    test_config_data,
+    test_config_schema,
+    test_config_file,
+    test_schema_dir,
+    test_backup_dir,
+    base_service,
+    config_service,
+    test_app,
+    test_client,
+    async_client
 )
 
 __all__ = [
-    'create_test_app',
-    'create_test_client',
-    'test_service_lifecycle'
+    "BaseConfigTest",
+    "test_config_dir",
+    "test_config_data",
+    "test_config_schema",
+    "test_config_file",
+    "test_schema_dir",
+    "test_backup_dir",
+    "base_service",
+    "config_service",
+    "test_app",
+    "test_client",
+    "async_client"
 ]

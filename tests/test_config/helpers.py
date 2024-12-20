@@ -4,35 +4,13 @@ from pathlib import Path
 import yaml
 import shutil
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Union
 
 from micro_cold_spray.api.config.models import ConfigData, ConfigMetadata
+from micro_cold_spray.api.base.base_errors import create_error
 
 
-def load_yaml_file(file_path: Path) -> dict:
-    """Load YAML file.
-    
-    Args:
-        file_path: Path to YAML file
-        
-    Returns:
-        dict: Loaded YAML data
-        
-    Raises:
-        FileNotFoundError: If file doesn't exist
-        yaml.YAMLError: If file contains invalid YAML
-    """
-    if not file_path.exists():
-        raise FileNotFoundError(f"File not found: {file_path}")
-    
-    with open(file_path) as f:
-        try:
-            return yaml.safe_load(f)
-        except yaml.YAMLError as e:
-            raise yaml.YAMLError(f"Invalid YAML in {file_path}: {e}")
-
-
-def create_config_data(
+def create_test_config_data(
     config_type: str,
     data: Optional[Dict[str, Any]] = None,
     version: str = "1.0.0"
@@ -45,7 +23,7 @@ def create_config_data(
         version: Configuration version (optional)
         
     Returns:
-        ConfigData: Created config data object
+        : Created config data object
     """
     if data is None:
         data = {"test_key": "test_value"}
@@ -59,14 +37,14 @@ def create_config_data(
 
 
 def create_test_config_file(
-    tmp_path: Path,
+    config_dir: Path,
     name: str,
     data: Dict[str, Any]
 ) -> Path:
     """Create a test config file.
     
     Args:
-        tmp_path: Temporary directory path
+        config_dir: Config directory path
         name: Config name
         data: Config data to write
         
@@ -74,65 +52,97 @@ def create_test_config_file(
         Path: Path to created config file
         
     Raises:
-        yaml.YAMLError: If data cannot be serialized to YAML
+        : If file creation fails
     """
-    config_path = tmp_path / f"{name}.yaml"
-    with open(config_path, "w") as f:
-        try:
+    try:
+        config_path = config_dir / f"{name}.yaml"
+        with open(config_path, "w") as f:
             yaml.safe_dump(data, f)
-        except yaml.YAMLError as e:
-            raise yaml.YAMLError(f"Failed to write config data: {e}")
-    return config_path
+        return config_path
+    except Exception as e:
+        raise create_error(
+            status_code=500,
+            message=f"Failed to create test config file: {e}",
+            context={"name": name, "path": str(config_path)}
+        )
 
 
-def copy_test_config(
-    src_path: Path,
-    dst_path: Path,
-    make_backup: bool = True
+def create_test_schema_file(
+    schema_dir: Path,
+    name: str,
+    schema: Dict[str, Any]
 ) -> Path:
-    """Copy a test config file.
+    """Create a test schema file.
     
     Args:
-        src_path: Source file path
-        dst_path: Destination file path
-        make_backup: Whether to create backup of existing file
+        schema_dir: Schema directory path
+        name: Schema name
+        schema: Schema data to write
         
     Returns:
-        Path: Path to copied file
+        Path: Path to created schema file
         
     Raises:
-        FileNotFoundError: If source file doesn't exist
-        OSError: If copy operation fails
+        : If file creation fails
     """
-    if not src_path.exists():
-        raise FileNotFoundError(f"Source file not found: {src_path}")
-    
-    if make_backup and dst_path.exists():
-        backup_path = dst_path.with_suffix(".bak")
-        shutil.copy2(dst_path, backup_path)
-    
     try:
-        return Path(shutil.copy2(src_path, dst_path))
-    except OSError as e:
-        raise OSError(f"Failed to copy config file: {e}")
+        schema_path = schema_dir / f"{name}.json"
+        import json
+        with open(schema_path, "w") as f:
+            json.dump(schema, f, indent=2)
+        return schema_path
+    except Exception as e:
+        raise create_error(
+            status_code=500,
+            message=f"Failed to create test schema file: {e}",
+            context={"name": name, "path": str(schema_path)}
+        )
 
 
-def compare_config_data(
-    config1: ConfigData,
-    config2: ConfigData,
-    ignore_metadata: bool = False
-) -> bool:
-    """Compare two ConfigData objects.
+def verify_config_data(
+    config: ConfigData,
+    expected_type: str,
+    expected_data: Dict[str, Any],
+    ignore_timestamps: bool = True
+) -> None:
+    """Verify config data matches expected values.
     
     Args:
-        config1: First config
-        config2: Second config
-        ignore_metadata: Whether to ignore metadata in comparison
-        
-    Returns:
-        bool: True if configs are equal
+        config: Config data to verify
+        expected_type: Expected config type
+        expected_data: Expected config data
+        ignore_timestamps: Whether to ignore timestamp fields
     """
-    if not ignore_metadata:
-        return config1 == config2
+    assert config.metadata.config_type == expected_type
+    assert config.data == expected_data
+    if not ignore_timestamps:
+        assert config.metadata.last_modified is not None
+
+
+def verify_file_contents(
+    file_path: Path,
+    expected_data: Union[Dict[str, Any], List[Any]]
+) -> None:
+    """Verify file contents match expected data.
     
-    return config1.data == config2.data
+    Args:
+        file_path: Path to file
+        expected_data: Expected file contents
+        
+    Raises:
+        : If file verification fails
+    """
+    try:
+        with open(file_path) as f:
+            if file_path.suffix == ".json":
+                import json
+                actual_data = json.load(f)
+            else:
+                actual_data = yaml.safe_load(f)
+        assert actual_data == expected_data
+    except Exception as e:
+        raise create_error(
+            status_code=500,
+            message=f"Failed to verify file contents: {e}",
+            context={"path": str(file_path)}
+        )

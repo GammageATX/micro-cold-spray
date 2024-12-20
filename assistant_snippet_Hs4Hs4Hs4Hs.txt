@@ -1,0 +1,1 @@
+1|AssertionError: assert 'uptime' in {'context': {'actions': 3, 'config_types': 0, 'configs': 0, 'service': 'registry', ...}, 'is_healthy': True, 'status': 'running'} 
