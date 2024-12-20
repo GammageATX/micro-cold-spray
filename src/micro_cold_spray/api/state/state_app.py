@@ -1,104 +1,103 @@
 """State service application."""
 
-from fastapi import status
-from fastapi.middleware.gzip import GZipMiddleware
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
+from datetime import datetime
 
-from micro_cold_spray.api.base.base_app import BaseApp
-from micro_cold_spray.api.base.base_errors import create_error
-from micro_cold_spray.api.base import add_health_endpoints
-from micro_cold_spray.api.config import get_config_service
-from micro_cold_spray.api.messaging.messaging_service import MessagingService
-from micro_cold_spray.api.communication.communication_service import CommunicationService
 from micro_cold_spray.api.state.state_service import StateService
-from micro_cold_spray.api.state.state_router import router
 
 
-class StateApp(BaseApp):
-    """State service application."""
-
-    def __init__(self, **kwargs):
-        """Initialize state application.
-        
-        Args:
-            **kwargs: Additional FastAPI arguments
-            
-        Raises:
-            HTTPException: If initialization fails (503)
-        """
+def create_state_service() -> FastAPI:
+    """Create state service.
+    
+    Returns:
+        FastAPI: Application instance
+    """
+    app = FastAPI(title="State Service")
+    
+    # Add CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"],
+        allow_headers=["*"],
+    )
+    
+    # Initialize service
+    state_service = StateService()
+    app.state.service = state_service
+    
+    # Health check endpoint
+    @app.get("/health")
+    async def health():
+        """Get service health."""
+        return await state_service.health()
+    
+    # Start service endpoint
+    @app.post("/start")
+    async def start():
+        """Start service."""
+        await state_service.start()
+        return {"status": "started"}
+    
+    # Stop service endpoint
+    @app.post("/stop")
+    async def stop():
+        """Stop service."""
+        await state_service.stop()
+        return {"status": "stopped"}
+    
+    # Get current state endpoint
+    @app.get("/state")
+    async def get_state():
+        """Get current state."""
+        return {
+            "state": state_service.current_state,
+            "timestamp": datetime.now().isoformat()
+        }
+    
+    # Get valid transitions endpoint
+    @app.get("/transitions")
+    async def get_transitions():
+        """Get valid state transitions."""
+        return await state_service.get_valid_transitions()
+    
+    # Transition to new state endpoint
+    @app.post("/transition/{new_state}")
+    async def transition(new_state: str):
+        """Transition to new state."""
+        return await state_service.transition_to(new_state)
+    
+    # Get state history endpoint
+    @app.get("/history")
+    async def get_history(limit: int = None):
+        """Get state history."""
+        return await state_service.get_history(limit)
+    
+    # Add startup event to initialize service
+    @app.on_event("startup")
+    async def startup():
+        """Start service on startup."""
         try:
-            # Get shared config service instance
-            config_service = get_config_service()
-            if not config_service.is_running:
-                config_service.start()
-                if not config_service.is_running:
-                    raise create_error(
-                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        message="ConfigService failed to start"
-                    )
-                logger.info("ConfigService started successfully")
-            
-            # Initialize message broker
-            message_broker = MessagingService(config_service=config_service)
-            message_broker.start()
-            if not message_broker.is_running:
-                raise create_error(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="MessageBroker failed to start"
-                )
-            logger.info("MessagingService started successfully")
-            
-            # Initialize communication service
-            communication_service = CommunicationService(config_service=config_service)
-            communication_service.start()
-            if not communication_service.is_running:
-                raise create_error(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="CommunicationService failed to start"
-                )
-            logger.info("CommunicationService started successfully")
-            
-            # Initialize state service
-            state_service = StateService(
-                config_service=config_service,
-                message_broker=message_broker,
-                communication_service=communication_service
-            )
-
-            super().__init__(
-                service_class=StateService,
-                title="State Service",
-                service_name="state",
-                **kwargs
-            )
-
-            # Add GZip middleware
-            self.add_middleware(GZipMiddleware, minimum_size=1000)
-
-            # Add CORS middleware
-            self.add_middleware(
-                CORSMiddleware,
-                allow_origins=["*"],
-                allow_credentials=True,
-                allow_methods=["*"],
-                allow_headers=["*"],
-            )
-
-            # Add health endpoints
-            add_health_endpoints(self, state_service)
-
-            # Include router
-            self.include_router(router)
-            
+            logger.info("Starting state service...")
+            await state_service.start()
+            logger.info("State service started successfully")
         except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to initialize state application",
-                context={"error": str(e)},
-                cause=e
-            )
-
-
-# Create FastAPI application instance
-app = StateApp()
+            logger.error(f"Failed to start state service: {e}")
+            raise
+    
+    # Add shutdown event to cleanup
+    @app.on_event("shutdown")
+    async def shutdown():
+        """Stop service on shutdown."""
+        try:
+            logger.info("Stopping state service...")
+            await state_service.stop()
+            logger.info("State service stopped successfully")
+        except Exception as e:
+            logger.error(f"Failed to stop state service: {e}")
+            raise
+    
+    return app
