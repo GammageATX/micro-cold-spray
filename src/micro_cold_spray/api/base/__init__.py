@@ -1,11 +1,11 @@
 """Base module for micro cold spray API."""
 
-from .base_service import BaseService
-from .base_configurable import ConfigurableService
-from .base_app import BaseApp
-from .base_router import BaseRouter
-from .base_errors import create_http_error
-from .base_registry import (
+from micro_cold_spray.api.base.base_service import BaseService
+from micro_cold_spray.api.base.base_configurable import ConfigurableService
+from micro_cold_spray.api.base.base_app import BaseApp
+from micro_cold_spray.api.base.base_router import BaseRouter
+from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.api.base.base_registry import (
     get_service,
     register_service,
     clear_services,
@@ -17,7 +17,7 @@ __all__ = [
     'ConfigurableService',
     'BaseApp',
     'BaseRouter',
-    'create_http_error',
+    'create_error',
     'get_service',
     'register_service',
     'clear_services',

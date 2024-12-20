@@ -1,8 +1,10 @@
 """Base registry module."""
 
 from typing import Dict, Type, Union
+from fastapi import status
 
-from .base_service import BaseService
+from micro_cold_spray.api.base.base_service import BaseService
+from micro_cold_spray.api.base.base_errors import create_error
 
 
 # Global service registry
@@ -16,10 +18,14 @@ def register_service(service: BaseService) -> None:
         service: Service instance to register
     
     Raises:
-        ValueError: If service is already registered
+        HTTPException: If service is already registered
     """
     if service.name in _services:
-        raise ValueError(f"Service {service.name} is already registered")
+        raise create_error(
+            status_code=status.HTTP_409_CONFLICT,
+            message=f"Service {service.name} is already registered",
+            context={"service": service.name}
+        )
     _services[service.name] = service
 
 
@@ -33,12 +39,16 @@ def get_service(service_type_or_name: Union[Type[BaseService], str]) -> BaseServ
         Service instance
     
     Raises:
-        ValueError: If service not found
+        HTTPException: If service not found
     """
     # Handle string service names
     if isinstance(service_type_or_name, str):
         if service_type_or_name not in _services:
-            raise ValueError(f"Service {service_type_or_name} not found")
+            raise create_error(
+                status_code=status.HTTP_404_NOT_FOUND,
+                message=f"Service {service_type_or_name} not found",
+                context={"service": service_type_or_name}
+            )
         return _services[service_type_or_name]
     
     # Handle service types
@@ -46,7 +56,11 @@ def get_service(service_type_or_name: Union[Type[BaseService], str]) -> BaseServ
         if isinstance(service, service_type_or_name):
             return service
     
-    raise ValueError(f"Service of type {service_type_or_name.__name__} not found")
+    raise create_error(
+        status_code=status.HTTP_404_NOT_FOUND,
+        message=f"Service of type {service_type_or_name.__name__} not found",
+        context={"service_type": service_type_or_name.__name__}
+    )
 
 
 def clear_services() -> None:

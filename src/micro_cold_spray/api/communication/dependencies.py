@@ -1,17 +1,79 @@
-"""Shared dependencies for communication API."""
+"""Dependencies for communication API."""
 
-from fastapi import HTTPException, status
+from typing import Optional
+from fastapi import status
+from loguru import logger
 
-from .service import CommunicationService
+from micro_cold_spray.api.base.base_errors import create_error
+from .communication_service import CommunicationService
 
 
-def get_service() -> CommunicationService:
-    """Get service instance."""
-    from .router import _service  # Import here to avoid circular dependency
+# Global service instance
+_service: Optional[CommunicationService] = None
+
+
+def get_communication_service() -> CommunicationService:
+    """Get communication service instance.
     
-    if not _service or not _service.is_running:
-        raise HTTPException(
+    Returns:
+        Communication service instance
+        
+    Raises:
+        HTTPException: If service is not initialized
+    """
+    if not _service:
+        raise create_error(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="CommunicationService not initialized"
+            message="Communication service not initialized",
+            context={"service": "communication"}
         )
     return _service
+
+
+async def initialize_service(config=None) -> None:
+    """Initialize communication service.
+    
+    Args:
+        config: Optional service configuration
+        
+    Raises:
+        HTTPException: If service fails to initialize
+    """
+    global _service
+    try:
+        if not _service:
+            _service = CommunicationService(config)
+            await _service.start()
+            logger.info("Communication service initialized")
+    except Exception as e:
+        error_msg = f"Failed to initialize communication service: {str(e)}"
+        logger.error(error_msg)
+        raise create_error(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            message=error_msg,
+            context={"service": "communication"},
+            cause=e
+        )
+
+
+async def cleanup_service() -> None:
+    """Clean up communication service.
+    
+    Raises:
+        HTTPException: If service fails to clean up
+    """
+    global _service
+    try:
+        if _service:
+            await _service.stop()
+            _service = None
+            logger.info("Communication service cleaned up")
+    except Exception as e:
+        error_msg = f"Failed to clean up communication service: {str(e)}"
+        logger.error(error_msg)
+        raise create_error(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            message=error_msg,
+            context={"service": "communication"},
+            cause=e
+        )

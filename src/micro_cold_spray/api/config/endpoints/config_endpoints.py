@@ -1,143 +1,191 @@
-"""Configuration service endpoints."""
+"""Configuration API endpoints."""
 
 from typing import Dict, Any, List
-from fastapi import APIRouter, HTTPException, status
-from loguru import logger
+from fastapi import APIRouter, Depends, status
 
-from micro_cold_spray.api.base.base_errors import ConfigError
+from micro_cold_spray.api.base.base_router import BaseRouter
+from micro_cold_spray.api.base.base_errors import create_error
 from micro_cold_spray.api.config.config_service import ConfigService
-from micro_cold_spray.api.config.models import (
+from micro_cold_spray.api.config.models.config_models import (
     ConfigData,
-    ConfigUpdate,
-    ConfigValidationResult,
-    ConfigFieldInfo,
-    TagRemapRequest
+    ConfigMetadata,
+    ConfigSchema,
+    FormatMetadata
 )
-from micro_cold_spray.api.config.utils.config_singleton import get_config_service
-
-# Create router
-router = APIRouter(tags=["config"])
 
 
-@router.get("/health")
-async def health_check() -> Dict[str, Any]:
-    """Check service health."""
-    try:
-        service = get_config_service()
-        return await service.check_health()
-    except ConfigError as e:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e)
-        )
-    except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+class ConfigRouter(BaseRouter):
+    """Configuration API router."""
 
-
-def init_router(app_instance=None):
-    """Initialize router with app instance.
-    
-    Args:
-        app_instance: Optional FastAPI app instance
-    """
-    if app_instance:
-        app_instance.include_router(router)
-
-
-@router.get("/config/types")
-async def get_config_types() -> List[Dict[str, str]]:
-    """Get available configuration types."""
-    try:
-        service = get_config_service()
-        return await service.get_config_types()
-    except ConfigError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
-    except Exception as e:
-        logger.error(f"Failed to get config types: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
-
-
-@router.get("/config/{config_type}")
-async def get_config(config_type: str) -> ConfigData:
-    """Get configuration data.
-    
-    Args:
-        config_type: Type of configuration to get
+    def __init__(self, config_service: ConfigService) -> None:
+        """Initialize router.
         
-    Returns:
-        ConfigData: Configuration data
-    """
-    try:
-        service = get_config_service()
-        return await service.get_config(config_type)
-    except ConfigError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
-        )
-    except Exception as e:
-        logger.error(f"Failed to get config {config_type}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        Args:
+            config_service: Configuration service
+        """
+        super().__init__()
+        self._config_service = config_service
+        self._router = APIRouter(prefix="/config", tags=["config"])
+        self._setup_routes()
 
+    def _setup_routes(self) -> None:
+        """Set up router endpoints."""
+        self._router.get("/types", response_model=List[str])(self.get_config_types)
+        self._router.get("/formats", response_model=Dict[str, FormatMetadata])(self.get_format_metadata)
+        self._router.get("/schemas", response_model=Dict[str, ConfigSchema])(self.get_schemas)
+        self._router.get("/configs", response_model=Dict[str, ConfigData])(self.get_configs)
+        self._router.get("/config/{config_type}", response_model=ConfigData)(self.get_config)
+        self._router.post("/config/{config_type}")(self.set_config)
+        self._router.delete("/config/{config_type}")(self.delete_config)
 
-@router.post("/config/{config_type}")
-async def update_config(
-    config_type: str,
-    update: ConfigUpdate
-) -> ConfigValidationResult:
-    """Update configuration data.
-    
-    Args:
-        config_type: Type of configuration to update
-        update: Configuration update request
+    async def get_config_types(self) -> List[str]:
+        """Get available configuration types.
         
-    Returns:
-        ConfigValidationResult: Validation result
-    """
-    try:
-        service = get_config_service()
-        return await service.update_config(update)
-    except ConfigError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
-    except Exception as e:
-        logger.error(f"Failed to update config {config_type}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        Returns:
+            List of configuration types
+            
+        Raises:
+            HTTPException: If service unavailable (503)
+        """
+        try:
+            return await self._config_service.get_config_types()
+        except Exception as e:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Failed to get config types",
+                context={"error": str(e)},
+                cause=e
+            )
 
+    async def get_format_metadata(self) -> Dict[str, FormatMetadata]:
+        """Get format metadata.
+        
+        Returns:
+            Format metadata by type
+            
+        Raises:
+            HTTPException: If service unavailable (503)
+        """
+        try:
+            return await self._config_service.get_format_metadata()
+        except Exception as e:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Failed to get format metadata",
+                context={"error": str(e)},
+                cause=e
+            )
 
-@router.post("/config/cache/clear")
-async def clear_cache():
-    """Clear the configuration cache."""
-    try:
-        service = get_config_service()
-        await service.clear_cache()
-        return {"status": "Cache cleared"}
-    except ConfigError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
-    except Exception as e:
-        logger.error(f"Failed to clear cache: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+    async def get_schemas(self) -> Dict[str, ConfigSchema]:
+        """Get configuration schemas.
+        
+        Returns:
+            Schemas by type
+            
+        Raises:
+            HTTPException: If service unavailable (503)
+        """
+        try:
+            return await self._config_service.get_schemas()
+        except Exception as e:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Failed to get schemas",
+                context={"error": str(e)},
+                cause=e
+            )
+
+    async def get_configs(self) -> Dict[str, ConfigData]:
+        """Get all configurations.
+        
+        Returns:
+            Configurations by type
+            
+        Raises:
+            HTTPException: If service unavailable (503)
+        """
+        try:
+            return await self._config_service.get_configs()
+        except Exception as e:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Failed to get configs",
+                context={"error": str(e)},
+                cause=e
+            )
+
+    async def get_config(self, config_type: str) -> ConfigData:
+        """Get configuration.
+        
+        Args:
+            config_type: Configuration type
+            
+        Returns:
+            Configuration data
+            
+        Raises:
+            HTTPException: If config not found (404) or service unavailable (503)
+        """
+        try:
+            return await self._config_service.get_config(config_type)
+        except Exception as e:
+            if isinstance(e, create_error):
+                raise e
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Failed to get config",
+                context={"error": str(e)},
+                cause=e
+            )
+
+    async def set_config(self, config_type: str, config: Dict[str, Any]) -> None:
+        """Set configuration.
+        
+        Args:
+            config_type: Configuration type
+            config: Configuration data
+            
+        Raises:
+            HTTPException: If validation fails (422) or service unavailable (503)
+        """
+        try:
+            await self._config_service.set_config(config_type, config)
+        except Exception as e:
+            if isinstance(e, create_error):
+                raise e
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Failed to set config",
+                context={"error": str(e)},
+                cause=e
+            )
+
+    async def delete_config(self, config_type: str) -> None:
+        """Delete configuration.
+        
+        Args:
+            config_type: Configuration type
+            
+        Raises:
+            HTTPException: If config not found (404) or service unavailable (503)
+        """
+        try:
+            await self._config_service.delete_config(config_type)
+        except Exception as e:
+            if isinstance(e, create_error):
+                raise e
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Failed to delete config",
+                context={"error": str(e)},
+                cause=e
+            )
+
+    @property
+    def router(self) -> APIRouter:
+        """Get router.
+        
+        Returns:
+            FastAPI router
+        """
+        return self._router

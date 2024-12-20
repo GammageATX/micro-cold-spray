@@ -5,7 +5,7 @@ from pathlib import Path
 import yaml
 import shutil
 
-from micro_cold_spray.api.config.services.config_file_service import ConfigFileService
+from micro_cold_spray.api.config.services.file_service import ConfigFileService
 from micro_cold_spray.api.base.base_errors import ConfigError
 
 

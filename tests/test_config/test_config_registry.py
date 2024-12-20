@@ -5,7 +5,7 @@ from datetime import datetime
 
 from micro_cold_spray.api.base.base_errors import ConfigError
 from micro_cold_spray.api.config.models.config_models import ConfigData, ConfigMetadata
-from micro_cold_spray.api.config.services.config_registry_service import ConfigRegistryService
+from micro_cold_spray.api.config.services.registry_service import ConfigRegistryService
 
 
 class TestConfigData(ConfigData):

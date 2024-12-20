@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import MagicMock, AsyncMock
 from datetime import datetime, timedelta
 
-from micro_cold_spray.api.config.services.config_cache_service import ConfigCacheService
+from micro_cold_spray.api.config.services.cache_service import ConfigCacheService
 from micro_cold_spray.api.base.base_errors import ConfigError, ServiceError
 from micro_cold_spray.api.config.models import ConfigData
 

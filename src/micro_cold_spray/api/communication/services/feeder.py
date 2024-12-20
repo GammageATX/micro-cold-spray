@@ -1,104 +1,112 @@
-"""Feeder control service."""
+"""Feeder control service implementation."""
 
-from typing import Dict
+from typing import Dict, Any
+from fastapi import status
 from loguru import logger
 
-from ...base import ConfigurableService
-from ...base.exceptions import HardwareError, ValidationError
-from ...config import ConfigService
-from ..clients import SSHClient
+from micro_cold_spray.api.base.base_configurable import ConfigurableService
+from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.api.config import ConfigService
+from ..clients.base import BaseClient
 
 
 class FeederService(ConfigurableService):
-    """Service for controlling powder feeder via P tags."""
+    """Service for controlling powder feeder."""
 
-    def __init__(self, ssh_client: SSHClient, config_service: ConfigService, hardware_set: int = 1):
+    def __init__(self, config_service: ConfigService, client: BaseClient):
         """Initialize feeder service.
         
         Args:
-            ssh_client: SSH client for direct feeder control
             config_service: Configuration service instance
-            hardware_set: Hardware set number (1 or 2)
+            client: Hardware client instance
         """
         super().__init__(service_name="feeder", config_service=config_service)
-        self._ssh = ssh_client
-        self._hardware_set = hardware_set
-        
-        # Get P tag variables based on hardware set
-        if hardware_set == 1:
-            self._freq_var = "P6"
-            self._start_var = "P10"
-            self._time_var = "P12"
-        else:
-            self._freq_var = "P106"
-            self._start_var = "P110"
-            self._time_var = "P112"
+        self._client = client
 
-    async def start_feeder(self, frequency: float) -> None:
-        """Start powder feeder.
-        
-        Args:
-            frequency: Feeder frequency (200-1200 Hz)
-            
-        Raises:
-            HardwareError: If start fails
-            ValidationError: If frequency out of range
-        """
-        if not 200 <= frequency <= 1200:
-            raise ValidationError(
-                "Frequency must be between 200 and 1200 Hz",
-                {"frequency": frequency, "limits": (200, 1200)}
-            )
-            
+    async def _start(self) -> None:
+        """Initialize service."""
         try:
-            # Set frequency
-            await self._ssh.execute_command(f"{self._freq_var}={frequency}")
-            # Set run time to 999 seconds
-            await self._ssh.execute_command(f"{self._time_var}=999")
-            # Start feeder
-            await self._ssh.execute_command(f"{self._start_var}=1")
-            logger.info(f"Started feeder at {frequency} Hz")
+            logger.debug("Loading feeder configuration")
+            feeder_config = await self._config_service.get_config("feeder")
+            if not feeder_config:
+                raise create_error(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    message="Feeder configuration not found"
+                )
+                
+            logger.info("Feeder service initialized")
         except Exception as e:
-            raise HardwareError(
-                "Failed to start feeder",
-                "feeder",
-                {
-                    "frequency": frequency,
-                    "error": str(e)
-                }
+            logger.error(f"Failed to start feeder service: {e}")
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=f"Failed to start feeder service: {e}",
+                context={"error": str(e)},
+                cause=e
             )
 
-    async def stop_feeder(self) -> None:
-        """Stop powder feeder.
-        
-        Raises:
-            HardwareError: If stop fails
-        """
-        try:
-            await self._ssh.execute_command(f"{self._start_var}=4")
-            logger.info("Stopped feeder")
-        except Exception as e:
-            raise HardwareError(
-                "Failed to stop feeder",
-                "feeder",
-                {"error": str(e)}
-            )
+    async def _stop(self) -> None:
+        """Cleanup service."""
+        logger.info("Feeder service stopped")
 
-    async def get_status(self) -> Dict[str, float]:
-        """Get feeder frequency setting.
+    async def get_state(self) -> Dict[str, Any]:
+        """Get current feeder state.
         
         Returns:
-            Dictionary with current frequency setting
+            Current feeder state
             
         Raises:
-            HardwareError: If reading fails
+            HTTPException: If state cannot be retrieved
         """
         try:
-            freq = await self._ssh.execute_command(f"echo ${self._freq_var}")
-            return {"frequency": float(freq)}
+            return await self._client.get_feeder_state()
         except Exception as e:
-            raise HardwareError(
-                "Failed to get feeder status",
-                "feeder",
-                {"error": str(e)}
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message="Failed to get feeder state",
+                context={"error": str(e)},
+                cause=e
             )
+
+    async def set_state(self, state: Dict[str, Any]) -> None:
+        """Set feeder state.
+        
+        Args:
+            state: Desired feeder state
+            
+        Raises:
+            HTTPException: If state cannot be set
+        """
+        try:
+            await self._client.set_feeder_state(state)
+        except Exception as e:
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message="Failed to set feeder state",
+                context={"state": state, "error": str(e)},
+                cause=e
+            )
+
+    async def check_health(self) -> Dict[str, Any]:
+        """Check service health."""
+        try:
+            # Get current state
+            state = await self.get_state()
+            
+            # Check client connection
+            client_health = await self._client.check_health()
+            
+            return {
+                "status": "ok" if client_health["status"] == "ok" else "error",
+                "components": {
+                    "client": client_health["status"] == "ok",
+                    "state": state is not None
+                },
+                "details": client_health.get("details")
+            }
+        except Exception as e:
+            error_msg = f"Failed to check feeder health: {str(e)}"
+            logger.error(error_msg)
+            return {
+                "status": "error",
+                "error": error_msg
+            }

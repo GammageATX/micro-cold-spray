@@ -1,16 +1,16 @@
 """Tag mapping service implementation."""
 
 from typing import Dict, Any
+from fastapi import status
 from loguru import logger
 
-from ...base import ConfigurableService
-from ...base.exceptions import ServiceError, ValidationError
-from ...config import ConfigService
-from ...config.models import ConfigUpdate
+from micro_cold_spray.api.base.base_configurable import ConfigurableService
+from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.api.config import ConfigService
 
 
 class TagMappingService(ConfigurableService):
-    """Service for mapping between hardware and logical tag names."""
+    """Service for mapping tag names to hardware addresses."""
 
     def __init__(self, config_service: ConfigService):
         """Initialize tag mapping service.
@@ -19,168 +19,146 @@ class TagMappingService(ConfigurableService):
             config_service: Configuration service instance
         """
         super().__init__(service_name="tag_mapping", config_service=config_service)
-        self._hw_to_mapped: Dict[str, str] = {}
-        self._mapped_to_hw: Dict[str, str] = {}
-        self._plc_tags: set = set()
-        self._feeder_tags: set = set()
+        self._tag_map: Dict[str, str] = {}
+        self._reverse_map: Dict[str, str] = {}
 
     async def _start(self) -> None:
         """Initialize service."""
-        # Load tag definitions
-        tag_config = await self._config_service.get_config("tags")
-        await self._build_mappings(tag_config)
-        logger.info("Tag mapping initialized")
+        try:
+            logger.debug("Loading tag configuration")
+            tag_config = await self._config_service.get_config("tags")
+            if not tag_config:
+                raise create_error(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    message="Tag configuration not found"
+                )
+                
+            logger.debug("Building tag mapping")
+            await self._build_mapping(tag_config)
+            logger.info("Tag mapping initialized")
+        except Exception as e:
+            logger.error(f"Failed to start tag mapping service: {e}")
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=f"Failed to start tag mapping service: {e}",
+                context={"error": str(e)},
+                cause=e
+            )
 
     async def _stop(self) -> None:
         """Cleanup service."""
-        self._hw_to_mapped.clear()
-        self._mapped_to_hw.clear()
-        self._plc_tags.clear()
-        self._feeder_tags.clear()
+        self._tag_map.clear()
+        self._reverse_map.clear()
         logger.info("Tag mapping stopped")
 
-    async def _build_mappings(self, config: Dict[str, Any]) -> None:
-        """Build tag mappings from config."""
+    async def _build_mapping(self, config: Dict[str, Any]) -> None:
+        """Build tag mapping from config."""
         try:
-            self._hw_to_mapped.clear()
-            self._mapped_to_hw.clear()
-            self._plc_tags.clear()
-            self._feeder_tags.clear()
+            self._tag_map.clear()
+            self._reverse_map.clear()
             
             for group_name, group in config.get("tag_groups", {}).items():
                 for tag_path, tag_def in group.items():
-                    if not tag_def.get("mapped", False):
-                        continue
-                        
                     mapped_name = f"{group_name}.{tag_path}"
                     
-                    # Handle PLC tags
-                    if "plc_tag" in tag_def:
-                        hw_tag = tag_def["plc_tag"]
-                        self._hw_to_mapped[hw_tag] = mapped_name
-                        self._mapped_to_hw[mapped_name] = hw_tag
-                        self._plc_tags.add(mapped_name)
-                    
-                    # Handle SSH/feeder tags
-                    elif "ssh" in tag_def:
-                        # For SSH tags, we use the variable names as hardware tags
-                        freq_var = tag_def["ssh"]["freq_var"]
-                        start_var = tag_def["ssh"]["start_var"]
-                        time_var = tag_def["ssh"]["time_var"]
+                    # Only map tags that have hardware addresses
+                    if tag_def.get("mapped", False):
+                        address = tag_def.get("address")
+                        if not address:
+                            logger.warning(f"Mapped tag {mapped_name} missing address")
+                            continue
+                            
+                        self._tag_map[mapped_name] = address
+                        self._reverse_map[address] = mapped_name
                         
-                        # Map all SSH variables for this tag
-                        for var in [freq_var, start_var, time_var]:
-                            self._hw_to_mapped[var] = mapped_name
-                            self._mapped_to_hw[mapped_name] = var
-                        self._feeder_tags.add(mapped_name)
-                        
-            logger.info(f"Built mappings for {len(self._mapped_to_hw)} tags")
+            logger.info(f"Built mapping for {len(self._tag_map)} tags")
+            
         except Exception as e:
-            raise ServiceError(
-                "Failed to build tag mappings",
-                {"error": str(e)}
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message="Failed to build tag mapping",
+                context={"error": str(e)},
+                cause=e
             )
 
-    def to_mapped_name(self, hw_tag: str) -> str:
-        """Convert hardware tag to mapped name."""
-        try:
-            return self._hw_to_mapped[hw_tag]
-        except KeyError:
-            raise ValidationError(
-                f"No mapping for hardware tag: {hw_tag}",
-                {"hw_tag": hw_tag}
-            )
-
-    def to_hardware_tag(self, mapped_name: str) -> str:
-        """Convert mapped name to hardware tag."""
-        try:
-            return self._mapped_to_hw[mapped_name]
-        except KeyError:
-            raise ValidationError(
-                f"No mapping for tag: {mapped_name}",
-                {"mapped_name": mapped_name}
-            )
-
-    def is_plc_tag(self, mapped_name: str) -> bool:
-        """Check if tag is mapped to PLC."""
-        if mapped_name not in self._mapped_to_hw:
-            raise ValidationError(
-                f"Unknown tag: {mapped_name}",
-                {"mapped_name": mapped_name}
-            )
-        return mapped_name in self._plc_tags
-
-    def is_feeder_tag(self, mapped_name: str) -> bool:
-        """Check if tag is mapped to feeder."""
-        if mapped_name not in self._mapped_to_hw:
-            raise ValidationError(
-                f"Unknown tag: {mapped_name}",
-                {"mapped_name": mapped_name}
-            )
-        return mapped_name in self._feeder_tags
-
-    async def get_mappings(self) -> Dict[str, str]:
-        """Get all tag mappings.
-        
-        Returns:
-            Dictionary mapping logical tag names to hardware tags.
-        """
-        return self._mapped_to_hw.copy()
-
-    async def update_mapping(self, tag_path: str, plc_tag: str) -> None:
-        """Update tag mapping.
+    def get_address(self, tag_path: str) -> str:
+        """Get hardware address for tag.
         
         Args:
-            tag_path: Logical tag path
-            plc_tag: Hardware PLC tag
+            tag_path: Tag path to lookup
+            
+        Returns:
+            Hardware address
             
         Raises:
-            ValidationError: If tag path is invalid
-            ServiceError: If update fails
+            HTTPException: If tag not found or not mapped
         """
         try:
-            # Get current config
-            tag_config = await self._config_service.get_config("tags")
-            
-            # Find the tag in the config
-            group_name, tag_name = tag_path.split(".", 1)
-            if group_name not in tag_config.get("tag_groups", {}):
-                raise ValidationError(
-                    f"Invalid tag group: {group_name}",
-                    {"tag_path": tag_path}
-                )
-                
-            group = tag_config["tag_groups"][group_name]
-            if tag_name not in group:
-                raise ValidationError(
-                    f"Invalid tag: {tag_path}",
-                    {"tag_path": tag_path}
-                )
-                
-            # Update the tag definition
-            tag_def = group[tag_name]
-            tag_def["mapped"] = True
-            tag_def["plc_tag"] = plc_tag
-            
-            # Save the updated config
-            update = ConfigUpdate(
-                config_type="tags",
-                data=tag_config,
-                validate=True
+            return self._tag_map[tag_path]
+        except KeyError:
+            raise create_error(
+                status_code=status.HTTP_404_NOT_FOUND,
+                message=f"Tag not found or not mapped: {tag_path}",
+                context={"tag": tag_path}
             )
-            await self._config_service.update_config(update)
+
+    def get_tag_path(self, address: str) -> str:
+        """Get tag path for hardware address.
+        
+        Args:
+            address: Hardware address to lookup
             
-            # Rebuild mappings
-            await self._build_mappings(tag_config)
+        Returns:
+            Tag path
             
-        except ValidationError:
-            raise
+        Raises:
+            HTTPException: If address not mapped
+        """
+        try:
+            return self._reverse_map[address]
+        except KeyError:
+            raise create_error(
+                status_code=status.HTTP_404_NOT_FOUND,
+                message=f"Address not mapped: {address}",
+                context={"address": address}
+            )
+
+    @property
+    def is_running(self) -> bool:
+        """Check if service is running."""
+        try:
+            # Service is running if we have valid mappings
+            return len(self._tag_map) > 0 and len(self._reverse_map) > 0
         except Exception as e:
-            raise ServiceError(
-                "Failed to update tag mapping",
-                {
-                    "tag_path": tag_path,
-                    "plc_tag": plc_tag,
-                    "error": str(e)
-                }
-            )
+            logger.error(f"Error checking tag mapping service status: {e}")
+            return False
+
+    async def check_health(self) -> Dict[str, Any]:
+        """Check service health."""
+        try:
+            status = {
+                "tag_map": len(self._tag_map) > 0,
+                "reverse_map": len(self._reverse_map) > 0,
+                "tag_count": len(self._tag_map)
+            }
+            
+            details = {}
+            if not status["tag_map"]:
+                details["tag_map"] = "Tag map is empty"
+            if not status["reverse_map"]:
+                details["reverse_map"] = "Reverse map is empty"
+            if status["tag_count"] == 0:
+                details["tags"] = "No tags mapped"
+                
+            return {
+                "status": "ok" if all(status.values()) and status["tag_count"] > 0 else "error",
+                "components": status,
+                "details": details if details else None
+            }
+        except Exception as e:
+            error_msg = f"Failed to check tag mapping health: {str(e)}"
+            logger.error(error_msg)
+            return {
+                "status": "error",
+                "error": error_msg
+            }

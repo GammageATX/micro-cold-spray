@@ -1,13 +1,12 @@
 """Validation API package."""
 
-from .service import ValidationService
-from .exceptions import ValidationError
-from .router import router, init_router, app
+from .validation_service import ValidationService
+from .validation_router import router, app, lifespan
 
 __all__ = [
+    # Core components
     "ValidationService",
-    "ValidationError",
     "router",
-    "init_router",
-    "app"
+    "app",
+    "lifespan",
 ]

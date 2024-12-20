@@ -1,15 +1,15 @@
 """Configuration service implementations."""
 
-from micro_cold_spray.api.config.services.config_cache_service import ConfigCacheService
-from micro_cold_spray.api.config.services.config_file_service import ConfigFileService
-from micro_cold_spray.api.config.services.config_format_service import ConfigFormatService
-from micro_cold_spray.api.config.services.config_registry_service import ConfigRegistryService
-from micro_cold_spray.api.config.services.config_schema_service import ConfigSchemaService
+from micro_cold_spray.api.config.services.cache_service import CacheService
+from micro_cold_spray.api.config.services.file_service import FileService
+from micro_cold_spray.api.config.services.format_service import FormatService
+from micro_cold_spray.api.config.services.registry_service import RegistryService
+from micro_cold_spray.api.config.services.schema_service import SchemaService
 
 __all__ = [
-    "ConfigCacheService",
-    "ConfigFileService",
-    "ConfigFormatService",
-    "ConfigRegistryService",
-    "ConfigSchemaService"
+    "CacheService",
+    "FileService",
+    "FormatService",
+    "RegistryService",
+    "SchemaService"
 ]

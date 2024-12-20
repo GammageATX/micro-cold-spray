@@ -1,5 +1,5 @@
-"""Configuration API endpoints."""
+"""Config endpoints package."""
 
-from micro_cold_spray.api.config.endpoints.config_endpoints import router
+from micro_cold_spray.api.config.endpoints.config_endpoints import ConfigRouter
 
-__all__ = ["router"]
+__all__ = ['ConfigRouter']

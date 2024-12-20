@@ -1,25 +1,31 @@
-"""Communication API package."""
+"""Communication module for hardware control."""
 
-from .service import CommunicationService
-from .router import router
-from .dependencies import get_service
-from .services import (
-    EquipmentService,
-    MotionService,
-    FeederService,
-    TagCacheService,
-    TagMappingService
-)
+from .communication_service import CommunicationService
+from .communication_router import router
+from .models.equipment import EquipmentState
+from .models.motion import Position, Velocity
+from .models.tags import TagValue, TagMetadata, TagCacheResponse
+from .services.equipment import EquipmentService
+from .services.feeder import FeederService
+from .services.motion import MotionService
+from .services.tag_cache import TagCacheService
+from .services.tag_mapping import TagMappingService
 
 __all__ = [
     # Core components
-    "CommunicationService",
-    "router",
-    "get_service",
+    'CommunicationService',
+    'router',
+    # Models
+    'EquipmentState',
+    'Position',
+    'Velocity',
+    'TagValue',
+    'TagMetadata',
+    'TagCacheResponse',
     # Services
-    "EquipmentService",
-    "MotionService",
-    "FeederService",
-    "TagCacheService",
-    "TagMappingService"
+    'EquipmentService',
+    'FeederService',
+    'MotionService',
+    'TagCacheService',
+    'TagMappingService'
 ]

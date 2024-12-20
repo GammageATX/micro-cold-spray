@@ -125,7 +125,7 @@ def test_health_check_success(test_client, mock_config_service):
 async def test_update_config_with_backup(test_client, tmp_path):
     """Test updating configuration with backup creation."""
     # Create a real config service with temp directory
-    from micro_cold_spray.api.config.services.config_file_service import ConfigFileService
+    from micro_cold_spray.api.config.services.file_service import ConfigFileService
     
     # Set up test directories
     test_config_dir = tmp_path / "test_config"

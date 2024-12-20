@@ -1,30 +1,18 @@
 """Hardware communication client components."""
 
 from .base import CommunicationClient
+from .mock import MockClient
 from .plc import PLCClient
 from .ssh import SSHClient
-from .mock import MockPLCClient, MockSSHClient
-from .factory import (
-    create_plc_client,
-    create_ssh_client,
-    create_client,
-    PLCClientType,
-    SSHClientType
-)
+from .factory import create_client
 
 __all__ = [
-    # Base classes
+    # Base class
     'CommunicationClient',
     # Client implementations
+    'MockClient',
     'PLCClient',
     'SSHClient',
-    'MockPLCClient',
-    'MockSSHClient',
-    # Factory functions
-    'create_plc_client',
-    'create_ssh_client',
-    'create_client',
-    # Type aliases
-    'PLCClientType',
-    'SSHClientType'
+    # Factory function
+    'create_client'
 ]

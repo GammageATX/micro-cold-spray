@@ -1,174 +1,197 @@
-"""Motion control service."""
+"""Motion control service implementation."""
 
-from typing import Dict
+from typing import Dict, Any, List, Tuple
+from fastapi import status
 from loguru import logger
 
-from ...base import ConfigurableService
-from ...base.exceptions import HardwareError, ValidationError
-from ...config import ConfigService
-from ..clients import PLCClient
+from micro_cold_spray.api.base.base_configurable import ConfigurableService
+from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.api.config import ConfigService
+from ..clients.base import BaseClient
+from ..models.motion import Position, Velocity
 
 
 class MotionService(ConfigurableService):
-    """Service for motion system control."""
+    """Service for controlling motion system."""
 
-    def __init__(self, plc_client: PLCClient, config_service: ConfigService):
+    def __init__(self, config_service: ConfigService, client: BaseClient):
         """Initialize motion service.
         
         Args:
-            plc_client: PLC client for hardware communication
             config_service: Configuration service instance
+            client: Hardware client instance
         """
         super().__init__(service_name="motion", config_service=config_service)
-        self._plc = plc_client
+        self._client = client
+        self._limits: Dict[str, Tuple[float, float]] = {}
 
-    async def move_axis(self, axis: str, position: float, velocity: float) -> None:
-        """Execute single axis move.
-        
-        Args:
-            axis: Axis to move (x, y, z)
-            position: Target position in mm
-            velocity: Move velocity in mm/s
-            
-        Raises:
-            HardwareError: If move fails
-            ValidationError: If parameters invalid
-        """
-        if axis not in ['x', 'y', 'z']:
-            raise ValidationError(
-                f"Invalid axis: {axis}",
-                {"axis": axis, "valid_axes": ['x', 'y', 'z']}
-            )
-            
-        # Get limits from hardware config
-        if not -1000 <= position <= 1000:
-            raise ValidationError(
-                "Position must be between -1000 and 1000 mm",
-                {"axis": axis, "position": position, "limits": (-1000, 1000)}
-            )
-            
-        if not 0 <= velocity <= 100:
-            raise ValidationError(
-                "Velocity must be between 0 and 100 mm/s",
-                {"axis": axis, "velocity": velocity, "limits": (0, 100)}
-            )
-            
+    async def _start(self) -> None:
+        """Initialize service."""
         try:
-            axis_num = {'x': '1', 'y': '2', 'z': '3'}[axis]
-            
-            # Set velocity and acceleration
-            await self._plc.write_tag(f"{axis.upper()}Axis.Velocity", velocity)
-            await self._plc.write_tag(f"{axis.upper()}Axis.Accel", 100)  # Fixed accel
-            await self._plc.write_tag(f"{axis.upper()}Axis.Decel", 100)  # Fixed decel
-            
-            # Set target position and trigger move
-            await self._plc.write_tag(f"AMC.Ax{axis_num}Position", position)
-            await self._plc.write_tag(f"Move{axis.upper()}", True)
-            
-            logger.info(f"Started {axis}-axis move to {position} mm")
-            
+            logger.debug("Loading motion configuration")
+            motion_config = await self._config_service.get_config("motion")
+            if not motion_config:
+                raise create_error(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    message="Motion configuration not found"
+                )
+                
+            # Load axis limits
+            self._limits = motion_config.get("limits", {})
+            logger.info("Motion service initialized")
         except Exception as e:
-            raise HardwareError(
-                f"Failed to move {axis} axis",
-                "motion",
-                {
-                    "axis": axis,
-                    "position": position,
-                    "velocity": velocity,
-                    "error": str(e)
-                }
+            logger.error(f"Failed to start motion service: {e}")
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=f"Failed to start motion service: {e}",
+                context={"error": str(e)},
+                cause=e
             )
 
-    async def move_xy(self, x_pos: float, y_pos: float, velocity: float) -> None:
-        """Execute coordinated XY move.
-        
-        Args:
-            x_pos: X target position in mm
-            y_pos: Y target position in mm
-            velocity: Move velocity in mm/s
-            
-        Raises:
-            HardwareError: If move fails
-            ValidationError: If parameters invalid
-        """
-        if not -1000 <= x_pos <= 1000:
-            raise ValidationError(
-                "X position must be between -1000 and 1000 mm",
-                {"axis": "x", "position": x_pos, "limits": (-1000, 1000)}
-            )
-            
-        if not -1000 <= y_pos <= 1000:
-            raise ValidationError(
-                "Y position must be between -1000 and 1000 mm",
-                {"axis": "y", "position": y_pos, "limits": (-1000, 1000)}
-            )
-            
-        if not 0 <= velocity <= 100:
-            raise ValidationError(
-                "Velocity must be between 0 and 100 mm/s",
-                {"velocity": velocity, "limits": (0, 100)}
-            )
-            
-        try:
-            # Set XY move parameters
-            await self._plc.write_tag("XYMove.XPosition", x_pos)
-            await self._plc.write_tag("XYMove.YPosition", y_pos)
-            await self._plc.write_tag("XYMove.LINVelocity", velocity)
-            await self._plc.write_tag("XYMove.LINRamps", 0.5)  # Fixed ramp time
-            
-            # Trigger coordinated move
-            await self._plc.write_tag("MoveXY", True)
-            logger.info(f"Started XY move to ({x_pos}, {y_pos}) mm")
-            
-        except Exception as e:
-            raise HardwareError(
-                "Failed to execute XY move",
-                "motion",
-                {
-                    "x_position": x_pos,
-                    "y_position": y_pos,
-                    "velocity": velocity,
-                    "error": str(e)
-                }
-            )
+    async def _stop(self) -> None:
+        """Cleanup service."""
+        self._limits.clear()
+        logger.info("Motion service stopped")
 
-    async def get_status(self) -> Dict[str, float]:
-        """Get current motion status.
+    async def get_position(self) -> Position:
+        """Get current position.
         
         Returns:
-            Motion system status
+            Current position
             
         Raises:
-            HardwareError: If status read fails
+            HTTPException: If position cannot be retrieved
         """
         try:
-            status = {
-                'position': {
-                    'x': await self._plc.read_tag("AMC.Ax1Position"),
-                    'y': await self._plc.read_tag("AMC.Ax2Position"),
-                    'z': await self._plc.read_tag("AMC.Ax3Position")
-                },
-                'moving': {
-                    'x': await self._plc.read_tag("XAxis.InProgress"),
-                    'y': await self._plc.read_tag("YAxis.InProgress"),
-                    'z': await self._plc.read_tag("ZAxis.InProgress")
-                },
-                'complete': {
-                    'x': await self._plc.read_tag("XAxis.Complete"),
-                    'y': await self._plc.read_tag("YAxis.Complete"),
-                    'z': await self._plc.read_tag("ZAxis.Complete")
-                },
-                'status': {
-                    'x': await self._plc.read_tag("AMC.Ax1AxisStatus"),
-                    'y': await self._plc.read_tag("AMC.Ax2AxisStatus"),
-                    'z': await self._plc.read_tag("AMC.Ax3AxisStatus")
-                }
-            }
-            return status
-            
+            return await self._client.get_position()
         except Exception as e:
-            raise HardwareError(
-                "Failed to get motion status",
-                "motion",
-                {"error": str(e)}
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message="Failed to get position",
+                context={"error": str(e)},
+                cause=e
             )
+
+    async def move_to(self, position: Position, velocity: Velocity = None) -> None:
+        """Move to position.
+        
+        Args:
+            position: Target position
+            velocity: Optional velocity override
+            
+        Raises:
+            HTTPException: If move fails or position out of limits
+        """
+        try:
+            # Validate position against limits
+            for axis, value in position.dict().items():
+                if axis in self._limits:
+                    min_val, max_val = self._limits[axis]
+                    if value < min_val or value > max_val:
+                        raise create_error(
+                            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            message=f"Position {value} out of limits for axis {axis}",
+                            context={
+                                "axis": axis,
+                                "value": value,
+                                "limits": self._limits[axis]
+                            }
+                        )
+                        
+            # Execute move
+            await self._client.move_to(position, velocity)
+        except Exception as e:
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message="Failed to move to position",
+                context={
+                    "position": position.dict(),
+                    "velocity": velocity.dict() if velocity else None,
+                    "error": str(e)
+                },
+                cause=e
+            )
+
+    async def move_path(self, path: List[Position], velocity: Velocity = None) -> None:
+        """Move through path.
+        
+        Args:
+            path: List of positions to move through
+            velocity: Optional velocity override
+            
+        Raises:
+            HTTPException: If move fails or any position out of limits
+        """
+        try:
+            # Validate all positions
+            for i, position in enumerate(path):
+                for axis, value in position.dict().items():
+                    if axis in self._limits:
+                        min_val, max_val = self._limits[axis]
+                        if value < min_val or value > max_val:
+                            raise create_error(
+                                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                message=f"Position {value} out of limits for axis {axis} at index {i}",
+                                context={
+                                    "axis": axis,
+                                    "value": value,
+                                    "limits": self._limits[axis],
+                                    "index": i
+                                }
+                            )
+                            
+            # Execute path move
+            await self._client.move_path(path, velocity)
+        except Exception as e:
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message="Failed to move through path",
+                context={
+                    "path_length": len(path),
+                    "velocity": velocity.dict() if velocity else None,
+                    "error": str(e)
+                },
+                cause=e
+            )
+
+    async def stop(self) -> None:
+        """Stop motion.
+        
+        Raises:
+            HTTPException: If stop fails
+        """
+        try:
+            await self._client.stop_motion()
+        except Exception as e:
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message="Failed to stop motion",
+                context={"error": str(e)},
+                cause=e
+            )
+
+    async def check_health(self) -> Dict[str, Any]:
+        """Check service health."""
+        try:
+            # Get current position
+            position = await self.get_position()
+            
+            # Check client connection
+            client_health = await self._client.check_health()
+            
+            return {
+                "status": "ok" if client_health["status"] == "ok" else "error",
+                "components": {
+                    "client": client_health["status"] == "ok",
+                    "position": position is not None,
+                    "limits": len(self._limits) > 0
+                },
+                "details": client_health.get("details")
+            }
+        except Exception as e:
+            error_msg = f"Failed to check motion health: {str(e)}"
+            logger.error(error_msg)
+            return {
+                "status": "error",
+                "error": error_msg
+            }

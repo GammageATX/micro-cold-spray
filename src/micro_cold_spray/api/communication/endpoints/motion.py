@@ -5,9 +5,9 @@ from typing import Dict, Any, List
 from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel, Field
 
-from ..service import CommunicationService
+from ..communication_service import CommunicationService
 from ..dependencies import get_service
-from ...base.exceptions import ServiceError, ValidationError
+from ...base import ServiceError, ValidationError
 
 
 class MotionResponse(BaseModel):

@@ -2,11 +2,12 @@
 
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
+from fastapi import status, HTTPException
 
-from ...config import ConfigService
-from ...messaging import MessagingService
-from ..exceptions import ValidationError
-from .base import BaseValidator
+from micro_cold_spray.api.config import ConfigService
+from micro_cold_spray.api.messaging import MessagingService
+from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.api.validation.validators.base_validator import BaseValidator
 
 
 @dataclass
@@ -49,7 +50,7 @@ class PatternValidator(BaseValidator):
             Dict containing validation results
             
         Raises:
-            ValidationError: If validation fails
+            HTTPException: If validation fails
         """
         errors = []
         warnings = []
@@ -57,8 +58,10 @@ class PatternValidator(BaseValidator):
         try:
             pattern_type = data.get("type")
             if not pattern_type:
-                errors.append("Pattern type not specified")
-                return {"valid": False, "errors": errors}
+                raise create_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message="Pattern type not specified"
+                )
 
             # Get pattern validation rules
             rules = self._rules["patterns"]
@@ -79,7 +82,11 @@ class PatternValidator(BaseValidator):
                 type_errors = await self._validate_spiral_pattern(data)
                 errors.extend(type_errors)
             else:
-                errors.append(f"Unknown pattern type: {pattern_type}")
+                raise create_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message="Unknown pattern type",
+                    context={"type": pattern_type}
+                )
 
             return {
                 "valid": len(errors) == 0,
@@ -88,7 +95,14 @@ class PatternValidator(BaseValidator):
             }
 
         except Exception as e:
-            raise ValidationError("Pattern validation failed", {"error": str(e)})
+            if isinstance(e, HTTPException):
+                raise e
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message="Pattern validation failed",
+                context={"error": str(e)},
+                cause=e
+            )
 
     async def _validate_pattern_bounds(
         self,
@@ -105,13 +119,19 @@ class PatternValidator(BaseValidator):
             List of error messages
             
         Raises:
-            ValidationError: If hardware config cannot be retrieved
+            HTTPException: If hardware config cannot be retrieved
         """
         errors = []
         try:
             # Get stage dimensions from hardware config
             hw_config = await self._config_service.get_config("hardware")
-            stage = hw_config["hardware"]["physical"]["stage"]["dimensions"]
+            if not hw_config or not hw_config.data:
+                raise create_error(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    message="Hardware configuration not found"
+                )
+                
+            stage = hw_config.data["hardware"]["physical"]["stage"]["dimensions"]
             
             # Calculate pattern bounds
             bounds = await self._calculate_pattern_bounds(pattern)
@@ -131,11 +151,18 @@ class PatternValidator(BaseValidator):
             # Check speed limits if specified
             if "speed" in pattern:
                 speed = pattern["speed"]
-                if speed > hw_config["hardware"]["safety"]["motion"]["max_speed"]:
+                if speed > hw_config.data["hardware"]["safety"]["motion"]["max_speed"]:
                     errors.append(rules["speed"]["message"])
                     
         except Exception as e:
-            raise ValidationError("Pattern bounds validation failed", {"error": str(e)})
+            if isinstance(e, HTTPException):
+                raise e
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Pattern bounds validation failed",
+                context={"error": str(e)},
+                cause=e
+            )
         return errors
 
     async def _validate_serpentine_pattern(self, data: Dict[str, Any]) -> List[str]:
