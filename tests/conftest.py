@@ -1,23 +1,21 @@
 """Root test configuration and shared fixtures."""
 
 import pytest
-from datetime import datetime
 import asyncio
-
-from micro_cold_spray.api.base.base_service import BaseService
+from datetime import datetime
+from typing import Generator
 
 
 @pytest.fixture(scope="session")
-def event_loop():
-    """Create event loop for tests.
-    
-    This overrides pytest-asyncio's event_loop fixture to ensure
-    we have a new loop for each test session.
-    """
-    policy = asyncio.get_event_loop_policy()
-    loop = policy.new_event_loop()
-    yield loop
-    loop.close()
+def event_loop_policy() -> Generator[asyncio.AbstractEventLoopPolicy, None, None]:
+    """Create event loop policy for Windows."""
+    try:
+        from asyncio import WindowsProactorEventLoopPolicy
+        policy = WindowsProactorEventLoopPolicy()
+        asyncio.set_event_loop_policy(policy)
+        yield policy
+    finally:
+        asyncio.set_event_loop_policy(None)
 
 
 @pytest.fixture
