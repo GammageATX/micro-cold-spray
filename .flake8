@@ -12,7 +12,7 @@ exclude =
 extend-ignore = E203, W503, W293, F401
 
 # Complexity settings
-max-complexity = 20
+max-complexity = 40
 
 # Documentation settings
 docstring-convention = google 

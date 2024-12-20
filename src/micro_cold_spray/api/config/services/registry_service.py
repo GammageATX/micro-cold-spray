@@ -1,13 +1,12 @@
 """Configuration registry service implementation."""
 
-from typing import Dict, List, Optional, Type, Set, Any
-from datetime import datetime
+from typing import Dict, List, Type, Set, Any
 from loguru import logger
 from fastapi import status
 
 from micro_cold_spray.api.base.base_service import BaseService
 from micro_cold_spray.api.base.base_errors import create_error
-from micro_cold_spray.api.config.models.config_models import ConfigData, ConfigMetadata
+from micro_cold_spray.api.config.models.config_models import ConfigData
 
 
 class ValidationResult:

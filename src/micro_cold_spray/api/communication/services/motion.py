@@ -7,8 +7,8 @@ from loguru import logger
 from micro_cold_spray.api.base.base_configurable import ConfigurableService
 from micro_cold_spray.api.base.base_errors import create_error
 from micro_cold_spray.api.config import ConfigService
-from ..clients.base import BaseClient
-from ..models.motion import Position, Velocity
+from micro_cold_spray.api.communication.clients.base import BaseClient
+from micro_cold_spray.api.communication.models.motion import Position, Velocity
 
 
 class MotionService(ConfigurableService):

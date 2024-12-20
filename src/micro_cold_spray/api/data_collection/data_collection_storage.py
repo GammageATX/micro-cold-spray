@@ -7,7 +7,7 @@ from loguru import logger
 from fastapi import status
 
 from micro_cold_spray.api.base.base_errors import create_error
-from .data_collection_models import SprayEvent
+from micro_cold_spray.api.data_collection.data_collection_models import SprayEvent
 
 
 class DataStorage(Protocol):

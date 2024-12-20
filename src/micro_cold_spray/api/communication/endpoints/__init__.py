@@ -1,8 +1,8 @@
 """Communication endpoint components."""
 
-from .equipment import router as equipment_router
-from .motion import router as motion_router
-from .tags import router as tags_router
+from micro_cold_spray.api.communication.endpoints.equipment import router as equipment_router
+from micro_cold_spray.api.communication.endpoints.motion import router as motion_router
+from micro_cold_spray.api.communication.endpoints.tags import router as tags_router
 
 __all__ = [
     'equipment_router',

@@ -5,7 +5,7 @@ from fastapi import status
 from loguru import logger
 
 from micro_cold_spray.api.base.base_errors import create_error
-from .communication_service import CommunicationService
+from micro_cold_spray.api.communication.communication_service import CommunicationService
 
 
 # Global service instance

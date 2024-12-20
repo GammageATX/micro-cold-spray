@@ -1,10 +1,10 @@
 """Hardware communication client components."""
 
-from .base import CommunicationClient
-from .mock import MockClient
-from .plc import PLCClient
-from .ssh import SSHClient
-from .factory import create_client
+from micro_cold_spray.api.communication.clients.base import CommunicationClient
+from micro_cold_spray.api.communication.clients.mock import MockClient
+from micro_cold_spray.api.communication.clients.plc import PLCClient
+from micro_cold_spray.api.communication.clients.ssh import SSHClient
+from micro_cold_spray.api.communication.clients.factory import create_client
 
 __all__ = [
     # Base class

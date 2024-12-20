@@ -1,14 +1,13 @@
 """Configuration API endpoints."""
 
 from typing import Dict, Any, List
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, status
 
 from micro_cold_spray.api.base.base_router import BaseRouter
 from micro_cold_spray.api.base.base_errors import create_error
 from micro_cold_spray.api.config.config_service import ConfigService
 from micro_cold_spray.api.config.models.config_models import (
     ConfigData,
-    ConfigMetadata,
     ConfigSchema,
     FormatMetadata
 )

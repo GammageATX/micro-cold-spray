@@ -8,8 +8,8 @@ from loguru import logger
 from micro_cold_spray.api.base.base_configurable import ConfigurableService
 from micro_cold_spray.api.base.base_errors import create_error
 from micro_cold_spray.api.config import ConfigService
-from .tag_mapping import TagMappingService
-from ..models.tags import TagValue, TagMetadata, TagCacheResponse
+from micro_cold_spray.api.communication.services.tag_mapping import TagMappingService
+from micro_cold_spray.api.communication.models.tags import TagValue, TagMetadata, TagCacheResponse
 
 
 class TagCacheService(ConfigurableService):

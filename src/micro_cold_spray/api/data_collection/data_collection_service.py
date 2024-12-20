@@ -7,8 +7,8 @@ from fastapi import status
 
 from micro_cold_spray.api.base.base_errors import create_error
 from micro_cold_spray.api.base.base_configurable import ConfigurableService
-from .data_collection_models import SprayEvent
-from .data_collection_storage import DataStorage
+from micro_cold_spray.api.data_collection.data_collection_models import SprayEvent
+from micro_cold_spray.api.data_collection.data_collection_storage import DataStorage
 
 
 class DataCollectionService(ConfigurableService):

@@ -1,15 +1,15 @@
 """Communication data models."""
 
-from .equipment import (
+from micro_cold_spray.api.communication.models.equipment import (
     GasFlowRequest, GasValveRequest, VacuumPumpRequest,
     GateValveRequest, ShutterRequest, FeederRequest
 )
-from .motion import (
+from micro_cold_spray.api.communication.models.motion import (
     SingleAxisMoveRequest,
     CoordinatedMoveRequest,
     MotionStatus
 )
-from .tags import (
+from micro_cold_spray.api.communication.models.tags import (
     TagMetadata,
     TagValue,
     TagRequest,
