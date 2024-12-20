@@ -1,6 +1,7 @@
 """Configuration service tests."""
 
 import pytest
+from typing import AsyncGenerator
 from fastapi import status
 from unittest.mock import AsyncMock, patch
 
@@ -13,7 +14,7 @@ class TestConfigService(BaseConfigTest):
     """Configuration service tests."""
 
     @pytest.fixture
-    async def config_service(self) -> ConfigService:
+    async def config_service(self) -> AsyncGenerator[ConfigService, None]:
         """Create config service fixture."""
         service = ConfigService()
         await service.start()

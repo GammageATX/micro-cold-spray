@@ -1,135 +1,126 @@
-"""Test base configurable module."""
+"""Test configurable service module."""
 
 import pytest
-from pydantic import BaseModel, Field
-from fastapi import status
+from fastapi import FastAPI, status
+from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
-from micro_cold_spray.api.base.base_configurable import ConfigurableService
-from micro_cold_spray.api.base.base_service import BaseService
-
-
-class TestConfig(BaseModel):
-    """Test configuration model."""
-    value: int = Field(ge=0)
-    name: str = Field(default="test")
-    required_field: str
+from micro_cold_spray.api.base.base_app import create_app
+from tests.test_base.conftest import (
+    TestConfig,
+    TestConfigurableService,
+    InvalidConfigurableService
+)
 
 
-class TestConfigurableService(BaseService, ConfigurableService[TestConfig]):
-    """Test configurable service implementation."""
-    
-    def __init__(self, name: str = None):
-        """Initialize test service."""
-        BaseService.__init__(self, name)
-        ConfigurableService.__init__(self, TestConfig)
-        
-    async def _start(self) -> None:
-        """Start implementation."""
-        self._is_running = True
-        
-    async def _stop(self) -> None:
-        """Stop implementation."""
-        self._is_running = False
+def test_configurable_service():
+    """Test configurable service initialization."""
+    app = create_app(
+        service_class=TestConfigurableService,
+        title="Test API"
+    )
+    with TestClient(app) as client:
+        response = client.get("/health")
+        assert response.status_code == 200
+        data = response.json()
+        # Service should not be healthy until configured
+        assert not data["is_healthy"]
+        assert data["services"][0]["status"] == "unconfigured"
 
 
-class TestConfigurable:
-    """Test configurable service."""
+def test_invalid_service():
+    """Test invalid configurable service."""
+    with pytest.raises(TypeError) as exc:
+        create_app(
+            service_class=InvalidConfigurableService,
+            title="Test API"
+        )
+    assert "config_model" in str(exc.value)
 
-    @pytest.mark.asyncio
-    async def test_configure_valid_dict(self):
-        """Test configuring with valid dictionary."""
-        service = TestConfigurableService()
-        config_data = {
-            "value": 123,
+
+def test_configure_service():
+    """Test service configuration."""
+    app = create_app(
+        service_class=TestConfigurableService,
+        title="Test API"
+    )
+    config = TestConfig(
+        value=42,
+        name="test",
+        required_field="required"
+    )
+    with TestClient(app) as client:
+        # Configure service
+        response = client.post("/config", json=config.model_dump())
+        assert response.status_code == 200
+        data = response.json()
+        assert data["value"] == 42
+        assert data["name"] == "test"
+        assert data["required_field"] == "required"
+
+        # Check health after configuration
+        response = client.get("/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["is_healthy"]
+        assert data["services"][0]["status"] == "running"
+
+
+def test_invalid_configuration():
+    """Test invalid configuration handling."""
+    app = create_app(
+        service_class=TestConfigurableService,
+        title="Test API"
+    )
+    with TestClient(app) as client:
+        # Missing required field
+        response = client.post("/config", json={
+            "value": 42,
+            "name": "test"
+        })
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        data = response.json()
+        assert "detail" in data
+        assert "required_field" in str(data["detail"])
+
+        # Invalid value type
+        response = client.post("/config", json={
+            "value": "not_a_number",
             "name": "test",
-            "required_field": "test"
-        }
-        await service.configure(config_data)
-        assert service.config.value == 123
-        assert service.config.name == "test"
-        assert service.config.required_field == "test"
-        assert service.is_configured
+            "required_field": "required"
+        })
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        data = response.json()
+        assert "detail" in data
+        assert "value" in str(data["detail"])
 
-    @pytest.mark.asyncio
-    async def test_configure_valid_model(self):
-        """Test configuring with valid model."""
-        service = TestConfigurableService()
-        config = TestConfig(value=123, name="test", required_field="test")
-        await service.configure(config)
-        assert service.config == config
-        assert service.is_configured
+        # Check service remains unconfigured
+        response = client.get("/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert not data["is_healthy"]
+        assert data["services"][0]["status"] == "unconfigured"
 
-    @pytest.mark.asyncio
-    async def test_configure_invalid_value(self):
-        """Test configuring with invalid value."""
-        service = TestConfigurableService()
-        with pytest.raises(Exception) as exc:
-            await service.configure({"value": -1, "required_field": "test"})
-        assert exc.value.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
-        assert "validation failed" in str(exc.value.detail["message"])
-        assert exc.value.detail["context"]["service"] == service.name
-        assert len(exc.value.detail["context"]["errors"]) > 0
 
-    @pytest.mark.asyncio
-    async def test_configure_missing_required(self):
-        """Test configuring with missing required field."""
-        service = TestConfigurableService()
-        with pytest.raises(Exception) as exc:
-            await service.configure({"value": 123})
-        assert exc.value.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
-        assert "validation failed" in str(exc.value.detail["message"])
-        assert exc.value.detail["context"]["service"] == service.name
-        assert len(exc.value.detail["context"]["errors"]) > 0
+def test_reconfigure_service():
+    """Test reconfiguring service."""
+    app = create_app(
+        service_class=TestConfigurableService,
+        title="Test API"
+    )
+    config = TestConfig(
+        value=42,
+        name="test",
+        required_field="required"
+    )
+    with TestClient(app) as client:
+        # Initial configuration
+        response = client.post("/config", json=config.model_dump())
+        assert response.status_code == 200
 
-    @pytest.mark.asyncio
-    async def test_configure_invalid_type(self):
-        """Test configuring with invalid type."""
-        service = TestConfigurableService()
-        with pytest.raises(Exception) as exc:
-            await service.configure(["not", "a", "dict"])
-        assert exc.value.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
-        assert "Invalid configuration type" in str(exc.value.detail["message"])
-        assert exc.value.detail["context"]["service"] == service.name
-        assert exc.value.detail["context"]["expected"] == "TestConfig"
-
-    @pytest.mark.asyncio
-    async def test_configure_while_running(self):
-        """Test configuring while service is running."""
-        service = TestConfigurableService()
-        await service.start()
-        with pytest.raises(Exception) as exc:
-            await service.configure({"value": 123, "required_field": "test"})
-        assert exc.value.status_code == status.HTTP_409_CONFLICT
-        assert "Cannot configure while service is running" in str(exc.value.detail["message"])
-        assert exc.value.detail["context"]["service"] == service.name
-
-    @pytest.mark.asyncio
-    async def test_config_not_configured(self):
-        """Test accessing config when not configured."""
-        service = TestConfigurableService()
-        with pytest.raises(Exception) as exc:
-            _ = service.config
-        assert exc.value.status_code == status.HTTP_409_CONFLICT
-        assert "Service is not configured" in str(exc.value.detail["message"])
-        assert exc.value.detail["context"]["service"] == service.name
-
-    @pytest.mark.asyncio
-    async def test_is_configured(self):
-        """Test is_configured property."""
-        service = TestConfigurableService()
-        assert not service.is_configured
-        await service.configure({"value": 123, "required_field": "test"})
-        assert service.is_configured
-
-    @pytest.mark.asyncio
-    async def test_inheritance_error(self):
-        """Test using ConfigurableService without BaseService."""
-        class InvalidService(ConfigurableService[TestConfig]):
-            def __init__(self):
-                super().__init__(TestConfig)
-
-        service = InvalidService()
-        with pytest.raises(Exception) as exc:
-            await service.configure({"value": 123, "required_field": "test"})
-        assert exc.value.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-        assert "must be used with BaseService" in str(exc.value.detail["message"])
+        # Try to reconfigure
+        config.value = 84
+        response = client.post("/config", json=config.model_dump())
+        assert response.status_code == status.HTTP_409_CONFLICT
+        data = response.json()
+        assert "already configured" in data["detail"]["message"]
