@@ -1,0 +1,278 @@
+2024-12-20 14:49:40 | INFO     | __main__:main:50 - Starting configuration service...
+2024-12-20 14:49:40 | INFO     | __main__:main:61 - Host: 0.0.0.0
+2024-12-20 14:49:40 | INFO     | __main__:main:62 - Port: 8000
+2024-12-20 14:49:40 | INFO     | __main__:main:63 - Reload: False
+2024-12-20 14:49:40 | INFO     | micro_cold_spray.api.config.services.cache_service:_start:42 - Cache cleared on start
+2024-12-20 14:49:40 | INFO     | micro_cold_spray.api.config.services.base_config_service:start:50 - cache service started
+2024-12-20 14:49:40 | INFO     | micro_cold_spray.api.config.config_service:startup:52 - Started cache service
+2024-12-20 14:49:40 | INFO     | micro_cold_spray.api.config.services.base_config_service:start:50 - file service started
+2024-12-20 14:49:40 | INFO     | micro_cold_spray.api.config.config_service:startup:52 - Started file service
+2024-12-20 14:49:40 | INFO     | micro_cold_spray.api.config.services.format_service:_start:26 - Format service started
+2024-12-20 14:49:40 | INFO     | micro_cold_spray.api.config.services.base_config_service:start:50 - format service started
+2024-12-20 14:49:40 | INFO     | micro_cold_spray.api.config.config_service:startup:52 - Started format service
+2024-12-20 14:49:40 | INFO     | micro_cold_spray.api.config.services.registry_service:_start:22 - Registry service started
+2024-12-20 14:49:40 | INFO     | micro_cold_spray.api.config.services.base_config_service:start:50 - registry service started
+2024-12-20 14:49:40 | INFO     | micro_cold_spray.api.config.config_service:startup:52 - Started registry service
+2024-12-20 14:49:40 | INFO     | micro_cold_spray.api.config.services.schema_service:_start:23 - Schema service started
+2024-12-20 14:49:40 | INFO     | micro_cold_spray.api.config.services.base_config_service:start:50 - schema service started
+2024-12-20 14:49:40 | INFO     | micro_cold_spray.api.config.config_service:startup:52 - Started schema service
+2024-12-20 14:50:01 | INFO     | micro_cold_spray.api.config.services.cache_service:_stop:47 - Cache cleared on stop
+2024-12-20 14:50:01 | INFO     | micro_cold_spray.api.config.services.base_config_service:stop:71 - cache service stopped
+2024-12-20 14:50:01 | INFO     | micro_cold_spray.api.config.config_service:shutdown:66 - Stopped cache service
+2024-12-20 14:50:01 | INFO     | micro_cold_spray.api.config.services.base_config_service:stop:71 - file service stopped
+2024-12-20 14:50:01 | INFO     | micro_cold_spray.api.config.config_service:shutdown:66 - Stopped file service
+2024-12-20 14:50:01 | INFO     | micro_cold_spray.api.config.services.format_service:_stop:30 - Format service stopped
+2024-12-20 14:50:01 | INFO     | micro_cold_spray.api.config.services.base_config_service:stop:71 - format service stopped
+2024-12-20 14:50:01 | INFO     | micro_cold_spray.api.config.config_service:shutdown:66 - Stopped format service
+2024-12-20 14:50:01 | INFO     | micro_cold_spray.api.config.services.registry_service:_stop:27 - Registry service stopped
+2024-12-20 14:50:01 | INFO     | micro_cold_spray.api.config.services.base_config_service:stop:71 - registry service stopped
+2024-12-20 14:50:01 | INFO     | micro_cold_spray.api.config.config_service:shutdown:66 - Stopped registry service
+2024-12-20 14:50:01 | INFO     | micro_cold_spray.api.config.services.schema_service:_stop:28 - Schema service stopped
+2024-12-20 14:50:01 | INFO     | micro_cold_spray.api.config.services.base_config_service:stop:71 - schema service stopped
+2024-12-20 14:50:01 | INFO     | micro_cold_spray.api.config.config_service:shutdown:66 - Stopped schema service
+2024-12-20 14:51:08 | INFO     | __main__:main:114 - Starting configuration service...
+2024-12-20 14:51:08 | INFO     | __main__:main:125 - Host: 0.0.0.0
+2024-12-20 14:51:08 | INFO     | __main__:main:126 - Port: 8000
+2024-12-20 14:51:08 | INFO     | __main__:main:127 - Reload: False
+2024-12-20 14:51:08 | ERROR    | __main__:load_configurations:105 - Failed to load configurations: 503: File service not running
+2024-12-20 14:51:08 | ERROR    | __main__:main:142 - Failed to start configuration service: 503: File service not running
+Traceback (most recent call last):
+
+  File "c:\Projects\micro-cold-spray\src\micro_cold_spray\api\config\__main__.py", line 147, in <module>
+    main()
+
+> File "c:\Projects\micro-cold-spray\src\micro_cold_spray\api\config\__main__.py", line 130, in main
+    asyncio.run(load_configurations(app))
+
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\runners.py", line 194, in run
+    return runner.run(main)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 721, in run_until_complete
+    return future.result()
+
+  File "c:\Projects\micro-cold-spray\src\micro_cold_spray\api\config\__main__.py", line 55, in load_configurations
+    config_files = app.state.file.list_configs()
+
+  File "C:\Projects\micro-cold-spray\src\micro_cold_spray\api\config\services\file_service.py", line 140, in list_configs
+    raise create_error(
+
+fastapi.exceptions.HTTPException: 503: File service not running
+2024-12-20 14:51:58 | INFO     | __main__:main:147 - Starting configuration service...
+2024-12-20 14:51:58 | INFO     | __main__:main:158 - Host: 0.0.0.0
+2024-12-20 14:51:58 | INFO     | __main__:main:159 - Port: 8000
+2024-12-20 14:51:58 | INFO     | __main__:main:160 - Reload: False
+2024-12-20 14:51:58 | INFO     | __main__:start_services:54 - Starting services...
+2024-12-20 14:51:58 | INFO     | micro_cold_spray.api.config.services.base_config_service:start:50 - file service started
+2024-12-20 14:51:58 | INFO     | micro_cold_spray.api.config.services.cache_service:_start:42 - Cache cleared on start
+2024-12-20 14:51:58 | INFO     | micro_cold_spray.api.config.services.base_config_service:start:50 - cache service started
+2024-12-20 14:51:58 | INFO     | micro_cold_spray.api.config.services.format_service:_start:26 - Format service started
+2024-12-20 14:51:58 | INFO     | micro_cold_spray.api.config.services.base_config_service:start:50 - format service started
+2024-12-20 14:51:58 | INFO     | micro_cold_spray.api.config.services.registry_service:_start:22 - Registry service started
+2024-12-20 14:51:58 | INFO     | micro_cold_spray.api.config.services.base_config_service:start:50 - registry service started
+2024-12-20 14:51:58 | INFO     | micro_cold_spray.api.config.services.schema_service:_start:23 - Schema service started
+2024-12-20 14:51:58 | INFO     | micro_cold_spray.api.config.services.base_config_service:start:50 - schema service started
+2024-12-20 14:51:58 | INFO     | __main__:start_services:63 - All services started successfully
+2024-12-20 14:51:58 | INFO     | __main__:load_configurations:79 - Found 0 configuration files
+2024-12-20 14:51:58 | INFO     | __main__:load_configurations:107 - Found 7 schema files
+2024-12-20 14:51:58 | DEBUG    | __main__:load_configurations:115 - Loading schema: application
+2024-12-20 14:51:58 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: application
+2024-12-20 14:51:58 | INFO     | __main__:load_configurations:121 - Loaded schema: application
+2024-12-20 14:51:58 | DEBUG    | __main__:load_configurations:115 - Loading schema: file_format
+2024-12-20 14:51:58 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: file_format
+2024-12-20 14:51:58 | INFO     | __main__:load_configurations:121 - Loaded schema: file_format
+2024-12-20 14:51:58 | DEBUG    | __main__:load_configurations:115 - Loading schema: hardware
+2024-12-20 14:51:58 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: hardware
+2024-12-20 14:51:58 | INFO     | __main__:load_configurations:121 - Loaded schema: hardware
+2024-12-20 14:51:58 | DEBUG    | __main__:load_configurations:115 - Loading schema: messaging
+2024-12-20 14:51:58 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: messaging
+2024-12-20 14:51:58 | INFO     | __main__:load_configurations:121 - Loaded schema: messaging
+2024-12-20 14:51:58 | DEBUG    | __main__:load_configurations:115 - Loading schema: process
+2024-12-20 14:51:58 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: process
+2024-12-20 14:51:58 | INFO     | __main__:load_configurations:121 - Loaded schema: process
+2024-12-20 14:51:58 | DEBUG    | __main__:load_configurations:115 - Loading schema: state
+2024-12-20 14:51:58 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: state
+2024-12-20 14:51:58 | INFO     | __main__:load_configurations:121 - Loaded schema: state
+2024-12-20 14:51:58 | DEBUG    | __main__:load_configurations:115 - Loading schema: tags
+2024-12-20 14:51:58 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: tags
+2024-12-20 14:51:58 | INFO     | __main__:load_configurations:121 - Loaded schema: tags
+2024-12-20 14:53:33 | INFO     | __main__:main:51 - Starting configuration service...
+2024-12-20 14:53:33 | INFO     | __main__:main:62 - Host: 0.0.0.0
+2024-12-20 14:53:33 | INFO     | __main__:main:63 - Port: 8000
+2024-12-20 14:53:33 | INFO     | __main__:main:64 - Reload: False
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.config_service:startup:111 - Starting services...
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.services.base_config_service:start:50 - file service started
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.services.cache_service:_start:42 - Cache cleared on start
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.services.base_config_service:start:50 - cache service started
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.services.format_service:_start:26 - Format service started
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.services.base_config_service:start:50 - format service started
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.services.registry_service:_start:22 - Registry service started
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.services.base_config_service:start:50 - registry service started
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.services.schema_service:_start:23 - Schema service started
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.services.base_config_service:start:50 - schema service started
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.config_service:startup:117 - All services started successfully
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:29 - Found 0 configuration files
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:57 - Found 7 schema files
+2024-12-20 14:53:33 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:65 - Loading schema: application
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: application
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:71 - Loaded schema: application
+2024-12-20 14:53:33 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:65 - Loading schema: file_format
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: file_format
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:71 - Loaded schema: file_format
+2024-12-20 14:53:33 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:65 - Loading schema: hardware
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: hardware
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:71 - Loaded schema: hardware
+2024-12-20 14:53:33 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:65 - Loading schema: messaging
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: messaging
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:71 - Loaded schema: messaging
+2024-12-20 14:53:33 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:65 - Loading schema: process
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: process
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:71 - Loaded schema: process
+2024-12-20 14:53:33 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:65 - Loading schema: state
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: state
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:71 - Loaded schema: state
+2024-12-20 14:53:33 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:65 - Loading schema: tags
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: tags
+2024-12-20 14:53:33 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:71 - Loaded schema: tags
+2024-12-20 14:53:47 | INFO     | micro_cold_spray.api.config.config_service:shutdown:130 - Stopping services...
+2024-12-20 14:53:47 | INFO     | micro_cold_spray.api.config.services.schema_service:_stop:28 - Schema service stopped
+2024-12-20 14:53:47 | INFO     | micro_cold_spray.api.config.services.base_config_service:stop:71 - schema service stopped
+2024-12-20 14:53:47 | INFO     | micro_cold_spray.api.config.services.registry_service:_stop:27 - Registry service stopped
+2024-12-20 14:53:47 | INFO     | micro_cold_spray.api.config.services.base_config_service:stop:71 - registry service stopped
+2024-12-20 14:53:47 | INFO     | micro_cold_spray.api.config.services.format_service:_stop:30 - Format service stopped
+2024-12-20 14:53:47 | INFO     | micro_cold_spray.api.config.services.base_config_service:stop:71 - format service stopped
+2024-12-20 14:53:47 | INFO     | micro_cold_spray.api.config.services.cache_service:_stop:47 - Cache cleared on stop
+2024-12-20 14:53:47 | INFO     | micro_cold_spray.api.config.services.base_config_service:stop:71 - cache service stopped
+2024-12-20 14:53:47 | INFO     | micro_cold_spray.api.config.services.base_config_service:stop:71 - file service stopped
+2024-12-20 14:53:47 | INFO     | micro_cold_spray.api.config.config_service:shutdown:136 - All services stopped successfully
+2024-12-20 14:55:43 | INFO     | __main__:main:51 - Starting configuration service...
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.config_service:create_config_service:106 - Using config path: C:\Projects\micro-cold-spray\config
+2024-12-20 14:55:43 | INFO     | __main__:main:62 - Host: 0.0.0.0
+2024-12-20 14:55:43 | INFO     | __main__:main:63 - Port: 8000
+2024-12-20 14:55:43 | INFO     | __main__:main:64 - Reload: False
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.config_service:startup:120 - Starting services...
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.services.base_config_service:start:50 - file service started
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.services.cache_service:_start:42 - Cache cleared on start
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.services.base_config_service:start:50 - cache service started
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.services.format_service:_start:26 - Format service started
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.services.base_config_service:start:50 - format service started
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.services.registry_service:_start:22 - Registry service started
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.services.base_config_service:start:50 - registry service started
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.services.schema_service:_start:23 - Schema service started
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.services.base_config_service:start:50 - schema service started
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.config_service:startup:126 - All services started successfully
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:34 - Found 6 configuration files
+2024-12-20 14:55:43 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:43 - Loading configuration: application
+2024-12-20 14:55:43 | ERROR    | micro_cold_spray.api.config.config_service:load_configurations:55 - Failed to load configuration application.yaml: 'str' object has no attribute 'copy'
+2024-12-20 14:55:43 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:43 - Loading configuration: file_format
+2024-12-20 14:55:43 | ERROR    | micro_cold_spray.api.config.config_service:load_configurations:55 - Failed to load configuration file_format.yaml: 'str' object has no attribute 'copy'
+2024-12-20 14:55:43 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:43 - Loading configuration: hardware
+2024-12-20 14:55:43 | ERROR    | micro_cold_spray.api.config.config_service:load_configurations:55 - Failed to load configuration hardware.yaml: 'str' object has no attribute 'copy'
+2024-12-20 14:55:43 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:43 - Loading configuration: process
+2024-12-20 14:55:43 | ERROR    | micro_cold_spray.api.config.config_service:load_configurations:55 - Failed to load configuration process.yaml: 'str' object has no attribute 'copy'
+2024-12-20 14:55:43 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:43 - Loading configuration: state
+2024-12-20 14:55:43 | ERROR    | micro_cold_spray.api.config.config_service:load_configurations:55 - Failed to load configuration state.yaml: 'str' object has no attribute 'copy'
+2024-12-20 14:55:43 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:43 - Loading configuration: tags
+2024-12-20 14:55:43 | ERROR    | micro_cold_spray.api.config.config_service:load_configurations:55 - Failed to load configuration tags.yaml: 'str' object has no attribute 'copy'
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:62 - Found 7 schema files
+2024-12-20 14:55:43 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:70 - Loading schema: application
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: application
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:76 - Loaded schema: application
+2024-12-20 14:55:43 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:70 - Loading schema: file_format
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: file_format
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:76 - Loaded schema: file_format
+2024-12-20 14:55:43 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:70 - Loading schema: hardware
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: hardware
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:76 - Loaded schema: hardware
+2024-12-20 14:55:43 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:70 - Loading schema: messaging
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: messaging
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:76 - Loaded schema: messaging
+2024-12-20 14:55:43 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:70 - Loading schema: process
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: process
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:76 - Loaded schema: process
+2024-12-20 14:55:43 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:70 - Loading schema: state
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: state
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:76 - Loaded schema: state
+2024-12-20 14:55:43 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:70 - Loading schema: tags
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: tags
+2024-12-20 14:55:43 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:76 - Loaded schema: tags
+2024-12-20 14:57:30 | INFO     | micro_cold_spray.api.config.config_service:shutdown:139 - Stopping services...
+2024-12-20 14:57:30 | INFO     | micro_cold_spray.api.config.services.schema_service:_stop:28 - Schema service stopped
+2024-12-20 14:57:30 | INFO     | micro_cold_spray.api.config.services.base_config_service:stop:71 - schema service stopped
+2024-12-20 14:57:30 | INFO     | micro_cold_spray.api.config.services.registry_service:_stop:27 - Registry service stopped
+2024-12-20 14:57:30 | INFO     | micro_cold_spray.api.config.services.base_config_service:stop:71 - registry service stopped
+2024-12-20 14:57:30 | INFO     | micro_cold_spray.api.config.services.format_service:_stop:30 - Format service stopped
+2024-12-20 14:57:30 | INFO     | micro_cold_spray.api.config.services.base_config_service:stop:71 - format service stopped
+2024-12-20 14:57:30 | INFO     | micro_cold_spray.api.config.services.cache_service:_stop:47 - Cache cleared on stop
+2024-12-20 14:57:30 | INFO     | micro_cold_spray.api.config.services.base_config_service:stop:71 - cache service stopped
+2024-12-20 14:57:30 | INFO     | micro_cold_spray.api.config.services.base_config_service:stop:71 - file service stopped
+2024-12-20 14:57:30 | INFO     | micro_cold_spray.api.config.config_service:shutdown:145 - All services stopped successfully
+2024-12-20 14:58:40 | INFO     | __main__:main:51 - Starting configuration service...
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.config_service:create_config_service:109 - Using config path: C:\Projects\micro-cold-spray\config
+2024-12-20 14:58:40 | INFO     | __main__:main:62 - Host: 0.0.0.0
+2024-12-20 14:58:40 | INFO     | __main__:main:63 - Port: 8001
+2024-12-20 14:58:40 | INFO     | __main__:main:64 - Reload: False
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.config_service:startup:123 - Starting services...
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.services.base_config_service:start:50 - file service started
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.services.cache_service:_start:42 - Cache cleared on start
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.services.base_config_service:start:50 - cache service started
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.services.format_service:_start:31 - Format service started
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.services.base_config_service:start:50 - format service started
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.services.registry_service:_start:22 - Registry service started
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.services.base_config_service:start:50 - registry service started
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.services.schema_service:_start:23 - Schema service started
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.services.base_config_service:start:50 - schema service started
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.config_service:startup:129 - All services started successfully
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:34 - Found 6 configuration files
+2024-12-20 14:58:40 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:43 - Loading configuration: application
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.services.registry_service:register:52 - Registered configuration: application
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:55 - Loaded and cached configuration: application
+2024-12-20 14:58:40 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:43 - Loading configuration: file_format
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.services.registry_service:register:52 - Registered configuration: file_format
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:55 - Loaded and cached configuration: file_format
+2024-12-20 14:58:40 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:43 - Loading configuration: hardware
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.services.registry_service:register:52 - Registered configuration: hardware
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:55 - Loaded and cached configuration: hardware
+2024-12-20 14:58:40 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:43 - Loading configuration: process
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.services.registry_service:register:52 - Registered configuration: process
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:55 - Loaded and cached configuration: process
+2024-12-20 14:58:40 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:43 - Loading configuration: state
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.services.registry_service:register:52 - Registered configuration: state
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:55 - Loaded and cached configuration: state
+2024-12-20 14:58:40 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:43 - Loading configuration: tags
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.services.registry_service:register:52 - Registered configuration: tags
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:55 - Loaded and cached configuration: tags
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:65 - Found 7 schema files
+2024-12-20 14:58:40 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:73 - Loading schema: application
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: application
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:79 - Loaded schema: application
+2024-12-20 14:58:40 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:73 - Loading schema: file_format
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: file_format
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:79 - Loaded schema: file_format
+2024-12-20 14:58:40 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:73 - Loading schema: hardware
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: hardware
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:79 - Loaded schema: hardware
+2024-12-20 14:58:40 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:73 - Loading schema: messaging
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: messaging
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:79 - Loaded schema: messaging
+2024-12-20 14:58:40 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:73 - Loading schema: process
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: process
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:79 - Loaded schema: process
+2024-12-20 14:58:40 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:73 - Loading schema: state
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: state
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:79 - Loaded schema: state
+2024-12-20 14:58:40 | DEBUG    | micro_cold_spray.api.config.config_service:load_configurations:73 - Loading schema: tags
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.services.schema_service:register_schema:53 - Registered schema: tags
+2024-12-20 14:58:40 | INFO     | micro_cold_spray.api.config.config_service:load_configurations:79 - Loaded schema: tags
+2024-12-20 15:00:03 | INFO     | micro_cold_spray.api.config.services.registry_service:register:52 - Registered configuration: test
+2024-12-20 15:00:36 | INFO     | micro_cold_spray.api.config.config_service:shutdown:142 - Stopping services...
+2024-12-20 15:00:36 | INFO     | micro_cold_spray.api.config.services.schema_service:_stop:28 - Schema service stopped
+2024-12-20 15:00:36 | INFO     | micro_cold_spray.api.config.services.base_config_service:stop:71 - schema service stopped
+2024-12-20 15:00:36 | INFO     | micro_cold_spray.api.config.services.registry_service:_stop:27 - Registry service stopped
+2024-12-20 15:00:36 | INFO     | micro_cold_spray.api.config.services.base_config_service:stop:71 - registry service stopped
+2024-12-20 15:00:36 | INFO     | micro_cold_spray.api.config.services.format_service:_stop:35 - Format service stopped
+2024-12-20 15:00:36 | INFO     | micro_cold_spray.api.config.services.base_config_service:stop:71 - format service stopped
+2024-12-20 15:00:36 | INFO     | micro_cold_spray.api.config.services.cache_service:_stop:47 - Cache cleared on stop
+2024-12-20 15:00:36 | INFO     | micro_cold_spray.api.config.services.base_config_service:stop:71 - cache service stopped
+2024-12-20 15:00:36 | INFO     | micro_cold_spray.api.config.services.base_config_service:stop:71 - file service stopped
+2024-12-20 15:00:36 | INFO     | micro_cold_spray.api.config.config_service:shutdown:148 - All services stopped successfully

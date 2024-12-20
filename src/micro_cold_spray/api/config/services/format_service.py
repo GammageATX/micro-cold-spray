@@ -3,7 +3,6 @@
 import json
 import yaml
 from typing import Dict, Any
-from fastapi import status
 from loguru import logger
 
 from micro_cold_spray.api.base import create_error
@@ -16,9 +15,15 @@ class FormatService(BaseConfigService):
     def __init__(self):
         """Initialize service."""
         super().__init__(name="format")
-        self._formatters = {
-            "json": self._format_json,
-            "yaml": self._format_yaml
+        self.formatters = {
+            "json": {
+                "parse": self._parse_json,
+                "format": self._format_json
+            },
+            "yaml": {
+                "parse": self._parse_yaml,
+                "format": self._format_yaml
+            }
         }
 
     async def _start(self) -> None:
@@ -29,6 +34,23 @@ class FormatService(BaseConfigService):
         """Stop implementation."""
         logger.info("Format service stopped")
 
+    def _parse_json(self, data: str) -> Dict[str, Any]:
+        """Parse JSON string.
+        
+        Args:
+            data: JSON string to parse
+            
+        Returns:
+            Dict[str, Any]: Parsed data
+        """
+        try:
+            return json.loads(data)
+        except json.JSONDecodeError as e:
+            raise create_error(
+                status_code=400,
+                message=f"Invalid JSON: {str(e)}"
+            )
+
     def _format_json(self, data: Dict[str, Any]) -> str:
         """Format data as JSON.
         
@@ -37,16 +59,30 @@ class FormatService(BaseConfigService):
             
         Returns:
             str: Formatted JSON string
-            
-        Raises:
-            HTTPException: If formatting fails
         """
         try:
             return json.dumps(data, indent=2)
         except Exception as e:
             raise create_error(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=500,
                 message=f"Failed to format JSON: {str(e)}"
+            )
+
+    def _parse_yaml(self, data: str) -> Dict[str, Any]:
+        """Parse YAML string.
+        
+        Args:
+            data: YAML string to parse
+            
+        Returns:
+            Dict[str, Any]: Parsed data
+        """
+        try:
+            return yaml.safe_load(data)
+        except yaml.YAMLError as e:
+            raise create_error(
+                status_code=400,
+                message=f"Invalid YAML: {str(e)}"
             )
 
     def _format_yaml(self, data: Dict[str, Any]) -> str:
@@ -57,85 +93,73 @@ class FormatService(BaseConfigService):
             
         Returns:
             str: Formatted YAML string
-            
-        Raises:
-            HTTPException: If formatting fails
         """
         try:
             return yaml.dump(data, default_flow_style=False)
         except Exception as e:
             raise create_error(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=500,
                 message=f"Failed to format YAML: {str(e)}"
             )
 
-    def format(self, data: Dict[str, Any], format_type: str = "json") -> str:
-        """Format configuration data.
+    def parse(self, data: str, format_type: str) -> Dict[str, Any]:
+        """Parse formatted string.
         
         Args:
-            data: Configuration data to format
-            format_type: Format type (json or yaml)
+            data: String to parse
+            format_type: Format type ("json" or "yaml")
             
         Returns:
-            str: Formatted configuration string
-            
-        Raises:
-            HTTPException: If service not running or formatting fails
+            Dict[str, Any]: Parsed data
         """
         if not self.is_running:
             raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                status_code=503,
                 message="Format service not running"
             )
-
-        formatter = self._formatters.get(format_type.lower())
-        if not formatter:
+        
+        if format_type not in self.formatters:
             raise create_error(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                message=f"Unsupported format type: {format_type}"
+                status_code=400,
+                message=f"Unsupported format: {format_type}"
             )
+        
+        return self.formatters[format_type]["parse"](data)
 
-        return formatter(data)
-
-    def parse(self, content: str, format_type: str = "json") -> Dict[str, Any]:
-        """Parse formatted configuration string.
+    def format(self, data: Dict[str, Any], format_type: str) -> str:
+        """Format data as string.
         
         Args:
-            content: Formatted configuration string
-            format_type: Format type (json or yaml)
+            data: Data to format
+            format_type: Format type ("json" or "yaml")
             
         Returns:
-            Dict[str, Any]: Parsed configuration data
-            
-        Raises:
-            HTTPException: If service not running or parsing fails
+            str: Formatted string
         """
         if not self.is_running:
             raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                status_code=503,
                 message="Format service not running"
             )
-
-        try:
-            if format_type.lower() == "json":
-                return json.loads(content)
-            elif format_type.lower() == "yaml":
-                return yaml.safe_load(content)
-            else:
-                raise create_error(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    message=f"Unsupported format type: {format_type}"
-                )
-        except Exception as e:
+        
+        if format_type not in self.formatters:
             raise create_error(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                message=f"Failed to parse {format_type}: {str(e)}"
+                status_code=400,
+                message=f"Unsupported format: {format_type}"
             )
+        
+        return self.formatters[format_type]["format"](data)
 
-    async def health(self) -> dict:
-        """Get service health status."""
-        health = await super().health()
-        health.update({
-            "supported_formats": list(self._formatters.keys())
+    async def health(self) -> Dict[str, Any]:
+        """Get service health status.
+        
+        Returns:
+            Dict[str, Any]: Health status
+        """
+        health_status = await super().health()
+        health_status.update({
+            "details": {
+                "supported_formats": list(self.formatters.keys())
+            }
         })
-        return health
+        return health_status

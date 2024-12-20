@@ -1,9 +1,7 @@
-"""Configuration file service implementation."""
+"""File service for managing configuration files."""
 
 import os
-import json
-from typing import Dict, Any
-from fastapi import status
+from typing import List, Dict, Any
 from loguru import logger
 
 from micro_cold_spray.api.base import create_error
@@ -11,159 +9,182 @@ from micro_cold_spray.api.config.services.base_config_service import BaseConfigS
 
 
 class FileService(BaseConfigService):
-    """Configuration file service implementation."""
-
+    """Service for managing configuration files."""
+    
     def __init__(self, base_path: str = None):
-        """Initialize service.
+        """Initialize file service.
         
         Args:
-            base_path: Base path for config files
+            base_path: Base path for configuration files
         """
-        super().__init__(name="file")
-        self.base_path = base_path or os.path.join(os.getcwd(), "config")
-
-    async def _start(self) -> None:
-        """Start implementation."""
+        super().__init__("file")
+        self.base_path = base_path or os.getcwd()
+        
+    async def _start(self):
+        """Start file service."""
+        # Create base path if it doesn't exist
         if not os.path.exists(self.base_path):
             os.makedirs(self.base_path)
             logger.info(f"Created config directory: {self.base_path}")
-
-    async def _stop(self) -> None:
-        """Stop implementation."""
+    
+    async def _stop(self):
+        """Stop file service."""
         pass
-
-    def read(self, filename: str) -> Dict[str, Any]:
-        """Read configuration from file.
-        
-        Args:
-            filename: Configuration filename
-            
-        Returns:
-            Dict[str, Any]: Configuration data
-            
-        Raises:
-            HTTPException: If service not running or file error
-        """
-        if not self.is_running:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="File service not running"
-            )
-
-        filepath = os.path.join(self.base_path, filename)
-        if not os.path.exists(filepath):
-            raise create_error(
-                status_code=status.HTTP_404_NOT_FOUND,
-                message=f"Configuration file not found: {filename}"
-            )
-
-        try:
-            with open(filepath, 'r') as f:
-                return json.load(f)
-        except json.JSONDecodeError as e:
-            raise create_error(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                message=f"Invalid JSON in configuration file: {str(e)}"
-            )
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=f"Failed to read configuration file: {str(e)}"
-            )
-
-    def write(self, filename: str, data: Dict[str, Any]) -> None:
-        """Write configuration to file.
-        
-        Args:
-            filename: Configuration filename
-            data: Configuration data to write
-            
-        Raises:
-            HTTPException: If service not running or file error
-        """
-        if not self.is_running:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="File service not running"
-            )
-
-        filepath = os.path.join(self.base_path, filename)
-        try:
-            with open(filepath, 'w') as f:
-                json.dump(data, f, indent=2)
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=f"Failed to write configuration file: {str(e)}"
-            )
-
-    def delete(self, filename: str) -> None:
-        """Delete configuration file.
-        
-        Args:
-            filename: Configuration filename
-            
-        Raises:
-            HTTPException: If service not running or file error
-        """
-        if not self.is_running:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="File service not running"
-            )
-
-        filepath = os.path.join(self.base_path, filename)
-        if not os.path.exists(filepath):
-            raise create_error(
-                status_code=status.HTTP_404_NOT_FOUND,
-                message=f"Configuration file not found: {filename}"
-            )
-
-        try:
-            os.remove(filepath)
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=f"Failed to delete configuration file: {str(e)}"
-            )
-
-    def list_configs(self) -> list[str]:
+    
+    def list_configs(self) -> List[str]:
         """List available configuration files.
         
         Returns:
-            list[str]: List of configuration filenames
-            
-        Raises:
-            HTTPException: If service not running
+            List[str]: List of configuration filenames
         """
         if not self.is_running:
             raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                status_code=503,
                 message="File service not running"
             )
-
+        
         try:
-            return [f for f in os.listdir(self.base_path) if f.endswith('.json')]
+            # Get all YAML files in base path
+            files = []
+            for filename in os.listdir(self.base_path):
+                if filename.endswith(('.yaml', '.yml')):
+                    files.append(filename)
+            return files
+            
         except Exception as e:
+            logger.error(f"Failed to list configs: {e}")
             raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=f"Failed to list configuration files: {str(e)}"
+                status_code=500,
+                message=f"Failed to list configs: {str(e)}"
             )
-
-    async def health(self) -> dict:
-        """Get service health status."""
-        health = await super().health()
+    
+    def read(self, filename: str) -> Dict[str, Any]:
+        """Read configuration file.
+        
+        Args:
+            filename: Name of file to read
+            
+        Returns:
+            Dict[str, Any]: Configuration data
+        """
+        if not self.is_running:
+            raise create_error(
+                status_code=503,
+                message="File service not running"
+            )
+        
         try:
-            config_count = len(self.list_configs()) if self.is_running else 0
-            health.update({
-                "config_count": config_count,
-                "base_path": self.base_path
+            # Get full path
+            filepath = os.path.join(self.base_path, filename)
+            
+            # Check file exists
+            if not os.path.exists(filepath):
+                raise create_error(
+                    status_code=404,
+                    message=f"File not found: {filename}"
+                )
+            
+            # Read file
+            with open(filepath, 'r') as f:
+                return f.read()
+                
+        except Exception as e:
+            logger.error(f"Failed to read config {filename}: {e}")
+            raise create_error(
+                status_code=500,
+                message=f"Failed to read config {filename}: {str(e)}"
+            )
+    
+    def write(self, filename: str, data: str):
+        """Write configuration file.
+        
+        Args:
+            filename: Name of file to write
+            data: Configuration data to write
+        """
+        if not self.is_running:
+            raise create_error(
+                status_code=503,
+                message="File service not running"
+            )
+        
+        try:
+            # Get full path
+            filepath = os.path.join(self.base_path, filename)
+            
+            # Write file
+            with open(filepath, 'w') as f:
+                f.write(data)
+                
+        except Exception as e:
+            logger.error(f"Failed to write config {filename}: {e}")
+            raise create_error(
+                status_code=500,
+                message=f"Failed to write config {filename}: {str(e)}"
+            )
+    
+    def delete(self, filename: str):
+        """Delete configuration file.
+        
+        Args:
+            filename: Name of file to delete
+        """
+        if not self.is_running:
+            raise create_error(
+                status_code=503,
+                message="File service not running"
+            )
+        
+        try:
+            # Get full path
+            filepath = os.path.join(self.base_path, filename)
+            
+            # Check file exists
+            if not os.path.exists(filepath):
+                raise create_error(
+                    status_code=404,
+                    message=f"File not found: {filename}"
+                )
+            
+            # Delete file
+            os.remove(filepath)
+            
+        except Exception as e:
+            logger.error(f"Failed to delete config {filename}: {e}")
+            raise create_error(
+                status_code=500,
+                message=f"Failed to delete config {filename}: {str(e)}"
+            )
+    
+    async def health(self) -> Dict[str, Any]:
+        """Get service health status.
+        
+        Returns:
+            Dict[str, Any]: Health status
+        """
+        status = await super().health()
+        
+        try:
+            # Check if base path exists and is writable
+            path_exists = os.path.exists(self.base_path)
+            path_writable = os.access(self.base_path, os.W_OK)
+            
+            status.update({
+                "details": {
+                    "base_path": self.base_path,
+                    "path_exists": path_exists,
+                    "path_writable": path_writable,
+                    "config_count": len(self.list_configs()) if self.is_running else 0
+                }
             })
+            
         except (OSError, PermissionError) as e:
-            logger.error(f"Failed to get config count: {e}")
-            health.update({
-                "config_count": 0,
-                "base_path": self.base_path,
-                "error": str(e)
+            logger.error(f"Health check failed: {e}")
+            status.update({
+                "is_healthy": False,
+                "details": {
+                    "error": str(e)
+                }
             })
-        return health
+            
+        return status
