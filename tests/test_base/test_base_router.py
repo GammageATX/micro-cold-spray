@@ -49,6 +49,18 @@ def client(router):
     @router.post("/validate")
     async def validate_endpoint(data: TestModel):
         return data
+
+    @router.put("/test")
+    async def put_endpoint():
+        return {"method": "PUT"}
+
+    @router.delete("/test")
+    async def delete_endpoint():
+        return {"method": "DELETE"}
+
+    @router.patch("/test")
+    async def patch_endpoint():
+        return {"method": "PATCH"}
         
     app.include_router(router)
     return TestClient(app)
@@ -98,6 +110,25 @@ class TestBaseRouter:
         assert data["context"]["services"][0]["is_healthy"] is False
 
     @pytest.mark.asyncio
+    async def test_health_check_with_error(self, client, router):
+        """Test health check with service that raises error."""
+        class ErrorService(MockBaseService):
+            async def health(self):
+                raise ValueError("Test error")
+
+        service = ErrorService()
+        router.services.append(service)
+        
+        response = client.get("/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["is_healthy"] is False
+        assert data["status"] == "error"
+        assert len(data["context"]["services"]) == 1
+        assert data["context"]["services"][0]["is_healthy"] is False
+        assert "Test error" in data["context"]["services"][0]["context"]["error"]
+
+    @pytest.mark.asyncio
     async def test_router_error_handling(self, client):
         """Test error handling."""
         response = client.get("/error")
@@ -112,3 +143,24 @@ class TestBaseRouter:
         assert response.status_code == 422
         assert "detail" in response.json()
         assert "greater than or equal to 0" in response.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_router_put_method(self, client):
+        """Test PUT method."""
+        response = client.put("/test")
+        assert response.status_code == 200
+        assert response.json()["method"] == "PUT"
+
+    @pytest.mark.asyncio
+    async def test_router_delete_method(self, client):
+        """Test DELETE method."""
+        response = client.delete("/test")
+        assert response.status_code == 200
+        assert response.json()["method"] == "DELETE"
+
+    @pytest.mark.asyncio
+    async def test_router_patch_method(self, client):
+        """Test PATCH method."""
+        response = client.patch("/test")
+        assert response.status_code == 200
+        assert response.json()["method"] == "PATCH"

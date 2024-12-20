@@ -56,3 +56,20 @@ class TestRegistry:
         clear_services()
         with pytest.raises(ValueError):
             get_service(service.name)
+
+    def test_clear_services_error_handling(self, monkeypatch):
+        """Test error handling in clear_services."""
+        service = MockBaseService()
+        register_service(service)
+        
+        def mock_stop(*args, **kwargs):
+            raise RuntimeError("Stop error")
+            
+        monkeypatch.setattr(service, "stop", mock_stop)
+        
+        # Should not raise an exception even if service.stop fails
+        clear_services()
+        
+        # Verify services were cleared despite the error
+        with pytest.raises(ValueError):
+            get_service(service.name)
