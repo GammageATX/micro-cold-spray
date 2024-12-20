@@ -33,3 +33,12 @@
 2024-12-20 15:09:02 | INFO     | micro_cold_spray.api.state.state_service:_stop:52 - State service stopped
 2024-12-20 15:09:02 | INFO     | micro_cold_spray.api.config.services.base_config_service:stop:71 - state service stopped
 2024-12-20 15:09:02 | INFO     | micro_cold_spray.api.state.state_app:shutdown:98 - State service stopped successfully
+2024-12-20 15:09:19 | INFO     | __main__:main:50 - Starting state service...
+2024-12-20 15:09:19 | INFO     | __main__:main:61 - Host: 0.0.0.0
+2024-12-20 15:09:19 | INFO     | __main__:main:62 - Port: 8004
+2024-12-20 15:09:19 | INFO     | __main__:main:63 - Reload: False
+2024-12-20 15:09:19 | INFO     | micro_cold_spray.api.state.state_app:startup:84 - Starting state service...
+2024-12-20 15:09:21 | WARNING  | micro_cold_spray.api.state.state_service:_sync_with_config_service:126 - Config service health check failed: All connection attempts failed
+2024-12-20 15:09:21 | INFO     | micro_cold_spray.api.state.state_service:_start:39 - State service started with 6 states
+2024-12-20 15:09:21 | INFO     | micro_cold_spray.api.config.services.base_config_service:start:50 - state service started
+2024-12-20 15:09:21 | INFO     | micro_cold_spray.api.state.state_app:startup:86 - State service started successfully
