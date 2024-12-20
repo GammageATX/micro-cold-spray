@@ -1,43 +1,28 @@
-"""Base-specific test fixtures."""
+"""Test fixtures for base tests."""
 
 import pytest
-from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from httpx import AsyncClient, ASGITransport
 
+from micro_cold_spray.api.base.base_app import BaseApp
 from tests.conftest import MockBaseService
-from micro_cold_spray.api.base import BaseApp
 
 
 @pytest.fixture
-def test_app(base_service: MockBaseService) -> FastAPI:
-    """Create test app with base service."""
-    @asynccontextmanager
-    async def lifespan(app: FastAPI):
-        app.state.service = base_service
-        yield
-
+async def test_app():
+    """Create test app."""
     app = BaseApp(
-        service_class=type(base_service),
+        service_class=MockBaseService,
         title="Test API",
-        service_name="test_service"
+        service_name="test"
     )
-    app.router.lifespan = lifespan
-    return app
+    async with app.router.lifespan_context(app):
+        yield app
 
 
 @pytest.fixture
-def test_app_with_cors(base_service: MockBaseService) -> FastAPI:
-    """Create test app with CORS enabled."""
-    @asynccontextmanager
-    async def lifespan(app: FastAPI):
-        app.state.service = base_service
-        yield
-
-    app = BaseApp(
-        service_class=type(base_service),
-        title="Test API",
-        service_name="test_service",
-        enable_cors=True
-    )
-    app.router.lifespan = lifespan
-    return app
+async def async_client(test_app: FastAPI):
+    """Create async test client."""
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client

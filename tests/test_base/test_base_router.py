@@ -29,6 +29,15 @@ async def base_service():
         pass  # Ignore stop errors in teardown
 
 
+@pytest.fixture
+def test_model():
+    """Create test model class."""
+    class TestModel(BaseModel):
+        """Test model."""
+        value: int = Field(ge=0)
+    return TestModel
+
+
 class TestBaseRouter:
     """Test base router."""
 
@@ -104,13 +113,10 @@ class TestBaseRouter:
         assert "timestamp" in data["detail"]
 
     @pytest.mark.asyncio
-    async def test_router_validation_error(self, test_app: FastAPI, async_client):
+    async def test_router_validation_error(self, test_app: FastAPI, async_client, test_model):
         """Test validation error handling."""
-        class TestModel(BaseModel):
-            value: int = Field(ge=0)
-
         @test_app.post("/validate")
-        async def validate_endpoint(data: TestModel):
+        async def validate_endpoint(data: test_model):
             return data
 
         response = await async_client.post("/validate", json={"value": -1})
@@ -121,3 +127,61 @@ class TestBaseRouter:
             "greater than or equal to 0" in error["msg"]
             for error in data["detail"]
         )
+
+    @pytest.mark.asyncio
+    async def test_get_decorator(self, router: BaseRouter, async_client):
+        """Test GET decorator."""
+        @router.get("/test")
+        async def test_endpoint():
+            return {"message": "test"}
+
+        response = await async_client.get("/test")
+        assert response.status_code == 200
+        assert response.json() == {"message": "test"}
+
+    @pytest.mark.asyncio
+    async def test_post_decorator(self, router: BaseRouter, async_client):
+        """Test POST decorator."""
+        @router.post("/test")
+        async def test_endpoint(data: dict):
+            return data
+
+        test_data = {"message": "test"}
+        response = await async_client.post("/test", json=test_data)
+        assert response.status_code == 200
+        assert response.json() == test_data
+
+    @pytest.mark.asyncio
+    async def test_put_decorator(self, router: BaseRouter, async_client):
+        """Test PUT decorator."""
+        @router.put("/test")
+        async def test_endpoint(data: dict):
+            return data
+
+        test_data = {"message": "test"}
+        response = await async_client.put("/test", json=test_data)
+        assert response.status_code == 200
+        assert response.json() == test_data
+
+    @pytest.mark.asyncio
+    async def test_delete_decorator(self, router: BaseRouter, async_client):
+        """Test DELETE decorator."""
+        @router.delete("/test")
+        async def test_endpoint():
+            return {"message": "deleted"}
+
+        response = await async_client.delete("/test")
+        assert response.status_code == 200
+        assert response.json() == {"message": "deleted"}
+
+    @pytest.mark.asyncio
+    async def test_patch_decorator(self, router: BaseRouter, async_client):
+        """Test PATCH decorator."""
+        @router.patch("/test")
+        async def test_endpoint(data: dict):
+            return data
+
+        test_data = {"message": "test"}
+        response = await async_client.patch("/test", json=test_data)
+        assert response.status_code == 200
+        assert response.json() == test_data
