@@ -1,186 +1,127 @@
 # Micro Cold Spray Development Guidelines
 
-## Overview
+## Core Concepts
 
-Expert system for Python, FastAPI, and industrial automation, focusing on a modular
-service-based architecture with clear separation of concerns.
+1. **Independent Services**
+    * Each service is self-contained
+    * No inheritance between services
+    * Clear API boundaries
+    * Simple state management
 
-## Core Architecture
+2. **Error Handling**
 
-### Base Module Components
+    ```python
+    from micro_cold_spray.api.base import create_error
+    from fastapi import status
 
-1. **BaseService**: Service lifecycle management
-    * Async start/stop operations
-    * Running state tracking
-    * Health monitoring
-    * Minimal interface for subclassing
-
-2. **ConfigurableService**: Configuration management mixin
-    * Pydantic model validation
-    * Type-safe configuration
-    * Runtime configuration validation
-    * Service state validation
-
-3. **ErrorHandling** (base_errors)
-    * Extends FastAPI's HTTPException
-    * Adds timestamps to all errors
-    * Optional context dictionary
-    * Exception cause chaining
-    * Example:
-
-        ```python
-        raise create_error(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            message="Invalid configuration",
-            context={"service": service_name},
-            cause=original_error
-        )
-        ```
-
-4. **ServiceRegistry** (base_registry)
-    * Service registration
-    * Type-safe service lookup
-    * Name-based service lookup
-    * Lifecycle cleanup
-
-5. **BaseRouter**: FastAPI router with health endpoint
-    * Pydantic response models
-    * Service health monitoring
-    * Aggregate health status
-
-6. **BaseApp**: FastAPI application factory
-    * Service lifecycle management
-    * Built-in CORS support
-    * Health check endpoint
-    * FastAPI dependency injection
-
-### Component Relationships
-
-* BaseApp manages service lifecycle via FastAPI lifespan
-* ConfigurableService mixes into BaseService
-* All components use FastAPI's built-in features where possible
-* ServiceRegistry manages service instances
-* BaseRouter provides health monitoring
-
-### Service Architecture
-
-1. **Service Hierarchy**
-    * BaseService: Core lifecycle management
-    * ConfigurableService: Optional configuration mixin
-    * Specific Services: Inherit and implement core methods
-        * DataCollection
-        * State
-        * Messaging
-        * Process
-        * Hardware
-
-2. **Service Lifecycle**
-    * Initialization: Basic setup
-    * Configuration: Optional Pydantic model validation
-    * Start: Resource acquisition
-    * Operation: Service-specific tasks
-    * Stop: Resource cleanup
-    * Error Handling: FastAPI HTTP exceptions
-
-3. **Service Management**
-    * FastAPI dependency injection
-    * Async context managers
-    * Type-safe service registry
-    * Health monitoring
-
-## Development Guidelines
-
-### Error Handling and Validation
-
-1. **HTTP Status Codes**
-    * 400 Bad Request: Client errors
-    * 401 Unauthorized: Authentication required
-    * 403 Forbidden: Permission denied
-    * 404 Not Found: Resource doesn't exist
-    * 409 Conflict: Resource state conflict
-    * 422 Unprocessable Entity: Validation errors
-    * 500 Internal Server Error: Unexpected errors
-    * 503 Service Unavailable: Service issues
-
-2. **Error Response Format**
-
-    ```json
-    {
-        "detail": {
-            "message": "Human readable error message",
-            "timestamp": "ISO format timestamp",
-            "context": {
-                "service": "Service name or type",
-                "error": "Original error message"
-            }
-        }
-    }
+    raise create_error(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        message="Invalid configuration"
+    )
     ```
 
-3. **Error Handling Principles**
-    * Use FastAPI's exception handling
-    * Add timestamps and context
-    * Chain original exceptions
-    * Use consistent format
+    Common Status Codes:
+    * 400: Bad Request - Client errors
+    * 404: Not Found - Resource doesn't exist
+    * 409: Conflict - Resource state conflict
+    * 422: Validation - Invalid input data
+    * 500: Internal Error - Unexpected errors
+    * 503: Unavailable - Service issues
+
+## Service Implementation
+
+### Basic Structure
+
+```python
+from fastapi import FastAPI, status
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+def create_service() -> FastAPI:
+    """Create a new service instance."""
+    app = FastAPI(title="Service Name")
+    
+    # CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_headers=["*"],
+    )
+    
+    # State management
+    state = {"is_running": False}
+    
+    @app.get("/health")
+    async def health():
+        return {"status": "running" if state["is_running"] else "stopped"}
+    
+    @app.post("/start")
+    async def start():
+        if state["is_running"]:
+            raise create_error(
+                status_code=status.HTTP_409_CONFLICT,
+                message="Service already running"
+            )
+        state["is_running"] = True
+        return {"status": "started"}
+    
+    return app
+```
+
+### Required Components
+
+1. **Core Elements**
+    * FastAPI application
+    * Health check endpoint
+    * State management
+    * Error handling
+    * CORS middleware
+
+2. **State Management**
+    * Simple dictionary for state
+    * Clear state transitions
+    * Error tracking
+    * Status reporting
+
+## Development Best Practices
 
 ### Code Style
 
-1. **Python Best Practices**
-    * Leverage FastAPI features
-    * Use Pydantic models
+1. **Python Standards**
     * Type hints everywhere
     * Async/await for I/O
     * Clear naming
+    * Complete docstrings
 
-2. **Module Structure**
-    * Minimal base classes
-    * FastAPI dependency injection
+2. **Service Organization**
+    * One service per module
     * Clear separation of concerns
+    * Minimal dependencies
+    * Self-contained logic
 
-### Testing Guidelines
+### Testing
 
 1. **Test Structure**
-    * pytest for testing
-    * FastAPI test client
-    * Async test support
-    * Mocked services
+
+    ```python
+    async def test_service_health(client):
+        response = await client.get("/health")
+        assert response.status_code == 200
+        assert "status" in response.json()
+    ```
 
 2. **Test Organization**
-    * Root fixtures in conftest.py
-    * Service-specific fixtures
-    * FastAPI test client fixtures
-
-3. **Test Patterns**
-    * Mock service implementations
-    * FastAPI dependency overrides
-    * Async test functions
-    * Health check validation
-
-### Database Guidelines
-
-1. **Data Management**
-    * PostgreSQL with asyncpg
-    * YAML configuration
-    * FastAPI dependency injection
-    * Connection pooling
-
-2. **File Organization**
-    * Configuration in `config/`
-    * Data in organized subdirectories
-    * Clear separation of concerns
-
-3. **Database Operations**
-    * Async operations
-    * FastAPI dependencies
-    * Proper error handling
-    * Transaction management
+    * One test file per service
+    * Clear test names
+    * Independent test cases
+    * Proper cleanup
 
 ## Dependencies
 
-* FastAPI: Core framework
+* FastAPI: Web framework
 * Pydantic: Data validation
-* asyncpg: PostgreSQL driver
-* PyYAML: Configuration
 * pytest: Testing
+* httpx: HTTP client
 * loguru: Logging
   
