@@ -5,9 +5,9 @@ from fastapi import status
 from loguru import logger
 
 from micro_cold_spray.api.base.base_errors import create_error
-from .base import CommunicationClient
-from .mock import MockClient
-from .plc import PLCClient
+from micro_cold_spray.api.communication.clients.base import CommunicationClient
+from micro_cold_spray.api.communication.clients.mock import MockClient
+from micro_cold_spray.api.communication.clients.plc import PLCClient
 
 
 def create_client(client_type: str, config: Dict[str, Any]) -> CommunicationClient:

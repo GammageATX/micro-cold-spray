@@ -7,7 +7,7 @@ from fastapi import status
 from loguru import logger
 
 from micro_cold_spray.api.base.base_errors import create_error
-from .base import CommunicationClient
+from micro_cold_spray.api.communication.clients.base import CommunicationClient
 
 
 class SSHClient(CommunicationClient):

@@ -1,15 +1,15 @@
 """Tag management endpoints."""
 
 from typing import Dict, Any, List
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, status
 from datetime import datetime
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
-from ..models.tags import TagSubscription, TagMappingUpdateRequest
-from ..communication_service import CommunicationService
-from ..dependencies import get_service
-from ...base import ServiceError, ValidationError
+from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.api.communication.models.tags import TagSubscription, TagMappingUpdateRequest
+from micro_cold_spray.api.communication.communication_service import CommunicationService
+from micro_cold_spray.api.communication.dependencies import get_service
 
 
 class TagResponse(BaseModel):
@@ -122,6 +122,7 @@ async def get_tag_value(
 ):
     """Get tag value."""
     try:
+        logger.debug(f"Reading value for tag {tag_id}")
         # Get tag value
         value = await service.tag_service.read_tag(tag_id)
         
@@ -132,20 +133,34 @@ async def get_tag_value(
             timestamp=datetime.now()
         )
         
-    except ValidationError as e:
-        raise HTTPException(
+    except ValueError as e:
+        error_msg = f"Tag {tag_id} not found"
+        logger.error(error_msg)
+        raise create_error(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
+            message=error_msg,
+            context={"tag_id": tag_id},
+            cause=e
         )
-    except ServiceError as e:
-        raise HTTPException(
+    except ConnectionError as e:
+        error_msg = f"Tag service error reading tag {tag_id}"
+        logger.error(error_msg)
+        raise create_error(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e)
+            message=error_msg,
+            context={"tag_id": tag_id},
+            cause=e
         )
     except Exception as e:
-        raise HTTPException(
+        if isinstance(e, create_error):
+            raise e
+        error_msg = f"Unexpected error reading tag {tag_id}"
+        logger.error(f"{error_msg}: {str(e)}")
+        raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            message=error_msg,
+            context={"tag_id": tag_id},
+            cause=e
         )
 
 
@@ -159,6 +174,7 @@ async def get_tag_value(
 async def list_tags(service: CommunicationService = Depends(get_service)):
     """List available tags."""
     try:
+        logger.debug("Listing available tags")
         # Get tag list
         tag_list = await service.tag_service.list_tags()
         
@@ -168,15 +184,23 @@ async def list_tags(service: CommunicationService = Depends(get_service)):
             timestamp=datetime.now()
         )
         
-    except ServiceError as e:
-        raise HTTPException(
+    except ConnectionError as e:
+        error_msg = "Tag service error listing tags"
+        logger.error(error_msg)
+        raise create_error(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e)
+            message=error_msg,
+            cause=e
         )
     except Exception as e:
-        raise HTTPException(
+        if isinstance(e, create_error):
+            raise e
+        error_msg = "Unexpected error listing tags"
+        logger.error(f"{error_msg}: {str(e)}")
+        raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            message=error_msg,
+            cause=e
         )
 
 
@@ -196,6 +220,7 @@ async def write_tag_value(
 ):
     """Write tag value."""
     try:
+        logger.debug(f"Writing value {request.value} to tag {request.tag_id}")
         # Write tag value
         await service.tag_service.write_tag(
             tag_id=request.tag_id,
@@ -209,19 +234,33 @@ async def write_tag_value(
         )
         
     except ValidationError as e:
-        raise HTTPException(
+        error_msg = f"Invalid write parameters for tag {request.tag_id}"
+        logger.error(error_msg)
+        raise create_error(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(e)
+            message=error_msg,
+            context={"request": request.dict()},
+            cause=e
         )
-    except ServiceError as e:
-        raise HTTPException(
+    except ConnectionError as e:
+        error_msg = f"Tag service error writing to tag {request.tag_id}"
+        logger.error(error_msg)
+        raise create_error(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e)
+            message=error_msg,
+            context={"request": request.dict()},
+            cause=e
         )
     except Exception as e:
-        raise HTTPException(
+        if isinstance(e, create_error):
+            raise e
+        error_msg = f"Unexpected error writing to tag {request.tag_id}"
+        logger.error(f"{error_msg}: {str(e)}")
+        raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            message=error_msg,
+            context={"request": request.dict()},
+            cause=e
         )
 
 
@@ -239,6 +278,7 @@ async def subscribe_to_tag(
 ):
     """Subscribe to tag updates."""
     try:
+        logger.debug(f"Subscribing to tag {tag_id}")
         # Subscribe to tag
         await service.tag_service.subscribe_to_tag(tag_id)
         
@@ -248,20 +288,34 @@ async def subscribe_to_tag(
             timestamp=datetime.now()
         )
         
-    except ValidationError as e:
-        raise HTTPException(
+    except ValueError as e:
+        error_msg = f"Tag {tag_id} not found"
+        logger.error(error_msg)
+        raise create_error(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
+            message=error_msg,
+            context={"tag_id": tag_id},
+            cause=e
         )
-    except ServiceError as e:
-        raise HTTPException(
+    except ConnectionError as e:
+        error_msg = f"Tag service error subscribing to tag {tag_id}"
+        logger.error(error_msg)
+        raise create_error(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e)
+            message=error_msg,
+            context={"tag_id": tag_id},
+            cause=e
         )
     except Exception as e:
-        raise HTTPException(
+        if isinstance(e, create_error):
+            raise e
+        error_msg = f"Unexpected error subscribing to tag {tag_id}"
+        logger.error(f"{error_msg}: {str(e)}")
+        raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            message=error_msg,
+            context={"tag_id": tag_id},
+            cause=e
         )
 
 
@@ -272,22 +326,37 @@ async def unsubscribe_from_tags(
 ) -> Dict[str, Any]:
     """Unsubscribe from tag updates."""
     try:
+        logger.debug(f"Unsubscribing from tags: {request.tags}")
         await service.tag_cache.unsubscribe(request.tags, request.callback_url)
         return {"status": "ok"}
     except ValidationError as e:
-        raise HTTPException(
+        error_msg = "Invalid unsubscribe parameters"
+        logger.error(error_msg)
+        raise create_error(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(e)
+            message=error_msg,
+            context={"request": request.dict()},
+            cause=e
         )
-    except ServiceError as e:
-        raise HTTPException(
+    except ConnectionError as e:
+        error_msg = "Tag service error unsubscribing from tags"
+        logger.error(error_msg)
+        raise create_error(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e)
+            message=error_msg,
+            context={"request": request.dict()},
+            cause=e
         )
     except Exception as e:
-        raise HTTPException(
+        if isinstance(e, create_error):
+            raise e
+        error_msg = "Unexpected error unsubscribing from tags"
+        logger.error(f"{error_msg}: {str(e)}")
+        raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            message=error_msg,
+            context={"request": request.dict()},
+            cause=e
         )
 
 
@@ -297,22 +366,34 @@ async def get_tag_mappings(
 ) -> Dict[str, Any]:
     """Get tag mappings."""
     try:
+        logger.debug("Getting tag mappings")
         mappings = await service.tag_mapping.get_mappings()
         return {"mappings": mappings}
     except ValidationError as e:
-        raise HTTPException(
+        error_msg = "Invalid mapping request"
+        logger.error(error_msg)
+        raise create_error(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(e)
+            message=error_msg,
+            cause=e
         )
-    except ServiceError as e:
-        raise HTTPException(
+    except ConnectionError as e:
+        error_msg = "Tag service error getting mappings"
+        logger.error(error_msg)
+        raise create_error(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e)
+            message=error_msg,
+            cause=e
         )
     except Exception as e:
-        raise HTTPException(
+        if isinstance(e, create_error):
+            raise e
+        error_msg = "Unexpected error getting tag mappings"
+        logger.error(f"{error_msg}: {str(e)}")
+        raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            message=error_msg,
+            cause=e
         )
 
 
@@ -323,22 +404,37 @@ async def update_tag_mapping(
 ) -> Dict[str, Any]:
     """Update tag mapping."""
     try:
+        logger.debug(f"Updating mapping for tag {request.tag_path}")
         await service.tag_mapping.update_mapping(request.tag_path, request.plc_tag)
         return {"status": "ok"}
     except ValidationError as e:
-        raise HTTPException(
+        error_msg = "Invalid mapping parameters"
+        logger.error(error_msg)
+        raise create_error(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(e)
+            message=error_msg,
+            context={"request": request.dict()},
+            cause=e
         )
-    except ServiceError as e:
-        raise HTTPException(
+    except ConnectionError as e:
+        error_msg = "Tag service error updating mapping"
+        logger.error(error_msg)
+        raise create_error(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e)
+            message=error_msg,
+            context={"request": request.dict()},
+            cause=e
         )
     except Exception as e:
-        raise HTTPException(
+        if isinstance(e, create_error):
+            raise e
+        error_msg = "Unexpected error updating tag mapping"
+        logger.error(f"{error_msg}: {str(e)}")
+        raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            message=error_msg,
+            context={"request": request.dict()},
+            cause=e
         )
 
 
@@ -348,7 +444,7 @@ async def get_tag_cache(
 ) -> Dict[str, Any]:
     """Get all cached tags and their values."""
     try:
-        logger.debug("Getting tag cache service")
+        logger.debug("Getting tag cache")
         tag_service = service.tag_cache
         logger.debug("Filtering tags")
         tag_cache = await tag_service.filter_tags()
@@ -363,15 +459,21 @@ async def get_tag_cache(
                 for tag, value in tag_cache.tags.items()
             }
         }
-    except ServiceError as e:
-        logger.error(f"Service error in get_tag_cache: {e}")
-        raise HTTPException(
+    except ConnectionError as e:
+        error_msg = "Tag service error getting cache"
+        logger.error(error_msg)
+        raise create_error(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e)
+            message=error_msg,
+            cause=e
         )
     except Exception as e:
-        logger.error(f"Error in get_tag_cache: {e}")
-        raise HTTPException(
+        if isinstance(e, create_error):
+            raise e
+        error_msg = "Unexpected error getting tag cache"
+        logger.error(f"{error_msg}: {str(e)}")
+        raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            message=error_msg,
+            cause=e
         )

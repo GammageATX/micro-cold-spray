@@ -1,7 +1,7 @@
 """Data models for data collection."""
 
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, Literal
+from typing import Dict, Any, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 import re
 import math

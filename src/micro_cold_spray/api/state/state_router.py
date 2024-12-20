@@ -2,113 +2,26 @@
 
 from typing import Dict, List, Any, Optional
 from datetime import datetime
-from contextlib import asynccontextmanager
-from fastapi import FastAPI, APIRouter, HTTPException, BackgroundTasks, Depends, Query, status
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
 from loguru import logger
 
 from micro_cold_spray.api.base.base_errors import create_error
-from micro_cold_spray.api.base import add_health_endpoints
-from micro_cold_spray.api.config import get_config_service
-from micro_cold_spray.api.messaging.messaging_service import MessagingService
-from micro_cold_spray.api.communication.communication_service import CommunicationService
 from .state_service import StateService
 from .state_models import StateRequest, StateResponse, StateTransition
 
-# Create router without prefix (app already handles the /state prefix)
+
+# Create router
 router = APIRouter(tags=["state"])
-_service: Optional[StateService] = None
-
-
-def init_router(service: StateService) -> None:
-    """Initialize router with service instance."""
-    global _service
-    _service = service
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Lifespan context manager for FastAPI app."""
-    global _service
-    try:
-        # Get shared config service instance
-        config_service = get_config_service()
-        await config_service.start()
-        logger.info("ConfigService started successfully")
-        
-        # Initialize message broker
-        message_broker = MessagingService(config_service=config_service)
-        await message_broker.start()
-        logger.info("MessagingService started successfully")
-        
-        # Initialize communication service
-        communication_service = CommunicationService(config_service=config_service)
-        await communication_service.start()
-        logger.info("CommunicationService started successfully")
-        
-        # Initialize state service
-        _service = StateService(
-            config_service=config_service,
-            message_broker=message_broker,
-            communication_service=communication_service
-        )
-        await _service.start()
-        logger.info("StateService started successfully")
-        
-        # Add health endpoints
-        add_health_endpoints(app, _service)
-        # Mount router to app
-        app.include_router(router)
-        logger.info("State router initialized")
-        
-        yield
-        
-        # Cleanup on shutdown
-        logger.info("State API shutting down")
-        if _service:
-            try:
-                await _service.stop()
-                logger.info("State service stopped successfully")
-            except Exception as e:
-                logger.error(f"Error stopping state service: {e}")
-            finally:
-                _service = None
-            
-    except Exception as e:
-        logger.error(f"Failed to initialize services: {e}")
-        # Attempt cleanup
-        if _service and _service.is_running:
-            await _service.stop()
-            _service = None
-        raise create_error(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            message="Failed to initialize state API",
-            context={"error": str(e)},
-            cause=e
-        )
-
-
-# Create FastAPI app with lifespan
-app = FastAPI(title="State API", lifespan=lifespan)
-
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 
 def get_service() -> StateService:
     """Get state service instance."""
-    if _service is None:
+    if not hasattr(get_service, "_service"):
         raise create_error(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             message="State service not initialized"
         )
-    return _service
+    return get_service._service
 
 
 @router.get("/status", response_model=Dict[str, Any])

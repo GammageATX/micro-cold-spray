@@ -5,8 +5,8 @@ from fastapi import APIRouter, Depends, status
 from loguru import logger
 
 from micro_cold_spray.api.base.base_errors import create_error
-from .communication_service import CommunicationService
-from .dependencies import get_communication_service
+from micro_cold_spray.api.communication.communication_service import CommunicationService
+from micro_cold_spray.api.communication.dependencies import get_communication_service
 
 
 router = APIRouter(

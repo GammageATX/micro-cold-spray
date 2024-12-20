@@ -2,12 +2,13 @@
 
 from datetime import datetime
 from typing import Dict, Any, List
-from fastapi import APIRouter, HTTPException, status, Depends
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, status, Depends
+from pydantic import BaseModel, Field, ValidationError
+from loguru import logger
 
-from ..communication_service import CommunicationService
-from ..dependencies import get_service
-from ...base import ServiceError, ValidationError
+from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.api.communication.communication_service import CommunicationService
+from micro_cold_spray.api.communication.dependencies import get_service
 
 
 class MotionResponse(BaseModel):
@@ -56,6 +57,7 @@ async def get_axis_status(
 ):
     """Get axis status."""
     try:
+        logger.debug(f"Getting status for axis {axis_id}")
         # Get axis status
         status_data = await service.motion_service.get_status(axis_id)
         
@@ -66,20 +68,34 @@ async def get_axis_status(
             timestamp=datetime.now()
         )
         
-    except ValidationError as e:
-        raise HTTPException(
+    except ValueError as e:
+        error_msg = f"Axis {axis_id} not found"
+        logger.error(error_msg)
+        raise create_error(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
+            message=error_msg,
+            context={"axis_id": axis_id},
+            cause=e
         )
-    except ServiceError as e:
-        raise HTTPException(
+    except ConnectionError as e:
+        error_msg = f"Motion service error for axis {axis_id}"
+        logger.error(error_msg)
+        raise create_error(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e)
+            message=error_msg,
+            context={"axis_id": axis_id},
+            cause=e
         )
     except Exception as e:
-        raise HTTPException(
+        if isinstance(e, create_error):
+            raise e
+        error_msg = f"Unexpected error getting status for axis {axis_id}"
+        logger.error(f"{error_msg}: {str(e)}")
+        raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            message=error_msg,
+            context={"axis_id": axis_id},
+            cause=e
         )
 
 
@@ -93,6 +109,7 @@ async def get_axis_status(
 async def list_axes(service: CommunicationService = Depends(get_service)):
     """List available axes."""
     try:
+        logger.debug("Listing available axes")
         # Get axes list
         axes_list = await service.motion_service.list_axes()
         
@@ -102,15 +119,23 @@ async def list_axes(service: CommunicationService = Depends(get_service)):
             timestamp=datetime.now()
         )
         
-    except ServiceError as e:
-        raise HTTPException(
+    except ConnectionError as e:
+        error_msg = "Motion service error listing axes"
+        logger.error(error_msg)
+        raise create_error(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e)
+            message=error_msg,
+            cause=e
         )
     except Exception as e:
-        raise HTTPException(
+        if isinstance(e, create_error):
+            raise e
+        error_msg = "Unexpected error listing axes"
+        logger.error(f"{error_msg}: {str(e)}")
+        raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            message=error_msg,
+            cause=e
         )
 
 
@@ -130,6 +155,7 @@ async def move_axis(
 ):
     """Move axis to position."""
     try:
+        logger.debug(f"Moving axis {request.axis_id} to position {request.position}")
         # Move axis
         await service.motion_service.move_axis(
             axis_id=request.axis_id,
@@ -144,19 +170,33 @@ async def move_axis(
         )
         
     except ValidationError as e:
-        raise HTTPException(
+        error_msg = f"Invalid move parameters for axis {request.axis_id}"
+        logger.error(error_msg)
+        raise create_error(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(e)
+            message=error_msg,
+            context={"request": request.dict()},
+            cause=e
         )
-    except ServiceError as e:
-        raise HTTPException(
+    except ConnectionError as e:
+        error_msg = f"Motion service error moving axis {request.axis_id}"
+        logger.error(error_msg)
+        raise create_error(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e)
+            message=error_msg,
+            context={"request": request.dict()},
+            cause=e
         )
     except Exception as e:
-        raise HTTPException(
+        if isinstance(e, create_error):
+            raise e
+        error_msg = f"Unexpected error moving axis {request.axis_id}"
+        logger.error(f"{error_msg}: {str(e)}")
+        raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            message=error_msg,
+            context={"request": request.dict()},
+            cause=e
         )
 
 
@@ -174,6 +214,7 @@ async def stop_axis(
 ):
     """Stop axis motion."""
     try:
+        logger.debug(f"Stopping axis {axis_id}")
         # Stop axis
         await service.motion_service.stop_axis(axis_id)
         
@@ -183,18 +224,32 @@ async def stop_axis(
             timestamp=datetime.now()
         )
         
-    except ValidationError as e:
-        raise HTTPException(
+    except ValueError as e:
+        error_msg = f"Axis {axis_id} not found"
+        logger.error(error_msg)
+        raise create_error(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
+            message=error_msg,
+            context={"axis_id": axis_id},
+            cause=e
         )
-    except ServiceError as e:
-        raise HTTPException(
+    except ConnectionError as e:
+        error_msg = f"Motion service error stopping axis {axis_id}"
+        logger.error(error_msg)
+        raise create_error(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e)
+            message=error_msg,
+            context={"axis_id": axis_id},
+            cause=e
         )
     except Exception as e:
-        raise HTTPException(
+        if isinstance(e, create_error):
+            raise e
+        error_msg = f"Unexpected error stopping axis {axis_id}"
+        logger.error(f"{error_msg}: {str(e)}")
+        raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            message=error_msg,
+            context={"axis_id": axis_id},
+            cause=e
         )

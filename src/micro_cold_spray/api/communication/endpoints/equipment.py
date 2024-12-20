@@ -1,199 +1,209 @@
 """Equipment router."""
 
-from datetime import datetime
-from typing import Dict, Any, List
-from fastapi import APIRouter, HTTPException, status, Depends
-from pydantic import BaseModel, Field
+from typing import Dict, Any
+from fastapi import APIRouter, Depends, status
+from loguru import logger
 
-from ..communication_service import CommunicationService
-from ..dependencies import get_service
-from ...base import ServiceError, ValidationError
-
-
-class EquipmentResponse(BaseModel):
-    """Equipment response model."""
-    status: str
-    message: str
-    timestamp: datetime
+from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.api.communication.services.equipment import EquipmentService
+from micro_cold_spray.api.communication.dependencies import get_equipment_service
 
 
-class EquipmentStatusResponse(BaseModel):
-    """Equipment status response model."""
-    status: str
-    equipment_id: str
-    state: Dict[str, Any]
-    timestamp: datetime
-
-
-class EquipmentListResponse(BaseModel):
-    """Equipment list response model."""
-    status: str
-    equipment: List[Dict[str, Any]]
-    timestamp: datetime
-
-
-class GasFlowRequest(BaseModel):
-    """Gas flow request model."""
-    flow_type: str = Field(..., description="Type of gas flow to set")
-    value: float = Field(..., description="Flow value to set")
-
-
-router = APIRouter(prefix="/equipment", tags=["equipment"])
-
-
-@router.get(
-    "/status/{equipment_id}",
-    response_model=EquipmentStatusResponse,
-    responses={
-        status.HTTP_404_NOT_FOUND: {"description": "Equipment not found"},
-        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service error"}
-    }
+router = APIRouter(
+    prefix="/equipment",
+    tags=["equipment"]
 )
-async def get_equipment_status(
-    equipment_id: str,
-    service: CommunicationService = Depends(get_service)
-):
-    """Get equipment status."""
+
+
+@router.get("/health")
+async def check_health(
+    service: EquipmentService = Depends(get_equipment_service)
+) -> Dict[str, Any]:
+    """Check equipment service health.
+    
+    Returns:
+        Health status dictionary
+        
+    Raises:
+        HTTPException: If health check fails
+    """
     try:
-        # Get equipment status
-        status_data = await service.equipment_service.get_status(equipment_id)
-        
-        return EquipmentStatusResponse(
-            status="ok",
-            equipment_id=equipment_id,
-            state=status_data,
-            timestamp=datetime.now()
-        )
-        
-    except ValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
-        )
-    except ServiceError as e:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e)
-        )
+        is_healthy = await service.check_health()
+        return {
+            "status": "ok" if is_healthy else "error",
+            "service_info": {
+                "name": service.name,
+                "running": service.is_running and is_healthy
+            }
+        }
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+        raise create_error(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            message="Failed to check equipment service health",
+            context={"service": service.name},
+            cause=e
         )
 
 
-@router.get(
-    "/list",
-    response_model=EquipmentListResponse,
-    responses={
-        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service error"}
-    }
-)
-async def list_equipment(service: CommunicationService = Depends(get_service)):
-    """List available equipment."""
+@router.post("/gas/{action}")
+async def control_gas(
+    action: str,
+    service: EquipmentService = Depends(get_equipment_service)
+) -> Dict[str, str]:
+    """Control gas system.
+    
+    Args:
+        action: Action to perform (on/off)
+        
+    Returns:
+        Success message
+        
+    Raises:
+        HTTPException: If control fails
+    """
     try:
-        # Get equipment list
-        equipment_list = await service.equipment_service.list_equipment()
-        
-        return EquipmentListResponse(
-            status="ok",
-            equipment=equipment_list,
-            timestamp=datetime.now()
-        )
-        
-    except ServiceError as e:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e)
-        )
+        if action not in ["on", "off"]:
+            raise create_error(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                message="Invalid gas control action",
+                context={"action": action, "valid_actions": ["on", "off"]}
+            )
+            
+        if action == "on":
+            await service.start_gas()
+        else:
+            await service.stop_gas()
+            
+        return {"message": f"Gas system turned {action}"}
     except Exception as e:
-        raise HTTPException(
+        if isinstance(e, create_error):
+            raise e
+        raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            message=f"Failed to control gas system ({action})",
+            context={"action": action},
+            cause=e
         )
 
 
-@router.post(
-    "/gas/flow",
-    response_model=EquipmentResponse,
-    responses={
-        status.HTTP_400_BAD_REQUEST: {"description": "Invalid request"},
-        status.HTTP_422_UNPROCESSABLE_ENTITY: {"description": "Validation error"},
-        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service error"}
-    }
-)
-async def set_gas_flow(
-    request: GasFlowRequest,
-    service: CommunicationService = Depends(get_service)
-):
-    """Set gas flow."""
+@router.post("/vacuum/{action}")
+async def control_vacuum(
+    action: str,
+    service: EquipmentService = Depends(get_equipment_service)
+) -> Dict[str, str]:
+    """Control vacuum system.
+    
+    Args:
+        action: Action to perform (on/off)
+        
+    Returns:
+        Success message
+        
+    Raises:
+        HTTPException: If control fails
+    """
     try:
-        # Set gas flow
-        await service.equipment_service.set_gas_flow(
-            flow_type=request.flow_type,
-            value=request.value
-        )
-        
-        return EquipmentResponse(
-            status="ok",
-            message=f"Gas flow {request.flow_type} set to {request.value}",
-            timestamp=datetime.now()
-        )
-        
-    except ValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(e)
-        )
-    except ServiceError as e:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e)
-        )
+        if action not in ["on", "off"]:
+            raise create_error(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                message="Invalid vacuum control action",
+                context={"action": action, "valid_actions": ["on", "off"]}
+            )
+            
+        if action == "on":
+            await service.start_vacuum()
+        else:
+            await service.stop_vacuum()
+            
+        return {"message": f"Vacuum system turned {action}"}
     except Exception as e:
-        raise HTTPException(
+        if isinstance(e, create_error):
+            raise e
+        raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            message=f"Failed to control vacuum system ({action})",
+            context={"action": action},
+            cause=e
         )
 
 
-@router.post(
-    "/valve/{valve_id}/state",
-    response_model=EquipmentResponse,
-    responses={
-        status.HTTP_400_BAD_REQUEST: {"description": "Invalid request"},
-        status.HTTP_404_NOT_FOUND: {"description": "Valve not found"},
-        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service error"}
-    }
-)
-async def set_valve_state(
-    valve_id: str,
-    state: bool,
-    service: CommunicationService = Depends(get_service)
-):
-    """Set valve state."""
+@router.post("/feeder/{action}")
+async def control_feeder(
+    action: str,
+    service: EquipmentService = Depends(get_equipment_service)
+) -> Dict[str, str]:
+    """Control powder feeder.
+    
+    Args:
+        action: Action to perform (on/off)
+        
+    Returns:
+        Success message
+        
+    Raises:
+        HTTPException: If control fails
+    """
     try:
-        # Set valve state
-        await service.equipment_service.set_valve_state(valve_id, state)
-        
-        return EquipmentResponse(
-            status="ok",
-            message=f"Valve {valve_id} {'opened' if state else 'closed'}",
-            timestamp=datetime.now()
-        )
-        
-    except ValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
-        )
-    except ServiceError as e:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e)
-        )
+        if action not in ["on", "off"]:
+            raise create_error(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                message="Invalid feeder control action",
+                context={"action": action, "valid_actions": ["on", "off"]}
+            )
+            
+        if action == "on":
+            await service.start_feeder()
+        else:
+            await service.stop_feeder()
+            
+        return {"message": f"Powder feeder turned {action}"}
     except Exception as e:
-        raise HTTPException(
+        if isinstance(e, create_error):
+            raise e
+        raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            message=f"Failed to control powder feeder ({action})",
+            context={"action": action},
+            cause=e
+        )
+
+
+@router.post("/nozzle/{action}")
+async def control_nozzle(
+    action: str,
+    service: EquipmentService = Depends(get_equipment_service)
+) -> Dict[str, str]:
+    """Control spray nozzle.
+    
+    Args:
+        action: Action to perform (on/off)
+        
+    Returns:
+        Success message
+        
+    Raises:
+        HTTPException: If control fails
+    """
+    try:
+        if action not in ["on", "off"]:
+            raise create_error(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                message="Invalid nozzle control action",
+                context={"action": action, "valid_actions": ["on", "off"]}
+            )
+            
+        if action == "on":
+            await service.start_nozzle()
+        else:
+            await service.stop_nozzle()
+            
+        return {"message": f"Spray nozzle turned {action}"}
+    except Exception as e:
+        if isinstance(e, create_error):
+            raise e
+        raise create_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            message=f"Failed to control spray nozzle ({action})",
+            context={"action": action},
+            cause=e
         )

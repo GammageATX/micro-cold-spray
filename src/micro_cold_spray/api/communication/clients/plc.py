@@ -8,7 +8,7 @@ from loguru import logger
 from productivity import ProductivityPLC
 
 from micro_cold_spray.api.base.base_errors import create_error
-from .base import CommunicationClient
+from micro_cold_spray.api.communication.clients.base import CommunicationClient
 
 
 class PLCClient(CommunicationClient):

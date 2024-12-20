@@ -6,7 +6,7 @@ from loguru import logger
 
 from micro_cold_spray.api.base.base_configurable import ConfigurableService
 from micro_cold_spray.api.base.base_errors import create_error
-from .clients import create_client, CommunicationClient
+from micro_cold_spray.api.communication.clients import create_client, CommunicationClient
 
 
 class CommunicationService(ConfigurableService):

@@ -1,9 +1,7 @@
 """Base router module."""
 
-from typing import Dict, Any, Callable, Awaitable
-from fastapi import APIRouter, status
-
-from micro_cold_spray.api.base.base_errors import create_error
+from typing import Dict, Any, Callable
+from fastapi import APIRouter
 
 
 class BaseRouter(APIRouter):

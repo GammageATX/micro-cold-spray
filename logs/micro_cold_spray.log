@@ -211,3 +211,137 @@ RuntimeError: Critical service config failed to start
 2024-12-19 23:19:09.127 | INFO     | __main__:stop_service:275 - Stopping ui service...
 2024-12-19 23:19:09.131 | INFO     | __main__:stop_service:285 - Removed ui service from process list
 2024-12-19 23:19:09.132 | INFO     | __main__:main:374 - Application shutdown complete
+2024-12-19 23:24:21.724 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\logs
+2024-12-19 23:24:21.725 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\config
+2024-12-19 23:24:21.725 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\config\schemas
+2024-12-19 23:24:21.725 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\data
+2024-12-19 23:24:21.726 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\data\parameters
+2024-12-19 23:24:21.726 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\data\patterns
+2024-12-19 23:24:21.726 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\data\sequences
+2024-12-19 23:24:21.726 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\data\powders
+2024-12-19 23:24:21.727 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\data\runs
+2024-12-19 23:24:21.727 | INFO     | __main__:main:317 - Starting Micro Cold Spray application
+2024-12-19 23:24:21.727 | INFO     | __main__:start_service:235 - Starting ui service...
+2024-12-19 23:24:22.746 | ERROR    | __main__:start_service:273 - Error starting ui service: 
+2024-12-19 23:24:22.747 | WARNING  | __main__:main:334 - UI service failed to start, but continuing...
+2024-12-19 23:24:22.747 | INFO     | __main__:start_service:235 - Starting config service...
+2024-12-19 23:24:22.750 | INFO     | __main__:start_service:235 - Starting messaging service...
+2024-12-19 23:24:23.752 | ERROR    | __main__:start_service:273 - Error starting config service: 
+2024-12-19 23:24:23.753 | CRITICAL | __main__:main:346 - Failed to start critical service config
+2024-12-19 23:24:23.753 | ERROR    | __main__:main:380 - Critical application error: Critical service config failed to start
+Traceback (most recent call last):
+
+  File "c:\Projects\micro-cold-spray\src\micro_cold_spray\__main__.py", line 390, in <module>
+    sys.exit(asyncio.run(main(test_mode=TEST_MODE)))
+
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\runners.py", line 194, in run
+    return runner.run(main)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 708, in run_until_complete
+    self.run_forever()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 679, in run_forever
+    self._run_once()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 2027, in _run_once
+    handle._run()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\events.py", line 89, in _run
+    self._context.run(self._callback, *self._args)
+
+> File "c:\Projects\micro-cold-spray\src\micro_cold_spray\__main__.py", line 347, in main
+    raise RuntimeError(f"Critical service {name} failed to start")
+
+RuntimeError: Critical service config failed to start
+2024-12-19 23:24:23.755 | INFO     | __main__:stop_service:294 - Removed messaging service from process list
+2024-12-19 23:24:23.755 | INFO     | __main__:stop_service:294 - Removed config service from process list
+2024-12-19 23:24:23.755 | INFO     | __main__:stop_service:294 - Removed ui service from process list
+2024-12-19 23:24:23.756 | INFO     | __main__:main:383 - Application shutdown complete
+2024-12-19 23:27:32.971 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\logs
+2024-12-19 23:27:32.972 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\config
+2024-12-19 23:27:32.972 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\config\schemas
+2024-12-19 23:27:32.972 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\data
+2024-12-19 23:27:32.973 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\data\parameters
+2024-12-19 23:27:32.973 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\data\patterns
+2024-12-19 23:27:32.973 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\data\sequences
+2024-12-19 23:27:32.974 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\data\powders
+2024-12-19 23:27:32.974 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\data\runs
+2024-12-19 23:27:32.974 | INFO     | __main__:main:317 - Starting Micro Cold Spray application
+2024-12-19 23:27:32.974 | INFO     | __main__:start_service:235 - Starting ui service...
+2024-12-19 23:27:33.989 | ERROR    | __main__:start_service:273 - Error starting ui service: 
+2024-12-19 23:27:33.989 | WARNING  | __main__:main:334 - UI service failed to start, but continuing...
+2024-12-19 23:27:33.989 | INFO     | __main__:start_service:235 - Starting config service...
+2024-12-19 23:27:33.993 | INFO     | __main__:start_service:235 - Starting messaging service...
+2024-12-19 23:27:34.999 | ERROR    | __main__:start_service:273 - Error starting config service: 
+2024-12-19 23:27:34.999 | ERROR    | __main__:start_service:273 - Error starting messaging service: 
+2024-12-19 23:27:34.999 | CRITICAL | __main__:main:346 - Failed to start critical service config
+2024-12-19 23:27:34.999 | ERROR    | __main__:main:380 - Critical application error: Critical service config failed to start
+Traceback (most recent call last):
+
+  File "c:\Projects\micro-cold-spray\src\micro_cold_spray\__main__.py", line 390, in <module>
+    sys.exit(asyncio.run(main(test_mode=TEST_MODE)))
+
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\runners.py", line 194, in run
+    return runner.run(main)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 708, in run_until_complete
+    self.run_forever()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 679, in run_forever
+    self._run_once()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 2027, in _run_once
+    handle._run()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\events.py", line 89, in _run
+    self._context.run(self._callback, *self._args)
+
+> File "c:\Projects\micro-cold-spray\src\micro_cold_spray\__main__.py", line 347, in main
+    raise RuntimeError(f"Critical service {name} failed to start")
+
+RuntimeError: Critical service config failed to start
+2024-12-19 23:27:35.002 | INFO     | __main__:stop_service:294 - Removed messaging service from process list
+2024-12-19 23:27:35.002 | INFO     | __main__:stop_service:294 - Removed config service from process list
+2024-12-19 23:27:35.002 | INFO     | __main__:stop_service:294 - Removed ui service from process list
+2024-12-19 23:27:35.003 | INFO     | __main__:main:383 - Application shutdown complete
+2024-12-19 23:29:46.486 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\logs
+2024-12-19 23:29:46.487 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\config
+2024-12-19 23:29:46.487 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\config\schemas
+2024-12-19 23:29:46.487 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\data
+2024-12-19 23:29:46.488 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\data\parameters
+2024-12-19 23:29:46.488 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\data\patterns
+2024-12-19 23:29:46.489 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\data\sequences
+2024-12-19 23:29:46.489 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\data\powders
+2024-12-19 23:29:46.489 | INFO     | __main__:ensure_directories:99 - Ensured directory exists: c:\Projects\micro-cold-spray\data\runs
+2024-12-19 23:29:46.489 | INFO     | __main__:main:317 - Starting Micro Cold Spray application
+2024-12-19 23:29:46.490 | INFO     | __main__:start_service:235 - Starting ui service...
+2024-12-19 23:29:47.499 | ERROR    | __main__:start_service:273 - Error starting ui service: 
+2024-12-19 23:29:47.499 | WARNING  | __main__:main:334 - UI service failed to start, but continuing...
+2024-12-19 23:29:47.499 | INFO     | __main__:start_service:235 - Starting config service...
+2024-12-19 23:29:47.502 | INFO     | __main__:start_service:235 - Starting messaging service...
+2024-12-19 23:29:48.513 | ERROR    | __main__:start_service:273 - Error starting config service: 
+2024-12-19 23:29:48.513 | ERROR    | __main__:start_service:273 - Error starting messaging service: 
+2024-12-19 23:29:48.513 | CRITICAL | __main__:main:346 - Failed to start critical service config
+2024-12-19 23:29:48.514 | ERROR    | __main__:main:380 - Critical application error: Critical service config failed to start
+Traceback (most recent call last):
+
+  File "c:\Projects\micro-cold-spray\src\micro_cold_spray\__main__.py", line 390, in <module>
+    sys.exit(asyncio.run(main(test_mode=TEST_MODE)))
+
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\runners.py", line 194, in run
+    return runner.run(main)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 708, in run_until_complete
+    self.run_forever()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 679, in run_forever
+    self._run_once()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 2027, in _run_once
+    handle._run()
+  File "C:\Users\Michael\AppData\Local\Programs\Python\Python313\Lib\asyncio\events.py", line 89, in _run
+    self._context.run(self._callback, *self._args)
+
+> File "c:\Projects\micro-cold-spray\src\micro_cold_spray\__main__.py", line 347, in main
+    raise RuntimeError(f"Critical service {name} failed to start")
+
+RuntimeError: Critical service config failed to start
+2024-12-19 23:29:48.516 | INFO     | __main__:stop_service:294 - Removed messaging service from process list
+2024-12-19 23:29:48.516 | INFO     | __main__:stop_service:294 - Removed config service from process list
+2024-12-19 23:29:48.516 | INFO     | __main__:stop_service:294 - Removed ui service from process list
+2024-12-19 23:29:48.516 | INFO     | __main__:main:383 - Application shutdown complete

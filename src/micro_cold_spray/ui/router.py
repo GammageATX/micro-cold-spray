@@ -3,14 +3,17 @@
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
-from fastapi import FastAPI, Request, WebSocket, HTTPException, status
+from fastapi import FastAPI, Request, WebSocket, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import asyncio
-import requests
+import aiohttp
 
+from micro_cold_spray.api.base.base_errors import create_error
 from .utils import get_uptime, get_memory_usage, monitor_service_logs
 
 
@@ -64,23 +67,6 @@ class LogMessage(BaseModel):
     message: str = Field(..., description="Log message")
 
 
-app = FastAPI(
-    title="MicroColdSpray UI",
-    description="Web interface for MicroColdSpray system",
-    version="1.0.0"
-)
-
-# Mount static files
-app.mount(
-    "/static",
-    StaticFiles(directory=Path(__file__).parent / "static"),
-    name="static"
-)
-
-# Setup templates
-templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
-
-
 def get_api_urls() -> ApiUrls:
     """Get API URLs for templates."""
     return ApiUrls()
@@ -96,18 +82,19 @@ async def check_service_health(url: str) -> ServiceInfo:
         ServiceInfo with status details
     """
     try:
-        async with requests.get(f"{url}/health", timeout=2) as response:
-            if response.status_code == 200:
-                data = await response.json()
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{url}/health", timeout=2) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return ServiceInfo(
+                        running=True,
+                        version=data.get("version", "1.0.0"),
+                        error=None
+                    )
                 return ServiceInfo(
-                    running=True,
-                    version=data.get("version", "1.0.0"),
-                    error=None
+                    running=False,
+                    error=f"Service returned status {response.status}"
                 )
-            return ServiceInfo(
-                running=False,
-                error=f"Service returned status {response.status_code}"
-            )
     except Exception as e:
         return ServiceInfo(
             running=False,
@@ -115,127 +102,176 @@ async def check_service_health(url: str) -> ServiceInfo:
         )
 
 
-@app.get(
-    "/",
-    response_class=HTMLResponse,
-    responses={
-        status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Internal server error"}
-    }
-)
-async def index(request: Request) -> HTMLResponse:
-    """Render index page."""
+def create_app() -> FastAPI:
+    """Create FastAPI application."""
     try:
-        return templates.TemplateResponse(
-            "index.html",
-            {
-                "request": request,
-                "api_urls": get_api_urls().dict()
+        app = FastAPI(
+            title="MicroColdSpray UI",
+            description="Web interface for MicroColdSpray system",
+            version="1.0.0"
+        )
+
+        # Add CORS middleware
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+        # Add GZip middleware
+        app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+        # Mount static files
+        app.mount(
+            "/static",
+            StaticFiles(directory=Path(__file__).parent / "static"),
+            name="static"
+        )
+
+        # Setup templates
+        templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+
+        @app.get(
+            "/",
+            response_class=HTMLResponse,
+            responses={
+                status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Internal server error"}
             }
         )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        async def index(request: Request) -> HTMLResponse:
+            """Render index page."""
+            try:
+                return templates.TemplateResponse(
+                    "index.html",
+                    {
+                        "request": request,
+                        "api_urls": get_api_urls().dict()
+                    }
+                )
+            except Exception as e:
+                raise create_error(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    message="Failed to render index page",
+                    context={"error": str(e)},
+                    cause=e
+                )
 
-
-@app.get(
-    "/health",
-    response_model=Dict[str, str],
-    responses={
-        status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Internal server error"}
-    }
-)
-async def health() -> Dict[str, str]:
-    """Health check endpoint."""
-    try:
-        return {
-            "status": "ok",
-            "uptime": str(get_uptime()),
-            "memory": str(get_memory_usage())
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
-
-
-@app.get(
-    "/monitoring/services",
-    response_class=HTMLResponse,
-    responses={
-        status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Internal server error"}
-    }
-)
-async def services_monitor(request: Request) -> HTMLResponse:
-    """Render services monitor page."""
-    try:
-        return templates.TemplateResponse(
-            "monitoring/services.html",
-            {
-                "request": request,
-                "api_urls": get_api_urls().dict()
+        @app.get(
+            "/health",
+            response_model=Dict[str, str],
+            responses={
+                status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Internal server error"}
             }
         )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+        async def health() -> Dict[str, str]:
+            """Health check endpoint."""
+            try:
+                return {
+                    "status": "ok",
+                    "uptime": str(get_uptime()),
+                    "memory": str(get_memory_usage())
+                }
+            except Exception as e:
+                raise create_error(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    message="Health check failed",
+                    context={"error": str(e)},
+                    cause=e
+                )
+
+        @app.get(
+            "/monitoring/services",
+            response_class=HTMLResponse,
+            responses={
+                status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Internal server error"}
+            }
         )
+        async def services_monitor(request: Request) -> HTMLResponse:
+            """Render services monitor page."""
+            try:
+                return templates.TemplateResponse(
+                    "monitoring/services.html",
+                    {
+                        "request": request,
+                        "api_urls": get_api_urls().dict()
+                    }
+                )
+            except Exception as e:
+                raise create_error(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    message="Failed to render services monitor page",
+                    context={"error": str(e)},
+                    cause=e
+                )
 
-
-@app.get(
-    "/monitoring/services/status",
-    response_model=Dict[str, ServiceStatus],
-    responses={
-        status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Internal server error"}
-    }
-)
-async def get_services_status() -> Dict[str, ServiceStatus]:
-    """Get status of all services."""
-    services: Dict[str, ServiceStatus] = {}
-    api_urls = get_api_urls()
-    
-    try:
-        for service_name, url in {
-            "config": api_urls.config,
-            "communication": api_urls.communication,
-            "messaging": api_urls.messaging,
-            "state": api_urls.state,
-            "data_collection": api_urls.data_collection,
-            "validation": api_urls.validation
-        }.items():
-            service_info = await check_service_health(url)
-            port = int(url.split(":")[-1])
+        @app.get(
+            "/monitoring/services/status",
+            response_model=Dict[str, ServiceStatus],
+            responses={
+                status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Internal server error"}
+            }
+        )
+        async def get_services_status() -> Dict[str, ServiceStatus]:
+            """Get status of all services."""
+            services: Dict[str, ServiceStatus] = {}
+            api_urls = get_api_urls()
             
-            services[service_name] = ServiceStatus(
-                name=service_name,
-                port=port,
-                status="ok" if service_info.running else "error",
-                uptime=get_uptime(),
-                memory_usage=get_memory_usage(),
-                service_info=service_info
-            )
+            try:
+                for service_name, url in {
+                    "config": api_urls.config,
+                    "communication": api_urls.communication,
+                    "messaging": api_urls.messaging,
+                    "state": api_urls.state,
+                    "data_collection": api_urls.data_collection,
+                    "validation": api_urls.validation
+                }.items():
+                    service_info = await check_service_health(url)
+                    port = int(url.split(":")[-1])
+                    
+                    services[service_name] = ServiceStatus(
+                        name=service_name,
+                        port=port,
+                        status="ok" if service_info.running else "error",
+                        uptime=get_uptime(),
+                        memory_usage=get_memory_usage(),
+                        service_info=service_info
+                    )
 
-        return services
+                return services
+            except Exception as e:
+                raise create_error(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    message="Failed to get services status",
+                    context={"error": str(e)},
+                    cause=e
+                )
+
+        @app.websocket("/monitoring/logs")
+        async def service_logs(websocket: WebSocket):
+            """WebSocket endpoint for service logs."""
+            await websocket.accept()
+            try:
+                while True:
+                    # Monitor logs every second
+                    log_entry = await monitor_service_logs()
+                    if log_entry:
+                        await websocket.send_json(log_entry)
+                    await asyncio.sleep(1)
+            except Exception:
+                await websocket.close()
+
+        return app
+
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+        raise create_error(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            message="Failed to create UI application",
+            context={"error": str(e)},
+            cause=e
         )
 
 
-@app.websocket("/monitoring/logs")
-async def service_logs(websocket: WebSocket):
-    """WebSocket endpoint for service logs."""
-    await websocket.accept()
-    try:
-        while True:
-            # Monitor logs every second
-            log_entry = await monitor_service_logs()
-            if log_entry:
-                await websocket.send_json(log_entry)
-            await asyncio.sleep(1)
-    except Exception:
-        await websocket.close()
+# Create FastAPI application instance
+app = create_app()

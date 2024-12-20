@@ -5,8 +5,8 @@ from fastapi import APIRouter, Depends, status
 
 from micro_cold_spray.api.base.base_errors import create_error
 from micro_cold_spray.api.base.base_router import get_service
-from .data_collection_service import DataCollectionService
-from .data_collection_models import SprayEvent
+from micro_cold_spray.api.data_collection.data_collection_service import DataCollectionService
+from micro_cold_spray.api.data_collection.data_collection_models import SprayEvent
 
 
 router = APIRouter(

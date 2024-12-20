@@ -1,1 +1,0 @@
-1|AttributeError: property 'dependencies' of 'MockBaseService' object has no setter 
