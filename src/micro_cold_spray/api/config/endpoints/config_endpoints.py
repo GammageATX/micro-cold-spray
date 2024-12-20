@@ -1,116 +1,171 @@
 """Configuration service endpoints."""
 
-from typing import Dict, Any, List, Type
-from fastapi import status
+from fastapi import APIRouter, Depends, Request
+from loguru import logger
 
-from micro_cold_spray.api.base.base_router import BaseRouter
-from micro_cold_spray.api.base.base_errors import create_error
-from micro_cold_spray.api.config.config_service import ConfigService
-from micro_cold_spray.api.config.models.config_models import ConfigData
+from micro_cold_spray.api.config.models.config_models import (
+    ConfigRequest,
+    ConfigResponse,
+    SchemaRequest,
+    SchemaResponse,
+    HealthResponse,
+    MessageResponse
+)
 
 
-class ConfigRouter(BaseRouter):
-    """Configuration service router."""
+def get_config_router() -> APIRouter:
+    """Create configuration router.
+    
+    Returns:
+        APIRouter: Router with configuration endpoints
+    """
+    router = APIRouter(tags=["config"])
 
-    def __init__(self, service: ConfigService):
-        """Initialize router.
+    async def get_services(request: Request):
+        """Get service instances from app state."""
+        return {
+            "cache": request.app.state.cache,
+            "file": request.app.state.file,
+            "format": request.app.state.format,
+            "registry": request.app.state.registry,
+            "schema": request.app.state.schema
+        }
+
+    @router.get("/health", response_model=HealthResponse)
+    async def health(services=Depends(get_services)):
+        """Get service health status."""
+        service_health = {}
+        is_healthy = True
+
+        for name, service in services.items():
+            health = await service.health()
+            service_health[name] = health
+            if not health.get("is_healthy", False):
+                is_healthy = False
+
+        return {
+            "status": "healthy" if is_healthy else "unhealthy",
+            "is_healthy": is_healthy,
+            "services": service_health
+        }
+
+    @router.post("/config/{name}", response_model=MessageResponse)
+    async def save_config(
+        name: str,
+        request: ConfigRequest,
+        services=Depends(get_services)
+    ):
+        """Save configuration.
         
         Args:
-            service: Configuration service instance
+            name: Configuration name
+            request: Configuration request
+            services: Service instances
+            
+        Returns:
+            MessageResponse: Success response
         """
-        super().__init__(prefix="/config")
-        self.service = service
-        self.services = [service]  # For health checks
+        # Validate schema if exists
+        schema_name = f"{name}_schema"
+        if services["schema"].get_schema(schema_name):
+            services["schema"].validate_config(schema_name, request.data)
 
-        # Register routes
-        self.add_api_route("/types", self.get_config_types, methods=["GET"])
-        self.add_api_route("/types/{type_name}", self.get_config_type, methods=["GET"])
-        self.add_api_route("/types/{type_name}", self.register_config_type, methods=["POST"])
-        self.add_api_route("/configs", self.get_configs, methods=["GET"])
-        self.add_api_route("/configs/{config_type}", self.get_config, methods=["GET"])
-        self.add_api_route("/configs/{config_type}", self.update_config, methods=["PUT"])
-        self.add_api_route("/configs/{config_type}", self.delete_config, methods=["DELETE"])
+        # Format and save config
+        formatted_config = services["format"].format(request.data, request.format)
+        services["file"].write(f"{name}.{request.format}", formatted_config)
 
-    async def get_config_types(self) -> Dict[str, Type[ConfigData]]:
-        """Get registered configuration types."""
-        try:
-            return await self.service.get_config_types()
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to get config types",
-                context={"error": str(e)},
-                cause=e
-            )
+        # Update registry and cache
+        services["registry"].register(name, request.data)
+        services["cache"].set(name, request.data)
 
-    async def get_config_type(self, type_name: str) -> Type[ConfigData]:
-        """Get configuration type by name."""
-        try:
-            return self.service.get_config_type(type_name)
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=f"Failed to get config type {type_name}",
-                context={"type": type_name, "error": str(e)},
-                cause=e
-            )
+        return {"message": f"Configuration {name} saved successfully"}
 
-    async def register_config_type(self, type_name: str, config_type: Type[ConfigData]) -> None:
-        """Register configuration type."""
-        try:
-            self.service.register_config_type(config_type)
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=f"Failed to register config type {type_name}",
-                context={"type": type_name, "error": str(e)},
-                cause=e
-            )
+    @router.get("/config/{name}", response_model=ConfigResponse)
+    async def get_config(
+        name: str,
+        use_cache: bool = True,
+        services=Depends(get_services)
+    ):
+        """Get configuration.
+        
+        Args:
+            name: Configuration name
+            use_cache: Whether to use cache
+            services: Service instances
+            
+        Returns:
+            ConfigResponse: Configuration data
+        """
+        # Try cache first
+        if use_cache:
+            cached = services["cache"].get(name)
+            if cached:
+                return {
+                    "name": name,
+                    "data": cached,
+                    "format": "json"
+                }
 
-    async def get_configs(self) -> List[ConfigData]:
-        """Get all configurations."""
-        try:
-            return await self.service.get_configs()
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to get configs",
-                context={"error": str(e)},
-                cause=e
-            )
+        # Get from registry
+        data = services["registry"].get(name)
+        return {
+            "name": name,
+            "data": data,
+            "format": "json"
+        }
 
-    async def get_config(self, config_type: str) -> ConfigData:
-        """Get configuration by type."""
-        try:
-            return await self.service.get_config(config_type)
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=f"Failed to get config {config_type}",
-                context={"type": config_type, "error": str(e)},
-                cause=e
-            )
+    @router.delete("/config/{name}", response_model=MessageResponse)
+    async def delete_config(name: str, services=Depends(get_services)):
+        """Delete configuration.
+        
+        Args:
+            name: Configuration name
+            services: Service instances
+            
+        Returns:
+            MessageResponse: Success response
+        """
+        # Delete from all services
+        services["registry"].delete(name)
+        services["file"].delete(f"{name}.json")
+        services["cache"].delete(name)
 
-    async def update_config(self, config_type: str, config: ConfigData) -> None:
-        """Update configuration."""
-        try:
-            await self.service.update_config(config)
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=f"Failed to update config {config_type}",
-                context={"type": config_type, "error": str(e)},
-                cause=e
-            )
+        return {"message": f"Configuration {name} deleted successfully"}
 
-    async def delete_config(self, config_type: str) -> None:
-        """Delete configuration."""
-        try:
-            await self.service.delete_config(config_type)
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=f"Failed to delete config {config_type}",
-                context={"type": config_type, "error": str(e)},
-                cause=e
-            )
+    @router.post("/schema/{name}", response_model=MessageResponse)
+    async def register_schema(
+        name: str,
+        request: SchemaRequest,
+        services=Depends(get_services)
+    ):
+        """Register JSON schema.
+        
+        Args:
+            name: Schema name
+            request: Schema request
+            services: Service instances
+            
+        Returns:
+            MessageResponse: Success response
+        """
+        services["schema"].register_schema(name, request.schema)
+        return {"message": f"Schema {name} registered successfully"}
+
+    @router.get("/schema/{name}", response_model=SchemaResponse)
+    async def get_schema(name: str, services=Depends(get_services)):
+        """Get JSON schema.
+        
+        Args:
+            name: Schema name
+            services: Service instances
+            
+        Returns:
+            SchemaResponse: Schema definition
+        """
+        schema = services["schema"].get_schema(name)
+        return {
+            "name": name,
+            "schema": schema
+        }
+
+    return router

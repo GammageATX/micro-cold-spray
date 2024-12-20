@@ -1,29 +1,19 @@
-"""Configuration data models."""
+"""Configuration models package."""
 
 from micro_cold_spray.api.config.models.config_models import (
-    ConfigData,
-    ConfigMetadata,
-    ConfigUpdate,
-    ConfigValidationResult,
-    ConfigFieldInfo,
-    TagRemapRequest,
-    SchemaRegistry,
-    ConfigSchema,
-    ConfigReference,
-    ConfigStatus,
-    FormatMetadata
+    ConfigRequest,
+    ConfigResponse,
+    SchemaRequest,
+    SchemaResponse,
+    HealthResponse,
+    MessageResponse
 )
 
 __all__ = [
-    "ConfigData",
-    "ConfigMetadata",
-    "ConfigUpdate",
-    "ConfigValidationResult",
-    "ConfigFieldInfo",
-    "TagRemapRequest",
-    "SchemaRegistry",
-    "ConfigSchema",
-    "ConfigReference",
-    "ConfigStatus",
-    "FormatMetadata"
+    "ConfigRequest",
+    "ConfigResponse",
+    "SchemaRequest",
+    "SchemaResponse",
+    "HealthResponse",
+    "MessageResponse"
 ]

@@ -2,196 +2,168 @@
 
 import os
 import json
-from typing import Optional, Dict, Any
-from pathlib import Path
-from loguru import logger
+from typing import Dict, Any
 from fastapi import status
+from loguru import logger
 
-from micro_cold_spray.api.base.base_service import BaseService
-from micro_cold_spray.api.base.base_errors import create_error
-from micro_cold_spray.api.config.models.config_models import ConfigData
+from micro_cold_spray.api.base import create_error
+from micro_cold_spray.api.config.services.base_config_service import BaseConfigService
 
 
-class FileService(BaseService):
+class FileService(BaseConfigService):
     """Configuration file service implementation."""
 
-    def __init__(self, name: str = "file"):
+    def __init__(self, base_path: str = None):
         """Initialize service.
         
         Args:
-            name: Service name
+            base_path: Base path for config files
         """
-        super().__init__(name=name)
-        self._config_dir: Optional[Path] = None
+        super().__init__(name="file")
+        self.base_path = base_path or os.path.join(os.getcwd(), "config")
 
     async def _start(self) -> None:
         """Start implementation."""
-        try:
-            await self._initialize()
-            logger.info("File service started")
-        except Exception as e:
-            logger.error(f"Failed to start file service: {e}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to start file service",
-                context={"error": str(e)},
-                cause=e
-            )
+        if not os.path.exists(self.base_path):
+            os.makedirs(self.base_path)
+            logger.info(f"Created config directory: {self.base_path}")
 
     async def _stop(self) -> None:
         """Stop implementation."""
-        try:
-            await self._cleanup()
-            logger.info("File service stopped")
-        except Exception as e:
-            logger.error(f"Failed to stop file service: {e}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to stop file service",
-                context={"error": str(e)},
-                cause=e
-            )
+        pass
 
-    async def _initialize(self) -> None:
-        """Initialize service."""
-        config_dir = os.getenv("CONFIG_DIR", "config")
-        self._config_dir = Path(config_dir)
-        if not self._config_dir.exists():
-            self._config_dir.mkdir(parents=True)
-
-    async def _cleanup(self) -> None:
-        """Clean up service."""
-        self._config_dir = None
-
-    async def _validate_config(self, config: ConfigData) -> None:
-        """Validate configuration.
+    def read(self, filename: str) -> Dict[str, Any]:
+        """Read configuration from file.
         
         Args:
-            config: Configuration data
-            
-        Raises:
-            HTTPException: If validation fails (422)
-        """
-        if not config:
-            raise create_error(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                message="Config data cannot be None",
-                context={"config": None}
-            )
-
-    async def save_config(self, config_type: str, config: ConfigData) -> None:
-        """Save configuration to file.
-        
-        Args:
-            config_type: Configuration type
-            config: Configuration data
-            
-        Raises:
-            HTTPException: If saving fails (400)
-        """
-        if not self.is_running:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Service not running",
-                context={"service": self.name}
-            )
-
-        try:
-            await self._validate_config(config)
-            
-            config_file = self._config_dir / f"{config_type}.json"
-            with open(config_file, "w") as f:
-                json.dump(config, f, indent=2)
-                
-            logger.debug(f"Saved config to file: {config_file}")
-            
-        except Exception as e:
-            logger.error(f"Failed to save config: {e}")
-            raise create_error(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                message="Failed to save config",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def load_config(self, config_type: str) -> Optional[ConfigData]:
-        """Load configuration from file.
-        
-        Args:
-            config_type: Configuration type
+            filename: Configuration filename
             
         Returns:
-            Configuration data if found
+            Dict[str, Any]: Configuration data
             
         Raises:
-            HTTPException: If loading fails (400)
+            HTTPException: If service not running or file error
         """
         if not self.is_running:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Service not running",
-                context={"service": self.name}
+                message="File service not running"
+            )
+
+        filepath = os.path.join(self.base_path, filename)
+        if not os.path.exists(filepath):
+            raise create_error(
+                status_code=status.HTTP_404_NOT_FOUND,
+                message=f"Configuration file not found: {filename}"
             )
 
         try:
-            config_file = self._config_dir / f"{config_type}.json"
-            if not config_file.exists():
-                return None
-                
-            with open(config_file, "r") as f:
-                config_data = json.load(f)
-                
-            logger.debug(f"Loaded config from file: {config_file}")
-            return ConfigData(**config_data)
-            
-        except Exception as e:
-            logger.error(f"Failed to load config: {e}")
+            with open(filepath, 'r') as f:
+                return json.load(f)
+        except json.JSONDecodeError as e:
             raise create_error(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                message="Failed to load config",
-                context={"error": str(e)},
-                cause=e
+                message=f"Invalid JSON in configuration file: {str(e)}"
+            )
+        except Exception as e:
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=f"Failed to read configuration file: {str(e)}"
             )
 
-    async def delete_config(self, config_type: str) -> None:
+    def write(self, filename: str, data: Dict[str, Any]) -> None:
+        """Write configuration to file.
+        
+        Args:
+            filename: Configuration filename
+            data: Configuration data to write
+            
+        Raises:
+            HTTPException: If service not running or file error
+        """
+        if not self.is_running:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="File service not running"
+            )
+
+        filepath = os.path.join(self.base_path, filename)
+        try:
+            with open(filepath, 'w') as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=f"Failed to write configuration file: {str(e)}"
+            )
+
+    def delete(self, filename: str) -> None:
         """Delete configuration file.
         
         Args:
-            config_type: Configuration type
+            filename: Configuration filename
             
         Raises:
-            HTTPException: If deletion fails (400)
+            HTTPException: If service not running or file error
         """
         if not self.is_running:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Service not running",
-                context={"service": self.name}
+                message="File service not running"
+            )
+
+        filepath = os.path.join(self.base_path, filename)
+        if not os.path.exists(filepath):
+            raise create_error(
+                status_code=status.HTTP_404_NOT_FOUND,
+                message=f"Configuration file not found: {filename}"
             )
 
         try:
-            config_file = self._config_dir / f"{config_type}.json"
-            if config_file.exists():
-                config_file.unlink()
-                logger.debug(f"Deleted config file: {config_file}")
-                
+            os.remove(filepath)
         except Exception as e:
-            logger.error(f"Failed to delete config: {e}")
             raise create_error(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                message="Failed to delete config",
-                context={"error": str(e)},
-                cause=e
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=f"Failed to delete configuration file: {str(e)}"
+            )
+
+    def list_configs(self) -> list[str]:
+        """List available configuration files.
+        
+        Returns:
+            list[str]: List of configuration filenames
+            
+        Raises:
+            HTTPException: If service not running
+        """
+        if not self.is_running:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="File service not running"
+            )
+
+        try:
+            return [f for f in os.listdir(self.base_path) if f.endswith('.json')]
+        except Exception as e:
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=f"Failed to list configuration files: {str(e)}"
             )
 
     async def health(self) -> dict:
-        """Get service health status.
-        
-        Returns:
-            Health check result
-        """
+        """Get service health status."""
         health = await super().health()
-        health["context"].update({
-            "config_dir": str(self._config_dir) if self._config_dir else None
-        })
+        try:
+            config_count = len(self.list_configs()) if self.is_running else 0
+            health.update({
+                "config_count": config_count,
+                "base_path": self.base_path
+            })
+        except (OSError, PermissionError) as e:
+            logger.error(f"Failed to get config count: {e}")
+            health.update({
+                "config_count": 0,
+                "base_path": self.base_path,
+                "error": str(e)
+            })
         return health

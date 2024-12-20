@@ -5,8 +5,8 @@ from datetime import datetime, timedelta
 from loguru import logger
 from fastapi import status
 
-from micro_cold_spray.api.base.base_service import BaseService
-from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.api.base import create_error
+from micro_cold_spray.api.config.services.base_config_service import BaseConfigService
 
 
 class CacheEntry:
@@ -28,53 +28,23 @@ class CacheEntry:
         return datetime.now() > self.expires
 
 
-class CacheService(BaseService):
+class CacheService(BaseConfigService):
     """Configuration cache service implementation."""
 
-    def __init__(self, name: str = "cache"):
-        """Initialize service.
-        
-        Args:
-            name: Service name
-        """
-        super().__init__(name=name)
+    def __init__(self):
+        """Initialize service."""
+        super().__init__(name="cache")
         self._cache: Dict[str, Union[CacheEntry, Dict]] = {}
 
     async def _start(self) -> None:
         """Start implementation."""
-        try:
-            await self._initialize()
-            logger.info("Cache service started")
-        except Exception as e:
-            logger.error(f"Failed to start cache service: {e}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to start cache service",
-                context={"error": str(e)},
-                cause=e
-            )
+        self._cache.clear()
+        logger.info("Cache cleared on start")
 
     async def _stop(self) -> None:
         """Stop implementation."""
-        try:
-            await self._cleanup()
-            logger.info("Cache service stopped")
-        except Exception as e:
-            logger.error(f"Failed to stop cache service: {e}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to stop cache service",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def _initialize(self) -> None:
-        """Initialize cache."""
         self._cache.clear()
-
-    async def _cleanup(self) -> None:
-        """Clean up cache."""
-        self._cache.clear()
+        logger.info("Cache cleared on stop")
 
     def get(self, key: str) -> Optional[any]:
         """Get value from cache.
@@ -84,12 +54,14 @@ class CacheService(BaseService):
             
         Returns:
             Optional[any]: Cached value if found and not expired
+            
+        Raises:
+            HTTPException: If service not running
         """
         if not self.is_running:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Service not running",
-                context={"service": self.name}
+                message="Cache service not running"
             )
 
         entry = self._cache.get(key)
@@ -109,12 +81,14 @@ class CacheService(BaseService):
             key: Cache key
             value: Value to cache
             ttl: Time to live in seconds
+            
+        Raises:
+            HTTPException: If service not running
         """
         if not self.is_running:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Service not running",
-                context={"service": self.name}
+                message="Cache service not running"
             )
 
         self._cache[key] = CacheEntry(value, ttl)
@@ -124,32 +98,37 @@ class CacheService(BaseService):
         
         Args:
             key: Cache key
+            
+        Raises:
+            HTTPException: If service not running
         """
         if not self.is_running:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Service not running",
-                context={"service": self.name}
+                message="Cache service not running"
             )
 
         if key in self._cache:
             del self._cache[key]
 
     def clear(self) -> None:
-        """Clear all cache entries."""
+        """Clear all cache entries.
+        
+        Raises:
+            HTTPException: If service not running
+        """
         if not self.is_running:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Service not running",
-                context={"service": self.name}
+                message="Cache service not running"
             )
 
         self._cache.clear()
 
-    def get_size(self) -> int:
-        """Get number of cache entries.
-        
-        Returns:
-            int: Number of entries
-        """
-        return len(self._cache)
+    async def health(self) -> dict:
+        """Get service health status."""
+        health = await super().health()
+        health.update({
+            "cache_size": len(self._cache)
+        })
+        return health
