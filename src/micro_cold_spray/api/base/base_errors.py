@@ -8,11 +8,29 @@ from fastapi import HTTPException, status
 
 def create_error(
     message: str,
-    status_code: int = status.HTTP_400_BAD_REQUEST,
+    status_code: int,
     context: Optional[dict[str, Any]] = None,
     cause: Optional[Exception] = None,
 ) -> HTTPException:
-    """Create an HTTP error with consistent format."""
+    """Create an HTTP error with consistent format.
+    
+    Args:
+        message: Error message
+        status_code: HTTP status code (use status.HTTP_* constants)
+            400: Bad Request - Client errors (invalid input, bad parameters)
+            401: Unauthorized - Authentication required
+            403: Forbidden - Permission denied
+            404: Not Found - Resource doesn't exist
+            409: Conflict - Resource state conflict
+            422: Unprocessable Entity - Validation errors
+            500: Internal Server Error - Unexpected server errors
+            503: Service Unavailable - Service not ready/available
+        context: Additional error context
+        cause: Original exception that caused this error
+        
+    Returns:
+        HTTPException with formatted error details
+    """
     error = HTTPException(
         status_code=status_code,
         detail={
@@ -24,26 +42,3 @@ def create_error(
     if cause:
         error.__cause__ = cause
     return error
-
-
-class ConfigError(HTTPException):
-    """Configuration error."""
-
-    def __init__(
-        self,
-        message: str,
-        context: Optional[dict[str, Any]] = None,
-        cause: Optional[Exception] = None,
-    ) -> None:
-        """Initialize config error."""
-        detail = {
-            "message": message,
-            "timestamp": datetime.now().isoformat(),
-            "context": context or {},
-        }
-        super().__init__(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=detail,
-        )
-        if cause:
-            self.__cause__ = cause

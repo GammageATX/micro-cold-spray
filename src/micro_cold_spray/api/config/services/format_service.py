@@ -12,13 +12,13 @@ from micro_cold_spray.api.base.base_errors import create_error
 from micro_cold_spray.api.config.models.config_models import FormatMetadata
 
 
-class ConfigFormatService(BaseService):
+class FormatService(BaseService):
     """Configuration format service implementation."""
 
     _instance = None
     _initialized = False
 
-    def __new__(cls, service_name: str = "format") -> "ConfigFormatService":
+    def __new__(cls, service_name: str = "format") -> "FormatService":
         """Create or return singleton instance.
 
         Args:
@@ -91,257 +91,118 @@ class ConfigFormatService(BaseService):
             ["tag", "group.tag"]
         )
 
-    async def _start(self) -> None:
-        """Start format service."""
-        try:
-            logger.info("Format service started with {} formats", len(self._format_validators))
-        except Exception as e:
-            logger.error(f"Failed to start format service: {e}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to start format service",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    def register_format(self, format_type: str, validator: Callable, description: str, examples: List[str]) -> None:
+    def register_format(
+        self,
+        format_name: str,
+        validator: Callable[[str], bool],
+        description: str,
+        examples: List[str]
+    ) -> None:
         """Register format validator.
         
         Args:
-            format_type: Format type
-            validator: Validator function
+            format_name: Format name
+            validator: Validation function
             description: Format description
             examples: Example values
-            
-        Raises:
-            HTTPException: If format already exists (409) or registration fails (500)
         """
-        if format_type in self._format_validators:
-            raise create_error(
-                status_code=status.HTTP_409_CONFLICT,
-                message="Format already registered",
-                context={"format": format_type}
-            )
+        self._format_validators[format_name] = validator
+        self._format_metadata[format_name] = FormatMetadata(
+            description=description,
+            examples=examples
+        )
 
-        try:
-            metadata = FormatMetadata(
-                description=description,
-                examples=examples
-            )
-            self._format_validators[format_type] = validator
-            self._format_metadata[format_type] = metadata
-        except Exception as e:
-            logger.error(f"Failed to register format: {e}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to register format",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    def validate_format(self, format_type: str, value: Any) -> None:
-        """Validate format.
+    def validate_format(self, format_name: str, value: str) -> bool:
+        """Validate value against format.
         
         Args:
-            format_type: Format type
+            format_name: Format name
             value: Value to validate
             
+        Returns:
+            True if valid
+            
         Raises:
-            HTTPException: If format type unknown (404) or validation fails (422)
+            HTTPException: If format not found (404)
         """
-        if format_type not in self._format_validators:
+        if not self.is_running:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Service not running",
+                context={"service": self.name}
+            )
+
+        validator = self._format_validators.get(format_name)
+        if not validator:
             raise create_error(
                 status_code=status.HTTP_404_NOT_FOUND,
-                message="Unknown format type",
-                context={
-                    "format": format_type,
-                    "available_formats": list(self._format_validators.keys())
-                }
+                message=f"Format {format_name} not found",
+                context={"format": format_name}
             )
 
-        try:
-            validator = self._format_validators[format_type]
-            error = validator(value)
-            if error:
-                raise create_error(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    message="Format validation failed",
-                    context={"error": error}
-                )
-        except Exception as e:
-            if isinstance(e, create_error):
-                raise e
-            logger.error(f"Format validation failed: {e}")
-            raise create_error(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                message="Format validation failed",
-                context={"error": str(e)},
-                cause=e
-            )
+        return validator(value)
 
-    def _validate_12bit(self, value: Any) -> Optional[str]:
-        """Validate 12-bit value.
+    def get_format_metadata(self) -> Dict[str, FormatMetadata]:
+        """Get format metadata.
         
-        Args:
-            value: Value to validate
+        Returns:
+            Format metadata by name
             
-        Returns:
-            Error message if validation fails
+        Raises:
+            HTTPException: If service not running (503)
         """
+        if not self.is_running:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Service not running",
+                context={"service": self.name}
+            )
+
+        return self._format_metadata
+
+    def _validate_12bit(self, value: str) -> bool:
+        """Validate 12-bit integer value."""
         try:
-            if not isinstance(value, (int, float)):
-                return "Value must be numeric"
-            num = float(value)
-            if not 0 <= num <= 4095:
-                return "Value must be between 0 and 4095"
-            return None
-        except Exception as e:
-            return f"Validation failed: {str(e)}"
+            val = int(value)
+            return 0 <= val <= 4095
+        except ValueError:
+            return False
 
-    def _validate_percentage(self, value: Any) -> Optional[str]:
-        """Validate percentage value.
-
-        Args:
-            value: Value to validate
-
-        Returns:
-            Error message if validation fails
-        """
+    def _validate_percentage(self, value: str) -> bool:
+        """Validate percentage value."""
         try:
-            if not isinstance(value, (int, float)):
-                return "Value must be numeric"
-            num = float(value)
-            if not 0 <= num <= 100:
-                return "Value must be between 0 and 100"
-            return None
-        except Exception as e:
-            return f"Validation failed: {str(e)}"
+            val = float(value)
+            return 0 <= val <= 100
+        except ValueError:
+            return False
 
-    def _validate_ip_address(self, value: Any) -> Optional[str]:
-        """Validate IP address.
+    def _validate_ip_address(self, value: str) -> bool:
+        """Validate IPv4 address."""
+        pattern = r"^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$"
+        return bool(re.match(pattern, value))
 
-        Args:
-            value: Value to validate
+    def _validate_hostname(self, value: str) -> bool:
+        """Validate hostname."""
+        pattern = r"^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
+        return bool(re.match(pattern, value))
 
-        Returns:
-            Error message if validation fails
-        """
+    def _validate_port(self, value: str) -> bool:
+        """Validate TCP/UDP port number."""
         try:
-            if not isinstance(value, str):
-                return "Value must be string"
+            val = int(value)
+            return 1 <= val <= 65535
+        except ValueError:
+            return False
 
-            pattern = r"^(\d{1,3}\.){3}\d{1,3}$"
-            if not re.match(pattern, value):
-                return "Invalid IP address format"
-
-            parts = value.split(".")
-            for part in parts:
-                num = int(part)
-                if not 0 <= num <= 255:
-                    return "Value must be between 0 and 255"
-            return None
-        except Exception as e:
-            return f"Invalid IP address format: {str(e)}"
-
-    def _validate_hostname(self, value: Any) -> Optional[str]:
-        """Validate hostname.
-
-        Args:
-            value: Value to validate
-
-        Returns:
-            Error message if validation fails
-        """
+    def _validate_path(self, value: str) -> bool:
+        """Validate file system path."""
         try:
-            if not isinstance(value, str):
-                return "Value must be string"
+            Path(value)
+            return True
+        except Exception:
+            return False
 
-            if len(value) > 255:
-                return "Hostname too long"
-
-            if value[-1] == ".":
-                value = value[:-1]
-
-            allowed = re.compile(r"(?!-)[A-Z\d-]{1,63}(?<!-)$", re.IGNORECASE)
-            if not all(allowed.match(x) for x in value.split(".")):
-                return "Invalid hostname format"
-
-            return None
-        except Exception as e:
-            return f"Invalid hostname format: {str(e)}"
-
-    def _validate_port(self, value: Any) -> Optional[str]:
-        """Validate port number.
-
-        Args:
-            value: Value to validate
-
-        Returns:
-            Error message if validation fails
-        """
-        try:
-            if not isinstance(value, (int, str)):
-                return "Value must be integer or string"
-
-            port = int(value)
-            if not 1 <= port <= 65535:
-                return "Port must be between 1 and 65535"
-
-            return None
-        except Exception as e:
-            return f"Invalid port number: {str(e)}"
-
-    def _validate_path(self, value: Any) -> Optional[str]:
-        """Validate file system path.
-
-        Args:
-            value: Value to validate
-
-        Returns:
-            Error message if validation fails
-        """
-        try:
-            if not isinstance(value, str):
-                return "Value must be string"
-
-            path = Path(value)
-            if not path.parts:
-                return "Invalid path format"
-
-            return None
-        except Exception as e:
-            return f"Invalid path format: {str(e)}"
-
-    def _validate_tag_path(self, value: Any) -> Optional[str]:
-        """Validate tag path.
-
-        Args:
-            value: Value to validate
-
-        Returns:
-            Error message if validation fails
-        """
-        try:
-            if not isinstance(value, str):
-                return "Value must be string"
-
-            parts = value.split(".")
-            if not all(re.match(r"^[a-zA-Z0-9_]+$", part) for part in parts):
-                return "Invalid tag path format"
-
-            return None
-        except Exception as e:
-            return f"Invalid tag path format: {str(e)}"
-
-    async def health(self) -> dict:
-        """Get service health status.
-        
-        Returns:
-            Health check result
-        """
-        health = await super().health()
-        health["context"].update({
-            "format_count": len(self._format_validators),
-            "formats": list(self._format_validators.keys())
-        })
-        return health
+    def _validate_tag_path(self, value: str) -> bool:
+        """Validate tag path."""
+        pattern = r"^[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z][a-zA-Z0-9_]*)*$"
+        return bool(re.match(pattern, value))

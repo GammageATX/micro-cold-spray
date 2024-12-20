@@ -1,101 +1,113 @@
-"""Test base service module."""
+"""Tests for base service."""
 
 import pytest
 from fastapi import status
 
-from tests.conftest import MockBaseService
-
-
-class ErrorService(MockBaseService):
-    """Service that raises errors during start/stop."""
-
-    async def _start(self):
-        """Start service with error."""
-        raise RuntimeError("Start error")
-
-    async def _stop(self):
-        """Stop service with error."""
-        raise RuntimeError("Stop error")
-
-
-@pytest.fixture
-async def error_service():
-    """Create service that raises errors."""
-    return ErrorService()
+from micro_cold_spray.api.base.base_service import BaseService
 
 
 class TestBaseService:
     """Test base service."""
 
     @pytest.mark.asyncio
-    async def test_service_start(self, base_service):
+    async def test_service_start(self):
         """Test service start."""
-        await base_service.start()
-        assert base_service.is_running
+        service = BaseService()
+        await service.start()
+        assert service.is_running is True
 
     @pytest.mark.asyncio
-    async def test_service_stop(self, base_service):
+    async def test_service_stop(self):
         """Test service stop."""
-        await base_service.start()
-        await base_service.stop()
-        assert not base_service.is_running
+        service = BaseService()
+        await service.start()
+        await service.stop()
+        assert service.is_running is False
 
     @pytest.mark.asyncio
-    async def test_service_health(self, base_service):
+    async def test_service_start_already_running(self):
+        """Test starting already running service."""
+        service = BaseService()
+        await service.start()
+        with pytest.raises(Exception) as exc:
+            await service.start()
+        assert exc.value.status_code == status.HTTP_409_CONFLICT
+        assert "already running" in str(exc.value.detail["message"])
+        assert exc.value.detail["context"]["service"] == "baseservice"
+
+    @pytest.mark.asyncio
+    async def test_service_stop_not_running(self):
+        """Test stopping not running service."""
+        service = BaseService()
+        with pytest.raises(Exception) as exc:
+            await service.stop()
+        assert exc.value.status_code == status.HTTP_409_CONFLICT
+        assert "not running" in str(exc.value.detail["message"])
+        assert exc.value.detail["context"]["service"] == "baseservice"
+
+    @pytest.mark.asyncio
+    async def test_service_start_error(self):
+        """Test service start error."""
+        class ErrorService(BaseService):
+            async def _start(self):
+                raise ValueError("Start error")
+
+        service = ErrorService()
+        with pytest.raises(Exception) as exc:
+            await service.start()
+        assert exc.value.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert "failed to start" in str(exc.value.detail["message"])
+        assert exc.value.detail["context"]["service"] == "errorservice"
+        assert isinstance(exc.value.__cause__, ValueError)
+
+    @pytest.mark.asyncio
+    async def test_service_stop_error(self):
+        """Test service stop error."""
+        class ErrorService(BaseService):
+            async def _start(self):
+                self._is_running = True
+
+            async def _stop(self):
+                raise ValueError("Stop error")
+
+        service = ErrorService()
+        await service.start()
+        with pytest.raises(Exception) as exc:
+            await service.stop()
+        assert exc.value.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert "failed to stop" in str(exc.value.detail["message"])
+        assert exc.value.detail["context"]["service"] == "errorservice"
+        assert isinstance(exc.value.__cause__, ValueError)
+
+    @pytest.mark.asyncio
+    async def test_service_not_implemented(self):
+        """Test service with unimplemented methods."""
+        service = BaseService()
+        with pytest.raises(Exception) as exc:
+            await service._start()
+        assert exc.value.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert "not implemented" in str(exc.value.detail["message"])
+        assert exc.value.detail["context"]["service"] == "baseservice"
+
+    @pytest.mark.asyncio
+    async def test_service_health(self):
         """Test service health check."""
-        await base_service.start()
-        health = await base_service.health()
+        service = BaseService()
+        health = await service.health()
+        assert health["is_healthy"] is False
+        assert health["status"] == "not running"
+        assert health["context"]["service"] == "baseservice"
+
+        await service.start()
+        health = await service.health()
         assert health["is_healthy"] is True
         assert health["status"] == "running"
-        assert health["context"]["service"] == base_service.name
+        assert health["context"]["service"] == "baseservice"
 
-    @pytest.mark.asyncio
-    async def test_service_health_not_running(self, base_service):
-        """Test health check when service is not running."""
-        health = await base_service.health()
-        assert health["is_healthy"] is False
-        assert health["status"] == "stopped"
-        assert health["context"]["service"] == base_service.name
-
-    @pytest.mark.asyncio
-    async def test_start_already_running(self, base_service):
-        """Test starting already running service."""
-        await base_service.start()
-        with pytest.raises(Exception) as exc:
-            await base_service.start()
-        assert exc.value.status_code == status.HTTP_400_BAD_REQUEST
-        assert "already running" in str(exc.value.detail)
-
-    @pytest.mark.asyncio
-    async def test_stop_not_running(self, base_service):
-        """Test stopping not running service."""
-        with pytest.raises(Exception) as exc:
-            await base_service.stop()
-        assert exc.value.status_code == status.HTTP_400_BAD_REQUEST
-        assert "not running" in str(exc.value.detail)
-
-    @pytest.mark.asyncio
-    async def test_start_error(self, error_service):
-        """Test error during service start."""
-        with pytest.raises(RuntimeError) as exc:
-            await error_service.start()
-        assert "Start error" in str(exc.value)
-        assert not error_service.is_running
-
-    @pytest.mark.asyncio
-    async def test_stop_error(self, error_service):
-        """Test error during service stop."""
-        error_service._is_running = True  # Force running state
-        with pytest.raises(RuntimeError) as exc:
-            await error_service.stop()
-        assert "Stop error" in str(exc.value)
-        assert error_service.is_running  # Service should still be running after failed stop
-
-    @pytest.mark.asyncio
-    async def test_service_name(self):
+    def test_service_name(self):
         """Test service name."""
-        service = MockBaseService("custom_name")
-        assert service.name == "custom_name"
+        service = BaseService()
+        assert service.name == "baseservice"
 
-        service = MockBaseService()
-        assert service.name == "test_service"
+        service = BaseService("custom")
+        assert service.name == "custom"

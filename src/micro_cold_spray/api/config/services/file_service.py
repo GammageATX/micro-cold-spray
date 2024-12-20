@@ -12,7 +12,7 @@ from micro_cold_spray.api.base.base_errors import create_error
 from micro_cold_spray.api.config.models.config_models import ConfigData
 
 
-class ConfigFileService(BaseService):
+class FileService(BaseService):
     """Configuration file service implementation."""
 
     def __init__(self, name: str = "file"):
@@ -114,7 +114,7 @@ class ConfigFileService(BaseService):
                 cause=e
             )
 
-    async def load_config(self, config_type: str) -> Optional[Dict[str, Any]]:
+    async def load_config(self, config_type: str) -> Optional[ConfigData]:
         """Load configuration from file.
         
         Args:
@@ -124,7 +124,7 @@ class ConfigFileService(BaseService):
             Configuration data if found
             
         Raises:
-            HTTPException: If loading fails (500)
+            HTTPException: If loading fails (400)
         """
         if not self.is_running:
             raise create_error(
@@ -138,13 +138,16 @@ class ConfigFileService(BaseService):
             if not config_file.exists():
                 return None
                 
-            with open(config_file) as f:
-                return json.load(f)
+            with open(config_file, "r") as f:
+                config_data = json.load(f)
                 
+            logger.debug(f"Loaded config from file: {config_file}")
+            return ConfigData(**config_data)
+            
         except Exception as e:
             logger.error(f"Failed to load config: {e}")
             raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code=status.HTTP_400_BAD_REQUEST,
                 message="Failed to load config",
                 context={"error": str(e)},
                 cause=e

@@ -3,13 +3,13 @@
 from micro_cold_spray.api.config.services.cache_service import CacheService
 from micro_cold_spray.api.config.services.file_service import FileService
 from micro_cold_spray.api.config.services.format_service import FormatService
-from micro_cold_spray.api.config.services.registry_service import RegistryService
+from micro_cold_spray.api.config.services.registry_service import ConfigRegistryService
 from micro_cold_spray.api.config.services.schema_service import SchemaService
 
 __all__ = [
     "CacheService",
     "FileService",
     "FormatService",
-    "RegistryService",
+    "ConfigRegistryService",
     "SchemaService"
 ]

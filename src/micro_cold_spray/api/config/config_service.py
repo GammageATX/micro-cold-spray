@@ -1,169 +1,195 @@
 """Configuration service implementation."""
 
-from typing import Dict, Type, Optional
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, Optional, Type
 import threading
-from loguru import logger
-from fastapi import status
 
+from fastapi import status
+from loguru import logger
+
+from micro_cold_spray.api.base.base_errors import create_error, BaseError
 from micro_cold_spray.api.base.base_service import BaseService
-from micro_cold_spray.api.base.base_errors import create_error
 from micro_cold_spray.api.config.models.config_models import ConfigData
+from micro_cold_spray.api.config.services.cache_service import CacheService
+from micro_cold_spray.api.config.services.file_service import FileService
+from micro_cold_spray.api.config.services.registry_service import ConfigRegistryService
 
 
 class ConfigService(BaseService):
     """Configuration service implementation."""
-    
+
     _instance: Optional['ConfigService'] = None
     _lock = threading.Lock()
-    
-    def __new__(cls, service_name: str) -> 'ConfigService':
+
+    def __new__(cls, config_dir: Optional[Path] = None) -> 'ConfigService':
         """Create or return singleton instance.
         
         Args:
-            service_name: Service name
+            config_dir: Configuration directory path
             
         Returns:
-            ConfigService instance
+            ConfigService: Singleton instance
         """
         if not cls._instance:
             with cls._lock:
                 if not cls._instance:
                     instance = super().__new__(cls)
-                    # Initialize base class
-                    BaseService.__init__(instance, service_name)
-                    # Set instance attributes
-                    instance._config_types = {}
-                    instance._config_cache = {}
+                    instance._initialized = False
                     cls._instance = instance
         return cls._instance
 
-    def __init__(self, service_name: str) -> None:
-        """Initialize service.
+    def __init__(self, config_dir: Optional[Path] = None):
+        """Initialize configuration service.
         
         Args:
-            service_name: Service name
+            config_dir: Configuration directory path
         """
-        # Skip initialization if already initialized
-        pass
+        if not hasattr(self, '_initialized') or not self._initialized:
+            super().__init__()
+            self._config_dir = config_dir
+            self._registry = ConfigRegistryService()
+            self._file_service = FileService()
+            self._cache_service = CacheService()
+            self._start_time: Optional[datetime] = None
+            self._initialized = True
+
+    @property
+    def uptime(self) -> float:
+        """Get service uptime in seconds.
+        
+        Returns:
+            float: Service uptime in seconds
+        """
+        if not self._start_time:
+            return 0.0
+        return (datetime.now() - self._start_time).total_seconds()
 
     async def _start(self) -> None:
-        """Start service implementation."""
-        # Nothing special needed for startup
-        pass
+        """Start configuration service."""
+        try:
+            await self._registry.start()
+            self._start_time = datetime.now()
+            self._is_running = True
+            logger.info("Config service started")
+        except Exception as e:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Failed to start config service",
+                context={"error": str(e)},
+                cause=e
+            )
 
     async def _stop(self) -> None:
-        """Stop service implementation."""
-        # Clear caches on shutdown
-        self._config_cache.clear()
+        """Stop configuration service."""
+        try:
+            await self._registry.stop()
+            self._start_time = None
+            self._is_running = False
+            logger.info("Config service stopped")
+        except Exception as e:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Failed to stop config service",
+                context={"error": str(e)},
+                cause=e
+            )
 
-    def register_config_type(self, config_type: Type[ConfigData]) -> None:
+    async def check_health(self) -> Dict[str, Any]:
+        """Check service health.
+        
+        Returns:
+            Dict[str, Any]: Health check response
+        """
+        try:
+            registry_health = await self._registry.check_health()
+            return {
+                "status": "running" if self.is_running else "stopped",
+                "is_healthy": self.is_running and registry_health["is_healthy"],
+                "uptime": self.uptime,
+                "context": {
+                    "service": "config",
+                    "config_dir": str(self._config_dir) if self._config_dir else None,
+                    "registry": registry_health["context"]
+                }
+            }
+        except Exception as e:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Failed to check config service health",
+                context={"error": str(e)},
+                cause=e
+            )
+
+    async def get_config(self, config_id: str) -> ConfigData:
+        """Get configuration by ID.
+        
+        Args:
+            config_id: Configuration ID
+            
+        Returns:
+            ConfigData: Configuration data
+            
+        Raises:
+            HTTPException: If config not found (404) or service error (503)
+        """
+        if not self.is_running:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Config service is not running"
+            )
+
+        try:
+            # Try cache first
+            cached = await self._cache_service.get_config(config_id)
+            if cached:
+                return cached
+
+            # Load from file
+            config = await self._file_service.load_config(config_id)
+            if not config:
+                raise create_error(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    message=f"Config {config_id} not found"
+                )
+
+            # Cache for next time
+            await self._cache_service.set_config(config_id, config)
+            return config
+
+        except Exception as e:
+            if isinstance(e, BaseError):
+                raise e
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Failed to get config",
+                context={"config_id": config_id, "error": str(e)},
+                cause=e
+            )
+
+    async def register_config_type(self, config_type: Type[ConfigData]) -> None:
         """Register configuration type.
         
         Args:
             config_type: Configuration type to register
-        """
-        self._config_types[config_type.__name__] = config_type
-        logger.info(f"Registered config type: {config_type.__name__}")
-
-    def get_config_type(self, type_name: str) -> Type[ConfigData]:
-        """Get configuration type by name.
-        
-        Args:
-            type_name: Configuration type name
-        
-        Returns:
-            Configuration type
-        
-        Raises:
-            HTTPException: If type not found (404)
-        """
-        if type_name not in self._config_types:
-            raise create_error(
-                status_code=status.HTTP_404_NOT_FOUND,
-                message=f"Config type {type_name} not found",
-                context={"type_name": type_name}
-            )
-        return self._config_types[type_name]
-
-    async def get_config(self, config_type: str) -> ConfigData:
-        """Get configuration.
-        
-        Args:
-            config_type: Configuration type
-            
-        Returns:
-            Configuration data
             
         Raises:
-            HTTPException: If service not running (503) or config not found (404)
+            HTTPException: If service not running (503) or type already exists (409)
         """
         if not self.is_running:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Service not running",
-                context={"service": self.name}
+                message="Config service is not running"
             )
 
-        if config_type not in self._config_types:
-            raise create_error(
-                status_code=status.HTTP_404_NOT_FOUND,
-                message=f"Config type {config_type} not found",
-                context={"type_name": config_type}
-            )
-
-        if config_type not in self._config_cache:
-            raise create_error(
-                status_code=status.HTTP_404_NOT_FOUND,
-                message=f"No configuration found for type {config_type}",
-                context={"type_name": config_type}
-            )
-
-        return self._config_cache[config_type]
-
-    async def update_config(self, config: ConfigData) -> None:
-        """Update configuration.
-        
-        Args:
-            config: Configuration data
-            
-        Raises:
-            HTTPException: If service not running (503) or config type not found (404)
-        """
-        if not self.is_running:
+        try:
+            await self._registry.register_config_type(config_type)
+        except Exception as e:
+            if isinstance(e, BaseError):
+                raise e
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Service not running",
-                context={"service": self.name}
+                message="Failed to register config type",
+                context={"type": config_type.__name__, "error": str(e)},
+                cause=e
             )
-
-        if config.metadata.config_type not in self._config_types:
-            raise create_error(
-                status_code=status.HTTP_404_NOT_FOUND,
-                message=f"Config type {config.metadata.config_type} not found",
-                context={"type_name": config.metadata.config_type}
-            )
-
-        self._config_cache[config.metadata.config_type] = config
-
-    async def get_config_types(self) -> Dict[str, Type[ConfigData]]:
-        """Get registered configuration types.
-        
-        Returns:
-            Dictionary of registered configuration types
-        """
-        return self._config_types.copy()
-
-    async def clear_cache(self) -> None:
-        """Clear configuration cache."""
-        self._config_cache.clear()
-
-    async def check_health(self) -> dict:
-        """Check service health.
-        
-        Returns:
-            Health check result
-        """
-        health = await super().health()
-        health["status"] = "ok" if self.is_running else "stopped"
-        health["context"]["config_types"] = list(self._config_types.keys())
-        return health

@@ -1,6 +1,5 @@
 """Configuration service package."""
 
-from micro_cold_spray.api.config.config_app import ConfigApp, create_app
 from micro_cold_spray.api.config.config_service import ConfigService
 from micro_cold_spray.api.config.models import (
     ConfigData,
@@ -12,13 +11,10 @@ from micro_cold_spray.api.config.models import (
     SchemaRegistry
 )
 from micro_cold_spray.api.config.utils import config_singleton as singleton
-from micro_cold_spray.api.config.endpoints import router
 
 __all__ = [
     # Main components
-    "ConfigApp",
     "ConfigService",
-    "router",
     # Models
     "ConfigData",
     "ConfigMetadata",
@@ -27,8 +23,6 @@ __all__ = [
     "ConfigFieldInfo",
     "TagRemapRequest",
     "SchemaRegistry",
-    # Factory functions
-    "create_app",
     # Utilities
     "singleton"
 ]

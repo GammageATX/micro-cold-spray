@@ -1,152 +1,182 @@
-"""Configuration test fixtures."""
+"""Test configuration fixtures and base class."""
 
 import pytest
-import asyncio
 from pathlib import Path
-import yaml
 from datetime import datetime
+from typing import Dict, Any, Optional, AsyncGenerator
+from fastapi import FastAPI, status
+from fastapi.testclient import TestClient
 
-from micro_cold_spray.__main__ import get_test_config
 from micro_cold_spray.api.config.models import ConfigData, ConfigMetadata
 from micro_cold_spray.api.config.config_service import ConfigService
-from micro_cold_spray.api.config.config_app import ConfigApp
-from micro_cold_spray.api.base.base_errors import ConfigError
-from micro_cold_spray.api.base.base_registry import register_service
-import uvicorn
-
-# Import base test utilities
-from tests.test_config.config_test_base import create_test_app, create_test_client
-# Import but don't redefine base fixtures
-from tests.fixtures.base import test_app_with_cors  # noqa: F401
+from micro_cold_spray.api.base.base_errors import ServiceError, ConfigError
+from micro_cold_spray.api.base.base_configurable import ConfigurableService
 
 
-@pytest.fixture
-async def config_base_service():
-    """Create base config service with proper lifecycle.
+class BaseConfigTest:
+    """Base class for configuration tests."""
     
-    Returns:
-        ConfigService: Configured service instance
-    """
-    service = ConfigService()
-    register_service(service)
-    
-    # Configure service with default config
-    config_data = ConfigData(
-        metadata=ConfigMetadata(
-            config_type="test",
-            last_modified=datetime.now(),
-            version="1.0.0"
-        ),
-        data={
-            "config_dir": "config",
-            "schema_dir": "config/schemas",
-            "enable_cache": True,
-            "cache_ttl": 300,
-            "backup_enabled": True,
-            "backup_dir": "config/backups"
-        }
-    )
-    
-    await service.configure(config_data.model_dump())
-    await service.start()
-    yield service
-    await service.stop()
+    def verify_error_response(self, error, expected_status: int, expected_message: str) -> None:
+        """Verify error response matches expected format.
+        
+        Args:
+            error: Error response to verify
+            expected_status: Expected HTTP status code
+            expected_message: Expected error message
+        """
+        assert error.value.status_code == expected_status
+        assert expected_message in str(error.value)
+        assert hasattr(error.value, "context")
 
+    async def verify_service_health(self, service, expected_healthy: bool = True) -> None:
+        """Verify service health check.
+        
+        Args:
+            service: Service to check health for
+            expected_healthy: Expected health status
+        """
+        health = await service.check_health()
+        assert health["is_healthy"] == expected_healthy
+        assert "status" in health
+        assert "uptime" in health
+        assert "service_info" in health
 
-@pytest.fixture
-def mock_service_error():
-    """Create standardized service error mock.
-    
-    Returns:
-        ConfigError: Standard error for service tests
-    """
-    return ConfigError("Service error")
+    def verify_config_response(self, response, expected_status: int) -> None:
+        """Verify configuration API response.
+        
+        Args:
+            response: API response to verify
+            expected_status: Expected HTTP status code
+        """
+        assert response.status_code == expected_status
+        if expected_status == status.HTTP_200_OK:
+            assert "data" in response.json()
+        else:
+            assert "detail" in response.json()
 
+    async def verify_service_start(self, service) -> None:
+        """Verify service startup.
+        
+        Args:
+            service: Service to verify
+        """
+        await service.start()
+        assert service.is_running
+        assert service.start_time is not None
+        assert service.uptime > 0
 
-@pytest.fixture(scope="function")
-async def config_server():
-    """Start a test config server instance.
-    
-    Returns:
-        str: Server URL
-    """
-    config = get_test_config('config')
-    server = uvicorn.Server(config)
-    
-    # Start server in background
-    server_task = asyncio.create_task(server.serve())
-    await asyncio.sleep(1)  # Give server time to start
-    
-    yield f"http://127.0.0.1:{config.port}"
-    
-    # Cleanup
-    server.should_exit = True
-    await server_task
+    async def verify_service_stop(self, service) -> None:
+        """Verify service shutdown.
+        
+        Args:
+            service: Service to verify
+        """
+        await service.stop()
+        assert not service.is_running
+        assert service.start_time is None
+        assert service.uptime is None
 
 
 @pytest.fixture
-def config_app(config_base_service):
-    """Create test config app instance.
-    
-    Args:
-        config_base_service: Base config service fixture
-    
-    Returns:
-        ConfigApp: App instance
-    """
-    return create_test_app(ConfigService)
-
-
-@pytest.fixture
-def test_client(config_app, config_base_service):
-    """Create test client.
-    
-    Args:
-        config_app: Config app fixture
-        config_base_service: Base config service fixture
-    
-    Returns:
-        TestClient: FastAPI test client
-    """
-    return create_test_client(config_app, config_base_service)
-
-
-@pytest.fixture
-def test_config_dir(tmp_path):
-    """Create a temporary config directory.
-    
-    Returns:
-        Path: Config directory path
-    """
+def test_config_dir(tmp_path) -> Path:
+    """Create temporary config directory."""
     config_dir = tmp_path / "config"
     config_dir.mkdir()
     return config_dir
 
 
 @pytest.fixture
-def test_schema_dir(test_config_dir):
-    """Create a temporary schema directory.
+def test_config_data() -> ConfigData:
+    """Create test configuration data."""
+    return ConfigData(
+        metadata=ConfigMetadata(
+            config_type="test",
+            created=datetime.now(),
+            last_modified=datetime.now(),
+            version="1.0.0"
+        ),
+        data={"key": "value"}
+    )
+
+
+@pytest.fixture
+def test_config_schema() -> Dict[str, Any]:
+    """Create test configuration schema."""
+    return {
+        "type": "object",
+        "title": "Test Configuration",
+        "description": "Schema for testing",
+        "properties": {
+            "key": {"type": "string"},
+            "value": {"type": "number"}
+        },
+        "required": ["key"]
+    }
+
+
+@pytest.fixture
+def test_config_file(test_config_dir: Path, test_config_data: ConfigData) -> Path:
+    """Create test configuration file."""
+    import yaml
     
-    Returns:
-        Path: Schema directory path
-    """
+    config_path = test_config_dir / "test.yaml"
+    with open(config_path, "w") as f:
+        yaml.safe_dump(test_config_data.model_dump(), f)
+    return config_path
+
+
+@pytest.fixture
+def test_schema_dir(test_config_dir: Path) -> Path:
+    """Create test schema directory."""
     schema_dir = test_config_dir / "schemas"
     schema_dir.mkdir()
     return schema_dir
 
 
 @pytest.fixture
-def test_config_data():
-    """Create test configuration data.
-    
-    Returns:
-        ConfigData: Test config data
-    """
-    return ConfigData(
-        metadata=ConfigMetadata(
-            config_type="test",
-            last_modified=datetime.now(),
-            version="1.0.0"
-        ),
-        data={"key": "value"}
-    )
+def test_backup_dir(test_config_dir: Path) -> Path:
+    """Create test backup directory."""
+    backup_dir = test_config_dir / "backups"
+    backup_dir.mkdir()
+    return backup_dir
+
+
+@pytest.fixture
+async def base_service() -> AsyncGenerator[ConfigurableService, None]:
+    """Create base service fixture."""
+    service = ConfigurableService(service_name="test")
+    await service.start()
+    yield service
+    await service.stop()
+
+
+@pytest.fixture
+async def config_service(test_config_dir: Path) -> AsyncGenerator[ConfigService, None]:
+    """Create config service fixture."""
+    service = ConfigService("config")
+    service._config_dir = test_config_dir
+    await service.start()
+    yield service
+    await service.stop()
+
+
+@pytest.fixture
+def test_app(test_config_dir: Path) -> FastAPI:
+    """Create test application."""
+    from micro_cold_spray.api.config.config_app import ConfigApp
+    app = ConfigApp(config_dir=test_config_dir)
+    return app
+
+
+@pytest.fixture
+def test_client(test_app: FastAPI) -> TestClient:
+    """Create test client."""
+    return TestClient(test_app)
+
+
+@pytest.fixture
+async def async_client(test_app: FastAPI) -> AsyncGenerator:
+    """Create async test client."""
+    from httpx import AsyncClient
+    async with AsyncClient(app=test_app, base_url="http://test") as client:
+        yield client

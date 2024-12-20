@@ -1,3 +1,21 @@
-"""Test fixtures package."""
+"""Test fixtures package.
 
-from .base import base_service, test_app, test_app_with_cors  # noqa: F401
+This package contains shared test fixtures used across test modules:
+
+Base Fixtures:
+    - MockBaseService: Base service implementation for testing
+    - test_app: FastAPI test application fixture
+    - async_client: Async HTTP test client
+"""
+
+from .base import (
+    MockBaseService,
+    test_app,
+    async_client,
+)
+
+__all__ = [
+    "MockBaseService",
+    "test_app",
+    "async_client",
+]

@@ -1,40 +1,34 @@
 """Configuration cache service implementation."""
 
 from typing import Dict, Union, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from loguru import logger
 from fastapi import status
 
 from micro_cold_spray.api.base.base_service import BaseService
 from micro_cold_spray.api.base.base_errors import create_error
-from micro_cold_spray.api.config.models.config_models import ConfigData
 
 
 class CacheEntry:
-    """Cache entry with TTL."""
+    """Cache entry with expiration."""
 
-    def __init__(self, data: ConfigData, ttl: int):
+    def __init__(self, value: any, ttl: int = 300):
         """Initialize cache entry.
         
         Args:
-            data: Configuration data
+            value: Cached value
             ttl: Time to live in seconds
         """
-        self.data = data
-        self.ttl = ttl
-        self.timestamp = datetime.now()
+        self.value = value
+        self.created = datetime.now()
+        self.expires = self.created + timedelta(seconds=ttl)
 
     def is_expired(self) -> bool:
-        """Check if entry is expired.
-        
-        Returns:
-            True if expired
-        """
-        age = (datetime.now() - self.timestamp).total_seconds()
-        return age > self.ttl
+        """Check if entry is expired."""
+        return datetime.now() > self.expires
 
 
-class ConfigCacheService(BaseService):
+class CacheService(BaseService):
     """Configuration cache service implementation."""
 
     def __init__(self, name: str = "cache"):
@@ -82,32 +76,39 @@ class ConfigCacheService(BaseService):
         """Clean up cache."""
         self._cache.clear()
 
-    async def _validate_config(self, config: ConfigData) -> None:
-        """Validate configuration.
+    def get(self, key: str) -> Optional[any]:
+        """Get value from cache.
         
         Args:
-            config: Configuration data
+            key: Cache key
             
-        Raises:
-            HTTPException: If validation fails (422)
+        Returns:
+            Optional[any]: Cached value if found and not expired
         """
-        if not config:
+        if not self.is_running:
             raise create_error(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                message="Config data cannot be None",
-                context={"config": None}
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Service not running",
+                context={"service": self.name}
             )
 
-    async def cache_config(self, config_type: str, config: ConfigData, ttl: int = 3600) -> None:
-        """Cache configuration.
+        entry = self._cache.get(key)
+        if not entry:
+            return None
+
+        if isinstance(entry, CacheEntry) and entry.is_expired():
+            del self._cache[key]
+            return None
+
+        return entry.value if isinstance(entry, CacheEntry) else entry
+
+    def set(self, key: str, value: any, ttl: int = 300) -> None:
+        """Set cache value.
         
         Args:
-            config_type: Configuration type
-            config: Configuration data
+            key: Cache key
+            value: Value to cache
             ttl: Time to live in seconds
-            
-        Raises:
-            HTTPException: If caching fails (400)
         """
         if not self.is_running:
             raise create_error(
@@ -115,83 +116,40 @@ class ConfigCacheService(BaseService):
                 message="Service not running",
                 context={"service": self.name}
             )
-            
-        try:
-            await self._validate_config(config)
-            self._cache[config_type] = CacheEntry(config, ttl)
-            logger.debug(f"Cached config: {config_type}")
-        except Exception as e:
-            logger.error(f"Failed to cache config: {e}")
-            raise create_error(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                message="Failed to cache config",
-                context={"error": str(e)},
-                cause=e
-            )
 
-    async def get_config(self, config_type: str) -> Optional[ConfigData]:
-        """Get cached configuration.
+        self._cache[key] = CacheEntry(value, ttl)
+
+    def delete(self, key: str) -> None:
+        """Delete cache entry.
         
         Args:
-            config_type: Configuration type
-            
-        Returns:
-            Configuration data if found and not expired
-            
-        Raises:
-            HTTPException: If service not running (503)
+            key: Cache key
         """
         if not self.is_running:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message="Service not running",
                 context={"service": self.name}
-            )
-            
-        try:
-            entry = self._cache.get(config_type)
-            if not entry:
-                return None
-                
-            if isinstance(entry, CacheEntry) and entry.is_expired():
-                del self._cache[config_type]
-                return None
-                
-            return entry.data if isinstance(entry, CacheEntry) else entry
-            
-        except Exception as e:
-            logger.error(f"Failed to get cached config: {e}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to get cached config",
-                context={"error": str(e)},
-                cause=e
             )
 
-    async def clear_cache(self) -> None:
-        """Clear cache.
-        
-        Raises:
-            HTTPException: If service not running (503)
-        """
+        if key in self._cache:
+            del self._cache[key]
+
+    def clear(self) -> None:
+        """Clear all cache entries."""
         if not self.is_running:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message="Service not running",
                 context={"service": self.name}
             )
-            
+
         self._cache.clear()
-        logger.info("Cache cleared")
 
-    async def health(self) -> dict:
-        """Get service health status.
+    def get_size(self) -> int:
+        """Get number of cache entries.
         
         Returns:
-            Health check result
+            int: Number of entries
         """
-        health = await super().health()
-        health["context"].update({
-            "cache_size": len(self._cache)
-        })
-        return health
+        return len(self._cache)

@@ -22,39 +22,55 @@ class BaseService:
         """Start the service."""
         if self.is_running:
             raise create_error(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                message="Service is already running",
+                message=f"{self.name} service is already running",
+                status_code=status.HTTP_409_CONFLICT,
                 context={"service": self.name}
             )
         
-        await self._start()
-        self._is_running = True
+        try:
+            await self._start()
+            self._is_running = True
+        except Exception as e:
+            raise create_error(
+                message=f"Failed to start {self.name} service",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                context={"service": self.name},
+                cause=e
+            )
 
     async def stop(self) -> None:
         """Stop the service."""
         if not self.is_running:
             raise create_error(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                message="Service is not running",
+                message=f"{self.name} service is not running",
+                status_code=status.HTTP_409_CONFLICT,
                 context={"service": self.name}
             )
         
-        await self._stop()
-        self._is_running = False
+        try:
+            await self._stop()
+            self._is_running = False
+        except Exception as e:
+            raise create_error(
+                message=f"Failed to stop {self.name} service",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                context={"service": self.name},
+                cause=e
+            )
 
     async def _start(self) -> None:
         """Start implementation."""
         raise create_error(
+            message=f"{self.name} service does not implement start",
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            message="Service does not implement start",
             context={"service": self.name}
         )
 
     async def _stop(self) -> None:
         """Stop implementation."""
         raise create_error(
+            message=f"{self.name} service does not implement stop",
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            message="Service does not implement stop",
             context={"service": self.name}
         )
 
