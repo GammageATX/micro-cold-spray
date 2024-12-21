@@ -1,11 +1,10 @@
 """Validation service for checking data against rules."""
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from datetime import datetime
 from loguru import logger
 from fastapi import status
 
-from micro_cold_spray.api.base.base_configurable import ConfigurableService
 from micro_cold_spray.api.base.base_errors import create_error
 from micro_cold_spray.api.config import ConfigService
 from micro_cold_spray.api.messaging import MessagingService
@@ -17,57 +16,49 @@ from micro_cold_spray.api.validation.validators import (
 )
 
 
-class ValidationService(ConfigurableService):
-    """Service for validating data against rules."""
-    
-    def __init__(
+class ValidationService:
+    """Service for validating system data and configurations."""
+
+    def __init__(self):
+        """Initialize validation service."""
+        self._service_name = "validation"
+        self._is_running = False
+        self._validation_rules = {}
+        self._config_service: Optional[ConfigService] = None
+        self._message_broker: Optional[MessagingService] = None
+        self._pattern_validator: Optional[PatternValidator] = None
+        self._sequence_validator: Optional[SequenceValidator] = None
+        self._hardware_validator: Optional[HardwareValidator] = None
+        self._parameter_validator: Optional[ParameterValidator] = None
+        logger.info("Validation service initialized")
+
+    @property
+    def is_running(self) -> bool:
+        """Check if service is running."""
+        return self._is_running
+
+    async def initialize(
         self,
         config_service: ConfigService,
         message_broker: MessagingService
-    ):
+    ) -> None:
         """Initialize validation service.
         
         Args:
             config_service: Configuration service
             message_broker: Message broker service
         """
-        super().__init__(service_name="validation", config_service=config_service)
-        self._message_broker = message_broker
-        self._validation_rules = {}
-        
-        # Initialize specialized validators
-        self._pattern_validator = None
-        self._sequence_validator = None
-        self._hardware_validator = None
-        self._parameter_validator = None
-        
-    async def initialize(self) -> None:
-        """Initialize validation service.
-        
-        Raises:
-            HTTPException: If initialization fails
-        """
         try:
-            await super().initialize()
-            
+            # Store service references
+            self._config_service = config_service
+            self._message_broker = message_broker
+
             # Load validation rules
-            config = await self._config_service.get_config("process")
-            if not config or not config.data:
-                raise create_error(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    message="No process configuration found"
-                )
-                
-            process_config = config.data
-            if "validation" not in process_config:
-                raise create_error(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    message="No validation rules found in process configuration"
-                )
-                
-            self._validation_rules = process_config["validation"]
-            logger.info("Loaded validation rules successfully")
-            
+            logger.info("Loading validation rules from config service")
+            self._validation_rules = await self._config_service.get_config("validation")
+            if not self._validation_rules:
+                raise ValueError("No validation rules found in config")
+
             # Initialize validators
             self._pattern_validator = PatternValidator(
                 self._validation_rules,
@@ -86,181 +77,148 @@ class ValidationService(ConfigurableService):
                 self._validation_rules,
                 self._message_broker
             )
-            
+
             # Subscribe to validation requests
             await self._message_broker.subscribe(
                 "validation/request",
                 self._handle_validation_request
             )
+
+            self._is_running = True
             logger.info("Validation service initialized successfully")
-            
+
         except Exception as e:
-            logger.error(f"Failed to start validation service: {e}")
+            logger.error(f"Failed to initialize validation service: {e}")
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to start validation service",
-                context={"error": str(e)},
-                cause=e
+                message=f"Failed to initialize validation service: {str(e)}"
             )
+
+    async def stop(self) -> None:
+        """Stop validation service."""
+        try:
+            if self._message_broker:
+                await self._message_broker.unsubscribe(
+                    "validation/request",
+                    self._handle_validation_request
+                )
+            self._is_running = False
+            logger.info("Validation service stopped")
+        except Exception as e:
+            logger.error(f"Failed to stop validation service: {e}")
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=f"Failed to stop validation service: {str(e)}"
+            )
+
+    async def validate_pattern(self, pattern_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate pattern data.
         
+        Args:
+            pattern_data: Pattern data to validate
+            
+        Returns:
+            Validation results
+        """
+        if not self._pattern_validator:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Pattern validator not initialized"
+            )
+        return await self._pattern_validator.validate(pattern_data)
+
+    async def validate_sequence(self, sequence_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate sequence data.
+        
+        Args:
+            sequence_data: Sequence data to validate
+            
+        Returns:
+            Validation results
+        """
+        if not self._sequence_validator:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Sequence validator not initialized"
+            )
+        return await self._sequence_validator.validate(sequence_data)
+
+    async def validate_hardware(self, hardware_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate hardware data.
+        
+        Args:
+            hardware_data: Hardware data to validate
+            
+        Returns:
+            Validation results
+        """
+        if not self._hardware_validator:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Hardware validator not initialized"
+            )
+        return await self._hardware_validator.validate(hardware_data)
+
+    async def validate_parameters(self, parameter_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate parameter data.
+        
+        Args:
+            parameter_data: Parameter data to validate
+            
+        Returns:
+            Validation results
+        """
+        if not self._parameter_validator:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Parameter validator not initialized"
+            )
+        return await self._parameter_validator.validate(parameter_data)
+
     async def _handle_validation_request(self, data: Dict[str, Any]) -> None:
-        """Handle validation request.
+        """Handle validation request message.
         
         Args:
             data: Request data containing:
-                - type: Type of validation to perform
+                - type: Type of validation
                 - data: Data to validate
                 - request_id: Optional request ID
         """
         try:
-            validation_type = data["type"]
-            validation_data = data["data"]
-            
-            # Validate based on type
-            if validation_type == "parameters":
-                result = await self._parameter_validator.validate(validation_data)
-            elif validation_type == "pattern":
-                result = await self._pattern_validator.validate(validation_data)
+            validation_type = data.get("type")
+            if not validation_type:
+                raise ValueError("Missing validation type")
+
+            validation_data = data.get("data", {})
+            result = None
+
+            # Route to appropriate validator
+            if validation_type == "pattern":
+                result = await self.validate_pattern(validation_data)
             elif validation_type == "sequence":
-                result = await self._sequence_validator.validate(validation_data)
+                result = await self.validate_sequence(validation_data)
             elif validation_type == "hardware":
-                result = await self._hardware_validator.validate(validation_data)
+                result = await self.validate_hardware(validation_data)
+            elif validation_type == "parameters":
+                result = await self.validate_parameters(validation_data)
             else:
-                raise create_error(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    message="Unknown validation type",
-                    context={"type": validation_type}
-                )
-                
-            # Send validation response
-            await self._message_broker.publish(
-                "validation/response",
-                {
-                    "request_id": data.get("request_id"),
-                    "type": validation_type,
-                    "valid": result["valid"],
-                    "errors": result.get("errors", []),
-                    "warnings": result.get("warnings", []),
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-            
-        except Exception as e:
-            await self._message_broker.publish(
-                "validation/response",
-                {
-                    "request_id": data.get("request_id"),
-                    "type": data.get("type"),
-                    "valid": False,
-                    "errors": [str(e)],
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
+                raise ValueError(f"Unknown validation type: {validation_type}")
 
-    async def validate_parameters(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate process parameters.
-        
-        Args:
-            data: Parameter data to validate
-            
-        Returns:
-            Dict containing validation results
-            
-        Raises:
-            HTTPException: If validation fails
-        """
-        try:
-            return await self._parameter_validator.validate(data)
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                message="Parameter validation failed",
-                context={"error": str(e)},
-                cause=e
-            )
+            # Add metadata and publish response
+            result["request_id"] = data.get("request_id")
+            result["type"] = validation_type
+            result["timestamp"] = datetime.now().isoformat()
 
-    async def validate_pattern(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate pattern definition.
-        
-        Args:
-            data: Pattern data to validate
-            
-        Returns:
-            Dict containing validation results
-            
-        Raises:
-            HTTPException: If validation fails
-        """
-        try:
-            return await self._pattern_validator.validate(data)
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                message="Pattern validation failed",
-                context={"error": str(e)},
-                cause=e
-            )
+            await self._message_broker.publish("validation/response", result)
 
-    async def validate_sequence(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate sequence definition.
-        
-        Args:
-            data: Sequence data to validate
-            
-        Returns:
-            Dict containing validation results
-            
-        Raises:
-            HTTPException: If validation fails
-        """
-        try:
-            return await self._sequence_validator.validate(data)
         except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                message="Sequence validation failed",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def validate_hardware(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate hardware conditions.
-        
-        Args:
-            data: Hardware data to validate
-            
-        Returns:
-            Dict containing validation results
-            
-        Raises:
-            HTTPException: If validation fails
-        """
-        try:
-            return await self._hardware_validator.validate(data)
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                message="Hardware validation failed",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def get_rules(self, rule_type: str) -> Dict[str, Any]:
-        """Get validation rules for specified type.
-        
-        Args:
-            rule_type: Type of rules to retrieve
-            
-        Returns:
-            Dict containing rules
-            
-        Raises:
-            HTTPException: If rules not found
-        """
-        if rule_type not in self._validation_rules:
-            raise create_error(
-                status_code=status.HTTP_404_NOT_FOUND,
-                message="Unknown rule type",
-                context={"type": rule_type, "valid_types": list(self._validation_rules.keys())}
-            )
-        return self._validation_rules[rule_type]
+            logger.error(f"Validation request failed: {e}")
+            error_response = {
+                "request_id": data.get("request_id"),
+                "type": data.get("type"),
+                "valid": False,
+                "errors": [str(e)],
+                "warnings": [],
+                "timestamp": datetime.now().isoformat()
+            }
+            await self._message_broker.publish("validation/response", error_response)

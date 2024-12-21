@@ -25,32 +25,33 @@ class ValidationResponse(BaseModel):
     timestamp: datetime
 
 
-class ValidationRulesResponse(BaseModel):
-    """Validation rules response model."""
-    type: str
-    rules: Dict[str, Any]
-    timestamp: datetime
-
-
 class HealthResponse(BaseModel):
     """Health check response model."""
     status: str
-    service_name: str
-    version: str
     is_running: bool
     timestamp: datetime
 
 
 # Create router
-router = APIRouter(tags=["validation"])
+router = APIRouter(
+    prefix="/validation",
+    tags=["validation"]
+)
 
 
 def get_service() -> ValidationService:
-    """Get validation service instance."""
+    """Get validation service instance.
+    
+    Returns:
+        ValidationService instance
+        
+    Raises:
+        HTTPException: If service not initialized
+    """
     if not hasattr(get_service, "_service"):
         raise create_error(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            message="ValidationService not initialized"
+            message="Validation service not initialized"
         )
     return get_service._service
 
@@ -59,7 +60,8 @@ def get_service() -> ValidationService:
     "/validate",
     response_model=ValidationResponse,
     responses={
-        status.HTTP_400_BAD_REQUEST: {"description": "Invalid request format or validation error"},
+        status.HTTP_400_BAD_REQUEST: {"description": "Invalid request"},
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {"description": "Validation error"},
         status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service unavailable"}
     }
 )
@@ -68,9 +70,22 @@ async def validate_data(
     background_tasks: BackgroundTasks,
     service: ValidationService = Depends(get_service)
 ) -> ValidationResponse:
-    """Validate data against rules."""
+    """Validate data against rules.
+    
+    Args:
+        request: Validation request
+        background_tasks: Background tasks
+        service: Validation service
+        
+    Returns:
+        Validation response
+        
+    Raises:
+        HTTPException: If validation fails
+    """
     try:
-        # Perform validation based on type
+        # Validate based on type
+        result = None
         validation_type = request.type
         validation_data = request.data
         
@@ -85,8 +100,7 @@ async def validate_data(
         else:
             raise create_error(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                message="Unknown validation type",
-                context={"type": validation_type}
+                message=f"Unknown validation type: {validation_type}"
             )
 
         # Log validation result
@@ -110,44 +124,12 @@ async def validate_data(
         )
         
     except Exception as e:
+        logger.error(f"Validation request failed: {e}")
         if isinstance(e, create_error):
             raise e
         raise create_error(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message="Validation failed",
-            context={"error": str(e)},
-            cause=e
-        )
-
-
-@router.get(
-    "/rules/{rule_type}",
-    response_model=ValidationRulesResponse,
-    responses={
-        status.HTTP_400_BAD_REQUEST: {"description": "Invalid rule type"},
-        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service unavailable"}
-    }
-)
-async def get_validation_rules(
-    rule_type: str,
-    service: ValidationService = Depends(get_service)
-) -> ValidationRulesResponse:
-    """Get validation rules for type."""
-    try:
-        rules = await service.get_rules(rule_type)
-        return ValidationRulesResponse(
-            type=rule_type,
-            rules=rules,
-            timestamp=datetime.now()
-        )
-    except Exception as e:
-        if isinstance(e, create_error):
-            raise e
-        raise create_error(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message="Failed to get validation rules",
-            context={"error": str(e)},
-            cause=e
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            message=f"Validation failed: {str(e)}"
         )
 
 
@@ -159,22 +141,28 @@ async def get_validation_rules(
     }
 )
 async def health_check(service: ValidationService = Depends(get_service)) -> HealthResponse:
-    """Check API and service health status."""
+    """Check service health status.
+    
+    Args:
+        service: Validation service
+        
+    Returns:
+        Health check response
+        
+    Raises:
+        HTTPException: If health check fails
+    """
     try:
-        health = await service.check_health()
         return HealthResponse(
-            status="ok" if health["is_healthy"] else "error",
-            service_name=service.name,
-            version="1.0.0",
+            status="ok" if service.is_running else "error",
             is_running=service.is_running,
             timestamp=datetime.now()
         )
     except Exception as e:
+        logger.error(f"Health check failed: {e}")
         if isinstance(e, create_error):
             raise e
         raise create_error(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message="Health check failed",
-            context={"error": str(e)},
-            cause=e
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            message=f"Health check failed: {str(e)}"
         )
