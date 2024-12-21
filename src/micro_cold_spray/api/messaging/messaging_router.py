@@ -2,7 +2,7 @@
 
 from typing import Dict, Any, Optional
 from datetime import datetime
-from fastapi import APIRouter, status, Depends, WebSocket
+from fastapi import APIRouter, status, Depends, WebSocket, Request, Body, HTTPException
 from pydantic import BaseModel, Field
 from loguru import logger
 import uuid
@@ -37,18 +37,10 @@ class HealthResponse(BaseModel):
 # Create router with prefix
 router = APIRouter(prefix="/messaging", tags=["messaging"])
 
-# Global service instance
-_service: Optional[MessagingService] = None
 
-
-def get_service() -> MessagingService:
+def get_service(request: Request) -> MessagingService:
     """Get service instance."""
-    if not _service or not _service.is_running:
-        raise create_error(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            message="MessagingService not initialized"
-        )
-    return _service
+    return request.app.service
 
 
 @router.get(
@@ -78,7 +70,7 @@ async def health_check(service: MessagingService = Depends(get_service)) -> Heal
 
 
 @router.post(
-    "/publish/{topic}",
+    "/publish/{topic:path}",
     response_model=MessageResponse,
     responses={
         status.HTTP_400_BAD_REQUEST: {"description": "Invalid topic or message"},
@@ -87,7 +79,7 @@ async def health_check(service: MessagingService = Depends(get_service)) -> Heal
 )
 async def publish_message(
     topic: str,
-    message: Dict[str, Any],
+    message: Dict[str, Any] = Body(...),
     service: MessagingService = Depends(get_service)
 ) -> MessageResponse:
     """Publish a message to a topic."""
@@ -99,7 +91,7 @@ async def publish_message(
             timestamp=datetime.now()
         )
     except Exception as e:
-        if isinstance(e, create_error):
+        if isinstance(e, HTTPException):
             raise e
         logger.error(f"Failed to publish message: {e}")
         raise create_error(
@@ -144,7 +136,7 @@ async def subscribe_topic(
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
         await websocket.close()
-        if not isinstance(e, create_error):
+        if not isinstance(e, HTTPException):
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 message=f"WebSocket error: {e}"
