@@ -6,9 +6,9 @@ import asyncio
 import inspect
 from pydantic import BaseModel, Field
 from loguru import logger
+from fastapi import status
 
 from micro_cold_spray.api.base.base_errors import create_error
-from fastapi import status
 
 
 class MessageStats(BaseModel):
@@ -47,8 +47,7 @@ class MessageHandler:
         if not callable(callback):
             raise create_error(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                message="Message handler callback must be callable",
-                context={"callback_type": str(type(callback))}
+                message=f"Message handler callback must be callable, got {type(callback)}"
             )
         self.callback = callback
         self.queue: asyncio.Queue = asyncio.Queue()
@@ -87,14 +86,8 @@ class MessageHandler:
             
         except Exception as e:
             self.stats.record_error()
-            error_context = {
-                "handler": self.__class__.__name__,
-                "error": str(e)
-            }
-            logger.error("Message handler error", extra=error_context)
+            logger.error(f"Message handler error: {e}")
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Message handler error",
-                context=error_context,
-                cause=e
+                message=f"Message handler error: {e}"
             )

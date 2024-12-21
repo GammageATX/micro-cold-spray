@@ -29,32 +29,21 @@ class TagMappingService:
             if self.is_running:
                 raise create_error(
                     status_code=status.HTTP_409_CONFLICT,
-                    message="Service already running",
-                    context={"service": self._service_name}
+                    message="Service already running"
                 )
 
             # Initialize maps
             self._tag_map.clear()
             self._reverse_map.clear()
-            
-            # Mock some mappings for now
-            self._tag_map = {
-                "system.temperature": "40001",
-                "system.pressure": "40002",
-                "system.flow_rate": "40003"
-            }
-            self._reverse_map = {v: k for k, v in self._tag_map.items()}
-            
             self._is_running = True
-            logger.info(f"Tag mapping service started with {len(self._tag_map)} mappings")
+            logger.info("Tag mapping service started")
 
         except Exception as e:
             error_msg = f"Failed to start tag mapping service: {str(e)}"
             logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=error_msg,
-                context={"service": self._service_name}
+                message=error_msg
             )
 
     async def stop(self) -> None:
@@ -63,8 +52,7 @@ class TagMappingService:
             if not self.is_running:
                 raise create_error(
                     status_code=status.HTTP_409_CONFLICT,
-                    message="Service not running",
-                    context={"service": self._service_name}
+                    message="Service not running"
                 )
 
             self._tag_map.clear()
@@ -77,8 +65,7 @@ class TagMappingService:
             logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=error_msg,
-                context={"service": self._service_name}
+                message=error_msg
             )
 
     def get_address(self, tag_path: str) -> str:
@@ -97,15 +84,13 @@ class TagMappingService:
             if not self.is_running:
                 raise create_error(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running",
-                    context={"service": self._service_name}
+                    message="Service not running"
                 )
 
             if tag_path not in self._tag_map:
                 raise create_error(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    message=f"Tag not found or not mapped: {tag_path}",
-                    context={"tag": tag_path}
+                    message=f"Tag not found or not mapped: {tag_path}"
                 )
 
             return self._tag_map[tag_path]
@@ -115,8 +100,7 @@ class TagMappingService:
             logger.error(f"{error_msg}: {str(e)}")
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg,
-                context={"tag": tag_path}
+                message=error_msg
             )
 
     def get_tag_path(self, address: str) -> str:
@@ -135,15 +119,13 @@ class TagMappingService:
             if not self.is_running:
                 raise create_error(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running",
-                    context={"service": self._service_name}
+                    message="Service not running"
                 )
 
             if address not in self._reverse_map:
                 raise create_error(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    message=f"Address not mapped: {address}",
-                    context={"address": address}
+                    message=f"Address not mapped: {address}"
                 )
 
             return self._reverse_map[address]
@@ -153,8 +135,7 @@ class TagMappingService:
             logger.error(f"{error_msg}: {str(e)}")
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg,
-                context={"address": address}
+                message=error_msg
             )
 
     async def health(self) -> Dict[str, Any]:

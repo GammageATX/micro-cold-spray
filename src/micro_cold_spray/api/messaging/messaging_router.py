@@ -70,11 +70,10 @@ async def health_check(service: MessagingService = Depends(get_service)) -> Heal
             timestamp=datetime.now()
         )
     except Exception as e:
+        logger.error(f"Health check failed: {e}")
         raise create_error(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            message="Health check failed",
-            context={"error": str(e)},
-            cause=e
+            message=f"Health check failed: {e}"
         )
 
 
@@ -102,11 +101,10 @@ async def publish_message(
     except Exception as e:
         if isinstance(e, create_error):
             raise e
+        logger.error(f"Failed to publish message: {e}")
         raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message="Failed to publish message",
-            context={"error": str(e), "topic": topic},
-            cause=e
+            message=f"Failed to publish message: {e}"
         )
 
 
@@ -122,7 +120,15 @@ async def subscribe_topic(
         
         # Create message handler
         async def message_handler(data: Dict[str, Any]):
-            await websocket.send_json(data)
+            try:
+                await websocket.send_json(data)
+            except Exception as e:
+                logger.error(f"Failed to send message: {e}")
+                await websocket.close()
+                raise create_error(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    message=f"Failed to send message: {e}"
+                )
             
         # Subscribe to topic
         await service.subscribe(topic, message_handler)
@@ -132,8 +138,14 @@ async def subscribe_topic(
             while True:
                 await websocket.receive_text()
         except Exception:
+            # Just log connection closure without raising - this is expected behavior
             logger.info(f"WebSocket connection closed for topic {topic}")
             
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
         await websocket.close()
+        if not isinstance(e, create_error):
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=f"WebSocket error: {e}"
+            )

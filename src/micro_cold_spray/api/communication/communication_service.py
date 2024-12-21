@@ -5,6 +5,7 @@ import os
 import yaml
 from fastapi import status
 from loguru import logger
+from datetime import datetime
 
 from micro_cold_spray.api.base.base_errors import create_error
 from micro_cold_spray.api.communication.clients import create_client, CommunicationClient
@@ -12,6 +13,8 @@ from micro_cold_spray.api.communication.clients.mock import MockClient
 from micro_cold_spray.api.communication.services.tag_cache import TagCacheService
 from micro_cold_spray.api.communication.services.motion import MotionService
 from micro_cold_spray.api.communication.services.equipment import EquipmentService
+from micro_cold_spray.api.communication.services.tag_mapping import TagMappingService
+from micro_cold_spray.api.communication.models.tags import TagValue, TagMetadata
 
 
 class CommunicationService:
@@ -22,6 +25,7 @@ class CommunicationService:
         self._service_name = "communication"
         self._client: Optional[CommunicationClient] = None
         self._tag_cache: Optional[TagCacheService] = None
+        self._tag_mapping: Optional[TagMappingService] = None
         self._motion: Optional[MotionService] = None
         self._equipment: Optional[EquipmentService] = None
         self._is_running = False
@@ -62,6 +66,63 @@ class CommunicationService:
             )
         return self._equipment
 
+    async def _load_tag_mapping(self) -> None:
+        """Load tag mapping from tags.yaml."""
+        try:
+            # Get config path
+            config_path = os.path.join(os.getcwd(), "config", "tags.yaml")
+            if not os.path.exists(config_path):
+                raise FileNotFoundError(f"Tags config file not found at {config_path}")
+            
+            # Read config file
+            with open(config_path, "r") as f:
+                config_data = f.read()
+            
+            # Parse YAML content
+            config = yaml.safe_load(config_data)
+            
+            # Initialize tag mapping service
+            self._tag_mapping = TagMappingService()
+            await self._tag_mapping.start()
+            
+            def process_tag_group(group_name: str, group_data: Dict[str, Any], parent_path: str = "") -> None:
+                """Process a tag group recursively.
+                
+                Args:
+                    group_name: Name of the current group
+                    group_data: Group data dictionary
+                    parent_path: Parent path for nested groups
+                """
+                for tag_name, tag_data in group_data.items():
+                    if isinstance(tag_data, dict):
+                        # Build current path
+                        current_path = f"{parent_path}.{tag_name}" if parent_path else tag_name
+                        
+                        # Check if this is a mapped tag
+                        if tag_data.get("mapped", False) and "plc_tag" in tag_data:
+                            program_tag = current_path
+                            plc_tag = tag_data["plc_tag"]
+                            self._tag_mapping._tag_map[program_tag] = plc_tag
+                            self._tag_mapping._reverse_map[plc_tag] = program_tag
+                        
+                        # Recursively process nested groups
+                        process_tag_group(tag_name, tag_data, current_path)
+            
+            # Load mappings from config
+            tag_groups = config.get("tag_groups", {})
+            for group_name, group_data in tag_groups.items():
+                process_tag_group(group_name, group_data)
+            
+            logger.info(f"Loaded {len(self._tag_mapping._tag_map)} tag mappings")
+            
+        except Exception as e:
+            error_msg = f"Failed to load tag mapping: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
+
     async def _populate_mock_tags(self) -> None:
         """Populate tag cache with mock tags if using mock client."""
         if not isinstance(self._client, MockClient):
@@ -73,8 +134,36 @@ class CommunicationService:
             return
             
         # Write mock tags to cache
-        for tag_id, value in mock_tags.items():
-            await self._tag_cache.write_tag(tag_id, value)
+        for plc_tag, value in mock_tags.items():
+            try:
+                # Try to get program tag from mapping
+                try:
+                    program_tag = self._tag_mapping.get_tag_path(plc_tag)
+                except Exception:
+                    # If tag is not mapped, use the PLC tag as the program tag
+                    program_tag = plc_tag
+                
+                # Create tag value with metadata
+                tag_value = TagValue(
+                    metadata=TagMetadata(
+                        name=plc_tag,  # Use PLC tag name as metadata name
+                        description=f"Mock tag for {plc_tag}",
+                        units="",
+                        min_value=None,
+                        max_value=None,
+                        is_mapped=True
+                    ),
+                    value=value,
+                    timestamp=datetime.now()
+                )
+                
+                # Write to cache
+                await self._tag_cache.write_tag(program_tag, tag_value)
+                
+            except Exception as e:
+                logger.warning(f"Failed to populate mock tag {plc_tag}: {e}")
+                continue
+                
         logger.info(f"Populated tag cache with {len(mock_tags)} mock tags")
 
     async def start(self) -> None:
@@ -98,6 +187,9 @@ class CommunicationService:
             # Initialize services
             self._tag_cache = TagCacheService()
             await self._tag_cache.start()
+            
+            # Load tag mapping
+            await self._load_tag_mapping()
             
             # Populate mock tags if using mock client
             await self._populate_mock_tags()
@@ -140,6 +232,10 @@ class CommunicationService:
             if self._tag_cache:
                 await self._tag_cache.stop()
                 self._tag_cache = None
+                
+            if self._tag_mapping:
+                await self._tag_mapping.stop()
+                self._tag_mapping = None
 
             if self._client:
                 await self._client.stop()
@@ -215,6 +311,7 @@ class CommunicationService:
             
             # Check all service healths
             tag_cache_health = await self._tag_cache.health() if self._tag_cache else None
+            tag_mapping_health = await self._tag_mapping.health() if self._tag_mapping else None
             motion_health = await self._motion.health() if self._motion else None
             equipment_health = await self._equipment.health() if self._equipment else None
             
@@ -228,6 +325,7 @@ class CommunicationService:
                 },
                 "services": {
                     "tag_cache": tag_cache_health,
+                    "tag_mapping": tag_mapping_health,
                     "motion": motion_health,
                     "equipment": equipment_health
                 }

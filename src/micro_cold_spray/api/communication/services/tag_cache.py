@@ -122,9 +122,15 @@ class TagCacheService:
 
             # Create or update tag value
             self._cache[tag_id] = TagValue(
-                tag_id=tag_id,
+                metadata=TagMetadata(
+                    name=tag_id,
+                    description=f"Tag {tag_id}",
+                    units="",
+                    min_value=None,
+                    max_value=None,
+                    is_mapped=True
+                ),
                 value=value,
-                data_type=data_type or type(value).__name__,
                 timestamp=datetime.now()
             )
             logger.debug(f"Updated tag {tag_id} = {value}")
@@ -156,7 +162,10 @@ class TagCacheService:
             return [
                 {
                     "tag_id": tag_id,
-                    "data_type": tag.data_type,
+                    "name": tag.metadata.name,
+                    "description": tag.metadata.description,
+                    "units": tag.metadata.units,
+                    "is_mapped": tag.metadata.is_mapped,
                     "last_update": tag.timestamp
                 }
                 for tag_id, tag in self._cache.items()
