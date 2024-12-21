@@ -1,12 +1,13 @@
 """Validation service for checking data against rules."""
 
+import os
+import yaml
 from typing import Dict, Any, Optional
 from datetime import datetime
 from loguru import logger
 from fastapi import status
 
 from micro_cold_spray.api.base.base_errors import create_error
-from micro_cold_spray.api.config import ConfigService
 from micro_cold_spray.api.messaging import MessagingService
 from micro_cold_spray.api.validation.validators import (
     PatternValidator,
@@ -24,7 +25,6 @@ class ValidationService:
         self._service_name = "validation"
         self._is_running = False
         self._validation_rules = {}
-        self._config_service: Optional[ConfigService] = None
         self._message_broker: Optional[MessagingService] = None
         self._pattern_validator: Optional[PatternValidator] = None
         self._sequence_validator: Optional[SequenceValidator] = None
@@ -39,30 +39,32 @@ class ValidationService:
 
     async def initialize(
         self,
-        config_service: ConfigService,
         message_broker: MessagingService
     ) -> None:
         """Initialize validation service.
         
         Args:
-            config_service: Configuration service
-            message_broker: Message broker service
+            message_broker: Message broker for hardware checks
+            
+        Raises:
+            HTTPException: If initialization fails
         """
         try:
-            # Store service references
-            self._config_service = config_service
             self._message_broker = message_broker
 
             # Load validation rules
-            logger.info("Loading validation rules from config service")
-            self._validation_rules = await self._config_service.get_config("validation")
-            if not self._validation_rules:
-                raise ValueError("No validation rules found in config")
+            config_dir = os.path.join(os.getcwd(), "config")
+            validation_file = os.path.join(config_dir, "validation.yaml")
+            
+            if not os.path.exists(validation_file):
+                raise FileNotFoundError(f"Validation config not found: {validation_file}")
+                
+            with open(validation_file, "r") as f:
+                self._validation_rules = yaml.safe_load(f)
 
             # Initialize validators
             self._pattern_validator = PatternValidator(
                 self._validation_rules,
-                self._config_service,
                 self._message_broker
             )
             self._sequence_validator = SequenceValidator(
@@ -80,7 +82,7 @@ class ValidationService:
 
             # Subscribe to validation requests
             await self._message_broker.subscribe(
-                "validation/request",
+                "validation_request",
                 self._handle_validation_request
             )
 

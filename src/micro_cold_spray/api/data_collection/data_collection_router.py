@@ -9,10 +9,7 @@ from micro_cold_spray.api.data_collection.data_collection_service import DataCol
 from micro_cold_spray.api.data_collection.data_collection_models import SprayEvent
 
 
-router = APIRouter(
-    prefix="/data",
-    tags=["data"]
-)
+router = APIRouter()
 
 
 def get_service(request: Request) -> DataCollectionService:
@@ -34,7 +31,7 @@ async def check_health(
         )
 
 
-@router.post("/start/{sequence_id}", status_code=status.HTTP_200_OK)
+@router.post("/data/start/{sequence_id}", status_code=status.HTTP_200_OK)
 async def start_collection(
     sequence_id: str,
     service: DataCollectionService = Depends(get_service)
@@ -50,7 +47,7 @@ async def start_collection(
         )
 
 
-@router.post("/stop", status_code=status.HTTP_200_OK)
+@router.post("/data/stop", status_code=status.HTTP_200_OK)
 async def stop_collection(
     service: DataCollectionService = Depends(get_service)
 ) -> dict:
@@ -65,7 +62,7 @@ async def stop_collection(
         )
 
 
-@router.post("/record", status_code=status.HTTP_200_OK)
+@router.post("/data/record", status_code=status.HTTP_200_OK)
 async def record_event(
     event: SprayEvent,
     service: DataCollectionService = Depends(get_service)
@@ -81,7 +78,7 @@ async def record_event(
         )
 
 
-@router.get("/events/{sequence_id}", status_code=status.HTTP_200_OK)
+@router.get("/data/events/{sequence_id}", status_code=status.HTTP_200_OK)
 async def get_events(
     sequence_id: str,
     service: DataCollectionService = Depends(get_service)

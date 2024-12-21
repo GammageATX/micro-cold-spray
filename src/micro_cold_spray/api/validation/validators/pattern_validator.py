@@ -5,7 +5,6 @@ from loguru import logger
 from fastapi import status
 
 from micro_cold_spray.api.base.base_errors import create_error
-from micro_cold_spray.api.config import ConfigService
 from micro_cold_spray.api.messaging import MessagingService
 from micro_cold_spray.api.validation.validators.base_validator import (
     check_required_fields,
@@ -22,18 +21,15 @@ class PatternValidator:
     def __init__(
         self,
         validation_rules: Dict[str, Any],
-        config_service: ConfigService,
         message_broker: Optional[MessagingService] = None
     ):
         """Initialize pattern validator.
         
         Args:
             validation_rules: Validation rules from config
-            config_service: Configuration service for hardware limits
             message_broker: Optional message broker for hardware checks
         """
         self._rules = validation_rules
-        self._config_service = config_service
         self._message_broker = message_broker
 
     async def validate(self, data: Dict[str, Any]) -> Dict[str, Any]:

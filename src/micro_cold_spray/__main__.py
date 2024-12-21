@@ -14,7 +14,7 @@ from loguru import logger
 # Service module paths
 SERVICE_MODULES = {
     'config': "micro_cold_spray.api.config.config_app:create_config_service",
-    'messaging': "micro_cold_spray.api.messaging.messaging_app:app",
+    'messaging': "micro_cold_spray.api.messaging.messaging_app:MessagingApp",
     'communication': "micro_cold_spray.api.communication.communication_app:create_app",
     'state': "micro_cold_spray.api.state.state_app:create_state_service",
     'data_collection': "micro_cold_spray.api.data_collection.data_collection_app:DataCollectionApp",
@@ -84,8 +84,11 @@ def import_app(module_path: str, test_mode: bool = False) -> Optional[object]:
         if attr_name.startswith('create_'):
             # Factory function
             return app()
+        elif attr_name in ["DataCollectionApp", "StateApp", "MessagingApp"]:
+            # Apps that handle their own FastAPI params
+            return app()
         elif isinstance(app, type):
-            # Class that needs to be instantiated
+            # Class that needs to be instantiated with FastAPI args
             return app(
                 title=module_name.split('.')[-2].replace('_', ' ').title(),
                 description=f"Service for {module_name.split('.')[-2].replace('_', ' ')}",
@@ -173,7 +176,7 @@ async def start_service(name: str, port: int, test_mode: bool = False) -> bool:
         processes[name] = process
         
         # Wait for service to be ready
-        for _ in range(10):  # Wait up to 10 seconds
+        for _ in range(20):  # Increased retries to 20 seconds
             if not process.is_alive():
                 logger.error(f"Service {name} failed to start")
                 return False
@@ -192,11 +195,14 @@ async def start_service(name: str, port: int, test_mode: bool = False) -> bool:
                         'ui': '/health'
                     }.get(name, '/health')
                     
-                    async with session.get(f"http://localhost:{port}{endpoint}", timeout=1) as resp:
+                    async with session.get(f"http://localhost:{port}{endpoint}", timeout=2) as resp:
                         if resp.status == 200:
+                            # Wait a bit longer after health check passes
+                            await asyncio.sleep(2.0)
                             logger.info(f"Service {name} is ready")
                             return True
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Health check attempt failed for {name}: {e}")
                 pass
                 
             await asyncio.sleep(1.0)
@@ -260,30 +266,27 @@ async def main(test_mode: bool = False):
             'config': 8001,           # Config on 8001
             'messaging': 8002,        # Messaging on 8002
             'communication': 8003,    # Communication on 8003
-            'state': 8004,            # State on 8004
-            'data_collection': 8006,  # Data Collection on 8006
+            'state': 8004,           # State on 8004
+            'data_collection': 8005,  # Data Collection on 8005
             'validation': 8007,       # Validation on 8007
             'ui': 8000               # UI on 8000 - web interface
         }
         
         # Start services in order
         for name in STARTUP_ORDER:
-            # Start service
-            logger.info(f"Starting {name} service...")
-            if not await start_service(name, port_map[name], test_mode):
-                logger.error(f"Failed to start {name} service")
-                stop_all_services()
-                return
-                
-            # Wait for dependencies to be ready
+            # Wait for dependencies to be ready first
             if name in SERVICE_DEPENDENCIES:
                 for dep in SERVICE_DEPENDENCIES[name]:
                     dep_port = port_map[dep]
-                    for _ in range(10):  # Wait up to 10 seconds
+                    logger.info(f"Waiting for dependency {dep} on port {dep_port}...")
+                    
+                    for _ in range(30):  # Wait up to 30 seconds
                         try:
                             async with aiohttp.ClientSession() as session:
-                                async with session.get(f"http://localhost:{dep_port}/health", timeout=1) as resp:
+                                endpoint = '/messaging/health' if dep == 'messaging' else '/health'
+                                async with session.get(f"http://localhost:{dep_port}{endpoint}", timeout=1) as resp:
                                     if resp.status == 200:
+                                        logger.info(f"Dependency {dep} is ready")
                                         break
                         except Exception:
                             await asyncio.sleep(1.0)
@@ -291,6 +294,13 @@ async def main(test_mode: bool = False):
                         logger.error(f"Dependency {dep} not ready for {name}")
                         stop_all_services()
                         return
+            
+            # Start service
+            logger.info(f"Starting {name} service...")
+            if not await start_service(name, port_map[name], test_mode):
+                logger.error(f"Failed to start {name} service")
+                stop_all_services()
+                return
             
             logger.info(f"Service {name} started successfully on port {port_map[name]}")
             

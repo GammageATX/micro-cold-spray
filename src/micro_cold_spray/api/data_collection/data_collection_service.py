@@ -13,16 +13,18 @@ from micro_cold_spray.api.data_collection.data_collection_models import SprayEve
 class DataCollectionService:
     """Service for collecting spray data."""
 
-    def __init__(self):
+    def __init__(self, storage: Optional[DataCollectionStorage] = None):
         """Initialize service."""
-        self.storage = DataCollectionStorage()
+        self.storage = storage
         self.collecting = False
         self.current_sequence = None
 
     async def initialize(self) -> None:
         """Initialize service."""
         try:
-            await self.storage.initialize()
+            if not self.storage:
+                self.storage = DataCollectionStorage()
+                await self.storage.initialize()
             logging.info("Data collection service initialized")
         except Exception as e:
             logging.error(f"Failed to initialize data collection service: {e}")
@@ -110,7 +112,15 @@ class DataCollectionService:
     async def check_health(self) -> dict:
         """Check service health."""
         try:
-            storage_health = await self.storage.check_health()
+            if not self.storage:
+                return {
+                    "status": "initializing",
+                    "collecting": self.collecting,
+                    "current_sequence": self.current_sequence,
+                    "storage": None
+                }
+            
+            storage_health = await self.storage.check_health() if self.storage else None
             return {
                 "status": "ok",
                 "collecting": self.collecting,
@@ -121,5 +131,5 @@ class DataCollectionService:
             logging.error(f"Health check failed: {e}")
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Health check failed"
+                detail=f"Health check failed: {str(e)}"
             )

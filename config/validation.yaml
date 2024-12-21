@@ -1,0 +1,185 @@
+# Validation rules for micro cold spray system
+
+version: "1.0.0"
+
+validation:
+  # Hardware validation rules
+  hardware:
+    required_fields:
+      message: "Missing required hardware fields"
+      fields:
+      - nozzle
+      - chamber
+      - feeder
+      - deagglomerator
+    optional_fields:
+      message: "Unknown hardware set field"
+      fields:
+      - offset_x
+      - notes
+
+  # Parameter validation rules
+  parameters:
+    material:
+      required_fields:
+        message: "Missing required material fields"
+        fields:
+        - type
+        - size
+        - manufacturer
+        - lot
+      optional_fields:
+        message: "Unknown material field"
+        fields:
+        - notes
+        - certifications
+
+    process:
+      required_fields:
+        message: "Missing required process fields"
+        fields:
+        - nozzle
+        - chamber
+        - gas_flows
+        - powder_feed
+      optional_fields:
+        message: "Unknown process field"
+        fields:
+        - notes
+        - modifications
+
+    chamber_pressure:
+      message: "Chamber pressure too high for spraying"
+      rule: "value <= spray_threshold"
+
+    feeder_operation:
+    - message: "Feeder flow too low while running"
+      rule: "not (powder_feed_on and feeder_flow < 2.0)"
+
+    flow_stability:
+    - message: "Main flow not stable"
+      rule: "main_flow_stable"
+    - message: "Feeder flow not stable"
+      rule: "feeder_flow_stable"
+    - message: "Flow rates not stable long enough"
+      rule: "flow_stability_duration >= 5.0"
+
+    gas_pressure:
+      message: "Main gas pressure too low"
+      rule: "main_pressure >= regulator_pressure + min_margin"
+
+  # Pattern validation rules
+  patterns:
+    limits:
+      position:
+        message: "Pattern exceeds sprayable area"
+        rule: "within_sprayable_area"
+      speed:
+        message: "Pattern speed exceeds limits"
+        rule: "within_velocity_limits"
+
+    serpentine:
+      required_fields:
+        message: "Missing required serpentine pattern fields"
+        fields:
+        - origin
+        - length
+        - spacing
+        - speed
+      optional_fields:
+        message: "Unknown serpentine pattern field"
+        fields:
+        - direction
+        - acceleration
+
+    spiral:
+      required_fields:
+        message: "Missing required spiral pattern fields"
+        fields:
+        - origin
+        - diameter
+        - pitch
+        - speed
+      optional_fields:
+        message: "Unknown spiral pattern field"
+        fields:
+        - acceleration
+
+  # Sequence validation rules
+  sequences:
+    required_fields:
+      message: "Missing required sequence fields"
+      fields:
+      - metadata
+      - steps
+
+    step_fields:
+      required_fields:
+        message: "Missing required step fields"
+        fields:
+        - action
+        - parameters
+      optional_fields:
+        message: "Unknown step field"
+        fields:
+        - description
+        - timeout
+
+    safe_position:
+      message: "Must be at safe height before motion"
+      rule: "z_position >= safe_z_height"
+
+    spray_conditions:
+    - message: "Chamber pressure too high for spraying"
+      rule: "chamber_pressure <= spray_threshold"
+    - message: "Gas flows must be stable before spraying"
+      rule: "main_flow_stable and feeder_flow_stable"
+
+    max_steps: 100
+    types:
+      test:
+        check_order: true
+        required_steps:
+        - move
+        step_order:
+        - move
+
+  # State validation rules
+  states:
+    chamber_vacuum:
+      checks:
+      - condition: "less_than"
+        error: "Chamber pressure too high for spraying"
+        tag: "pressure.chamber_pressure"
+        timeout: 30.0
+        value: 5.0
+        warning: "Chamber pressure rising"
+      description: "Verify chamber vacuum"
+      type: "parameters"
+
+    feeder_operation:
+      checks:
+      - condition: "greater_than"
+        error: "Feeder flow too low while running"
+        tag: "gas_control.feeder_flow.measured"
+        timeout: 5.0
+        value: 2.0
+        warning: "Low feeder flow detected"
+      description: "Verify feeder operation"
+      type: "parameters"
+
+    gas_flow_stable:
+      checks:
+      - compare_to: "gas_control.main_flow.setpoint"
+        error: "Main gas flow not stable"
+        tag: "gas_control.main_flow.measured"
+        timeout: 5.0
+        tolerance: 2.0
+        warning: "Main gas flow fluctuating"
+      - compare_to: "gas_control.feeder_flow.setpoint"
+        error: "Feeder flow not stable"
+        tag: "gas_control.feeder_flow.measured"
+        timeout: 5.0
+        tolerance: 0.5
+        warning: "Flow stability duration < 5.0s"
+      description: "Verify gas flow stability"
