@@ -1,0 +1,83 @@
+# Message broker configuration
+message_broker:
+  # Queue configuration
+  queue_size: 1000
+
+  # Topic groups
+  topics:
+    # Hardware Control Operations
+    hardware_operations:
+    - hardware/feeder/request
+    - hardware/feeder/response
+    - hardware/deagglomerator/request
+    - hardware/deagglomerator/response
+    - hardware/gas/request
+    - hardware/gas/response
+    - hardware/valve/request
+    - hardware/valve/response
+    - hardware/vacuum/request
+    - hardware/vacuum/response
+    - hardware/motion/request
+    - hardware/motion/response
+    - hardware/nozzle/request
+    - hardware/nozzle/response
+    # Motion Operations
+    motion_operations:
+    - motion/request
+    - motion/response
+    - motion/status
+    # File Operations
+    parameter_operations:
+    - parameter/request
+    - parameter/response
+    - parameter/generate
+    nozzle_file_operations:
+    - nozzle_file/request
+    - nozzle_file/response
+    - nozzle_file/generate
+    powder_file_operations:
+    - powder_file/request
+    - powder_file/response
+    - powder_file/generate
+    pattern_operations:
+    - pattern/request
+    - pattern/response
+    - pattern/generate
+    sequence_operations:
+    - sequence/request
+    - sequence/response
+    - sequence/step
+    - sequence/status
+    - sequence/generate
+    # System Operations
+    action_operations:
+    - action_atomic/request
+    - action_atomic/response
+    - action_group/request
+    - action_group/response
+    config_operations:
+    - config/request
+    - config/response
+    - config/update
+    data_operations:
+    - data/request
+    - data/response
+    state_operations:
+    - state/request
+    - state/response
+    - state/change
+    tag_operations:
+    - tag_cache/request
+    - tag_cache/response
+    - tag_cache/update
+    validation_operations:
+    - validation/request
+    - validation/response
+    # UI Operations
+    ui_operations:
+    - ui/request
+    - ui/response
+    - ui/state
+    # Error Handling
+    error_operations:
+    - error/report

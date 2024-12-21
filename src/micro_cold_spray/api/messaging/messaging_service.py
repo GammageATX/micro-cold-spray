@@ -2,29 +2,26 @@
 
 from typing import Dict, Any, Set, Callable, Awaitable
 import asyncio
+import os
 from loguru import logger
 from fastapi import status
+import yaml
 
-from micro_cold_spray.api.base.base_configurable import ConfigurableService
 from micro_cold_spray.api.base.base_errors import create_error
-from micro_cold_spray.api.config import ConfigService
 from .messaging_models import MessageHandler
 
 
-class MessagingService(ConfigurableService):
+class MessagingService:
     """Service for handling pub/sub messaging."""
 
-    def __init__(self, config_service: ConfigService):
-        """Initialize messaging service.
-        
-        Args:
-            config_service: Configuration service instance
-        """
-        super().__init__(service_name="messaging", config_service=config_service)
+    def __init__(self):
+        """Initialize messaging service."""
         self._valid_topics: Set[str] = set()
         self._handlers: Dict[str, Set[MessageHandler]] = {}
         self._background_tasks: Set[asyncio.Task] = set()
         self._queue_size = 0
+        self._is_running = False
+        self._version = "1.0.0"
 
     async def initialize(self) -> None:
         """Initialize service.
@@ -33,11 +30,9 @@ class MessagingService(ConfigurableService):
             HTTPException: If initialization fails
         """
         try:
-            await super().initialize()
-            
             # Get valid topics from config
-            config = await self._config_service.get_config("application")
-            topics = config.data.get("services", {}).get("message_broker", {}).get("topics", {})
+            config = await self._load_config()
+            topics = config.get("message_broker", {}).get("topics", {})
             
             # Flatten topic groups into set
             valid_topics = set()
@@ -47,21 +42,21 @@ class MessagingService(ConfigurableService):
             await self.set_valid_topics(valid_topics)
             
             # Configure the service with messaging config
-            messaging_config = config.data.get("services", {}).get("message_broker", {})
+            messaging_config = config.get("message_broker", {})
             await self.configure(messaging_config)
             
             # Start background monitoring task
             monitor_task = asyncio.create_task(self._monitor_queue())
             self.add_background_task(monitor_task)
             
+            self._is_running = True
             logger.info(f"Messaging service started with {len(valid_topics)} topics")
             
         except Exception as e:
+            logger.error(f"Failed to initialize messaging service: {e}")
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to initialize messaging service",
-                context={"error": str(e)},
-                cause=e
+                message=f"Failed to initialize messaging service: {e}"
             )
 
     async def _monitor_queue(self):
@@ -96,16 +91,15 @@ class MessagingService(ConfigurableService):
             self._handlers.clear()
             self._background_tasks.clear()
             self._queue_size = 0
+            self._is_running = False
             
-            await super().stop()
             logger.info("Messaging service stopped")
             
         except Exception as e:
+            logger.error(f"Failed to stop messaging service: {e}")
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to stop messaging service",
-                context={"error": str(e)},
-                cause=e
+                message=f"Failed to stop messaging service: {e}"
             )
 
     async def check_health(self) -> Dict[str, Any]:
@@ -126,11 +120,10 @@ class MessagingService(ConfigurableService):
                 "queue_size": self._queue_size
             }
         except Exception as e:
+            logger.error(f"Health check failed: {e}")
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Health check failed",
-                context={"error": str(e)},
-                cause=e
+                message=f"Health check failed: {e}"
             )
 
     async def get_topics(self) -> Set[str]:
@@ -145,11 +138,10 @@ class MessagingService(ConfigurableService):
         try:
             return self._valid_topics.copy()
         except Exception as e:
+            logger.error(f"Failed to get topics: {e}")
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to get topics",
-                context={"error": str(e)},
-                cause=e
+                message=f"Failed to get topics: {e}"
             )
 
     async def publish(self, topic: str, data: Dict[str, Any]) -> None:
@@ -165,8 +157,7 @@ class MessagingService(ConfigurableService):
         if topic not in self._valid_topics:
             raise create_error(
                 status_code=status.HTTP_404_NOT_FOUND,
-                message="Unknown topic",
-                context={"topic": topic, "valid_topics": list(self._valid_topics)}
+                message=f"Unknown topic: {topic}"
             )
             
         logger.debug(f"Published message to {topic}")
@@ -179,11 +170,10 @@ class MessagingService(ConfigurableService):
             except Exception as e:
                 if isinstance(e, create_error):
                     raise e
+                logger.error(f"Failed to publish message: {e}")
                 raise create_error(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    message="Failed to publish message",
-                    context={"topic": topic, "error": str(e)},
-                    cause=e
+                    message=f"Failed to publish message to {topic}: {e}"
                 )
 
     async def subscribe(
@@ -203,8 +193,7 @@ class MessagingService(ConfigurableService):
         if topic not in self._valid_topics:
             raise create_error(
                 status_code=status.HTTP_404_NOT_FOUND,
-                message="Unknown topic",
-                context={"topic": topic, "valid_topics": list(self._valid_topics)}
+                message=f"Unknown topic: {topic}"
             )
             
         # Create handler
@@ -239,8 +228,7 @@ class MessagingService(ConfigurableService):
         if topic not in self._valid_topics:
             raise create_error(
                 status_code=status.HTTP_404_NOT_FOUND,
-                message="Invalid topic",
-                context={"topic": topic, "valid_topics": list(self._valid_topics)}
+                message=f"Invalid topic: {topic}"
             )
             
         # Create response future
@@ -251,8 +239,7 @@ class MessagingService(ConfigurableService):
         if response_topic not in self._valid_topics:
             raise create_error(
                 status_code=status.HTTP_404_NOT_FOUND,
-                message="Response topic not configured",
-                context={"topic": topic, "response_topic": response_topic}
+                message=f"Response topic not configured: {response_topic}"
             )
             
         async def response_handler(response_data: Dict[str, Any]):
@@ -272,18 +259,16 @@ class MessagingService(ConfigurableService):
             except asyncio.TimeoutError:
                 raise create_error(
                     status_code=status.HTTP_408_REQUEST_TIMEOUT,
-                    message="Request timed out",
-                    context={"topic": topic, "timeout": timeout}
+                    message=f"Request timed out for topic {topic}"
                 )
             
         except Exception as e:
             if isinstance(e, create_error):
                 raise e
+            logger.error(f"Request failed: {e}")
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Request failed",
-                context={"topic": topic, "error": str(e)},
-                cause=e
+                message=f"Request failed for topic {topic}: {e}"
             )
         finally:
             # Cleanup handler
@@ -305,8 +290,7 @@ class MessagingService(ConfigurableService):
         if topic not in self._valid_topics:
             raise create_error(
                 status_code=status.HTTP_404_NOT_FOUND,
-                message="Invalid topic",
-                context={"topic": topic, "valid_topics": list(self._valid_topics)}
+                message=f"Invalid topic: {topic}"
             )
             
         return len(self._handlers.get(topic, set()))
@@ -324,11 +308,10 @@ class MessagingService(ConfigurableService):
             self._valid_topics = topics.copy()
             logger.info(f"Updated valid topics: {topics}")
         except Exception as e:
+            logger.error(f"Failed to update topics: {e}")
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to update topics",
-                context={"error": str(e)},
-                cause=e
+                message=f"Failed to update topics: {e}"
             )
 
     def add_background_task(self, task: asyncio.Task) -> None:
@@ -352,3 +335,65 @@ class MessagingService(ConfigurableService):
     def name(self) -> str:
         """Get service name."""
         return "messaging"
+
+    @property
+    def version(self) -> str:
+        """Get service version."""
+        return self._version
+
+    @property
+    def is_running(self) -> bool:
+        """Check if service is running."""
+        return self._is_running
+
+    async def _load_config(self) -> Dict[str, Any]:
+        """Load configuration.
+        
+        Returns:
+            Dict[str, Any]: Configuration data
+            
+        Raises:
+            HTTPException: If config loading fails
+        """
+        try:
+            # Get config path
+            config_path = os.path.join(os.getcwd(), "config", "messaging.yaml")
+            if not os.path.exists(config_path):
+                raise FileNotFoundError(f"Messaging config file not found at {config_path}")
+            
+            # Load config from file
+            with open(config_path, "r") as f:
+                config = yaml.safe_load(f)
+                
+            if not isinstance(config, dict):
+                raise ValueError("Invalid messaging configuration format")
+                
+            return config
+            
+        except Exception as e:
+            logger.error(f"Failed to load config: {e}")
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=f"Failed to load configuration: {e}"
+            )
+
+    async def configure(self, config: Dict[str, Any]) -> None:
+        """Configure service.
+        
+        Args:
+            config: Configuration data
+            
+        Raises:
+            HTTPException: If configuration fails
+        """
+        try:
+            # Apply configuration
+            if "queue_size" in config:
+                self._queue_size = config["queue_size"]
+            logger.info(f"Service configured with queue size: {self._queue_size}")
+        except Exception as e:
+            logger.error(f"Failed to configure service: {e}")
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=f"Failed to configure service: {e}"
+            )
