@@ -1,0 +1,72 @@
+# Communication service configuration
+
+version: "1.0.0"
+
+communication:
+  # Client configuration
+  client_type: "mock" # Options: mock, plc, ssh
+  client_config:
+    hardware:
+      network:
+        mock:
+          delay: 0.1 # Simulated delay in seconds
+        plc:
+          host: "localhost"
+          port: 502
+          timeout: 1.0
+        ssh:
+          host: "localhost"
+          port: 22
+          username: "admin"
+          key_file: "~/.ssh/id_rsa"
+          timeout: 5.0
+
+      # Equipment settings
+      equipment:
+        vacuum:
+          min_pressure: 0.01 # torr
+          max_pressure: 1000 # torr
+        gas:
+          max_main_flow: 100 # SLPM
+          max_feeder_flow: 10 # SLPM
+        feeder:
+          max_frequency: 1200 # Hz
+
+      # Motion settings  
+      motion:
+        axes:
+          x:
+            acceleration: 100 # mm/s^2
+            deceleration: 100 # mm/s^2
+            max_velocity: 50 # mm/s
+          y:
+            acceleration: 100 # mm/s^2
+            deceleration: 100 # mm/s^2
+            max_velocity: 50 # mm/s
+          z:
+            acceleration: 50 # mm/s^2
+            deceleration: 50 # mm/s^2
+            max_velocity: 25 # mm/s
+        safe_positions:
+          home: [ 0, 0, 0 ]
+          trough: [ 100, 0, -20 ]
+          safe_z: 10
+
+  # Service settings
+  services:
+    equipment:
+      poll_rate: 100 # ms
+
+    motion:
+      limits:
+        x: [ -100, 100 ] # mm
+        y: [ -100, 100 ] # mm
+        z: [ -50, 50 ] # mm
+      default_velocity: 10.0 # mm/s
+
+    tag_cache:
+      poll_rate: 100 # ms
+      max_age: 1000 # ms
+
+    tag_mapping:
+      config_file: "config/tags.yaml" # Use existing tags.yaml

@@ -4,49 +4,66 @@ from typing import Dict, Any
 from fastapi import status
 from loguru import logger
 
-from micro_cold_spray.api.base.base_configurable import ConfigurableService
 from micro_cold_spray.api.base.base_errors import create_error
-from micro_cold_spray.api.config import ConfigService
-from micro_cold_spray.api.communication.clients.base import BaseClient
 
 
-class FeederService(ConfigurableService):
+class FeederService:
     """Service for controlling powder feeder."""
 
-    def __init__(self, config_service: ConfigService, client: BaseClient):
-        """Initialize feeder service.
-        
-        Args:
-            config_service: Configuration service instance
-            client: Hardware client instance
-        """
-        super().__init__(service_name="feeder", config_service=config_service)
-        self._client = client
+    def __init__(self):
+        """Initialize feeder service."""
+        self._service_name = "feeder"
+        self._is_running = False
+        logger.info("FeederService initialized")
 
-    async def _start(self) -> None:
-        """Initialize service."""
+    @property
+    def is_running(self) -> bool:
+        """Check if service is running."""
+        return self._is_running
+
+    async def start(self) -> None:
+        """Start feeder service."""
         try:
-            logger.debug("Loading feeder configuration")
-            feeder_config = await self._config_service.get_config("feeder")
-            if not feeder_config:
+            if self.is_running:
                 raise create_error(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    message="Feeder configuration not found"
+                    status_code=status.HTTP_409_CONFLICT,
+                    message="Service already running",
+                    context={"service": self._service_name}
                 )
-                
-            logger.info("Feeder service initialized")
+
+            self._is_running = True
+            logger.info("Feeder service started")
+
         except Exception as e:
-            logger.error(f"Failed to start feeder service: {e}")
+            error_msg = f"Failed to start feeder service: {str(e)}"
+            logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"Failed to start feeder service: {e}",
-                context={"error": str(e)},
-                cause=e
+                message=error_msg,
+                context={"service": self._service_name}
             )
 
-    async def _stop(self) -> None:
-        """Cleanup service."""
-        logger.info("Feeder service stopped")
+    async def stop(self) -> None:
+        """Stop feeder service."""
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message="Service not running",
+                    context={"service": self._service_name}
+                )
+
+            self._is_running = False
+            logger.info("Feeder service stopped")
+
+        except Exception as e:
+            error_msg = f"Failed to stop feeder service: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg,
+                context={"service": self._service_name}
+            )
 
     async def get_state(self) -> Dict[str, Any]:
         """Get current feeder state.
@@ -58,13 +75,27 @@ class FeederService(ConfigurableService):
             HTTPException: If state cannot be retrieved
         """
         try:
-            return await self._client.get_feeder_state()
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running",
+                    context={"service": self._service_name}
+                )
+
+            # Mock state for now
+            return {
+                "power": "on",
+                "feed_rate": 2.5,
+                "hopper_level": 75.0
+            }
+
         except Exception as e:
+            error_msg = "Failed to get feeder state"
+            logger.error(f"{error_msg}: {str(e)}")
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to get feeder state",
-                context={"error": str(e)},
-                cause=e
+                message=error_msg,
+                context={"error": str(e)}
             )
 
     async def set_state(self, state: Dict[str, Any]) -> None:
@@ -77,36 +108,33 @@ class FeederService(ConfigurableService):
             HTTPException: If state cannot be set
         """
         try:
-            await self._client.set_feeder_state(state)
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running",
+                    context={"service": self._service_name}
+                )
+
+            # Mock state update for now
+            logger.info(f"Setting feeder state to {state}")
+
         except Exception as e:
+            error_msg = "Failed to set feeder state"
+            logger.error(f"{error_msg}: {str(e)}")
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to set feeder state",
-                context={"state": state, "error": str(e)},
-                cause=e
+                message=error_msg,
+                context={"state": state}
             )
 
-    async def check_health(self) -> Dict[str, Any]:
-        """Check service health."""
-        try:
-            # Get current state
-            state = await self.get_state()
-            
-            # Check client connection
-            client_health = await self._client.check_health()
-            
-            return {
-                "status": "ok" if client_health["status"] == "ok" else "error",
-                "components": {
-                    "client": client_health["status"] == "ok",
-                    "state": state is not None
-                },
-                "details": client_health.get("details")
-            }
-        except Exception as e:
-            error_msg = f"Failed to check feeder health: {str(e)}"
-            logger.error(error_msg)
-            return {
-                "status": "error",
-                "error": error_msg
-            }
+    async def health(self) -> Dict[str, Any]:
+        """Get service health status.
+        
+        Returns:
+            Health status dictionary
+        """
+        return {
+            "status": "ok" if self.is_running else "error",
+            "service": self._service_name,
+            "running": self.is_running
+        }

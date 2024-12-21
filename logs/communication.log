@@ -1,0 +1,88 @@
+2024-12-20 21:10:21.936 | INFO     | micro_cold_spray.api.communication.communication_app:startup:53 - Starting communication service
+2024-12-20 21:10:21.937 | INFO     | micro_cold_spray.api.communication.communication_service:__init__:27 - CommunicationService initialized
+2024-12-20 21:10:21.937 | ERROR    | micro_cold_spray.api.communication.communication_service:start:101 - Failed to start communication service: create_error() got an unexpected keyword argument 'context'
+2024-12-20 21:10:21.937 | ERROR    | micro_cold_spray.api.communication.dependencies:initialize_service:65 - Failed to initialize communication service: create_error() got an unexpected keyword argument 'context'
+2024-12-20 21:14:35.434 | INFO     | micro_cold_spray.api.communication.communication_app:startup:53 - Starting communication service
+2024-12-20 21:14:35.434 | INFO     | micro_cold_spray.api.communication.communication_service:__init__:27 - CommunicationService initialized
+2024-12-20 21:14:35.435 | ERROR    | micro_cold_spray.api.communication.communication_service:start:101 - Failed to start communication service: create_error() got an unexpected keyword argument 'context'
+2024-12-20 21:14:35.435 | ERROR    | micro_cold_spray.api.communication.dependencies:initialize_service:65 - Failed to initialize communication service: create_error() got an unexpected keyword argument 'context'
+2024-12-20 21:16:26.389 | INFO     | micro_cold_spray.api.communication.communication_app:startup:53 - Starting communication service
+2024-12-20 21:16:26.390 | INFO     | micro_cold_spray.api.communication.communication_service:__init__:27 - CommunicationService initialized
+2024-12-20 21:16:26.392 | ERROR    | micro_cold_spray.api.communication.communication_service:start:97 - Failed to start communication service: create_error() got an unexpected keyword argument 'context'
+2024-12-20 21:16:26.392 | ERROR    | micro_cold_spray.api.communication.dependencies:initialize_service:64 - Failed to initialize communication service: 503: Failed to start communication service: create_error() got an unexpected keyword argument 'context'
+2024-12-20 21:17:48.947 | INFO     | micro_cold_spray.api.communication.communication_app:startup:53 - Starting communication service
+2024-12-20 21:17:48.948 | INFO     | micro_cold_spray.api.communication.communication_service:__init__:27 - CommunicationService initialized
+2024-12-20 21:17:48.950 | ERROR    | micro_cold_spray.api.communication.communication_service:start:97 - Failed to start communication service: create_error() got an unexpected keyword argument 'context'
+2024-12-20 21:17:48.950 | ERROR    | micro_cold_spray.api.communication.dependencies:initialize_service:64 - Failed to initialize communication service: 503: Failed to start communication service: create_error() got an unexpected keyword argument 'context'
+2024-12-20 21:23:26.480 | INFO     | micro_cold_spray.api.communication.communication_app:startup:53 - Starting communication service
+2024-12-20 21:23:26.480 | INFO     | micro_cold_spray.api.communication.communication_service:__init__:27 - CommunicationService initialized
+2024-12-20 21:23:26.482 | ERROR    | micro_cold_spray.api.communication.communication_service:start:97 - Failed to start communication service: 400: Missing required config field 'hardware' for client type 'mock'
+2024-12-20 21:23:26.483 | ERROR    | micro_cold_spray.api.communication.dependencies:initialize_service:64 - Failed to initialize communication service: 503: Failed to start communication service: 400: Missing required config field 'hardware' for client type 'mock'
+2024-12-20 21:28:13.186 | INFO     | micro_cold_spray.api.communication.communication_app:startup:53 - Starting communication service
+2024-12-20 21:28:13.186 | INFO     | micro_cold_spray.api.communication.communication_service:__init__:27 - CommunicationService initialized
+2024-12-20 21:28:13.189 | INFO     | micro_cold_spray.api.communication.clients.base:__init__:22 - Initialized MockClient
+2024-12-20 21:28:13.189 | INFO     | micro_cold_spray.api.communication.clients.mock:__init__:141 - Initialized mock plc client
+2024-12-20 21:28:13.189 | INFO     | micro_cold_spray.api.communication.clients.factory:create_client:86 - Created mock client
+2024-12-20 21:28:13.190 | ERROR    | micro_cold_spray.api.communication.communication_service:start:97 - Failed to start communication service: 'MockClient' object has no attribute 'start'
+2024-12-20 21:28:13.190 | ERROR    | micro_cold_spray.api.communication.dependencies:initialize_service:64 - Failed to initialize communication service: 503: Failed to start communication service: 'MockClient' object has no attribute 'start'
+2024-12-20 21:29:25.364 | INFO     | micro_cold_spray.api.communication.communication_app:startup:53 - Starting communication service
+2024-12-20 21:29:25.365 | INFO     | micro_cold_spray.api.communication.communication_service:__init__:27 - CommunicationService initialized
+2024-12-20 21:29:25.367 | INFO     | micro_cold_spray.api.communication.clients.base:__init__:22 - Initialized MockClient
+2024-12-20 21:29:25.368 | INFO     | micro_cold_spray.api.communication.clients.mock:__init__:141 - Initialized mock plc client
+2024-12-20 21:29:25.368 | INFO     | micro_cold_spray.api.communication.clients.factory:create_client:86 - Created mock client
+2024-12-20 21:29:27.257 | INFO     | micro_cold_spray.api.communication.clients.mock:connect:182 - Connected mock plc client
+2024-12-20 21:29:27.257 | INFO     | micro_cold_spray.api.communication.clients.mock:start:266 - Started mock plc client
+2024-12-20 21:29:27.257 | INFO     | micro_cold_spray.api.communication.services.tag_cache:__init__:20 - TagCacheService initialized
+2024-12-20 21:29:27.258 | INFO     | micro_cold_spray.api.communication.services.tag_cache:start:40 - Tag cache service started
+2024-12-20 21:29:27.258 | INFO     | micro_cold_spray.api.communication.services.motion:__init__:19 - MotionService initialized
+2024-12-20 21:29:27.258 | INFO     | micro_cold_spray.api.communication.services.motion:start:39 - Motion service started
+2024-12-20 21:29:27.258 | INFO     | micro_cold_spray.api.communication.services.equipment:__init__:17 - EquipmentService initialized
+2024-12-20 21:29:27.259 | INFO     | micro_cold_spray.api.communication.services.equipment:start:35 - Equipment service started
+2024-12-20 21:29:27.259 | INFO     | micro_cold_spray.api.communication.communication_service:start:93 - Started communication service with mock client
+2024-12-20 21:29:27.259 | INFO     | micro_cold_spray.api.communication.dependencies:initialize_service:61 - Communication service initialized
+2024-12-20 21:30:11.112 | WARNING  | micro_cold_spray.api.communication.communication_service:check_connection:189 - Connection check failed: 'MockClient' object has no attribute 'check_connection'
+2024-12-20 21:30:26.952 | DEBUG    | micro_cold_spray.api.communication.endpoints.tags:read_tag:60 - Reading tag AMC.Ax1Position
+2024-12-20 21:30:26.953 | ERROR    | micro_cold_spray.api.communication.services.tag_cache:read_tag:105 - Failed to read tag AMC.Ax1Position: create_error() got an unexpected keyword argument 'context'
+2024-12-20 21:30:26.953 | ERROR    | micro_cold_spray.api.communication.endpoints.tags:read_tag:71 - Failed to read tag AMC.Ax1Position: create_error() got an unexpected keyword argument 'context'
+2024-12-20 21:30:31.443 | DEBUG    | micro_cold_spray.api.communication.endpoints.tags:list_tags:89 - Listing available tags
+2024-12-20 21:31:08.114 | DEBUG    | micro_cold_spray.api.communication.endpoints.tags:list_tags:89 - Listing available tags
+2024-12-20 21:31:17.735 | INFO     | micro_cold_spray.api.communication.communication_app:startup:53 - Starting communication service
+2024-12-20 21:31:17.736 | INFO     | micro_cold_spray.api.communication.communication_service:__init__:27 - CommunicationService initialized
+2024-12-20 21:31:17.738 | INFO     | micro_cold_spray.api.communication.clients.base:__init__:22 - Initialized MockClient
+2024-12-20 21:31:17.738 | INFO     | micro_cold_spray.api.communication.clients.mock:__init__:141 - Initialized mock plc client
+2024-12-20 21:31:17.738 | INFO     | micro_cold_spray.api.communication.clients.factory:create_client:86 - Created mock client
+2024-12-20 21:31:19.495 | INFO     | micro_cold_spray.api.communication.clients.mock:connect:182 - Connected mock plc client
+2024-12-20 21:31:19.495 | INFO     | micro_cold_spray.api.communication.clients.mock:start:266 - Started mock plc client
+2024-12-20 21:31:19.495 | INFO     | micro_cold_spray.api.communication.services.tag_cache:__init__:20 - TagCacheService initialized
+2024-12-20 21:31:19.496 | INFO     | micro_cold_spray.api.communication.services.tag_cache:start:40 - Tag cache service started
+2024-12-20 21:31:19.496 | ERROR    | micro_cold_spray.api.communication.services.tag_cache:write_tag:142 - Failed to write tag AMC.Ax1Position: 1 validation error for TagValue
+metadata
+  Field required [type=missing, input_value={'tag_id': 'AMC.Ax1Positi...20, 21, 31, 19, 496158)}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.9/v/missing
+2024-12-20 21:31:19.496 | ERROR    | micro_cold_spray.api.communication.communication_service:start:115 - Failed to start communication service: create_error() got an unexpected keyword argument 'context'
+2024-12-20 21:31:19.496 | ERROR    | micro_cold_spray.api.communication.dependencies:initialize_service:64 - Failed to initialize communication service: 503: Failed to start communication service: create_error() got an unexpected keyword argument 'context'
+2024-12-20 21:31:19.938 | DEBUG    | micro_cold_spray.api.communication.endpoints.tags:list_tags:89 - Listing available tags
+2024-12-20 21:31:48.835 | INFO     | micro_cold_spray.api.communication.communication_app:startup:53 - Starting communication service
+2024-12-20 21:31:48.836 | INFO     | micro_cold_spray.api.communication.communication_service:__init__:28 - CommunicationService initialized
+2024-12-20 21:31:48.838 | INFO     | micro_cold_spray.api.communication.clients.base:__init__:22 - Initialized MockClient
+2024-12-20 21:31:48.838 | INFO     | micro_cold_spray.api.communication.clients.mock:__init__:141 - Initialized mock plc client
+2024-12-20 21:31:48.838 | INFO     | micro_cold_spray.api.communication.clients.factory:create_client:86 - Created mock client
+2024-12-20 21:31:50.017 | WARNING  | micro_cold_spray.api.communication.clients.mock:_simulate_error:165 - Simulated connect error for plc client
+2024-12-20 21:31:50.017 | ERROR    | micro_cold_spray.api.communication.communication_service:start:116 - Failed to start communication service: 503: Simulated connect error for plc client
+2024-12-20 21:31:50.017 | ERROR    | micro_cold_spray.api.communication.dependencies:initialize_service:64 - Failed to initialize communication service: 503: Failed to start communication service: 503: Simulated connect error for plc client
+2024-12-20 21:31:52.662 | DEBUG    | micro_cold_spray.api.communication.endpoints.tags:list_tags:89 - Listing available tags
+2024-12-20 21:32:20.985 | INFO     | micro_cold_spray.api.communication.communication_app:startup:53 - Starting communication service
+2024-12-20 21:32:20.986 | INFO     | micro_cold_spray.api.communication.communication_service:__init__:28 - CommunicationService initialized
+2024-12-20 21:32:20.988 | INFO     | micro_cold_spray.api.communication.clients.base:__init__:22 - Initialized MockClient
+2024-12-20 21:32:20.988 | INFO     | micro_cold_spray.api.communication.clients.mock:__init__:143 - Initialized mock plc client
+2024-12-20 21:32:20.988 | INFO     | micro_cold_spray.api.communication.clients.factory:create_client:86 - Created mock client
+2024-12-20 21:32:22.517 | WARNING  | micro_cold_spray.api.communication.clients.mock:_simulate_error:167 - Simulated connect error for plc client
+2024-12-20 21:32:22.517 | ERROR    | micro_cold_spray.api.communication.communication_service:start:116 - Failed to start communication service: 503: Simulated connect error for plc client
+2024-12-20 21:32:22.518 | ERROR    | micro_cold_spray.api.communication.dependencies:initialize_service:64 - Failed to initialize communication service: 503: Failed to start communication service: 503: Simulated connect error for plc client
+2024-12-20 21:32:25.770 | DEBUG    | micro_cold_spray.api.communication.endpoints.tags:list_tags:89 - Listing available tags
+2024-12-20 21:32:35.671 | INFO     | micro_cold_spray.api.communication.communication_app:shutdown:59 - Stopping communication service
+2024-12-20 21:32:35.671 | INFO     | micro_cold_spray.api.communication.services.equipment:stop:57 - Equipment service stopped
+2024-12-20 21:32:35.672 | INFO     | micro_cold_spray.api.communication.services.motion:stop:62 - Motion service stopped
+2024-12-20 21:32:35.672 | INFO     | micro_cold_spray.api.communication.services.tag_cache:stop:63 - Tag cache service stopped
+2024-12-20 21:32:35.672 | ERROR    | micro_cold_spray.api.communication.communication_service:stop:134 - Failed to stop communication service: 'MockClient' object has no attribute 'stop'
+2024-12-20 21:32:35.672 | ERROR    | micro_cold_spray.api.communication.dependencies:cleanup_service:85 - Failed to clean up communication service: 503: Failed to stop communication service: 'MockClient' object has no attribute 'stop'

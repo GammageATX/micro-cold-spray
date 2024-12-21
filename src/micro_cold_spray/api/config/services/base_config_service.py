@@ -5,7 +5,7 @@ from typing import Dict, Any
 from fastapi import status
 from loguru import logger
 
-from micro_cold_spray.api.base import create_error
+from micro_cold_spray.api.base.base_errors import create_error
 
 
 class BaseConfigService:
