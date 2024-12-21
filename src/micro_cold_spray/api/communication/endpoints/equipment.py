@@ -37,8 +37,7 @@ async def check_health(
         logger.error(f"Failed to check equipment service health: {str(e)}")
         raise create_error(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            message="Failed to check equipment service health",
-            context={"service": service.name}
+            message="Failed to check equipment service health"
         )
 
 
@@ -58,8 +57,7 @@ async def control_gas(
     if action not in ["on", "off"]:
         raise create_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            message="Invalid gas control action",
-            context={"action": action, "valid_actions": ["on", "off"]}
+            message="Invalid gas control action"
         )
         
     try:
@@ -73,8 +71,7 @@ async def control_gas(
         logger.error(f"Failed to control gas system ({action}): {str(e)}")
         raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=f"Failed to control gas system ({action})",
-            context={"action": action}
+            message=f"Failed to control gas system ({action})"
         )
 
 
@@ -94,8 +91,7 @@ async def control_vacuum(
     if action not in ["on", "off"]:
         raise create_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            message="Invalid vacuum control action",
-            context={"action": action, "valid_actions": ["on", "off"]}
+            message="Invalid vacuum control action"
         )
         
     try:
@@ -109,8 +105,7 @@ async def control_vacuum(
         logger.error(f"Failed to control vacuum system ({action}): {str(e)}")
         raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=f"Failed to control vacuum system ({action})",
-            context={"action": action}
+            message=f"Failed to control vacuum system ({action})"
         )
 
 
@@ -130,8 +125,7 @@ async def control_feeder(
     if action not in ["on", "off"]:
         raise create_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            message="Invalid feeder control action",
-            context={"action": action, "valid_actions": ["on", "off"]}
+            message="Invalid feeder control action"
         )
         
     try:
@@ -145,8 +139,7 @@ async def control_feeder(
         logger.error(f"Failed to control powder feeder ({action}): {str(e)}")
         raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=f"Failed to control powder feeder ({action})",
-            context={"action": action}
+            message=f"Failed to control powder feeder ({action})"
         )
 
 
@@ -166,8 +159,7 @@ async def control_nozzle(
     if action not in ["on", "off"]:
         raise create_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            message="Invalid nozzle control action",
-            context={"action": action, "valid_actions": ["on", "off"]}
+            message="Invalid nozzle control action"
         )
         
     try:
@@ -181,6 +173,5 @@ async def control_nozzle(
         logger.error(f"Failed to control spray nozzle ({action}): {str(e)}")
         raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=f"Failed to control spray nozzle ({action})",
-            context={"action": action}
+            message=f"Failed to control spray nozzle ({action})"
         )
