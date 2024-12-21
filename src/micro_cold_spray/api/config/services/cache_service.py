@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from loguru import logger
 from fastapi import status
 
-from micro_cold_spray.api.base import create_error
+from micro_cold_spray.api.base.base_errors import create_error
 from micro_cold_spray.api.config.services.base_config_service import BaseConfigService
 
 

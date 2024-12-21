@@ -1,4 +1,4 @@
-"""Equipment router."""
+"""Equipment endpoints."""
 
 from typing import Dict, Any
 from fastapi import APIRouter, Depends, status
@@ -23,25 +23,22 @@ async def check_health(
     
     Returns:
         Health status dictionary
-        
-    Raises:
-        HTTPException: If health check fails
     """
     try:
         is_healthy = await service.check_health()
         return {
             "status": "ok" if is_healthy else "error",
-            "service_info": {
+            "service": {
                 "name": service.name,
                 "running": service.is_running and is_healthy
             }
         }
     except Exception as e:
+        logger.error(f"Failed to check equipment service health: {str(e)}")
         raise create_error(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             message="Failed to check equipment service health",
-            context={"service": service.name},
-            cause=e
+            context={"service": service.name}
         )
 
 
@@ -57,18 +54,15 @@ async def control_gas(
         
     Returns:
         Success message
-        
-    Raises:
-        HTTPException: If control fails
     """
+    if action not in ["on", "off"]:
+        raise create_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            message="Invalid gas control action",
+            context={"action": action, "valid_actions": ["on", "off"]}
+        )
+        
     try:
-        if action not in ["on", "off"]:
-            raise create_error(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                message="Invalid gas control action",
-                context={"action": action, "valid_actions": ["on", "off"]}
-            )
-            
         if action == "on":
             await service.start_gas()
         else:
@@ -76,13 +70,11 @@ async def control_gas(
             
         return {"message": f"Gas system turned {action}"}
     except Exception as e:
-        if isinstance(e, create_error):
-            raise e
+        logger.error(f"Failed to control gas system ({action}): {str(e)}")
         raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             message=f"Failed to control gas system ({action})",
-            context={"action": action},
-            cause=e
+            context={"action": action}
         )
 
 
@@ -98,18 +90,15 @@ async def control_vacuum(
         
     Returns:
         Success message
-        
-    Raises:
-        HTTPException: If control fails
     """
+    if action not in ["on", "off"]:
+        raise create_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            message="Invalid vacuum control action",
+            context={"action": action, "valid_actions": ["on", "off"]}
+        )
+        
     try:
-        if action not in ["on", "off"]:
-            raise create_error(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                message="Invalid vacuum control action",
-                context={"action": action, "valid_actions": ["on", "off"]}
-            )
-            
         if action == "on":
             await service.start_vacuum()
         else:
@@ -117,13 +106,11 @@ async def control_vacuum(
             
         return {"message": f"Vacuum system turned {action}"}
     except Exception as e:
-        if isinstance(e, create_error):
-            raise e
+        logger.error(f"Failed to control vacuum system ({action}): {str(e)}")
         raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             message=f"Failed to control vacuum system ({action})",
-            context={"action": action},
-            cause=e
+            context={"action": action}
         )
 
 
@@ -139,18 +126,15 @@ async def control_feeder(
         
     Returns:
         Success message
-        
-    Raises:
-        HTTPException: If control fails
     """
+    if action not in ["on", "off"]:
+        raise create_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            message="Invalid feeder control action",
+            context={"action": action, "valid_actions": ["on", "off"]}
+        )
+        
     try:
-        if action not in ["on", "off"]:
-            raise create_error(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                message="Invalid feeder control action",
-                context={"action": action, "valid_actions": ["on", "off"]}
-            )
-            
         if action == "on":
             await service.start_feeder()
         else:
@@ -158,13 +142,11 @@ async def control_feeder(
             
         return {"message": f"Powder feeder turned {action}"}
     except Exception as e:
-        if isinstance(e, create_error):
-            raise e
+        logger.error(f"Failed to control powder feeder ({action}): {str(e)}")
         raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             message=f"Failed to control powder feeder ({action})",
-            context={"action": action},
-            cause=e
+            context={"action": action}
         )
 
 
@@ -180,18 +162,15 @@ async def control_nozzle(
         
     Returns:
         Success message
-        
-    Raises:
-        HTTPException: If control fails
     """
+    if action not in ["on", "off"]:
+        raise create_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            message="Invalid nozzle control action",
+            context={"action": action, "valid_actions": ["on", "off"]}
+        )
+        
     try:
-        if action not in ["on", "off"]:
-            raise create_error(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                message="Invalid nozzle control action",
-                context={"action": action, "valid_actions": ["on", "off"]}
-            )
-            
         if action == "on":
             await service.start_nozzle()
         else:
@@ -199,11 +178,9 @@ async def control_nozzle(
             
         return {"message": f"Spray nozzle turned {action}"}
     except Exception as e:
-        if isinstance(e, create_error):
-            raise e
+        logger.error(f"Failed to control spray nozzle ({action}): {str(e)}")
         raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             message=f"Failed to control spray nozzle ({action})",
-            context={"action": action},
-            cause=e
+            context={"action": action}
         )

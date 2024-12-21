@@ -1,229 +1,184 @@
 """Tag cache service implementation."""
 
-from typing import Dict, Any, Set
+from typing import Dict, Any, List
 from datetime import datetime
 from fastapi import status
 from loguru import logger
 
-from micro_cold_spray.api.base.base_configurable import ConfigurableService
 from micro_cold_spray.api.base.base_errors import create_error
-from micro_cold_spray.api.config import ConfigService
-from micro_cold_spray.api.communication.services.tag_mapping import TagMappingService
 from micro_cold_spray.api.communication.models.tags import TagValue, TagMetadata, TagCacheResponse
 
 
-class TagCacheService(ConfigurableService):
+class TagCacheService:
     """Service for caching and validating tag values."""
 
-    def __init__(self, config_service: ConfigService):
-        """Initialize tag cache service.
-        
-        Args:
-            config_service: Configuration service instance
-        """
-        super().__init__(service_name="tag_cache", config_service=config_service)
-        self._tag_mapping: TagMappingService = None
+    def __init__(self):
+        """Initialize tag cache service."""
+        self._service_name = "tag_cache"
         self._cache: Dict[str, TagValue] = {}
-
-    async def _start(self) -> None:
-        """Initialize service."""
-        try:
-            logger.debug("Initializing tag mapping service")
-            # Initialize tag mapping
-            self._tag_mapping = TagMappingService(self._config_service)
-            await self._tag_mapping.start()
-            
-            # Load tag definitions
-            logger.debug("Loading tag configuration")
-            tag_config = await self._config_service.get_config("tags")
-            if not tag_config:
-                raise create_error(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    message="Tag configuration not found"
-                )
-                
-            logger.debug("Building tag cache")
-            await self._build_cache(tag_config)
-            logger.info("Tag cache initialized")
-        except Exception as e:
-            logger.error(f"Failed to start tag cache service: {e}")
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"Failed to start tag cache service: {e}",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def _stop(self) -> None:
-        """Cleanup service."""
-        if self._tag_mapping:
-            await self._tag_mapping.stop()
-            
-        self._cache.clear()
-        logger.info("Tag cache stopped")
-
-    async def _build_cache(self, config: Dict[str, Any]) -> None:
-        """Build tag cache from config."""
-        try:
-            self._cache.clear()
-            
-            for group_name, group in config.get("tag_groups", {}).items():
-                for tag_path, tag_def in group.items():
-                    mapped_name = f"{group_name}.{tag_path}"
-                    
-                    # Create tag metadata
-                    metadata = TagMetadata(
-                        name=mapped_name,
-                        description=tag_def.get("description", ""),
-                        units=tag_def.get("units", ""),
-                        min_value=tag_def.get("min"),
-                        max_value=tag_def.get("max"),
-                        is_mapped=tag_def.get("mapped", False)
-                    )
-                    
-                    # Initialize tag value
-                    self._cache[mapped_name] = TagValue(
-                        metadata=metadata,
-                        value=None,
-                        timestamp=datetime.now()
-                    )
-                    
-            logger.info(f"Built cache for {len(self._cache)} tags")
-            
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to build tag cache",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def get_tag(self, tag_path: str) -> TagValue:
-        """Get tag value and metadata.
-        
-        Args:
-            tag_path: Tag path to get
-            
-        Returns:
-            Tag value and metadata
-            
-        Raises:
-            HTTPException: If tag not found
-        """
-        try:
-            return self._cache[tag_path]
-        except KeyError:
-            raise create_error(
-                status_code=status.HTTP_404_NOT_FOUND,
-                message=f"Tag not found: {tag_path}",
-                context={"tag": tag_path}
-            )
-
-    async def update_tag(self, tag_path: str, value: Any) -> None:
-        """Update tag value.
-        
-        Args:
-            tag_path: Tag to update
-            value: New value
-            
-        Raises:
-            HTTPException: If tag not found or validation fails
-        """
-        try:
-            tag = self._cache[tag_path]
-            
-            # Validate value range if defined
-            if tag.metadata.min_value is not None and value < tag.metadata.min_value:
-                raise create_error(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    message=f"Value {value} below minimum {tag.metadata.min_value}",
-                    context={
-                        "tag": tag_path,
-                        "value": value,
-                        "min": tag.metadata.min_value
-                    }
-                )
-                
-            if tag.metadata.max_value is not None and value > tag.metadata.max_value:
-                raise create_error(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    message=f"Value {value} above maximum {tag.metadata.max_value}",
-                    context={
-                        "tag": tag_path,
-                        "value": value,
-                        "max": tag.metadata.max_value
-                    }
-                )
-                
-            # Update value and timestamp
-            tag.value = value
-            tag.timestamp = datetime.now()
-            
-        except KeyError:
-            raise create_error(
-                status_code=status.HTTP_404_NOT_FOUND,
-                message=f"Tag not found: {tag_path}",
-                context={"tag": tag_path}
-            )
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=f"Failed to update tag {tag_path}",
-                context={"tag": tag_path, "value": value, "error": str(e)},
-                cause=e
-            )
-
-    async def get_all_tags(self) -> TagCacheResponse:
-        """Get all tag values and metadata.
-        
-        Returns:
-            All tag values and metadata
-        """
-        return TagCacheResponse(
-            tags=self._cache,
-            timestamp=datetime.now()
-        )
+        self._is_running = False
+        logger.info("TagCacheService initialized")
 
     @property
     def is_running(self) -> bool:
         """Check if service is running."""
-        try:
-            # Service is running if we have a valid cache and tag mapping service
-            return (
-                self._cache is not None and
-                self._tag_mapping is not None and
-                self._tag_mapping.is_running
-            )
-        except Exception as e:
-            logger.error(f"Error checking tag cache service status: {e}")
-            return False
+        return self._is_running
 
-    async def check_health(self) -> Dict[str, Any]:
-        """Check service health."""
+    async def start(self) -> None:
+        """Start tag cache service."""
         try:
-            status = {
-                "cache_initialized": self._cache is not None,
-                "tag_mapping": self._tag_mapping is not None and self._tag_mapping.is_running,
-                "tag_count": len(self._cache) if self._cache is not None else 0
-            }
-            
-            details = {}
-            if not status["cache_initialized"]:
-                details["cache"] = "Tag cache not initialized"
-            if not status["tag_mapping"]:
-                details["tag_mapping"] = "Tag mapping service not running"
-            if status["tag_count"] == 0:
-                details["tags"] = "No tags in cache"
-                
-            return {
-                "status": "ok" if all(status.values()) and status["tag_count"] > 0 else "error",
-                "components": status,
-                "details": details if details else None
-            }
+            if self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message="Service already running"
+                )
+
+            # Initialize cache
+            self._cache.clear()
+            self._is_running = True
+            logger.info("Tag cache service started")
+
         except Exception as e:
-            error_msg = f"Failed to check tag cache health: {str(e)}"
+            error_msg = f"Failed to start tag cache service: {str(e)}"
             logger.error(error_msg)
-            return {
-                "status": "error",
-                "error": error_msg
-            }
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
+
+    async def stop(self) -> None:
+        """Stop tag cache service."""
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message="Service not running"
+                )
+
+            self._cache.clear()
+            self._is_running = False
+            logger.info("Tag cache service stopped")
+
+        except Exception as e:
+            error_msg = f"Failed to stop tag cache service: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
+
+    async def read_tag(self, tag_id: str) -> Any:
+        """Read tag value from cache.
+        
+        Args:
+            tag_id: Tag identifier
+            
+        Returns:
+            Tag value
+            
+        Raises:
+            HTTPException: If tag not found or read fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            if tag_id not in self._cache:
+                raise create_error(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    message=f"Tag {tag_id} not found"
+                )
+
+            return self._cache[tag_id].value
+
+        except Exception as e:
+            error_msg = f"Failed to read tag {tag_id}: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
+
+    async def write_tag(self, tag_id: str, value: Any, data_type: str = None) -> None:
+        """Write tag value to cache.
+        
+        Args:
+            tag_id: Tag identifier
+            value: Value to write
+            data_type: Optional data type override
+            
+        Raises:
+            HTTPException: If tag not found or write fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            # Create or update tag value
+            self._cache[tag_id] = TagValue(
+                tag_id=tag_id,
+                value=value,
+                data_type=data_type or type(value).__name__,
+                timestamp=datetime.now()
+            )
+            logger.debug(f"Updated tag {tag_id} = {value}")
+
+        except Exception as e:
+            error_msg = f"Failed to write tag {tag_id}: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
+
+    async def list_tags(self) -> List[Dict[str, Any]]:
+        """List available tags.
+        
+        Returns:
+            List of tag metadata
+            
+        Raises:
+            HTTPException: If listing fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            return [
+                {
+                    "tag_id": tag_id,
+                    "data_type": tag.data_type,
+                    "last_update": tag.timestamp
+                }
+                for tag_id, tag in self._cache.items()
+            ]
+
+        except Exception as e:
+            error_msg = "Failed to list tags"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
+
+    async def health(self) -> Dict[str, Any]:
+        """Get service health status.
+        
+        Returns:
+            Health status dictionary
+        """
+        return {
+            "status": "ok" if self.is_running else "error",
+            "service": self._service_name,
+            "running": self.is_running,
+            "cache_size": len(self._cache)
+        }

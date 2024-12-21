@@ -1,27 +1,30 @@
 """Communication data models."""
 
 from micro_cold_spray.api.communication.models.equipment import (
-    GasFlowRequest, GasValveRequest, VacuumPumpRequest,
-    GateValveRequest, ShutterRequest, FeederRequest
+    EquipmentState,
+    GasFlowRequest,
+    GasValveRequest,
+    VacuumPumpRequest,
+    GateValveRequest,
+    ShutterRequest,
+    FeederRequest
 )
 from micro_cold_spray.api.communication.models.motion import (
     SingleAxisMoveRequest,
     CoordinatedMoveRequest,
-    MotionStatus
+    MotionStatus,
+    Position,
+    Velocity
 )
 from micro_cold_spray.api.communication.models.tags import (
     TagMetadata,
     TagValue,
-    TagRequest,
-    TagWriteRequest,
-    TagResponse,
-    TagCacheRequest,
     TagCacheResponse,
-    TagMappingUpdateRequest
 )
 
 __all__ = [
     # Equipment models
+    'EquipmentState',
     'GasFlowRequest',
     'GasValveRequest',
     'VacuumPumpRequest',
@@ -32,13 +35,10 @@ __all__ = [
     'SingleAxisMoveRequest',
     'CoordinatedMoveRequest',
     'MotionStatus',
+    'Position',
+    'Velocity',
     # Tag models
     'TagMetadata',
     'TagValue',
-    'TagRequest',
-    'TagWriteRequest',
-    'TagResponse',
-    'TagCacheRequest',
     'TagCacheResponse',
-    'TagMappingUpdateRequest'
 ]

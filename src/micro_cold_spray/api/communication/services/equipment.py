@@ -4,49 +4,62 @@ from typing import Dict, Any
 from fastapi import status
 from loguru import logger
 
-from micro_cold_spray.api.base.base_configurable import ConfigurableService
 from micro_cold_spray.api.base.base_errors import create_error
-from micro_cold_spray.api.config import ConfigService
-from micro_cold_spray.api.communication.clients.base import BaseClient
 
 
-class EquipmentService(ConfigurableService):
+class EquipmentService:
     """Service for controlling equipment state."""
 
-    def __init__(self, config_service: ConfigService, client: BaseClient):
-        """Initialize equipment service.
-        
-        Args:
-            config_service: Configuration service instance
-            client: Hardware client instance
-        """
-        super().__init__(service_name="equipment", config_service=config_service)
-        self._client = client
+    def __init__(self):
+        """Initialize equipment service."""
+        self._service_name = "equipment"
+        self._is_running = False
+        logger.info("EquipmentService initialized")
 
-    async def _start(self) -> None:
-        """Initialize service."""
+    @property
+    def is_running(self) -> bool:
+        """Check if service is running."""
+        return self._is_running
+
+    async def start(self) -> None:
+        """Start equipment service."""
         try:
-            logger.debug("Loading equipment configuration")
-            equipment_config = await self._config_service.get_config("equipment")
-            if not equipment_config:
+            if self.is_running:
                 raise create_error(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    message="Equipment configuration not found"
+                    status_code=status.HTTP_409_CONFLICT,
+                    message="Service already running"
                 )
-                
-            logger.info("Equipment service initialized")
+
+            self._is_running = True
+            logger.info("Equipment service started")
+
         except Exception as e:
-            logger.error(f"Failed to start equipment service: {e}")
+            error_msg = f"Failed to start equipment service: {str(e)}"
+            logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"Failed to start equipment service: {e}",
-                context={"error": str(e)},
-                cause=e
+                message=error_msg
             )
 
-    async def _stop(self) -> None:
-        """Cleanup service."""
-        logger.info("Equipment service stopped")
+    async def stop(self) -> None:
+        """Stop equipment service."""
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message="Service not running"
+                )
+
+            self._is_running = False
+            logger.info("Equipment service stopped")
+
+        except Exception as e:
+            error_msg = f"Failed to stop equipment service: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
 
     async def get_state(self) -> Dict[str, Any]:
         """Get current equipment state.
@@ -58,13 +71,25 @@ class EquipmentService(ConfigurableService):
             HTTPException: If state cannot be retrieved
         """
         try:
-            return await self._client.get_equipment_state()
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            # Mock state for now
+            return {
+                "power": "on",
+                "temperature": 25.0,
+                "pressure": 1.0
+            }
+
         except Exception as e:
+            error_msg = "Failed to get equipment state"
+            logger.error(f"{error_msg}: {str(e)}")
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to get equipment state",
-                context={"error": str(e)},
-                cause=e
+                message=error_msg
             )
 
     async def set_state(self, state: Dict[str, Any]) -> None:
@@ -77,36 +102,31 @@ class EquipmentService(ConfigurableService):
             HTTPException: If state cannot be set
         """
         try:
-            await self._client.set_equipment_state(state)
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            # Mock state update for now
+            logger.info(f"Setting equipment state to {state}")
+
         except Exception as e:
+            error_msg = "Failed to set equipment state"
+            logger.error(f"{error_msg}: {str(e)}")
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to set equipment state",
-                context={"state": state, "error": str(e)},
-                cause=e
+                message=error_msg
             )
 
-    async def check_health(self) -> Dict[str, Any]:
-        """Check service health."""
-        try:
-            # Get current state
-            state = await self.get_state()
-            
-            # Check client connection
-            client_health = await self._client.check_health()
-            
-            return {
-                "status": "ok" if client_health["status"] == "ok" else "error",
-                "components": {
-                    "client": client_health["status"] == "ok",
-                    "state": state is not None
-                },
-                "details": client_health.get("details")
-            }
-        except Exception as e:
-            error_msg = f"Failed to check equipment health: {str(e)}"
-            logger.error(error_msg)
-            return {
-                "status": "error",
-                "error": error_msg
-            }
+    async def health(self) -> Dict[str, Any]:
+        """Get service health status.
+        
+        Returns:
+            Health status dictionary
+        """
+        return {
+            "status": "ok" if self.is_running else "error",
+            "service": self._service_name,
+            "running": self.is_running
+        }

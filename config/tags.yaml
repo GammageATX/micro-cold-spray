@@ -224,14 +224,14 @@ tag_groups:
               mapped: true
               plc_tag: XAxis.Accel
               type: float
-              unit: "mm/s\xC2\xB2"
+              unit: "mm/sÂ²"
             deceleration:
               access: read/write
               description: X axis deceleration
               mapped: true
               plc_tag: XAxis.Decel
               type: float
-              unit: "mm/s\xC2\xB2"
+              unit: "mm/sÂ²"
             in_progress:
               access: read
               description: X move in progress
@@ -265,14 +265,14 @@ tag_groups:
               mapped: true
               plc_tag: YAxis.Accel
               type: float
-              unit: "mm/s\xC2\xB2"
+              unit: "mm/sÂ²"
             deceleration:
               access: read/write
               description: Y axis deceleration
               mapped: true
               plc_tag: YAxis.Decel
               type: float
-              unit: "mm/s\xC2\xB2"
+              unit: "mm/sÂ²"
             in_progress:
               access: read
               description: Y move in progress
@@ -306,14 +306,14 @@ tag_groups:
               mapped: true
               plc_tag: ZAxis.Accel
               type: float
-              unit: "mm/s\xC2\xB2"
+              unit: "mm/sÂ²"
             deceleration:
               access: read/write
               description: Z axis deceleration
               mapped: true
               plc_tag: ZAxis.Decel
               type: float
-              unit: "mm/s\xC2\xB2"
+              unit: "mm/sÂ²"
             in_progress:
               access: read
               description: Z move in progress

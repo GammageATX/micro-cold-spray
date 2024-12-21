@@ -4,81 +4,81 @@ from typing import Dict, Any
 from fastapi import status
 from loguru import logger
 
-from micro_cold_spray.api.base.base_configurable import ConfigurableService
 from micro_cold_spray.api.base.base_errors import create_error
-from micro_cold_spray.api.config import ConfigService
 
 
-class TagMappingService(ConfigurableService):
+class TagMappingService:
     """Service for mapping tag names to hardware addresses."""
 
-    def __init__(self, config_service: ConfigService):
-        """Initialize tag mapping service.
-        
-        Args:
-            config_service: Configuration service instance
-        """
-        super().__init__(service_name="tag_mapping", config_service=config_service)
+    def __init__(self):
+        """Initialize tag mapping service."""
+        self._service_name = "tag_mapping"
         self._tag_map: Dict[str, str] = {}
         self._reverse_map: Dict[str, str] = {}
+        self._is_running = False
+        logger.info("TagMappingService initialized")
 
-    async def _start(self) -> None:
-        """Initialize service."""
+    @property
+    def is_running(self) -> bool:
+        """Check if service is running."""
+        return self._is_running
+
+    async def start(self) -> None:
+        """Start tag mapping service."""
         try:
-            logger.debug("Loading tag configuration")
-            tag_config = await self._config_service.get_config("tags")
-            if not tag_config:
+            if self.is_running:
                 raise create_error(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    message="Tag configuration not found"
+                    status_code=status.HTTP_409_CONFLICT,
+                    message="Service already running",
+                    context={"service": self._service_name}
                 )
-                
-            logger.debug("Building tag mapping")
-            await self._build_mapping(tag_config)
-            logger.info("Tag mapping initialized")
-        except Exception as e:
-            logger.error(f"Failed to start tag mapping service: {e}")
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"Failed to start tag mapping service: {e}",
-                context={"error": str(e)},
-                cause=e
-            )
 
-    async def _stop(self) -> None:
-        """Cleanup service."""
-        self._tag_map.clear()
-        self._reverse_map.clear()
-        logger.info("Tag mapping stopped")
-
-    async def _build_mapping(self, config: Dict[str, Any]) -> None:
-        """Build tag mapping from config."""
-        try:
+            # Initialize maps
             self._tag_map.clear()
             self._reverse_map.clear()
             
-            for group_name, group in config.get("tag_groups", {}).items():
-                for tag_path, tag_def in group.items():
-                    mapped_name = f"{group_name}.{tag_path}"
-                    
-                    # Only map tags that have hardware addresses
-                    if tag_def.get("mapped", False):
-                        address = tag_def.get("address")
-                        if not address:
-                            logger.warning(f"Mapped tag {mapped_name} missing address")
-                            continue
-                            
-                        self._tag_map[mapped_name] = address
-                        self._reverse_map[address] = mapped_name
-                        
-            logger.info(f"Built mapping for {len(self._tag_map)} tags")
+            # Mock some mappings for now
+            self._tag_map = {
+                "system.temperature": "40001",
+                "system.pressure": "40002",
+                "system.flow_rate": "40003"
+            }
+            self._reverse_map = {v: k for k, v in self._tag_map.items()}
             
+            self._is_running = True
+            logger.info(f"Tag mapping service started with {len(self._tag_map)} mappings")
+
         except Exception as e:
+            error_msg = f"Failed to start tag mapping service: {str(e)}"
+            logger.error(error_msg)
             raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to build tag mapping",
-                context={"error": str(e)},
-                cause=e
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg,
+                context={"service": self._service_name}
+            )
+
+    async def stop(self) -> None:
+        """Stop tag mapping service."""
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message="Service not running",
+                    context={"service": self._service_name}
+                )
+
+            self._tag_map.clear()
+            self._reverse_map.clear()
+            self._is_running = False
+            logger.info("Tag mapping service stopped")
+
+        except Exception as e:
+            error_msg = f"Failed to stop tag mapping service: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg,
+                context={"service": self._service_name}
             )
 
     def get_address(self, tag_path: str) -> str:
@@ -94,11 +94,28 @@ class TagMappingService(ConfigurableService):
             HTTPException: If tag not found or not mapped
         """
         try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running",
+                    context={"service": self._service_name}
+                )
+
+            if tag_path not in self._tag_map:
+                raise create_error(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    message=f"Tag not found or not mapped: {tag_path}",
+                    context={"tag": tag_path}
+                )
+
             return self._tag_map[tag_path]
-        except KeyError:
+
+        except Exception as e:
+            error_msg = f"Failed to get address for tag {tag_path}"
+            logger.error(f"{error_msg}: {str(e)}")
             raise create_error(
-                status_code=status.HTTP_404_NOT_FOUND,
-                message=f"Tag not found or not mapped: {tag_path}",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg,
                 context={"tag": tag_path}
             )
 
@@ -115,50 +132,40 @@ class TagMappingService(ConfigurableService):
             HTTPException: If address not mapped
         """
         try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running",
+                    context={"service": self._service_name}
+                )
+
+            if address not in self._reverse_map:
+                raise create_error(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    message=f"Address not mapped: {address}",
+                    context={"address": address}
+                )
+
             return self._reverse_map[address]
-        except KeyError:
+
+        except Exception as e:
+            error_msg = f"Failed to get tag path for address {address}"
+            logger.error(f"{error_msg}: {str(e)}")
             raise create_error(
-                status_code=status.HTTP_404_NOT_FOUND,
-                message=f"Address not mapped: {address}",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg,
                 context={"address": address}
             )
 
-    @property
-    def is_running(self) -> bool:
-        """Check if service is running."""
-        try:
-            # Service is running if we have valid mappings
-            return len(self._tag_map) > 0 and len(self._reverse_map) > 0
-        except Exception as e:
-            logger.error(f"Error checking tag mapping service status: {e}")
-            return False
-
-    async def check_health(self) -> Dict[str, Any]:
-        """Check service health."""
-        try:
-            status = {
-                "tag_map": len(self._tag_map) > 0,
-                "reverse_map": len(self._reverse_map) > 0,
-                "tag_count": len(self._tag_map)
-            }
-            
-            details = {}
-            if not status["tag_map"]:
-                details["tag_map"] = "Tag map is empty"
-            if not status["reverse_map"]:
-                details["reverse_map"] = "Reverse map is empty"
-            if status["tag_count"] == 0:
-                details["tags"] = "No tags mapped"
-                
-            return {
-                "status": "ok" if all(status.values()) and status["tag_count"] > 0 else "error",
-                "components": status,
-                "details": details if details else None
-            }
-        except Exception as e:
-            error_msg = f"Failed to check tag mapping health: {str(e)}"
-            logger.error(error_msg)
-            return {
-                "status": "error",
-                "error": error_msg
-            }
+    async def health(self) -> Dict[str, Any]:
+        """Get service health status.
+        
+        Returns:
+            Health status dictionary
+        """
+        return {
+            "status": "ok" if self.is_running else "error",
+            "service": self._service_name,
+            "running": self.is_running,
+            "tag_count": len(self._tag_map)
+        }

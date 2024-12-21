@@ -1,125 +1,164 @@
-"""PLC communication client using Productivity PLC library."""
+"""PLC communication client."""
 
-import asyncio
-from pathlib import Path
-from typing import Any, Dict
+import logging
+from typing import Any, Dict, Optional
 from fastapi import status
 from loguru import logger
 from productivity import ProductivityPLC
+from pymodbus.pdu import ExceptionResponse
 
 from micro_cold_spray.api.base.base_errors import create_error
 from micro_cold_spray.api.communication.clients.base import CommunicationClient
 
 
 class PLCClient(CommunicationClient):
-    """Client for PLC communication."""
+    """Client for communicating with Productivity PLC."""
 
     def __init__(self, config: Dict[str, Any]):
-        """Initialize PLC client."""
-        super().__init__("plc", config)
-        try:
-            # Extract required configuration
-            self._ip = config['ip']
-            self._tag_file = Path(config['tag_file'])
-            self._polling_interval = config['polling_interval']
-            self._retry_delay = config.get('retry', {}).get('delay', 1.0)
-            self._max_attempts = config.get('retry', {}).get('max_attempts', 3)
-            self._timeout = config.get('timeout', 5.0)
-            
-            # Validate tag file exists
-            if not self._tag_file.exists():
-                raise create_error(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    message=f"Tag file not found: {self._tag_file}",
-                    context={"path": str(self._tag_file)}
-                )
-            
-            logger.info(f"Initialized PLC client for {self._ip}")
-            
-        except KeyError as e:
-            raise create_error(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                message=f"Missing required PLC config field: {e}",
-                context={"field": str(e)}
-            )
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=f"Failed to initialize PLC client: {e}",
-                context={"error": str(e)},
-                cause=e
-            )
-
-        self._plc = ProductivityPLC(self._ip, str(self._tag_file))
-        logger.info(
-            f"PLCClient initialized with address={self._ip}, tag_file={self._tag_file}"
-        )
+        """Initialize PLC client.
+        
+        Args:
+            config: Client configuration from hardware.yaml
+        """
+        super().__init__(config)
+        
+        # Extract PLC config
+        plc_config = config["hardware"]["network"]["plc"]
+        self._ip = plc_config["ip"]
+        self._tag_file = plc_config["tag_file"]
+        self._timeout = plc_config.get("timeout", 5.0)
+        self._plc: Optional[ProductivityPLC] = None
+        self._tags: Dict[str, Any] = {}
+        logger.info(f"Initialized PLC client for {self._ip}")
 
     async def connect(self) -> None:
         """Connect to PLC.
-
-        For the real PLC client, this is a no-op since the ProductivityPLC library
-        handles connections automatically per-request.
+        
+        Connection is established on first request.
+        
+        Raises:
+            HTTPException: If connection fails
         """
         try:
-            # Test connection by trying to read any tag
+            # Create PLC instance
+            self._plc = ProductivityPLC(self._ip, self._tag_file, self._timeout)
+            
+            # Get tag configuration and test connection with first request
+            self._tags = self._plc.get_tags()
             await self._plc.get()
+            
             self._connected = True
-            logger.debug("PLCClient ready")
+            logger.info(f"Connected to PLC at {self._ip} with {len(self._tags)} tags")
+            
         except Exception as e:
-            logger.error(f"Failed to connect to PLC: {e}")
+            error_msg = f"Failed to connect to PLC at {self._ip}: {str(e)}"
+            logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"Failed to connect to PLC: {e}",
-                context={"error": str(e)},
-                cause=e
+                message=error_msg
             )
 
     async def disconnect(self) -> None:
         """Disconnect from PLC.
-
-        For the real PLC client, this is a no-op since the ProductivityPLC library
-        handles connections automatically per-request.
+        
+        Connection is closed automatically when requests stop.
         """
+        self._plc = None
         self._connected = False
-        logger.debug("PLCClient disconnected")
+        logger.info(f"Disconnected from PLC at {self._ip}")
 
     async def read_tag(self, tag: str) -> Any:
-        """Read tag value from PLC."""
+        """Read tag value.
+        
+        Args:
+            tag: Tag name to read
+            
+        Returns:
+            Tag value
+            
+        Raises:
+            HTTPException: If read fails
+        """
+        if not self._plc:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=f"PLC not connected at {self._ip}"
+            )
+            
+        if tag not in self._tags:
+            raise create_error(
+                status_code=status.HTTP_404_NOT_FOUND,
+                message=f"Tag '{tag}' not found in PLC"
+            )
+            
         try:
-            values = await self._plc.get()  # Library expects no arguments
+            values = await self._plc.get()
             if tag not in values:
                 raise create_error(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    message=f"Tag {tag} not found in PLC response",
-                    context={"tag": tag}
+                    message=f"Tag '{tag}' not found in PLC response"
                 )
+                
+            # Check for Modbus exceptions
+            if isinstance(values, ExceptionResponse):
+                error_msg = f"Modbus exception reading tag '{tag}' from PLC: {values}"
+                logger.error(error_msg)
+                raise create_error(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    message=error_msg
+                )
+                
             return values[tag]
-        except asyncio.CancelledError:
-            logger.debug("PLC connection attempt cancelled")
-            return None
+            
         except Exception as e:
-            logger.error(f"Failed to read tag {tag}: {e}")
+            error_msg = f"Failed to read tag '{tag}' from PLC: {str(e)}"
+            logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=f"Failed to read tag {tag}",
-                context={"tag": tag, "error": str(e)},
-                cause=e
+                message=error_msg
             )
 
     async def write_tag(self, tag: str, value: Any) -> None:
-        """Write single tag value to PLC."""
+        """Write tag value.
+        
+        Args:
+            tag: Tag name to write
+            value: Value to write
+            
+        Raises:
+            HTTPException: If write fails
+        """
+        if not self._plc:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=f"PLC not connected at {self._ip}"
+            )
+            
+        if tag not in self._tags:
+            raise create_error(
+                status_code=status.HTTP_404_NOT_FOUND,
+                message=f"Tag '{tag}' not found in PLC"
+            )
+            
         try:
-            await self._plc.set({tag: value})  # Library expects a dict
+            # The library handles type validation and conversion
+            responses = await self._plc.set({tag: value})
+            
+            # Check for Modbus exceptions
+            if any("error" in str(r).lower() for r in responses):
+                error_msg = f"Modbus error writing tag '{tag}' = {value} to PLC: {responses}"
+                logger.error(error_msg)
+                raise create_error(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    message=error_msg
+                )
+                
+            logger.debug(f"Wrote tag {tag} = {value}")
+            
         except Exception as e:
-            logger.error(f"Failed to write tag {tag}: {e}")
+            error_msg = f"Failed to write tag '{tag}' = {value} to PLC: {str(e)}"
+            logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=f"Failed to write tag {tag}",
-                context={
-                    "tag": tag,
-                    "value": value,
-                    "error": str(e)
-                },
-                cause=e
+                message=error_msg
             )

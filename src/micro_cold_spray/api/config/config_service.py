@@ -6,7 +6,7 @@ from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
-from micro_cold_spray.api.base import create_error
+from micro_cold_spray.api.base.base_errors import create_error
 from micro_cold_spray.api.config.services import (
     CacheService,
     FileService,
@@ -84,7 +84,10 @@ async def load_configurations(app: FastAPI):
 
     except Exception as e:
         logger.error(f"Failed to load configurations: {e}")
-        raise
+        raise create_error(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            message=f"Failed to load configurations: {str(e)}"
+        )
 
 
 def create_config_service() -> FastAPI:
@@ -133,7 +136,10 @@ def create_config_service() -> FastAPI:
             
         except Exception as e:
             logger.error(f"Startup failed: {e}")
-            raise
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=f"Failed to start config service: {str(e)}"
+            )
     
     @app.on_event("shutdown")
     async def shutdown():
@@ -149,7 +155,10 @@ def create_config_service() -> FastAPI:
             
         except Exception as e:
             logger.error(f"Shutdown failed: {e}")
-            raise
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=f"Failed to stop config service: {str(e)}"
+            )
     
     # Include config router
     app.include_router(get_config_router())

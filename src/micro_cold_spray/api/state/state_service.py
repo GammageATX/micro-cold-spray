@@ -6,8 +6,9 @@ import os
 import yaml
 import httpx
 from loguru import logger
+from fastapi import status
 
-from micro_cold_spray.api.base import create_error
+from micro_cold_spray.api.base.base_errors import create_error
 from micro_cold_spray.api.config.services.base_config_service import BaseConfigService
 
 
@@ -41,7 +42,7 @@ class StateService(BaseConfigService):
         except Exception as e:
             logger.error(f"Failed to start state service: {e}")
             raise create_error(
-                status_code=503,
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=f"Failed to start state service: {str(e)}"
             )
     
@@ -53,7 +54,7 @@ class StateService(BaseConfigService):
         except Exception as e:
             logger.error(f"Failed to stop state service: {e}")
             raise create_error(
-                status_code=503,
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=f"Failed to stop state service: {str(e)}"
             )
     
@@ -82,20 +83,20 @@ class StateService(BaseConfigService):
             # Validate config structure
             if not isinstance(config, dict):
                 raise create_error(
-                    status_code=422,
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     message="Invalid state configuration: not a dict"
                 )
             
             if "state" not in config:
                 raise create_error(
-                    status_code=422,
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     message="Invalid state configuration: missing state section"
                 )
                 
             state_config = config["state"]
             if "initial_state" not in state_config or "transitions" not in state_config:
                 raise create_error(
-                    status_code=422,
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     message="Invalid state configuration: missing required keys in state section"
                 )
             
@@ -103,12 +104,12 @@ class StateService(BaseConfigService):
             
         except FileNotFoundError as e:
             raise create_error(
-                status_code=503,
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=str(e)
             )
         except Exception as e:
             raise create_error(
-                status_code=503,
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=f"Failed to load state configuration: {str(e)}"
             )
 
@@ -192,7 +193,7 @@ class StateService(BaseConfigService):
         """
         if not self.is_running:
             raise create_error(
-                status_code=503,
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message="State service not running"
             )
         return self._current_state
@@ -208,7 +209,7 @@ class StateService(BaseConfigService):
         """
         if not self.is_running:
             raise create_error(
-                status_code=503,
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message="State service not running"
             )
         
@@ -235,38 +236,36 @@ class StateService(BaseConfigService):
         """
         if not self.is_running:
             raise create_error(
-                status_code=503,
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message="State service not running"
             )
         
         current = self._state_machine.get(self._current_state)
         if not current:
             raise create_error(
-                status_code=400,
+                status_code=status.HTTP_400_BAD_REQUEST,
                 message=f"Invalid current state: {self._current_state}"
             )
         
         if new_state not in current["valid_transitions"]:
             raise create_error(
-                status_code=400,
+                status_code=status.HTTP_400_BAD_REQUEST,
                 message=f"Invalid transition from {self._current_state} to {new_state}"
             )
-        
-        # Update state
+            
+        # Update state and history
         old_state = self._current_state
         self._current_state = new_state
-        
-        # Record transition
         self._add_history_entry(f"Transitioned from {old_state} to {new_state}")
         
         return {
-            "previous_state": old_state,
-            "current_state": new_state,
-            "timestamp": datetime.now().isoformat()
+            "old_state": old_state,
+            "new_state": new_state,
+            "valid_transitions": self._state_machine[new_state]["valid_transitions"]
         }
     
     async def get_history(self, limit: Optional[int] = None) -> Dict[str, Any]:
-        """Get state history.
+        """Get state transition history.
         
         Args:
             limit: Maximum number of entries to return
@@ -279,10 +278,10 @@ class StateService(BaseConfigService):
         """
         if not self.is_running:
             raise create_error(
-                status_code=503,
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message="State service not running"
             )
-        
+            
         history = self._history
         if limit:
             history = history[-limit:]
