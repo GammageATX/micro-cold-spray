@@ -40,11 +40,12 @@ class DataCollectionApp(FastAPI):
             # Get database connection string from environment
             dsn = os.getenv("DATABASE_URL", "postgresql://postgres:dbpassword@localhost:5432/postgres")
             
-            # Initialize storage and service
+            # Initialize storage first
             self.storage = DataCollectionStorage(dsn)
             await self.storage.initialize()
             
-            self.service = DataCollectionService()
+            # Initialize service with storage
+            self.service = DataCollectionService(storage=self.storage)
             await self.service.initialize()
             
             logging.info("Data collection service started")
