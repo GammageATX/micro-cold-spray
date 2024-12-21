@@ -8,15 +8,16 @@ from micro_cold_spray.api.messaging.messaging_app import MessagingApp
 
 
 async def main():
-    """Run the messaging service."""
+    """Run messaging service."""
     try:
-        # Create and initialize app
-        app = MessagingApp()
+        # Create app
+        app = MessagingApp(
+            title="Messaging Service",
+            description="Service for handling pub/sub messaging",
+            version="1.0.0"
+        )
         
-        # Start the service
-        await app.startup()
-        
-        # Run the server
+        # Run server
         config = uvicorn.Config(
             app=app,
             host="0.0.0.0",
@@ -27,13 +28,9 @@ async def main():
         await server.serve()
         
     except Exception as e:
-        logger.error(f"Failed to start messaging service: {e}")
+        logger.error(f"Failed to run messaging service: {e}")
         raise
-    finally:
-        # Ensure cleanup
-        await app.shutdown()
 
 
 if __name__ == "__main__":
-    # Run the service
     asyncio.run(main())

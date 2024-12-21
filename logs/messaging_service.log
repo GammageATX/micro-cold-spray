@@ -1,0 +1,66 @@
+2024-12-20 22:11:29 | INFO     | __main__:main:50 - Starting messaging service...
+2024-12-20 22:11:29 | INFO     | micro_cold_spray.api.messaging.messaging_app:__init__:43 - Messaging application initialized
+2024-12-20 22:11:29 | INFO     | __main__:main:61 - Host: 0.0.0.0
+2024-12-20 22:11:29 | INFO     | __main__:main:62 - Port: 8004
+2024-12-20 22:11:29 | INFO     | __main__:main:63 - Reload: False
+2024-12-20 22:11:56 | INFO     | __main__:main:50 - Starting messaging service...
+2024-12-20 22:11:56 | INFO     | micro_cold_spray.api.messaging.messaging_app:__init__:47 - Messaging application initialized
+2024-12-20 22:11:56 | INFO     | __main__:main:61 - Host: 0.0.0.0
+2024-12-20 22:11:56 | INFO     | __main__:main:62 - Port: 8004
+2024-12-20 22:11:56 | INFO     | __main__:main:63 - Reload: False
+2024-12-20 22:11:56 | INFO     | micro_cold_spray.api.messaging.messaging_service:set_valid_topics:309 - Updated valid topics: {'sequence/status', 'validation/response', 'hardware/vacuum/response', 'nozzle_file/request', 'nozzle_file/response', 'hardware/valve/response', 'powder_file/response', 'pattern/request', 'config/request', 'data/request', 'motion/status', 'state/request', 'parameter/response', 'motion/response', 'ui/response', 'error/report', 'hardware/gas/response', 'hardware/motion/request', 'hardware/nozzle/response', 'parameter/generate', 'hardware/vacuum/request', 'ui/request', 'powder_file/request', 'tag_cache/response', 'state/response', 'action_atomic/response', 'hardware/motion/response', 'config/response', 'action_atomic/request', 'motion/request', 'data/response', 'sequence/response', 'tag_cache/request', 'tag_cache/update', 'hardware/feeder/request', 'nozzle_file/generate', 'sequence/generate', 'sequence/step', 'pattern/response', 'hardware/deagglomerator/response', 'config/update', 'pattern/generate', 'hardware/gas/request', 'ui/state', 'hardware/valve/request', 'hardware/nozzle/request', 'validation/request', 'hardware/deagglomerator/request', 'parameter/request', 'powder_file/generate', 'action_group/request', 'sequence/request', 'action_group/response', 'state/change', 'hardware/feeder/response'}
+2024-12-20 22:11:56 | INFO     | micro_cold_spray.api.messaging.messaging_service:configure:393 - Service configured with queue size: 1000
+2024-12-20 22:11:56 | INFO     | micro_cold_spray.api.messaging.messaging_service:initialize:53 - Messaging service started with 55 topics
+2024-12-20 22:11:56 | INFO     | micro_cold_spray.api.messaging.messaging_app:startup:72 - Messaging service started
+2024-12-20 22:11:57 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:11:58 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:11:59 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:00 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:01 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:02 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:03 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:04 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:05 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:06 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:07 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:08 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:09 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:10 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:11 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:12 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:13 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:14 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:15 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:16 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:17 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:18 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:19 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:20 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:21 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:22 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:23 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:24 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:25 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:26 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:27 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:28 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:29 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:30 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:31 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:32 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:33 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:34 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:35 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:36 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:37 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:38 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:39 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:40 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:41 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:42 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:43 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:44 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:45 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:46 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:47 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
+2024-12-20 22:12:48 | DEBUG    | micro_cold_spray.api.messaging.messaging_service:_monitor_queue:68 - Queue size: 1000, Active tasks: 1
