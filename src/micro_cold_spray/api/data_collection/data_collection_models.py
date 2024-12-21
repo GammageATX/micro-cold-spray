@@ -27,52 +27,27 @@ class CollectionSession(BaseModel):
 class SprayEvent(BaseModel):
     """Model for spray event data."""
     
-    id: Optional[int] = None
-    sequence_id: str = Field(..., description="ID of sequence this event belongs to")
     spray_index: int = Field(..., description="Index of this event in the sequence")
-    timestamp: datetime = Field(default_factory=datetime.now, description="When this event occurred")
-    x_pos: float = Field(..., description="X position", ge=-1e308, le=1e308)
-    y_pos: float = Field(..., description="Y position", ge=-1e308, le=1e308)
-    z_pos: float = Field(..., description="Z position", ge=-1e308, le=1e308)
-    pressure: float = Field(..., description="Gas pressure", ge=0, le=1e308)
-    temperature: float = Field(..., description="Gas temperature", ge=0, le=1e308)
-    flow_rate: float = Field(..., description="Powder flow rate", ge=0, le=1e308)
-    status: str = Field(default="active", description="Event status")
-    
-    @field_validator('timestamp', mode='before')
-    @classmethod
-    def validate_timestamp(cls, v: Any) -> datetime:
-        """Validate and convert timestamp to datetime."""
-        if isinstance(v, datetime):
-            if not v.tzinfo:
-                v = v.replace(tzinfo=timezone.utc)
-            return v
-        if isinstance(v, str):
-            try:
-                dt = datetime.fromisoformat(v.replace('Z', '+00:00'))
-                if not dt.tzinfo:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                return dt
-            except ValueError as e:
-                raise ValueError(f"Invalid timestamp format: {e}")
-        raise ValueError("Invalid timestamp type")
-    
-    @field_validator('timestamp')
-    @classmethod
-    def validate_timestamp_not_future(cls, v: datetime) -> datetime:
-        """Validate timestamp is not in the future."""
-        now = datetime.now(timezone.utc)
-        if v > now:
-            raise ValueError("Timestamp cannot be in the future")
-        return v
-    
-    @field_validator('x_pos', 'y_pos', 'z_pos')
-    @classmethod
-    def validate_position(cls, v: float, info: Any) -> float:
-        """Validate position values are finite."""
-        if not math.isfinite(v):
-            raise ValueError(f"{info.field_name} must be a finite number")
-        return v
+    sequence_id: str = Field(..., description="ID of sequence this event belongs to")
+    material_type: str = Field(..., description="Type of powder material")
+    pattern_name: str = Field(..., description="Name of spray pattern")
+    operator: str = Field(..., description="Name of operator")
+    start_time: datetime = Field(..., description="When spray started")
+    end_time: Optional[datetime] = Field(None, description="When spray ended")
+    powder_size: str = Field(..., description="Powder particle size range")
+    powder_lot: str = Field(..., description="Powder lot number")
+    manufacturer: str = Field(..., description="Powder manufacturer")
+    nozzle_type: str = Field(..., description="Type of spray nozzle")
+    chamber_pressure_start: float = Field(..., ge=0, description="Initial chamber pressure (bar)")
+    chamber_pressure_end: float = Field(..., ge=0, description="Final chamber pressure (bar)")
+    nozzle_pressure_start: float = Field(..., ge=0, description="Initial nozzle pressure (bar)")
+    nozzle_pressure_end: float = Field(..., ge=0, description="Final nozzle pressure (bar)")
+    main_flow: float = Field(..., ge=0, description="Main gas flow rate (slpm)")
+    feeder_flow: float = Field(..., ge=0, description="Powder feeder flow rate (rpm)")
+    feeder_frequency: float = Field(..., ge=0, description="Powder feeder frequency (Hz)")
+    pattern_type: str = Field(..., description="Type of spray pattern")
+    completed: bool = Field(..., description="Whether spray completed successfully")
+    error: Optional[str] = Field(None, description="Error message if spray failed")
     
     @field_validator('sequence_id')
     @classmethod
