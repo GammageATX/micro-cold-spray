@@ -1,29 +1,18 @@
 """Hardware validator."""
 
 from typing import Dict, Any, List
-from dataclasses import dataclass
+from loguru import logger
 from fastapi import status
 
-from micro_cold_spray.api.messaging import MessagingService
 from micro_cold_spray.api.base.base_errors import create_error
-from micro_cold_spray.api.validation.validators.base_validator import BaseValidator
+from micro_cold_spray.api.messaging import MessagingService
+from micro_cold_spray.api.validation.validators.base_validator import (
+    get_tag_value,
+    check_numeric_range
+)
 
 
-@dataclass
-class HardwareState:
-    """Hardware state data."""
-    chamber_pressure: float = 0.0
-    main_pressure: float = 0.0
-    regulator_pressure: float = 0.0
-    z_position: float = 0.0
-    safe_z_height: float = 0.0
-    main_flow: float = 0.0
-    feeder_flow: float = 0.0
-    main_flow_setpoint: float = 0.0
-    feeder_flow_setpoint: float = 0.0
-
-
-class HardwareValidator(BaseValidator):
+class HardwareValidator:
     """Validator for hardware conditions."""
 
     def __init__(
@@ -37,7 +26,8 @@ class HardwareValidator(BaseValidator):
             validation_rules: Validation rules from config
             message_broker: Message broker for hardware checks
         """
-        super().__init__(validation_rules, message_broker)
+        self._rules = validation_rules
+        self._message_broker = message_broker
 
     async def validate(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Validate hardware conditions.
@@ -46,13 +36,13 @@ class HardwareValidator(BaseValidator):
             data: Hardware data to validate
             
         Returns:
-            Dict containing validation results
-            
-        Raises:
-            HTTPException: If validation fails
+            Dict containing:
+                - valid: Whether validation passed
+                - errors: List of error messages
+                - warnings: List of warning messages
         """
-        errors = []
-        warnings = []
+        errors: List[str] = []
+        warnings: List[str] = []
         
         try:
             # Get current hardware state
@@ -81,43 +71,86 @@ class HardwareValidator(BaseValidator):
             }
 
         except Exception as e:
+            logger.error(f"Hardware validation failed: {e}")
             raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Hardware validation failed",
-                context={"error": str(e)},
-                cause=e
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                message=f"Hardware validation failed: {str(e)}"
             )
 
-    async def _get_hardware_state(self) -> HardwareState:
+    async def _get_hardware_state(self) -> Dict[str, Any]:
         """Get current hardware state.
         
         Returns:
-            Current hardware state
+            Hardware state data
             
         Raises:
             HTTPException: If state cannot be retrieved
         """
         try:
-            return HardwareState(
-                chamber_pressure=await self._get_tag_value("pressure.chamber_pressure"),
-                main_pressure=await self._get_tag_value("pressure.main_supply_pressure"),
-                regulator_pressure=await self._get_tag_value("pressure.regulator_pressure"),
-                z_position=await self._get_tag_value("motion.position.z_position"),
-                safe_z_height=await self._get_tag_value("safety.safe_z"),
-                main_flow=await self._get_tag_value("gas_control.main_flow.measured"),
-                feeder_flow=await self._get_tag_value("gas_control.feeder_flow.measured"),
-                main_flow_setpoint=await self._get_tag_value("gas_control.main_flow.setpoint"),
-                feeder_flow_setpoint=await self._get_tag_value("gas_control.feeder_flow.setpoint")
+            # Get chamber pressure
+            chamber_pressure = await get_tag_value(
+                self._message_broker,
+                "chamber_pressure"
             )
+            
+            # Get gas pressures
+            main_pressure = await get_tag_value(
+                self._message_broker,
+                "main_pressure"
+            )
+            regulator_pressure = await get_tag_value(
+                self._message_broker,
+                "regulator_pressure"
+            )
+            
+            # Get position
+            z_position = await get_tag_value(
+                self._message_broker,
+                "z_position"
+            )
+            safe_z_height = await get_tag_value(
+                self._message_broker,
+                "safe_z_height"
+            )
+            
+            # Get flow rates
+            main_flow = await get_tag_value(
+                self._message_broker,
+                "main_flow"
+            )
+            main_flow_setpoint = await get_tag_value(
+                self._message_broker,
+                "main_flow_setpoint"
+            )
+            feeder_flow = await get_tag_value(
+                self._message_broker,
+                "feeder_flow"
+            )
+            feeder_flow_setpoint = await get_tag_value(
+                self._message_broker,
+                "feeder_flow_setpoint"
+            )
+            
+            return {
+                "chamber_pressure": chamber_pressure,
+                "main_pressure": main_pressure,
+                "regulator_pressure": regulator_pressure,
+                "z_position": z_position,
+                "safe_z_height": safe_z_height,
+                "main_flow": main_flow,
+                "main_flow_setpoint": main_flow_setpoint,
+                "feeder_flow": feeder_flow,
+                "feeder_flow_setpoint": feeder_flow_setpoint
+            }
+            
         except Exception as e:
+            logger.error(f"Failed to get hardware state: {e}")
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to get hardware state",
-                context={"error": str(e)},
-                cause=e
+                message=f"Failed to get hardware state: {str(e)}"
             )
 
-    async def _validate_chamber_pressure(self, state: HardwareState) -> List[str]:
+    async def _validate_chamber_pressure(self, state: Dict[str, Any]) -> List[str]:
         """Validate chamber pressure.
         
         Args:
@@ -130,14 +163,19 @@ class HardwareValidator(BaseValidator):
         try:
             rules = self._rules["states"]["chamber_vacuum"]["checks"][0]
             
-            if state.chamber_pressure > rules["value"]:
+            error = check_numeric_range(
+                state["chamber_pressure"],
+                max_val=rules["value"],
+                field_name="Chamber pressure"
+            )
+            if error:
                 errors.append(rules["message"])
                 
         except Exception as e:
             errors.append(f"Chamber pressure validation error: {str(e)}")
         return errors
 
-    async def _validate_gas_pressures(self, state: HardwareState) -> List[str]:
+    async def _validate_gas_pressures(self, state: Dict[str, Any]) -> List[str]:
         """Validate gas pressures.
         
         Args:
@@ -150,14 +188,21 @@ class HardwareValidator(BaseValidator):
         try:
             rules = self._rules["validation"]["gas_pressure"]
             
-            if state.main_pressure < state.regulator_pressure + rules["min_margin"]:
+            # Check main pressure is sufficiently above regulator pressure
+            margin = state["main_pressure"] - state["regulator_pressure"]
+            error = check_numeric_range(
+                margin,
+                min_val=rules["min_margin"],
+                field_name="Gas pressure margin"
+            )
+            if error:
                 errors.append(rules["message"])
                 
         except Exception as e:
             errors.append(f"Gas pressure validation error: {str(e)}")
         return errors
 
-    async def _validate_position(self, state: HardwareState) -> List[str]:
+    async def _validate_position(self, state: Dict[str, Any]) -> List[str]:
         """Validate position.
         
         Args:
@@ -170,14 +215,20 @@ class HardwareValidator(BaseValidator):
         try:
             rules = self._rules["sequences"]["safe_position"]
             
-            if state.z_position < state.safe_z_height:
+            # Check Z position is above safe height
+            error = check_numeric_range(
+                state["z_position"],
+                min_val=state["safe_z_height"],
+                field_name="Z position"
+            )
+            if error:
                 errors.append(rules["message"])
                 
         except Exception as e:
             errors.append(f"Position validation error: {str(e)}")
         return errors
 
-    async def _validate_flow_stability(self, state: HardwareState) -> List[str]:
+    async def _validate_flow_stability(self, state: Dict[str, Any]) -> List[str]:
         """Validate gas flow stability.
         
         Args:
@@ -191,13 +242,23 @@ class HardwareValidator(BaseValidator):
             rules = self._rules["validation"]["flow_stability"]
             
             # Check main flow stability
-            main_error = abs(state.main_flow - state.main_flow_setpoint)
-            if main_error > rules["main_tolerance"]:
+            main_error = abs(state["main_flow"] - state["main_flow_setpoint"])
+            error = check_numeric_range(
+                main_error,
+                max_val=rules["main_tolerance"],
+                field_name="Main flow error"
+            )
+            if error:
                 errors.append(rules["main_flow"]["message"])
                 
             # Check feeder flow stability
-            feeder_error = abs(state.feeder_flow - state.feeder_flow_setpoint)
-            if feeder_error > rules["feeder_tolerance"]:
+            feeder_error = abs(state["feeder_flow"] - state["feeder_flow_setpoint"])
+            error = check_numeric_range(
+                feeder_error,
+                max_val=rules["feeder_tolerance"],
+                field_name="Feeder flow error"
+            )
+            if error:
                 errors.append(rules["feeder_flow"]["message"])
                 
         except Exception as e:

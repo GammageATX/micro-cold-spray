@@ -1,16 +1,22 @@
 """Sequence validator."""
 
 from typing import Dict, Any, List
-from datetime import datetime
-from fastapi import status, HTTPException
+from loguru import logger
+from fastapi import status
 
-from micro_cold_spray.api.messaging import MessagingService
 from micro_cold_spray.api.base.base_errors import create_error
-from micro_cold_spray.api.validation.validators.base_validator import BaseValidator
+from micro_cold_spray.api.messaging import MessagingService
+from micro_cold_spray.api.validation.validators.base_validator import (
+    check_required_fields,
+    check_unknown_fields,
+    check_numeric_range,
+    check_enum_value,
+    check_timestamp
+)
 from micro_cold_spray.api.validation.validators.hardware_validator import HardwareValidator
 
 
-class SequenceValidator(BaseValidator):
+class SequenceValidator:
     """Validator for spray sequences."""
 
     def __init__(
@@ -24,28 +30,29 @@ class SequenceValidator(BaseValidator):
             validation_rules: Validation rules from config
             message_broker: Message broker for hardware checks
         """
-        super().__init__(validation_rules, message_broker)
+        self._rules = validation_rules
+        self._message_broker = message_broker
         self._hardware_validator = HardwareValidator(validation_rules, message_broker)
 
     async def validate(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate sequence definition.
+        """Validate sequence data.
         
         Args:
             data: Sequence data to validate
             
         Returns:
-            Dict containing validation results
-            
-        Raises:
-            HTTPException: If validation fails
+            Dict containing:
+                - valid: Whether validation passed
+                - errors: List of error messages
+                - warnings: List of warning messages
         """
-        errors = []
-        warnings = []
+        errors: List[str] = []
+        warnings: List[str] = []
         
         try:
             # Check required fields first
             required = self._rules["sequences"]["required_fields"]
-            required_errors = self._check_required_fields(
+            required_errors = check_required_fields(
                 data,
                 required["fields"],
                 "Sequence: "
@@ -67,16 +74,12 @@ class SequenceValidator(BaseValidator):
                 # Check max steps first
                 max_steps = self._rules["sequences"].get("max_steps", 100)
                 if len(data["steps"]) > max_steps:
-                    raise create_error(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        message="Sequence exceeds maximum steps",
-                        context={"max_steps": max_steps, "steps": len(data["steps"])}
-                    )
-                
-                # Validate each step
-                for i, step in enumerate(data["steps"]):
-                    step_errors = await self._validate_sequence_step(step)
-                    errors.extend([f"Step {i+1}: {err}" for err in step_errors])
+                    errors.append(f"Sequence exceeds maximum steps: {len(data['steps'])} > {max_steps}")
+                else:
+                    # Validate each step
+                    for i, step in enumerate(data["steps"]):
+                        step_errors = await self._validate_sequence_step(step)
+                        errors.extend([f"Step {i+1}: {err}" for err in step_errors])
 
             # Validate sequence type rules
             if "type" in data:
@@ -95,13 +98,10 @@ class SequenceValidator(BaseValidator):
             }
 
         except Exception as e:
-            if isinstance(e, HTTPException):
-                raise e
+            logger.error(f"Sequence validation failed: {e}")
             raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Sequence validation failed",
-                context={"error": str(e)},
-                cause=e
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                message=f"Sequence validation failed: {str(e)}"
             )
 
     async def _validate_metadata(self, metadata: Dict[str, Any]) -> List[str]:
@@ -117,7 +117,7 @@ class SequenceValidator(BaseValidator):
         try:
             # Check required fields
             required = ["name", "version", "created"]
-            errors.extend(self._check_required_fields(
+            errors.extend(check_required_fields(
                 metadata,
                 required,
                 "Metadata: "
@@ -125,10 +125,12 @@ class SequenceValidator(BaseValidator):
             
             # Validate created timestamp
             if "created" in metadata:
-                try:
-                    datetime.fromisoformat(metadata["created"])
-                except ValueError:
-                    errors.append("Metadata: Invalid created timestamp format")
+                error = check_timestamp(
+                    metadata["created"],
+                    field_name="Created timestamp"
+                )
+                if error:
+                    errors.append(f"Metadata: {error}")
                     
         except Exception as e:
             errors.append(f"Metadata validation error: {str(e)}")
@@ -148,7 +150,7 @@ class SequenceValidator(BaseValidator):
             rules = self._rules["sequences"]["step_fields"]
             
             # Check required fields
-            errors.extend(self._check_required_fields(
+            errors.extend(check_required_fields(
                 step,
                 rules["required_fields"]["fields"]
             ))
@@ -159,7 +161,7 @@ class SequenceValidator(BaseValidator):
                     rules["required_fields"]["fields"] +
                     rules["optional_fields"]["fields"]
                 )
-                errors.extend(self._check_unknown_fields(
+                errors.extend(check_unknown_fields(
                     step,
                     valid_fields
                 ))
@@ -191,11 +193,8 @@ class SequenceValidator(BaseValidator):
             type_rules = self._rules["sequences"]["types"].get(sequence_type)
             
             if not type_rules:
-                raise create_error(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    message="Unknown sequence type",
-                    context={"type": sequence_type}
-                )
+                errors.append(f"Unknown sequence type: {sequence_type}")
+                return errors
             
             # Check required steps first
             if "required_steps" in type_rules:
@@ -220,10 +219,8 @@ class SequenceValidator(BaseValidator):
                         type_rules.get("optional_steps", [])
                     )
                     errors.extend(order_errors)
-                
+                    
         except Exception as e:
-            if isinstance(e, HTTPException):
-                raise e
             errors.append(f"Sequence type validation error: {str(e)}")
         return errors
 
@@ -232,28 +229,16 @@ class SequenceValidator(BaseValidator):
         
         Returns:
             List of error messages
-            
-        Raises:
-            HTTPException: If hardware validation fails
         """
         try:
             # Use hardware validator for safety checks
             result = await self._hardware_validator.validate({})
-            if not result["valid"]:
-                raise create_error(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    message="Safety validation failed",
-                    context={"errors": result["errors"]}
-                )
             return result.get("errors", [])
         except Exception as e:
-            if isinstance(e, HTTPException):
-                raise e
+            logger.error(f"Safety validation failed: {e}")
             raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Safety validation failed",
-                context={"error": str(e)},
-                cause=e
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=f"Safety validation failed: {str(e)}"
             )
 
     def _validate_step_order(
@@ -311,8 +296,13 @@ class SequenceValidator(BaseValidator):
             
             # Check action type is valid
             valid_actions = self._rules["sequences"].get("valid_actions", [])
-            if action not in valid_actions:
-                errors.append(f"Invalid action type: {action}")
+            error = check_enum_value(
+                action,
+                valid_actions,
+                field_name="Action type"
+            )
+            if error:
+                errors.append(error)
                 return errors
             
             # Validate action parameters
@@ -321,7 +311,7 @@ class SequenceValidator(BaseValidator):
                 
                 # Check required parameters
                 if "required_parameters" in param_rules:
-                    errors.extend(self._check_required_fields(
+                    errors.extend(check_required_fields(
                         parameters,
                         param_rules["required_parameters"],
                         f"Action {action}: "
@@ -329,11 +319,28 @@ class SequenceValidator(BaseValidator):
                 
                 # Check parameter values
                 if "parameter_rules" in param_rules:
-                    param_errors = self._validate_parameter_values(
-                        parameters,
-                        param_rules["parameter_rules"]
-                    )
-                    errors.extend([f"Action {action}: {err}" for err in param_errors])
+                    for param_name, param_value in parameters.items():
+                        if param_name in param_rules["parameter_rules"]:
+                            rule = param_rules["parameter_rules"][param_name]
+                            
+                            if "min" in rule or "max" in rule:
+                                error = check_numeric_range(
+                                    param_value,
+                                    min_val=rule.get("min"),
+                                    max_val=rule.get("max"),
+                                    field_name=f"{action} {param_name}"
+                                )
+                                if error:
+                                    errors.append(f"Action {action}: {error}")
+                                    
+                            elif "values" in rule:
+                                error = check_enum_value(
+                                    param_value,
+                                    rule["values"],
+                                    field_name=f"{action} {param_name}"
+                                )
+                                if error:
+                                    errors.append(f"Action {action}: {error}")
                     
         except Exception as e:
             errors.append(f"Action validation error: {str(e)}")
@@ -354,8 +361,13 @@ class SequenceValidator(BaseValidator):
             
             # Check pattern type is valid
             valid_patterns = self._rules["sequences"].get("valid_patterns", [])
-            if pattern["type"] not in valid_patterns:
-                errors.append(f"Invalid pattern type: {pattern['type']}")
+            error = check_enum_value(
+                pattern["type"],
+                valid_patterns,
+                field_name="Pattern type"
+            )
+            if error:
+                errors.append(error)
                 return errors
             
             # Validate pattern parameters
@@ -364,7 +376,7 @@ class SequenceValidator(BaseValidator):
                 
                 # Check required parameters
                 if "required_parameters" in param_rules:
-                    errors.extend(self._check_required_fields(
+                    errors.extend(check_required_fields(
                         pattern["parameters"],
                         param_rules["required_parameters"],
                         f"Pattern {pattern['type']}: "
@@ -372,11 +384,28 @@ class SequenceValidator(BaseValidator):
                 
                 # Check parameter values
                 if "parameter_rules" in param_rules:
-                    param_errors = self._validate_parameter_values(
-                        pattern["parameters"],
-                        param_rules["parameter_rules"]
-                    )
-                    errors.extend([f"Pattern {pattern['type']}: {err}" for err in param_errors])
+                    for param_name, param_value in pattern["parameters"].items():
+                        if param_name in param_rules["parameter_rules"]:
+                            rule = param_rules["parameter_rules"][param_name]
+                            
+                            if "min" in rule or "max" in rule:
+                                error = check_numeric_range(
+                                    param_value,
+                                    min_val=rule.get("min"),
+                                    max_val=rule.get("max"),
+                                    field_name=f"{pattern['type']} {param_name}"
+                                )
+                                if error:
+                                    errors.append(f"Pattern {pattern['type']}: {error}")
+                                    
+                            elif "values" in rule:
+                                error = check_enum_value(
+                                    param_value,
+                                    rule["values"],
+                                    field_name=f"{pattern['type']} {param_name}"
+                                )
+                                if error:
+                                    errors.append(f"Pattern {pattern['type']}: {error}")
                     
         except Exception as e:
             errors.append(f"Pattern validation error: {str(e)}")

@@ -1,14 +1,21 @@
 """Parameter validator."""
 
 from typing import Dict, Any, List
-from fastapi import status, HTTPException
+from loguru import logger
+from fastapi import status
 
-from micro_cold_spray.api.messaging import MessagingService
 from micro_cold_spray.api.base.base_errors import create_error
-from micro_cold_spray.api.validation.validators.base_validator import BaseValidator
+from micro_cold_spray.api.messaging import MessagingService
+from micro_cold_spray.api.validation.validators.base_validator import (
+    check_required_fields,
+    check_unknown_fields,
+    check_numeric_range,
+    check_enum_value,
+    check_pattern
+)
 
 
-class ParameterValidator(BaseValidator):
+class ParameterValidator:
     """Validator for process parameters."""
 
     def __init__(
@@ -22,46 +29,50 @@ class ParameterValidator(BaseValidator):
             validation_rules: Validation rules from config
             message_broker: Message broker for hardware checks
         """
-        super().__init__(validation_rules, message_broker)
+        self._rules = validation_rules
+        self._message_broker = message_broker
 
     async def validate(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate process parameters.
+        """Validate parameter data.
         
         Args:
             data: Parameter data to validate
             
         Returns:
-            Dict containing validation results
-            
-        Raises:
-            HTTPException: If validation fails
+            Dict containing:
+                - valid: Whether validation passed
+                - errors: List of error messages
+                - warnings: List of warning messages
         """
-        errors = []
-        warnings = []
+        errors: List[str] = []
+        warnings: List[str] = []
         
         try:
-            # Check required fields
-            required = self._rules["parameters"]["required_fields"]
-            errors.extend(self._check_required_fields(
-                data,
-                required["fields"],
-                "Parameters: "
-            ))
-
-            # Validate gas settings
-            if "gas_flows" in data:
-                gas_errors = await self._validate_gas_parameters(data["gas_flows"])
-                errors.extend(gas_errors)
-
-            # Validate powder feed settings
-            if "powder_feed" in data:
-                feed_errors = await self._validate_powder_feed(data["powder_feed"])
-                errors.extend(feed_errors)
-
-            # Validate material settings
-            if "material" in data:
-                material_errors = await self._validate_material(data["material"])
-                errors.extend(material_errors)
+            # Check required fields first
+            if "parameters" not in self._rules:
+                raise ValueError("No parameter validation rules found")
+                
+            param_rules = self._rules["parameters"]
+            
+            # Check parameter type
+            param_type = data.get("type")
+            if not param_type:
+                errors.append("Missing parameter type")
+            elif param_type not in param_rules:
+                errors.append(f"Unknown parameter type: {param_type}")
+            else:
+                # Validate based on parameter type
+                if param_type == "gas":
+                    type_errors = await self._validate_gas_parameters(data)
+                    errors.extend(type_errors)
+                elif param_type == "powder":
+                    type_errors = await self._validate_powder_parameters(data)
+                    errors.extend(type_errors)
+                elif param_type == "material":
+                    type_errors = await self._validate_material_parameters(data)
+                    errors.extend(type_errors)
+                else:
+                    errors.append(f"Validation not implemented for parameter type: {param_type}")
 
             return {
                 "valid": len(errors) == 0,
@@ -70,129 +81,142 @@ class ParameterValidator(BaseValidator):
             }
 
         except Exception as e:
-            if isinstance(e, HTTPException):
-                raise e
+            logger.error(f"Parameter validation failed: {e}")
             raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Parameter validation failed",
-                context={"error": str(e)},
-                cause=e
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                message=f"Parameter validation failed: {str(e)}"
             )
 
-    async def _validate_gas_parameters(self, gas_data: Dict[str, Any]) -> List[str]:
-        """Validate gas flow parameters.
+    async def _validate_gas_parameters(self, data: Dict[str, Any]) -> List[str]:
+        """Validate gas parameters.
         
         Args:
-            gas_data: Gas flow data to validate
+            data: Gas parameter data
             
         Returns:
             List of error messages
         """
         errors = []
         try:
-            rules = self._rules["parameters"]["gas_flows"]
+            rules = self._rules["parameters"]["gas"]
+            params = data.get("params", {})
             
-            # Check required gas flow fields
-            required_fields = ["gas_type", "main_gas", "feeder_gas"]
-            errors.extend(self._check_required_fields(
-                gas_data,
-                required_fields,
-                "Gas flows: "
+            # Check required parameters
+            errors.extend(check_required_fields(
+                params,
+                rules["required_fields"]["fields"],
+                "Gas parameters: "
             ))
             
-            # Validate gas type if present
-            if "gas_type" in gas_data:
-                error = self._check_enum_value(
-                    gas_data["gas_type"],
-                    rules["gas_type"]["choices"],
-                    "Gas type"
+            # Check for unknown parameters
+            if "optional_fields" in rules:
+                valid_fields = (
+                    rules["required_fields"]["fields"] +
+                    rules["optional_fields"]["fields"]
+                )
+                errors.extend(check_unknown_fields(
+                    params,
+                    valid_fields,
+                    "Gas parameters: "
+                ))
+            
+            # Validate parameter values
+            if "flow_rate" in params:
+                error = check_numeric_range(
+                    params["flow_rate"],
+                    min_val=rules["flow_rate"]["min"],
+                    max_val=rules["flow_rate"]["max"],
+                    field_name="Flow rate"
                 )
                 if error:
-                    errors.append(error)
-                
-            # Validate flow rates if present
-            if "main_gas" in gas_data:
-                error = self._check_numeric_range(
-                    gas_data["main_gas"],
-                    rules["main_gas"]["min"],
-                    rules["main_gas"]["max"],
-                    "Main gas flow"
-                )
-                if error:
-                    errors.append(error)
+                    errors.append(f"Gas parameters: {error}")
                     
-            if "feeder_gas" in gas_data:
-                error = self._check_numeric_range(
-                    gas_data["feeder_gas"],
-                    rules["feeder_gas"]["min"],
-                    rules["feeder_gas"]["max"],
-                    "Feeder gas flow"
+            if "pressure" in params:
+                error = check_numeric_range(
+                    params["pressure"],
+                    min_val=rules["pressure"]["min"],
+                    max_val=rules["pressure"]["max"],
+                    field_name="Pressure"
                 )
                 if error:
-                    errors.append(error)
+                    errors.append(f"Gas parameters: {error}")
+                    
+            if "type" in params:
+                error = check_enum_value(
+                    params["type"],
+                    rules["type"]["values"],
+                    field_name="Gas type"
+                )
+                if error:
+                    errors.append(f"Gas parameters: {error}")
                     
         except Exception as e:
             errors.append(f"Gas parameter validation error: {str(e)}")
         return errors
 
-    async def _validate_powder_feed(self, feed_data: Dict[str, Any]) -> List[str]:
-        """Validate powder feed parameters.
+    async def _validate_powder_parameters(self, data: Dict[str, Any]) -> List[str]:
+        """Validate powder parameters.
         
         Args:
-            feed_data: Powder feed data to validate
+            data: Powder parameter data
             
         Returns:
             List of error messages
         """
         errors = []
         try:
-            rules = self._rules["parameters"]["powder_feed"]
+            rules = self._rules["parameters"]["powder"]
+            params = data.get("params", {})
             
-            # Check required powder feed fields
-            required_fields = ["frequency", "deagglomerator"]
-            errors.extend(self._check_required_fields(
-                feed_data,
-                required_fields,
-                "Powder feed: "
+            # Check required parameters
+            errors.extend(check_required_fields(
+                params,
+                rules["required_fields"]["fields"],
+                "Powder parameters: "
             ))
             
-            # Validate frequency if present
-            if "frequency" in feed_data:
-                error = self._check_numeric_range(
-                    feed_data["frequency"],
-                    rules["frequency"]["min"],
-                    rules["frequency"]["max"],
-                    "Feed frequency"
+            # Check for unknown parameters
+            if "optional_fields" in rules:
+                valid_fields = (
+                    rules["required_fields"]["fields"] +
+                    rules["optional_fields"]["fields"]
+                )
+                errors.extend(check_unknown_fields(
+                    params,
+                    valid_fields,
+                    "Powder parameters: "
+                ))
+            
+            # Validate parameter values
+            if "feed_rate" in params:
+                error = check_numeric_range(
+                    params["feed_rate"],
+                    min_val=rules["feed_rate"]["min"],
+                    max_val=rules["feed_rate"]["max"],
+                    field_name="Feed rate"
                 )
                 if error:
-                    errors.append(error)
+                    errors.append(f"Powder parameters: {error}")
                     
-            # Validate deagglomerator if present
-            if "deagglomerator" in feed_data:
-                deagg = feed_data["deagglomerator"]
-                if not isinstance(deagg, dict):
-                    errors.append("Deagglomerator settings must be an object")
-                else:
-                    if "speed" not in deagg:
-                        errors.append("Deagglomerator speed not specified")
-                    else:
-                        error = self._check_enum_value(
-                            deagg["speed"],
-                            rules["deagglomerator"]["speed"]["choices"],
-                            "Deagglomerator speed"
-                        )
-                        if error:
-                            errors.append(error)
+            if "carrier_gas_flow" in params:
+                error = check_numeric_range(
+                    params["carrier_gas_flow"],
+                    min_val=rules["carrier_gas_flow"]["min"],
+                    max_val=rules["carrier_gas_flow"]["max"],
+                    field_name="Carrier gas flow"
+                )
+                if error:
+                    errors.append(f"Powder parameters: {error}")
                     
         except Exception as e:
-            errors.append(f"Powder feed validation error: {str(e)}")
+            errors.append(f"Powder parameter validation error: {str(e)}")
         return errors
 
-    async def _validate_material(self, material_data: Dict[str, Any]) -> List[str]:
+    async def _validate_material_parameters(self, data: Dict[str, Any]) -> List[str]:
         """Validate material parameters.
         
         Args:
-            material_data: Material data to validate
+            data: Material parameter data
             
         Returns:
             List of error messages
@@ -200,49 +224,56 @@ class ParameterValidator(BaseValidator):
         errors = []
         try:
             rules = self._rules["parameters"]["material"]
+            params = data.get("params", {})
             
-            # Check required fields
-            if "required_fields" in rules:
-                errors.extend(self._check_required_fields(
-                    material_data,
-                    rules["required_fields"]["fields"],
-                    "Material: "
-                ))
-                
-            # Check for unknown fields
+            # Check required parameters
+            errors.extend(check_required_fields(
+                params,
+                rules["required_fields"]["fields"],
+                "Material parameters: "
+            ))
+            
+            # Check for unknown parameters
             if "optional_fields" in rules:
                 valid_fields = (
                     rules["required_fields"]["fields"] +
                     rules["optional_fields"]["fields"]
                 )
-                errors.extend(self._check_unknown_fields(
-                    material_data,
+                errors.extend(check_unknown_fields(
+                    params,
                     valid_fields,
-                    "Material: "
+                    "Material parameters: "
                 ))
-                
-            # Validate material type if present
-            if "type" in material_data:
-                error = self._check_enum_value(
-                    material_data["type"],
-                    rules["type"]["choices"],
-                    "Material type"
+            
+            # Validate parameter values
+            if "type" in params:
+                error = check_enum_value(
+                    params["type"],
+                    rules["type"]["values"],
+                    field_name="Material type"
                 )
                 if error:
-                    errors.append(error)
+                    errors.append(f"Material parameters: {error}")
                     
-            # Validate particle size if present
-            if "particle_size" in material_data:
-                size = material_data["particle_size"]
-                error = self._check_numeric_range(
-                    size,
-                    rules["particle_size"]["min"],
-                    rules["particle_size"]["max"],
-                    "Particle size"
+            if "particle_size" in params:
+                error = check_numeric_range(
+                    params["particle_size"],
+                    min_val=rules["particle_size"]["min"],
+                    max_val=rules["particle_size"]["max"],
+                    field_name="Particle size"
                 )
                 if error:
-                    errors.append(error)
+                    errors.append(f"Material parameters: {error}")
+                    
+            if "lot_number" in params:
+                error = check_pattern(
+                    params["lot_number"],
+                    rules["lot_number"]["pattern"],
+                    field_name="Lot number"
+                )
+                if error:
+                    errors.append(f"Material parameters: {error}")
                     
         except Exception as e:
-            errors.append(f"Material validation error: {str(e)}")
+            errors.append(f"Material parameter validation error: {str(e)}")
         return errors
