@@ -1,48 +1,71 @@
-"""Data collection service application."""
+"""Data collection API application."""
 
-from fastapi import status
-from fastapi.middleware.gzip import GZipMiddleware
+import os
+import logging
+from typing import Optional
+from fastapi import FastAPI, HTTPException, status
 
-from micro_cold_spray.api.base.base_app import BaseApp
-from micro_cold_spray.api.base.base_errors import create_error
-from micro_cold_spray.api.data_collection.data_collection_service import DataCollectionService
 from micro_cold_spray.api.data_collection.data_collection_router import router
+from micro_cold_spray.api.data_collection.data_collection_service import DataCollectionService
+from micro_cold_spray.api.data_collection.data_collection_storage import DataCollectionStorage
 
 
-class DataCollectionApp(BaseApp):
-    """Data collection service application."""
+class DataCollectionApp(FastAPI):
+    """Data collection application."""
 
-    def __init__(self, **kwargs):
-        """Initialize data collection application.
+    def __init__(self):
+        """Initialize application."""
+        super().__init__(
+            title="Data Collection API",
+            description="API for collecting spray data",
+            version="1.0.0"
+        )
         
-        Args:
-            **kwargs: Additional FastAPI arguments
-            
-        Raises:
-            HTTPException: If initialization fails (503)
-        """
+        # Initialize components
+        self.service: Optional[DataCollectionService] = None
+        self.storage: Optional[DataCollectionStorage] = None
+        
+        # Add routes
+        self.include_router(router)
+        
+        # Add event handlers
+        self.add_event_handler("startup", self.startup_event)
+        self.add_event_handler("shutdown", self.shutdown_event)
+
+    async def startup_event(self):
+        """Initialize service on startup."""
         try:
-            super().__init__(
-                service_class=DataCollectionService,
-                title="Data Collection Service",
-                service_name="data_collection",
-                **kwargs
-            )
-
-            # Add GZip middleware
-            self.add_middleware(GZipMiddleware, minimum_size=1000)
-
-            # Include router
-            self.include_router(router)
+            logging.info("Starting data collection service...")
+            
+            # Get database connection string from environment
+            dsn = os.getenv("DATABASE_URL", "postgresql://postgres:dbpassword@localhost:5432/postgres")
+            
+            # Initialize storage and service
+            self.storage = DataCollectionStorage(dsn)
+            await self.storage.initialize()
+            
+            self.service = DataCollectionService()
+            await self.service.initialize()
+            
+            logging.info("Data collection service started")
             
         except Exception as e:
-            raise create_error(
+            logging.error(f"Failed to start data collection service: {e}")
+            raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to initialize data collection application",
-                context={"error": str(e)},
-                cause=e
+                detail="Failed to start data collection service"
             )
 
-
-# Create FastAPI application instance
-app = DataCollectionApp()
+    async def shutdown_event(self):
+        """Stop service on shutdown."""
+        try:
+            logging.info("Stopping data collection service...")
+            if self.service:
+                await self.service.stop()
+            logging.info("Data collection service stopped")
+        except Exception as e:
+            logging.error(f"Failed to stop data collection service: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Failed to stop data collection service"
+            )
