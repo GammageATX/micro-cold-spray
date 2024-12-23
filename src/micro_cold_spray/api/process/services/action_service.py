@@ -5,7 +5,6 @@ from datetime import datetime
 from loguru import logger
 from fastapi import status
 
-from micro_cold_spray.api.base.base_service import BaseService
 from micro_cold_spray.api.base.base_errors import create_error
 from micro_cold_spray.api.process.models import (
     ActionStatus,
@@ -14,7 +13,7 @@ from micro_cold_spray.api.process.models import (
 )
 
 
-class ActionService(BaseService):
+class ActionService:
     """Process action service implementation."""
 
     def __init__(self, name: str = "action"):
@@ -23,36 +22,48 @@ class ActionService(BaseService):
         Args:
             name: Service name
         """
-        super().__init__(name=name)
+        self.name = name
         self._current_action: Optional[Dict[str, Any]] = None
         self._status = ActionStatus.IDLE
+        self._is_running = False
 
-    async def _start(self) -> None:
+    @property
+    def is_running(self) -> bool:
+        """Get service running state."""
+        return self._is_running
+
+    async def initialize(self) -> None:
+        """Initialize service."""
+        logger.info(f"Initializing {self.name} service")
+
+    async def start(self) -> None:
         """Start action service."""
         try:
-            logger.info("Action service started")
+            self._is_running = True
+            logger.info(f"{self.name} service started")
         except Exception as e:
-            logger.error(f"Failed to start action service: {e}")
+            logger.error(f"Failed to start {self.name} service: {e}")
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to start action service",
+                message=f"Failed to start {self.name} service",
                 context={"error": str(e)},
                 cause=e
             )
 
-    async def _stop(self) -> None:
+    async def stop(self) -> None:
         """Stop action service."""
         try:
             # Stop current action if any
             if self._current_action:
                 await self.stop_action()
-                
-            logger.info("Action service stopped")
+            
+            self._is_running = False
+            logger.info(f"{self.name} service stopped")
         except Exception as e:
-            logger.error(f"Failed to stop action service: {e}")
+            logger.error(f"Failed to stop {self.name} service: {e}")
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to stop action service",
+                message=f"Failed to stop {self.name} service",
                 context={"error": str(e)},
                 cause=e
             )
@@ -239,9 +250,10 @@ class ActionService(BaseService):
         Returns:
             Health check result
         """
-        health = await super().health()
-        health["context"].update({
-            "status": self._status,
-            "current_action": self._current_action
-        })
-        return health
+        return {
+            "status": "ok" if self.is_running else "error",
+            "context": {
+                "status": self._status,
+                "current_action": self._current_action
+            }
+        }

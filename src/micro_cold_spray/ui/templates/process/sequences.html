@@ -30,7 +30,7 @@
 // Load available sequences
 async function loadSequences() {
     try {
-        const response = await fetch(`${API_URLS.process}/sequences/list`);
+        const response = await fetch(`${API_URLS.process}/sequences`);
         if (!response.ok) throw await response.json();
         const sequences = await response.json();
         
@@ -46,10 +46,9 @@ async function loadSequences() {
 // Control sequence execution
 async function controlSequence(action) {
     try {
-        const response = await fetch(`${API_URLS.process}/sequences/control`, {
+        const response = await fetch(`${API_URLS.process}/sequences/${action}`, {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({action})
+            headers: {'Content-Type': 'application/json'}
         });
         if (!response.ok) throw await response.json();
         showSuccess(`Sequence ${action} successful`);
@@ -62,7 +61,7 @@ async function controlSequence(action) {
 loadSequences();
 
 // WebSocket for status updates
-const ws = connectWebSocket(`${API_URLS.process}/ws/sequence/status`, (event) => {
+const ws = connectWebSocket(`${API_URLS.process}/ws/sequences`, (event) => {
     const status = JSON.parse(event.data);
     updateStatus(status);
 });

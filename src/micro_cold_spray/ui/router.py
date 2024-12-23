@@ -20,16 +20,17 @@ from .utils import get_uptime, get_memory_usage, monitor_service_logs
 class ApiUrls(BaseModel):
     """API URLs configuration model."""
     config: str = Field("http://localhost:8001", description="Config service URL")
-    communication: str = Field("http://localhost:8002", description="Communication service URL")
-    messaging: str = Field("http://localhost:8007", description="Messaging service URL")
+    messaging: str = Field("http://localhost:8002", description="Messaging service URL")
+    communication: str = Field("http://localhost:8003", description="Communication service URL")
     state: str = Field("http://localhost:8004", description="State service URL")
-    data_collection: str = Field("http://localhost:8005", description="Data collection service URL")
-    validation: str = Field("http://localhost:8006", description="Validation service URL")
+    process: str = Field("http://localhost:8005", description="Process service URL")
+    data_collection: str = Field("http://localhost:8006", description="Data collection service URL")
+    validation: str = Field("http://localhost:8007", description="Validation service URL")
     ws: Dict[str, str] = Field(
         default_factory=lambda: {
-            "messaging": "ws://localhost:8007/messaging/subscribe",
+            "messaging": "ws://localhost:8002/messaging/subscribe",
             "state": "ws://localhost:8004/state/monitor",
-            "tags": "ws://localhost:8002/communication/tags",
+            "tags": "ws://localhost:8003/communication/tags",
             "services": "ws://localhost:8000/monitoring/logs"
         },
         description="WebSocket endpoints"

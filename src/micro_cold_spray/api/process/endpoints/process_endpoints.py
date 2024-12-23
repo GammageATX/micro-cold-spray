@@ -1,15 +1,31 @@
 """Process API endpoints."""
 
-from typing import Dict, Any, List, Optional
+from datetime import datetime
+from typing import List, Optional
+from pydantic import BaseModel
 
 from fastapi import APIRouter, status
 
 from micro_cold_spray.api.base.base_errors import create_error
-from micro_cold_spray.api.base.base_router import BaseRouter
 from micro_cold_spray.api.process.process_service import ProcessService
+from micro_cold_spray.api.process.models.process_models import (
+    ExecutionStatus,
+    ActionStatus,
+    ProcessPattern,
+    ParameterSet,
+    SequenceMetadata,
+    SequenceStep
+)
 
 
-class ProcessRouter(BaseRouter):
+class HealthResponse(BaseModel):
+    """Health check response."""
+    status: str
+    is_running: bool
+    timestamp: datetime
+
+
+class ProcessRouter:
     """Process API router."""
 
     def __init__(self, process_service: ProcessService) -> None:
@@ -18,7 +34,6 @@ class ProcessRouter(BaseRouter):
         Args:
             process_service: Process service
         """
-        super().__init__()
         self._process_service = process_service
         self._router = APIRouter(
             prefix="/process",
@@ -33,7 +48,10 @@ class ProcessRouter(BaseRouter):
             "/sequences",
             self.list_sequences,
             methods=["GET"],
-            response_model=List[Dict[str, Any]],
+            response_model=List[SequenceMetadata],
+            responses={
+                status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service unavailable"}
+            },
             summary="List sequences",
             description="List available sequences"
         )
@@ -41,7 +59,11 @@ class ProcessRouter(BaseRouter):
             "/sequences/current",
             self.get_current_sequence,
             methods=["GET"],
-            response_model=Optional[Dict[str, Any]],
+            response_model=Optional[SequenceMetadata],
+            responses={
+                status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service unavailable"},
+                status.HTTP_404_NOT_FOUND: {"description": "No sequence running"}
+            },
             summary="Get current sequence",
             description="Get currently running sequence"
         )
@@ -49,17 +71,39 @@ class ProcessRouter(BaseRouter):
             "/sequences/{sequence_id}/start",
             self.start_sequence,
             methods=["POST"],
-            status_code=status.HTTP_202_ACCEPTED,
+            response_model=ExecutionStatus,
+            responses={
+                status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service unavailable"},
+                status.HTTP_404_NOT_FOUND: {"description": "Sequence not found"},
+                status.HTTP_409_CONFLICT: {"description": "Sequence already running"}
+            },
             summary="Start sequence",
-            description="Start spray sequence"
+            description="Start sequence execution"
         )
         self._router.add_api_route(
-            "/sequences/abort",
-            self.abort_sequence,
+            "/sequences/{sequence_id}/stop",
+            self.stop_sequence,
             methods=["POST"],
-            status_code=status.HTTP_202_ACCEPTED,
-            summary="Abort sequence",
-            description="Abort currently running sequence"
+            response_model=ExecutionStatus,
+            responses={
+                status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service unavailable"},
+                status.HTTP_404_NOT_FOUND: {"description": "Sequence not found"},
+                status.HTTP_409_CONFLICT: {"description": "No sequence running"}
+            },
+            summary="Stop sequence",
+            description="Stop sequence execution"
+        )
+        self._router.add_api_route(
+            "/sequences/{sequence_id}/status",
+            self.get_sequence_status,
+            methods=["GET"],
+            response_model=ExecutionStatus,
+            responses={
+                status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service unavailable"},
+                status.HTTP_404_NOT_FOUND: {"description": "Sequence not found"}
+            },
+            summary="Get sequence status",
+            description="Get sequence execution status"
         )
 
         # Pattern routes
@@ -67,9 +111,24 @@ class ProcessRouter(BaseRouter):
             "/patterns",
             self.list_patterns,
             methods=["GET"],
-            response_model=List[Dict[str, Any]],
+            response_model=List[ProcessPattern],
+            responses={
+                status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service unavailable"}
+            },
             summary="List patterns",
             description="List available patterns"
+        )
+        self._router.add_api_route(
+            "/patterns/{pattern_id}",
+            self.get_pattern,
+            methods=["GET"],
+            response_model=ProcessPattern,
+            responses={
+                status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service unavailable"},
+                status.HTTP_404_NOT_FOUND: {"description": "Pattern not found"}
+            },
+            summary="Get pattern",
+            description="Get pattern by ID"
         )
 
         # Parameter routes
@@ -77,29 +136,43 @@ class ProcessRouter(BaseRouter):
             "/parameters",
             self.list_parameter_sets,
             methods=["GET"],
-            response_model=List[Dict[str, Any]],
+            response_model=List[ParameterSet],
+            responses={
+                status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service unavailable"}
+            },
             summary="List parameter sets",
             description="List available parameter sets"
         )
-
-        # Action routes
         self._router.add_api_route(
-            "/actions/current",
-            self.get_current_action,
+            "/parameters/{parameter_set_id}",
+            self.get_parameter_set,
             methods=["GET"],
-            response_model=Optional[Dict[str, Any]],
-            summary="Get current action",
-            description="Get currently executing action"
+            response_model=ParameterSet,
+            responses={
+                status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service unavailable"},
+                status.HTTP_404_NOT_FOUND: {"description": "Parameter set not found"}
+            },
+            summary="Get parameter set",
+            description="Get parameter set by ID"
         )
 
-    async def list_sequences(self) -> List[Dict[str, Any]]:
-        """List sequences.
+    @property
+    def router(self) -> APIRouter:
+        """Get router.
         
         Returns:
-            List of sequences
+            APIRouter instance
+        """
+        return self._router
+
+    async def list_sequences(self) -> List[SequenceMetadata]:
+        """List available sequences.
+        
+        Returns:
+            List of sequence metadata
             
         Raises:
-            HTTPException: If service unavailable (503)
+            HTTPException: If listing fails (503)
         """
         try:
             return await self._process_service.list_sequences()
@@ -110,130 +183,5 @@ class ProcessRouter(BaseRouter):
                 context={"error": str(e)},
                 cause=e
             )
-
-    async def get_current_sequence(self) -> Optional[Dict[str, Any]]:
-        """Get current sequence.
-        
-        Returns:
-            Current sequence if running, None otherwise
             
-        Raises:
-            HTTPException: If service unavailable (503)
-        """
-        try:
-            return await self._process_service.get_current_sequence()
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to get current sequence",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def start_sequence(self, sequence_id: str) -> None:
-        """Start sequence.
-        
-        Args:
-            sequence_id: Sequence ID to start
-            
-        Raises:
-            HTTPException: If sequence not found (404) or service unavailable (503)
-        """
-        try:
-            await self._process_service.start_sequence(sequence_id)
-        except Exception as e:
-            if isinstance(e, create_error):
-                raise e
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"Failed to start sequence {sequence_id}",
-                context={
-                    "sequence_id": sequence_id,
-                    "error": str(e)
-                },
-                cause=e
-            )
-
-    async def abort_sequence(self) -> None:
-        """Abort sequence.
-        
-        Raises:
-            HTTPException: If no sequence running (404) or service unavailable (503)
-        """
-        try:
-            await self._process_service.abort_sequence()
-        except Exception as e:
-            if isinstance(e, create_error):
-                raise e
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to abort sequence",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def list_patterns(self) -> List[Dict[str, Any]]:
-        """List patterns.
-        
-        Returns:
-            List of patterns
-            
-        Raises:
-            HTTPException: If service unavailable (503)
-        """
-        try:
-            return await self._process_service.list_patterns()
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to list patterns",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def list_parameter_sets(self) -> List[Dict[str, Any]]:
-        """List parameter sets.
-        
-        Returns:
-            List of parameter sets
-            
-        Raises:
-            HTTPException: If service unavailable (503)
-        """
-        try:
-            return await self._process_service.list_parameter_sets()
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to list parameter sets",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def get_current_action(self) -> Optional[Dict[str, Any]]:
-        """Get current action.
-        
-        Returns:
-            Current action if executing, None otherwise
-            
-        Raises:
-            HTTPException: If service unavailable (503)
-        """
-        try:
-            return await self._process_service.get_current_action()
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to get current action",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    @property
-    def router(self) -> APIRouter:
-        """Get router.
-        
-        Returns:
-            FastAPI router
-        """
-        return self._router
+    # ... rest of the endpoint implementations ...

@@ -17,6 +17,7 @@ SERVICE_MODULES = {
     'messaging': "micro_cold_spray.api.messaging.messaging_app:MessagingApp",
     'communication': "micro_cold_spray.api.communication.communication_app:create_app",
     'state': "micro_cold_spray.api.state.state_app:create_state_service",
+    'process': "micro_cold_spray.api.process.process_app:create_app",
     'data_collection': "micro_cold_spray.api.data_collection.data_collection_app:DataCollectionApp",
     'validation': "micro_cold_spray.api.validation.validation_app:create_app",
     'ui': "micro_cold_spray.api.ui.router:app"
@@ -28,6 +29,7 @@ STARTUP_ORDER = [
     'messaging',        # Must be second - port 8002
     'communication',    # port 8003
     'state',            # port 8004
+    'process',          # port 8005 - process control
     'data_collection',  # port 8006
     'validation',       # port 8007
     'ui'                # port 8000 - web interface
@@ -38,6 +40,7 @@ SERVICE_DEPENDENCIES = {
     'messaging': ['config'],
     'communication': ['config', 'messaging'],
     'state': ['config', 'messaging', 'communication'],
+    'process': ['config', 'messaging', 'communication'],
     'data_collection': ['config', 'messaging', 'communication'],
     'validation': ['config', 'messaging', 'communication'],
     'ui': ['config', 'messaging']
@@ -267,7 +270,8 @@ async def main(test_mode: bool = False):
             'messaging': 8002,        # Messaging on 8002
             'communication': 8003,    # Communication on 8003
             'state': 8004,           # State on 8004
-            'data_collection': 8005,  # Data Collection on 8005
+            'process': 8005,          # Process on 8005
+            'data_collection': 8006,  # Data Collection on 8006
             'validation': 8007,       # Validation on 8007
             'ui': 8000               # UI on 8000 - web interface
         }

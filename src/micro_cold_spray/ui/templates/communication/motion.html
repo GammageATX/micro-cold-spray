@@ -35,7 +35,7 @@ document.getElementById('single-axis-form').onsubmit = async (e) => {
     const elements = form.querySelectorAll('input, select, button');
     elements.forEach(el => el.disabled = true);
     try {
-        const response = await fetch(`${API_URLS.communication}/motion/move`, {
+        const response = await fetch(`${API_URLS.communication}/motion/single`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
@@ -57,7 +57,7 @@ document.getElementById('xy-motion-form').onsubmit = async (e) => {
     e.preventDefault();
     const form = e.target;
     try {
-        const response = await fetch(`${API_URLS.communication}/motion/move/xy`, {
+        const response = await fetch(`${API_URLS.communication}/motion/xy`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
