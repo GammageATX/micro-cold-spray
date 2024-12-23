@@ -6,6 +6,7 @@ import uvicorn
 from loguru import logger
 
 from micro_cold_spray.api.state.state_app import create_state_service
+from micro_cold_spray.utils.errors import create_error
 
 
 def setup_logging():

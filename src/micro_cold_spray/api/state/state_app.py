@@ -8,7 +8,7 @@ from typing import Dict, Optional
 from pydantic import BaseModel, Field
 
 from micro_cold_spray.api.state.state_service import StateService
-from micro_cold_spray.ui.utils import get_uptime, get_memory_usage
+from micro_cold_spray.utils.monitoring import get_uptime
 
 
 class HealthResponse(BaseModel):
@@ -18,7 +18,6 @@ class HealthResponse(BaseModel):
     version: str = Field(..., description="Service version")
     is_running: bool = Field(..., description="Whether service is running")
     uptime: float = Field(..., description="Service uptime in seconds")
-    memory_usage: Dict[str, float] = Field(..., description="Memory usage stats")
     error: Optional[str] = Field(None, description="Error message if any")
     timestamp: datetime = Field(default_factory=datetime.now, description="Response timestamp")
 
@@ -52,10 +51,9 @@ def create_state_service() -> FastAPI:
             return HealthResponse(
                 status="ok" if state_service.is_running else "error",
                 service_name="state",
-                version=getattr(state_service, "version", "1.0.0"),
+                version=state_service.version,
                 is_running=state_service.is_running,
                 uptime=get_uptime(),
-                memory_usage=get_memory_usage(),
                 error=None if state_service.is_running else "Service not running",
                 timestamp=datetime.now()
             )
@@ -65,10 +63,9 @@ def create_state_service() -> FastAPI:
             return HealthResponse(
                 status="error",
                 service_name="state",
-                version=getattr(state_service, "version", "1.0.0"),
+                version=state_service.version,
                 is_running=False,
                 uptime=0.0,
-                memory_usage={},
                 error=error_msg,
                 timestamp=datetime.now()
             )

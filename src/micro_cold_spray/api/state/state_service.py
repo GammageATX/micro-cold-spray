@@ -4,39 +4,37 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 import os
 import yaml
-import httpx
 from loguru import logger
 from fastapi import status
 
-from micro_cold_spray.api.base.base_errors import create_error
-from micro_cold_spray.api.config.services.base_config_service import BaseConfigService
+from micro_cold_spray.utils.errors import create_error
 
 
-class StateService(BaseConfigService):
+class StateService:
     """Service for managing system state."""
     
     def __init__(self):
         """Initialize state service."""
-        super().__init__("state")
+        self.version = "1.0.0"
+        self.is_running = False
         self._current_state = "INITIALIZING"
         self._state_machine = {}
         self._history = []
         self._history_length = 1000  # Default history length
-        self._config_service_url = "http://localhost:8001"
-    
-    async def _start(self):
+        self._start_time = None
+
+    async def start(self):
         """Start state service."""
         try:
-            # Load local state machine config first
+            if self.is_running:
+                return
+            
+            # Load local state machine config
             config = await self._load_local_config()
             await self._apply_config(config)
             
-            # Try to sync with config service, but don't fail if unavailable
-            try:
-                await self._sync_with_config_service()
-            except Exception as e:
-                logger.warning(f"Could not sync with config service: {e}. Using local config.")
-            
+            self.is_running = True
+            self._start_time = datetime.now()
             logger.info(f"State service started with {len(self._state_machine)} states")
             
         except Exception as e:
@@ -45,19 +43,24 @@ class StateService(BaseConfigService):
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=f"Failed to start state service: {str(e)}"
             )
-    
-    async def _stop(self):
+
+    async def stop(self):
         """Stop state service."""
         try:
+            if not self.is_running:
+                return
+                
             self._add_history_entry("System shutdown")
+            self.is_running = False
             logger.info("State service stopped")
+            
         except Exception as e:
             logger.error(f"Failed to stop state service: {e}")
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=f"Failed to stop state service: {str(e)}"
             )
-    
+
     async def _load_local_config(self) -> Dict[str, Any]:
         """Load local state configuration.
         
@@ -112,34 +115,6 @@ class StateService(BaseConfigService):
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=f"Failed to load state configuration: {str(e)}"
             )
-
-    async def _sync_with_config_service(self):
-        """Sync configuration with config service.
-        
-        This is a non-critical operation - if it fails, we continue with local config.
-        """
-        async with httpx.AsyncClient() as client:
-            # Check if config service is available
-            try:
-                health_resp = await client.get(f"{self._config_service_url}/health")
-                health_resp.raise_for_status()
-            except Exception as e:
-                logger.warning(f"Config service health check failed: {e}")
-                return
-
-            # Get state config from service
-            try:
-                config_resp = await client.get(f"{self._config_service_url}/config/state")
-                config_resp.raise_for_status()
-                config = config_resp.json()
-                
-                # Apply new config
-                await self._apply_config(config)
-                logger.info("Successfully synced with config service")
-                
-            except Exception as e:
-                logger.warning(f"Failed to get config from service: {e}")
-                return
 
     async def _apply_config(self, config: Dict[str, Any]):
         """Apply configuration to state machine.
@@ -297,12 +272,14 @@ class StateService(BaseConfigService):
         Returns:
             Dict[str, Any]: Health status
         """
-        health_status = await super().health()
-        health_status.update({
+        return {
+            "status": "ok" if self.is_running else "error",
+            "service_name": "state",
+            "version": self.version,
+            "uptime": (datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0,
             "details": {
                 "current_state": self._current_state,
                 "state_count": len(self._state_machine),
                 "history_length": len(self._history)
             }
-        })
-        return health_status
+        }
