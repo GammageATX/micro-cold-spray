@@ -1,0 +1,399 @@
+openapi: 3.0.0
+info:
+  title: Micro Cold Spray API
+  description: API documentation for the Micro Cold Spray system
+  version: 1.0.0
+  contact:
+    name: Support Team
+
+servers:
+- url: http://localhost:8000
+  description: Local development server
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+      - status
+      - service_name
+      - version
+      - is_running
+      - uptime
+      - memory_usage
+      - timestamp
+      properties:
+        status:
+          type: string
+          description: Service status (ok or error)
+          enum: [ ok, error ]
+        service_name:
+          type: string
+          description: Name of the service
+        version:
+          type: string
+          description: Service version
+        is_running:
+          type: boolean
+          description: Whether service is running
+        uptime:
+          type: number
+          format: float
+          description: Service uptime in seconds
+        memory_usage:
+          type: object
+          description: Memory usage statistics
+          additionalProperties:
+            type: number
+        error:
+          type: string
+          nullable: true
+          description: Error message if any
+        timestamp:
+          type: string
+          format: date-time
+          description: Response timestamp
+
+    ProcessPattern:
+      type: object
+      required:
+      - id
+      - name
+      properties:
+        id:
+          type: string
+          description: Pattern ID
+        name:
+          type: string
+          description: Pattern name
+        description:
+          type: string
+          nullable: true
+          description: Pattern description
+        parameters:
+          type: object
+          description: Pattern parameters
+          additionalProperties: true
+
+    ParameterSet:
+      type: object
+      required:
+      - id
+      - name
+      properties:
+        id:
+          type: string
+          description: Parameter set ID
+        name:
+          type: string
+          description: Parameter set name
+        description:
+          type: string
+          nullable: true
+          description: Parameter set description
+        parameters:
+          type: object
+          description: Parameter values
+          additionalProperties: true
+
+    SequenceStep:
+      type: object
+      required:
+      - pattern_id
+      - parameter_id
+      properties:
+        pattern_id:
+          type: string
+          description: Pattern ID
+        parameter_id:
+          type: string
+          description: Parameter set ID
+        description:
+          type: string
+          nullable: true
+          description: Step description
+
+    SequenceMetadata:
+      type: object
+      required:
+      - id
+      - name
+      - steps
+      properties:
+        id:
+          type: string
+          description: Sequence ID
+        name:
+          type: string
+          description: Sequence name
+        description:
+          type: string
+          nullable: true
+          description: Sequence description
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/SequenceStep'
+          description: Sequence steps
+
+    ExecutionStatus:
+      type: string
+      enum: [ idle, running, paused, completed, aborted, error ]
+      description: Process execution status
+
+    TagValue:
+      type: object
+      required:
+      - value
+      - timestamp
+      properties:
+        value:
+          description: Tag value
+          oneOf:
+          - type: number
+          - type: string
+          - type: boolean
+        timestamp:
+          type: string
+          format: date-time
+          description: Value timestamp
+
+paths:
+  /health:
+    get:
+      summary: Service Health Check
+      description: Check the health status of the service
+      operationId: healthCheck
+      tags: [ Health ]
+      responses:
+        '200':
+          description: Service health status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: Service unavailable
+
+  /api/process/patterns:
+    get:
+      summary: List Patterns
+      description: Get list of available spray patterns
+      operationId: listPatterns
+      tags: [ Process ]
+      responses:
+        '200':
+          description: List of patterns
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProcessPattern'
+        '503':
+          description: Service unavailable
+
+  /api/process/patterns/{pattern_id}:
+    get:
+      summary: Get Pattern
+      description: Get pattern by ID
+      operationId: getPattern
+      tags: [ Process ]
+      parameters:
+      - name: pattern_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Pattern details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessPattern'
+        '404':
+          description: Pattern not found
+        '503':
+          description: Service unavailable
+
+  /api/process/parameters:
+    get:
+      summary: List Parameter Sets
+      description: Get list of available parameter sets
+      operationId: listParameterSets
+      tags: [ Process ]
+      responses:
+        '200':
+          description: List of parameter sets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ParameterSet'
+        '503':
+          description: Service unavailable
+
+  /api/process/parameters/{parameter_id}:
+    get:
+      summary: Get Parameter Set
+      description: Get parameter set by ID
+      operationId: getParameterSet
+      tags: [ Process ]
+      parameters:
+      - name: parameter_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Parameter set details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParameterSet'
+        '404':
+          description: Parameter set not found
+        '503':
+          description: Service unavailable
+
+  /api/process/sequences:
+    get:
+      summary: List Sequences
+      description: Get list of available sequences
+      operationId: listSequences
+      tags: [ Process ]
+      responses:
+        '200':
+          description: List of sequences
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SequenceMetadata'
+        '503':
+          description: Service unavailable
+
+  /api/process/sequences/{sequence_id}/start:
+    post:
+      summary: Start Sequence
+      description: Start sequence execution
+      operationId: startSequence
+      tags: [ Process ]
+      parameters:
+      - name: sequence_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Sequence started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionStatus'
+        '404':
+          description: Sequence not found
+        '409':
+          description: Another sequence is running
+        '503':
+          description: Service unavailable
+
+  /api/process/sequences/{sequence_id}/stop:
+    post:
+      summary: Stop Sequence
+      description: Stop sequence execution
+      operationId: stopSequence
+      tags: [ Process ]
+      parameters:
+      - name: sequence_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Sequence stopped
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionStatus'
+        '404':
+          description: Sequence not found
+        '409':
+          description: No sequence running
+        '503':
+          description: Service unavailable
+
+  /communication/tags:
+    get:
+      summary: Get Tag Values
+      description: Get current values of all tags
+      operationId: getTagValues
+      tags: [ Communication ]
+      responses:
+        '200':
+          description: Tag values
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: '#/components/schemas/TagValue'
+        '503':
+          description: Service unavailable
+
+  /communication/tags/{tag_name}:
+    post:
+      summary: Set Tag Value
+      description: Set value for a specific tag
+      operationId: setTagValue
+      tags: [ Communication ]
+      parameters:
+      - name: tag_name
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ value ]
+              properties:
+                value:
+                  oneOf:
+                  - type: number
+                  - type: string
+                  - type: boolean
+      responses:
+        '200':
+          description: Tag value set successfully
+        '404':
+          description: Tag not found
+        '503':
+          description: Service unavailable
+
+  /ws/communication/tags:
+    get:
+      summary: Tag Updates WebSocket
+      description: WebSocket endpoint for real-time tag value updates
+      tags: [ Communication ]
+      responses:
+        '101':
+          description: WebSocket connection established
+
+  /ws/monitoring/logs:
+    get:
+      summary: Service Logs WebSocket
+      description: WebSocket endpoint for real-time service log updates
+      tags: [ Monitoring ]
+      responses:
+        '101':
+          description: WebSocket connection established
