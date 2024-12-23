@@ -1,11 +1,12 @@
 """Communication service for hardware control."""
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Set
 import os
 import yaml
 from fastapi import status
 from loguru import logger
 from datetime import datetime
+import asyncio
 
 from micro_cold_spray.api.base.base_errors import create_error
 from micro_cold_spray.api.communication.clients import create_client, CommunicationClient
@@ -15,6 +16,7 @@ from micro_cold_spray.api.communication.services.motion import MotionService
 from micro_cold_spray.api.communication.services.equipment import EquipmentService
 from micro_cold_spray.api.communication.services.tag_mapping import TagMappingService
 from micro_cold_spray.api.communication.models.tags import TagValue, TagMetadata
+from micro_cold_spray.ui.utils import get_uptime, get_memory_usage
 
 
 class CommunicationService:
@@ -317,8 +319,13 @@ class CommunicationService:
             
             return {
                 "status": "ok" if is_healthy else "error",
-                "service": self._service_name,
-                "running": self.is_running,
+                "service_name": self._service_name,
+                "version": getattr(self, "version", "1.0.0"),
+                "is_running": self.is_running,
+                "uptime": get_uptime(),
+                "memory_usage": get_memory_usage(),
+                "error": None if is_healthy else "Service not connected",
+                "timestamp": datetime.now(),
                 "client": {
                     "initialized": self._client is not None,
                     "connected": is_healthy
@@ -335,6 +342,16 @@ class CommunicationService:
             logger.error(error_msg)
             return {
                 "status": "error",
-                "service": self._service_name,
-                "error": error_msg
+                "service_name": self._service_name,
+                "version": getattr(self, "version", "1.0.0"),
+                "is_running": False,
+                "uptime": 0.0,
+                "memory_usage": {},
+                "error": error_msg,
+                "timestamp": datetime.now(),
+                "client": {
+                    "initialized": False,
+                    "connected": False
+                },
+                "services": {}
             }

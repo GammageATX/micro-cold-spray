@@ -17,10 +17,12 @@ class ExecutionStatus(str, Enum):
 
 class ActionStatus(str, Enum):
     """Action execution status."""
+    IDLE = "idle"
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    ERROR = "error"
 
 
 class ProcessPattern(BaseModel):

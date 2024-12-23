@@ -20,7 +20,7 @@ SERVICE_MODULES = {
     'process': "micro_cold_spray.api.process.process_app:create_app",
     'data_collection': "micro_cold_spray.api.data_collection.data_collection_app:DataCollectionApp",
     'validation': "micro_cold_spray.api.validation.validation_app:create_app",
-    'ui': "micro_cold_spray.api.ui.router:app"
+    'ui': "micro_cold_spray.ui.router:create_app"
 }
 
 # Critical services that must start in order
