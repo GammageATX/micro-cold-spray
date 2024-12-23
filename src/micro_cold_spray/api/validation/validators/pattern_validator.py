@@ -4,7 +4,7 @@ from typing import Dict, Any, List
 from loguru import logger
 from fastapi import status
 
-from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.api.validation.validators.base_validator import (
     check_required_fields,
     check_unknown_fields,
