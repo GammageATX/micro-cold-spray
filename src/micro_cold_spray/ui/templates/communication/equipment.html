@@ -27,7 +27,7 @@ document.getElementById('gas-flow-form').onsubmit = async (e) => {
     e.preventDefault();
     const form = e.target;
     try {
-        const response = await fetch(`${API_URLS.communication}/equipment/gas/flow`, {
+        const response = await fetch(`${API_URLS.communication}/gas/flow`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
@@ -46,7 +46,7 @@ async function controlValve(valve, state) {
     const button = event.target;
     try {
         button.disabled = true;
-        const response = await fetch(`${API_URLS.communication}/equipment/gas/valve`, {
+        const response = await fetch(`${API_URLS.communication}/gas/valve`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({valve, state})

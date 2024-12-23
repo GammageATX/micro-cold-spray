@@ -4,12 +4,11 @@ from typing import Dict, Any, List
 from loguru import logger
 from fastapi import status
 
-from micro_cold_spray.api.base.base_service import BaseService
 from micro_cold_spray.api.base.base_errors import create_error
 from micro_cold_spray.api.process.models import SequenceMetadata
 
 
-class SequenceService(BaseService):
+class SequenceService:
     """Process sequence service implementation."""
 
     def __init__(self, name: str = "sequence"):
@@ -18,35 +17,47 @@ class SequenceService(BaseService):
         Args:
             name: Service name
         """
-        super().__init__(name=name)
+        self.name = name
         self._sequences: Dict[str, SequenceMetadata] = {}
+        self._is_running = False
 
-    async def _start(self) -> None:
+    @property
+    def is_running(self) -> bool:
+        """Get service running state."""
+        return self._is_running
+
+    async def initialize(self) -> None:
+        """Initialize service."""
+        logger.info(f"Initializing {self.name} service")
+
+    async def start(self) -> None:
         """Start sequence service."""
         try:
             # Initialize sequences
             self._sequences = {}
-            logger.info("Sequence service started")
+            self._is_running = True
+            logger.info(f"{self.name} service started")
         except Exception as e:
-            logger.error(f"Failed to start sequence service: {e}")
+            logger.error(f"Failed to start {self.name} service: {e}")
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to start sequence service",
+                message=f"Failed to start {self.name} service",
                 context={"error": str(e)},
                 cause=e
             )
 
-    async def _stop(self) -> None:
+    async def stop(self) -> None:
         """Stop sequence service."""
         try:
             # Clear sequences
             self._sequences.clear()
-            logger.info("Sequence service stopped")
+            self._is_running = False
+            logger.info(f"{self.name} service stopped")
         except Exception as e:
-            logger.error(f"Failed to stop sequence service: {e}")
+            logger.error(f"Failed to stop {self.name} service: {e}")
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to stop sequence service",
+                message=f"Failed to stop {self.name} service",
                 context={"error": str(e)},
                 cause=e
             )
@@ -241,74 +252,15 @@ class SequenceService(BaseService):
                 cause=e
             )
 
-    async def validate_sequence(self, sequence_id: str) -> None:
-        """Validate sequence.
-        
-        Args:
-            sequence_id: Sequence ID to validate
-            
-        Raises:
-            HTTPException: If validation fails
-        """
-        if not self.is_running:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Service not running",
-                context={"service": self.name}
-            )
-            
-        try:
-            if sequence_id not in self._sequences:
-                raise create_error(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    message=f"Sequence {sequence_id} not found",
-                    context={"sequence_id": sequence_id}
-                )
-                
-            # Get sequence
-            sequence = self._sequences[sequence_id]
-            
-            # Validate sequence has required fields
-            if not sequence.pattern:
-                raise create_error(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    message="Sequence pattern not specified",
-                    context={"sequence_id": sequence_id}
-                )
-                
-            if not sequence.parameters:
-                raise create_error(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    message="Sequence parameters not specified",
-                    context={"sequence_id": sequence_id}
-                )
-                
-            if not sequence.steps:
-                raise create_error(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    message="Sequence has no steps",
-                    context={"sequence_id": sequence_id}
-                )
-                
-            logger.info(f"Validated sequence: {sequence_id}")
-            
-        except Exception as e:
-            logger.error(f"Failed to validate sequence: {e}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to validate sequence",
-                context={"error": str(e)},
-                cause=e
-            )
-
     async def health(self) -> dict:
         """Get service health status.
         
         Returns:
             Health check result
         """
-        health = await super().health()
-        health["context"].update({
-            "sequences": len(self._sequences)
-        })
-        return health
+        return {
+            "status": "ok" if self.is_running else "error",
+            "context": {
+                "sequences": len(self._sequences)
+            }
+        }

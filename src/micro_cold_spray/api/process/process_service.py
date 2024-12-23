@@ -2,8 +2,8 @@
 
 from typing import List
 from fastapi import status
+from loguru import logger
 
-from micro_cold_spray.api.base.base_configurable import ConfigurableService
 from micro_cold_spray.api.base.base_errors import create_error
 from micro_cold_spray.api.process.models.process_models import (
     ExecutionStatus,
@@ -19,16 +19,21 @@ from micro_cold_spray.api.process.services.pattern_service import PatternService
 from micro_cold_spray.api.process.services.sequence_service import SequenceService
 
 
-class ProcessService(ConfigurableService):
+class ProcessService:
     """Process management service."""
 
     def __init__(self) -> None:
         """Initialize service."""
-        super().__init__()
         self._action_service = ActionService()
         self._parameter_service = ParameterService()
         self._pattern_service = PatternService()
         self._sequence_service = SequenceService()
+        self._is_running = False
+
+    @property
+    def is_running(self) -> bool:
+        """Get service running state."""
+        return self._is_running
 
     async def initialize(self) -> None:
         """Initialize service.
@@ -37,11 +42,12 @@ class ProcessService(ConfigurableService):
             HTTPException: If initialization fails (503)
         """
         try:
-            await super().initialize()
+            logger.info("Initializing process service")
             await self._action_service.initialize()
             await self._parameter_service.initialize()
             await self._pattern_service.initialize()
             await self._sequence_service.initialize()
+            logger.info("Process service initialized")
         except Exception as e:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -57,11 +63,13 @@ class ProcessService(ConfigurableService):
             HTTPException: If start fails (503)
         """
         try:
-            await super().start()
+            logger.info("Starting process service")
             await self._action_service.start()
             await self._parameter_service.start()
             await self._pattern_service.start()
             await self._sequence_service.start()
+            self._is_running = True
+            logger.info("Process service started")
         except Exception as e:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -77,11 +85,13 @@ class ProcessService(ConfigurableService):
             HTTPException: If stop fails (503)
         """
         try:
+            logger.info("Stopping process service")
             await self._sequence_service.stop()
             await self._pattern_service.stop()
             await self._parameter_service.stop()
             await self._action_service.stop()
-            await super().stop()
+            self._is_running = False
+            logger.info("Process service stopped")
         except Exception as e:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

@@ -2,7 +2,7 @@
 
 from typing import Dict, Any, List
 from datetime import datetime
-from fastapi import APIRouter, BackgroundTasks, Depends, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 from pydantic import BaseModel
 from loguru import logger
 
@@ -33,27 +33,27 @@ class HealthResponse(BaseModel):
 
 
 # Create router
-router = APIRouter(
-    prefix="/validation",
-    tags=["validation"]
-)
+router = APIRouter()
 
 
-def get_service() -> ValidationService:
-    """Get validation service instance.
+def get_validation_service(request: Request) -> ValidationService:
+    """Get validation service from app state.
     
+    Args:
+        request: FastAPI request
+        
     Returns:
         ValidationService instance
         
     Raises:
         HTTPException: If service not initialized
     """
-    if not hasattr(get_service, "_service"):
+    if not hasattr(request.app.state, "validation_service"):
         raise create_error(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             message="Validation service not initialized"
         )
-    return get_service._service
+    return request.app.state.validation_service
 
 
 @router.post(
@@ -68,7 +68,7 @@ def get_service() -> ValidationService:
 async def validate_data(
     request: ValidationRequest,
     background_tasks: BackgroundTasks,
-    service: ValidationService = Depends(get_service)
+    service: ValidationService = Depends(get_validation_service)
 ) -> ValidationResponse:
     """Validate data against rules.
     
@@ -140,7 +140,9 @@ async def validate_data(
         status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service unavailable"}
     }
 )
-async def health_check(service: ValidationService = Depends(get_service)) -> HealthResponse:
+async def health_check(
+    service: ValidationService = Depends(get_validation_service)
+) -> HealthResponse:
     """Check service health status.
     
     Args:

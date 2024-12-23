@@ -30,3 +30,8 @@ message_broker:
     - ui/response
     - ui/status
     - ui/error
+    validation:
+    - validation/request
+    - validation/response
+    - validation/status
+    - validation/error

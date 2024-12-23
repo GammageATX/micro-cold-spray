@@ -4,12 +4,11 @@ from typing import Dict, Any, List
 from loguru import logger
 from fastapi import status
 
-from micro_cold_spray.api.base.base_service import BaseService
 from micro_cold_spray.api.base.base_errors import create_error
 from micro_cold_spray.api.process.models import ParameterSet
 
 
-class ParameterService(BaseService):
+class ParameterService:
     """Process parameter service implementation."""
 
     def __init__(self, name: str = "parameter"):
@@ -18,35 +17,47 @@ class ParameterService(BaseService):
         Args:
             name: Service name
         """
-        super().__init__(name=name)
+        self.name = name
         self._parameter_sets: Dict[str, ParameterSet] = {}
+        self._is_running = False
 
-    async def _start(self) -> None:
+    @property
+    def is_running(self) -> bool:
+        """Get service running state."""
+        return self._is_running
+
+    async def initialize(self) -> None:
+        """Initialize service."""
+        logger.info(f"Initializing {self.name} service")
+
+    async def start(self) -> None:
         """Start parameter service."""
         try:
             # Initialize parameter sets
             self._parameter_sets = {}
-            logger.info("Parameter service started")
+            self._is_running = True
+            logger.info(f"{self.name} service started")
         except Exception as e:
-            logger.error(f"Failed to start parameter service: {e}")
+            logger.error(f"Failed to start {self.name} service: {e}")
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to start parameter service",
+                message=f"Failed to start {self.name} service",
                 context={"error": str(e)},
                 cause=e
             )
 
-    async def _stop(self) -> None:
+    async def stop(self) -> None:
         """Stop parameter service."""
         try:
             # Clear parameter sets
             self._parameter_sets.clear()
-            logger.info("Parameter service stopped")
+            self._is_running = False
+            logger.info(f"{self.name} service stopped")
         except Exception as e:
-            logger.error(f"Failed to stop parameter service: {e}")
+            logger.error(f"Failed to stop {self.name} service: {e}")
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to stop parameter service",
+                message=f"Failed to stop {self.name} service",
                 context={"error": str(e)},
                 cause=e
             )
@@ -245,8 +256,9 @@ class ParameterService(BaseService):
         Returns:
             Health check result
         """
-        health = await super().health()
-        health["context"].update({
-            "parameter_sets": len(self._parameter_sets)
-        })
-        return health
+        return {
+            "status": "ok" if self.is_running else "error",
+            "context": {
+                "parameter_sets": len(self._parameter_sets)
+            }
+        }

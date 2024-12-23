@@ -55,7 +55,7 @@ document.getElementById('pattern-form').onsubmit = async (e) => {
     const type = document.getElementById('pattern-type').value;
     
     try {
-        const response = await fetch(`${API_URLS.process}/patterns/create`, {
+        const response = await fetch(`${API_URLS.process}/patterns`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({

@@ -82,7 +82,7 @@ class ValidationService:
 
             # Subscribe to validation requests
             await self._message_broker.subscribe(
-                "validation_request",
+                "validation/request",
                 self._handle_validation_request
             )
 

@@ -30,17 +30,17 @@ let validTransitions = {};
 async function loadStateData() {
     try {
         // Get current state
-        const statusResponse = await fetch(`${API_URLS.state}/state/status`);
+        const statusResponse = await fetch(`${API_URLS.state}/state`);
         const statusData = await statusResponse.json();
         updateCurrentState(statusData);
 
         // Get valid transitions
-        const transitionsResponse = await fetch(`${API_URLS.state}/state/transitions`);
+        const transitionsResponse = await fetch(`${API_URLS.state}/transitions`);
         validTransitions = await transitionsResponse.json();
         updateStateActions();
 
         // Get state history
-        const historyResponse = await fetch(`${API_URLS.state}/state/history`);
+        const historyResponse = await fetch(`${API_URLS.state}/history`);
         const historyData = await historyResponse.json();
         updateStateHistory(historyData);
 
@@ -137,7 +137,7 @@ async function updateStateConditions() {
 // Request state transition
 async function requestStateTransition(targetState) {
     try {
-        const response = await fetch(`${API_URLS.state}/state/transition`, {
+        const response = await fetch(`${API_URLS.state}/transition`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
