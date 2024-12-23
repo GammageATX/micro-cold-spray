@@ -3,7 +3,7 @@
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
-from fastapi import FastAPI, Request, WebSocket, status
+from fastapi import FastAPI, Request, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
@@ -11,11 +11,10 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from loguru import logger
-import asyncio
 import aiohttp
 
 from micro_cold_spray.api.base.base_errors import create_error
-from .utils import get_uptime, get_memory_usage, monitor_service_logs
+from .utils import get_uptime
 
 
 class ApiUrls(BaseModel):
@@ -27,15 +26,6 @@ class ApiUrls(BaseModel):
     process: str = Field("http://localhost:8005", description="Process service URL")
     data_collection: str = Field("http://localhost:8006", description="Data collection service URL")
     validation: str = Field("http://localhost:8007", description="Validation service URL")
-    ws: Dict[str, str] = Field(
-        default_factory=lambda: {
-            "messaging": "ws://localhost:8002/messaging/subscribe",
-            "state": "ws://localhost:8004/state/monitor",
-            "tags": "ws://localhost:8003/communication/tags",
-            "services": "ws://localhost:8000/monitoring/logs"
-        },
-        description="WebSocket endpoints"
-    )
 
 
 class ServiceInfo(BaseModel):
@@ -43,7 +33,6 @@ class ServiceInfo(BaseModel):
     running: bool = Field(..., description="Service running status")
     version: str = Field("1.0.0", description="Service version")
     uptime: float = Field(..., description="Service uptime in seconds")
-    memory_usage: Dict[str, float] = Field(..., description="Memory usage stats")
     error: Optional[str] = Field(None, description="Error message if any")
 
 
@@ -53,22 +42,7 @@ class ServiceStatus(BaseModel):
     port: int = Field(..., description="Service port")
     status: str = Field(..., description="Service status")
     uptime: float = Field(..., description="Service uptime in seconds")
-    memory_usage: Dict[str, float] = Field(..., description="Memory usage stats")
     service_info: ServiceInfo = Field(..., description="Detailed service info")
-
-
-class ServiceControlResponse(BaseModel):
-    """Service control response model."""
-    status: str = Field(..., description="Operation status")
-    message: str = Field(..., description="Response message")
-
-
-class LogMessage(BaseModel):
-    """Log message model."""
-    timestamp: datetime = Field(..., description="Message timestamp")
-    service: str = Field(..., description="Source service")
-    level: str = Field(..., description="Log level")
-    message: str = Field(..., description="Log message")
 
 
 class HealthResponse(BaseModel):
@@ -78,7 +52,6 @@ class HealthResponse(BaseModel):
     version: str = Field(..., description="Service version")
     is_running: bool = Field(..., description="Whether service is running")
     uptime: float = Field(..., description="Service uptime in seconds")
-    memory_usage: Dict[str, float] = Field(..., description="Memory usage stats")
     error: Optional[str] = Field(None, description="Error message if any")
     timestamp: datetime = Field(default_factory=datetime.now, description="Response timestamp")
 
@@ -107,7 +80,6 @@ async def check_service_health(url: str, service_name: str = None) -> ServiceInf
                         running=True,
                         version=data.get("version", "1.0.0"),
                         uptime=data.get("uptime", 0.0),
-                        memory_usage=data.get("memory_usage", {}),
                         error=None
                     )
                 return ServiceInfo(
@@ -125,8 +97,8 @@ def create_app() -> FastAPI:
     """Create FastAPI application."""
     try:
         app = FastAPI(
-            title="MicroColdSpray UI",
-            description="Web interface for MicroColdSpray system",
+            title="MicroColdSpray Service Monitor",
+            description="Service monitoring interface for MicroColdSpray system",
             version="1.0.0"
         )
 
@@ -160,10 +132,10 @@ def create_app() -> FastAPI:
             }
         )
         async def index(request: Request) -> HTMLResponse:
-            """Render index page."""
+            """Render service monitor page."""
             try:
                 return templates.TemplateResponse(
-                    "index.html",
+                    "monitoring/services.html",
                     {
                         "request": request,
                         "api_urls": get_api_urls().dict()
@@ -172,7 +144,7 @@ def create_app() -> FastAPI:
             except Exception as e:
                 raise create_error(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    message="Failed to render index page",
+                    message="Failed to render service monitor page",
                     context={"error": str(e)},
                     cause=e
                 )
@@ -193,7 +165,6 @@ def create_app() -> FastAPI:
                     version=app.version,
                     is_running=True,
                     uptime=get_uptime(),
-                    memory_usage=get_memory_usage(),
                     error=None,
                     timestamp=datetime.now()
                 )
@@ -206,34 +177,8 @@ def create_app() -> FastAPI:
                     version=app.version,
                     is_running=False,
                     uptime=0.0,
-                    memory_usage={},
                     error=error_msg,
                     timestamp=datetime.now()
-                )
-
-        @app.get(
-            "/monitoring/services",
-            response_class=HTMLResponse,
-            responses={
-                status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Internal server error"}
-            }
-        )
-        async def services_monitor(request: Request) -> HTMLResponse:
-            """Render services monitor page."""
-            try:
-                return templates.TemplateResponse(
-                    "monitoring/services.html",
-                    {
-                        "request": request,
-                        "api_urls": get_api_urls().dict()
-                    }
-                )
-            except Exception as e:
-                raise create_error(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    message="Failed to render services monitor page",
-                    context={"error": str(e)},
-                    cause=e
                 )
 
         @app.get(
@@ -265,7 +210,6 @@ def create_app() -> FastAPI:
                         port=port,
                         status="ok" if service_info.running else "error",
                         uptime=service_info.uptime,
-                        memory_usage=service_info.memory_usage,
                         service_info=service_info
                     )
 
@@ -277,20 +221,6 @@ def create_app() -> FastAPI:
                     context={"error": str(e)},
                     cause=e
                 )
-
-        @app.websocket("/monitoring/logs")
-        async def service_logs(websocket: WebSocket):
-            """WebSocket endpoint for service logs."""
-            await websocket.accept()
-            try:
-                while True:
-                    # Monitor logs every second
-                    log_entry = await monitor_service_logs()
-                    if log_entry:
-                        await websocket.send_json(log_entry)
-                    await asyncio.sleep(1)
-            except Exception:
-                await websocket.close()
 
         return app
 
