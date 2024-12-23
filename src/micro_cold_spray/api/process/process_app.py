@@ -15,9 +15,20 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager for service initialization and cleanup."""
     try:
         # Initialize services
-        app.state.process_service = ProcessService()
-        await app.state.process_service.initialize()
-        await app.state.process_service.start()
+        process_service = ProcessService()
+        await process_service.initialize()
+        await process_service.start()
+        
+        # Store in app state
+        app.state.process_service = process_service
+        
+        # Add process endpoints
+        process_router = ProcessRouter(process_service)
+        app.include_router(
+            process_router.router,
+            prefix="/api/process",
+            tags=["process"]
+        )
         
         logger.info("Process service initialized")
         
@@ -69,6 +80,13 @@ def create_app() -> FastAPI:
     async def health_check() -> HealthResponse:
         """Check service health status."""
         try:
+            if not hasattr(app.state, "process_service"):
+                return HealthResponse(
+                    status="error",
+                    is_running=False,
+                    timestamp=datetime.now()
+                )
+                
             return HealthResponse(
                 status="ok" if app.state.process_service.is_running else "error",
                 is_running=app.state.process_service.is_running,
@@ -80,13 +98,5 @@ def create_app() -> FastAPI:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=f"Health check failed: {str(e)}"
             )
-
-    # Add process endpoints
-    process_router = ProcessRouter(app.state.process_service)
-    app.include_router(
-        process_router.router,
-        prefix="/api/process",
-        tags=["process"]
-    )
     
     return app

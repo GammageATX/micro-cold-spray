@@ -8,6 +8,7 @@ from loguru import logger
 import uuid
 
 from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.ui.utils import get_uptime, get_memory_usage
 from .messaging_service import MessagingService
 
 
@@ -27,10 +28,13 @@ class ServiceResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     """Health check response model."""
-    status: str = Field(..., description="Service status")
+    status: str = Field(..., description="Service status (ok or error)")
     service_name: str = Field(..., description="Service name")
     version: str = Field(..., description="Service version")
     is_running: bool = Field(..., description="Whether service is running")
+    uptime: float = Field(..., description="Service uptime in seconds")
+    memory_usage: Dict[str, float] = Field(..., description="Memory usage stats")
+    error: Optional[str] = Field(None, description="Error message if any")
     timestamp: datetime = Field(default_factory=datetime.now, description="Response timestamp")
 
 
@@ -53,19 +57,28 @@ def get_service(request: Request) -> MessagingService:
 async def health_check(service: MessagingService = Depends(get_service)) -> HealthResponse:
     """Check service health."""
     try:
-        health = await service.check_health()
         return HealthResponse(
-            status=health["status"],
+            status="ok" if service.is_running else "error",
             service_name=service.name,
-            version=getattr(service, "version", "1.0.0"),
+            version=service.version,
             is_running=service.is_running,
+            uptime=get_uptime(),
+            memory_usage=get_memory_usage(),
+            error=None if service.is_running else "Service not running",
             timestamp=datetime.now()
         )
     except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        raise create_error(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            message=f"Health check failed: {e}"
+        error_msg = f"Health check failed: {str(e)}"
+        logger.error(error_msg)
+        return HealthResponse(
+            status="error",
+            service_name=service.name,
+            version=service.version,
+            is_running=False,
+            uptime=0.0,
+            memory_usage={},
+            error=error_msg,
+            timestamp=datetime.now()
         )
 
 

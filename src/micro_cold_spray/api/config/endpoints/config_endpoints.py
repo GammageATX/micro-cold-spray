@@ -1,6 +1,9 @@
 """Configuration service endpoints."""
 
+from typing import Dict, Optional
+from datetime import datetime
 from fastapi import APIRouter, Depends, Request
+from pydantic import BaseModel, Field
 from loguru import logger
 
 from micro_cold_spray.api.config.models.config_models import (
@@ -8,9 +11,22 @@ from micro_cold_spray.api.config.models.config_models import (
     ConfigResponse,
     SchemaRequest,
     SchemaResponse,
-    HealthResponse,
     MessageResponse
 )
+from micro_cold_spray.ui.utils import get_uptime, get_memory_usage
+
+
+class HealthResponse(BaseModel):
+    """Health check response model."""
+    status: str = Field(..., description="Service status (ok or error)")
+    service_name: str = Field(..., description="Service name")
+    version: str = Field(..., description="Service version")
+    is_running: bool = Field(..., description="Whether service is running")
+    uptime: float = Field(..., description="Service uptime in seconds")
+    memory_usage: Dict[str, float] = Field(..., description="Memory usage stats")
+    error: Optional[str] = Field(None, description="Error message if any")
+    timestamp: datetime = Field(default_factory=datetime.now, description="Response timestamp")
+    services: Dict[str, Dict[str, any]] = Field(default_factory=dict, description="Status of sub-services")
 
 
 def get_config_router() -> APIRouter:
@@ -34,20 +50,42 @@ def get_config_router() -> APIRouter:
     @router.get("/health", response_model=HealthResponse)
     async def health(services=Depends(get_services)):
         """Get service health status."""
-        service_health = {}
-        is_healthy = True
+        try:
+            # Check all service healths
+            service_health = {}
+            is_healthy = True
 
-        for name, service in services.items():
-            health = await service.health()
-            service_health[name] = health
-            if not health.get("is_healthy", False):
-                is_healthy = False
+            for name, service in services.items():
+                health = await service.health()
+                service_health[name] = health
+                if not health.get("is_healthy", False):
+                    is_healthy = False
 
-        return {
-            "status": "healthy" if is_healthy else "unhealthy",
-            "is_healthy": is_healthy,
-            "services": service_health
-        }
+            return HealthResponse(
+                status="ok" if is_healthy else "error",
+                service_name="config",
+                version="1.0.0",
+                is_running=is_healthy,
+                uptime=get_uptime(),
+                memory_usage=get_memory_usage(),
+                error=None if is_healthy else "One or more services are unhealthy",
+                timestamp=datetime.now(),
+                services=service_health
+            )
+        except Exception as e:
+            error_msg = f"Health check failed: {str(e)}"
+            logger.error(error_msg)
+            return HealthResponse(
+                status="error",
+                service_name="config",
+                version="1.0.0",
+                is_running=False,
+                uptime=0.0,
+                memory_usage={},
+                error=error_msg,
+                timestamp=datetime.now(),
+                services={}
+            )
 
     @router.post("/config/{name}", response_model=MessageResponse)
     async def save_config(

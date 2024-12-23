@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from loguru import logger
 import asyncio
 import aiohttp
 
@@ -68,23 +69,39 @@ class LogMessage(BaseModel):
     message: str = Field(..., description="Log message")
 
 
+class HealthResponse(BaseModel):
+    """Health check response model."""
+    status: str = Field(..., description="Service status (ok or error)")
+    service_name: str = Field(..., description="Service name")
+    version: str = Field(..., description="Service version")
+    is_running: bool = Field(..., description="Whether service is running")
+    uptime: float = Field(..., description="Service uptime in seconds")
+    memory_usage: Dict[str, float] = Field(..., description="Memory usage stats")
+    error: Optional[str] = Field(None, description="Error message if any")
+    timestamp: datetime = Field(default_factory=datetime.now, description="Response timestamp")
+
+
 def get_api_urls() -> ApiUrls:
     """Get API URLs for templates."""
     return ApiUrls()
 
 
-async def check_service_health(url: str) -> ServiceInfo:
+async def check_service_health(url: str, service_name: str = None) -> ServiceInfo:
     """Check service health status.
     
     Args:
         url: Service base URL
+        service_name: Name of the service (optional)
         
     Returns:
         ServiceInfo with status details
     """
     try:
+        # Use service-specific health endpoint path
+        health_path = "/messaging/health" if service_name == "messaging" else "/health"
+        
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{url}/health", timeout=2) as response:
+            async with session.get(f"{url}{health_path}", timeout=2) as response:
                 if response.status == 200:
                     data = await response.json()
                     return ServiceInfo(
@@ -161,25 +178,36 @@ def create_app() -> FastAPI:
 
         @app.get(
             "/health",
-            response_model=Dict[str, str],
+            response_model=HealthResponse,
             responses={
                 status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Internal server error"}
             }
         )
-        async def health() -> Dict[str, str]:
+        async def health() -> HealthResponse:
             """Health check endpoint."""
             try:
-                return {
-                    "status": "ok",
-                    "uptime": str(get_uptime()),
-                    "memory": str(get_memory_usage())
-                }
+                return HealthResponse(
+                    status="ok",
+                    service_name="ui",
+                    version="1.0.0",
+                    is_running=True,
+                    uptime=get_uptime(),
+                    memory_usage=get_memory_usage(),
+                    error=None,
+                    timestamp=datetime.now()
+                )
             except Exception as e:
-                raise create_error(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    message="Health check failed",
-                    context={"error": str(e)},
-                    cause=e
+                error_msg = f"Health check failed: {str(e)}"
+                logger.error(error_msg)
+                return HealthResponse(
+                    status="error",
+                    service_name="ui",
+                    version="1.0.0",
+                    is_running=False,
+                    uptime=0.0,
+                    memory_usage={},
+                    error=error_msg,
+                    timestamp=datetime.now()
                 )
 
         @app.get(
@@ -228,7 +256,7 @@ def create_app() -> FastAPI:
                     "data_collection": api_urls.data_collection,
                     "validation": api_urls.validation
                 }.items():
-                    service_info = await check_service_health(url)
+                    service_info = await check_service_health(url, service_name)
                     port = int(url.split(":")[-1])
                     
                     services[service_name] = ServiceStatus(
@@ -272,7 +300,3 @@ def create_app() -> FastAPI:
             context={"error": str(e)},
             cause=e
         )
-
-
-# Create FastAPI application instance
-app = create_app()

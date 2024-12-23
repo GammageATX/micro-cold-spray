@@ -1,10 +1,9 @@
-"""Mock communication client for testing."""
+"""Mock communication client."""
 
 import asyncio
 import random
 from typing import Any, Dict
 from fastapi import status
-
 from loguru import logger
 
 from micro_cold_spray.api.base.base_errors import create_error
@@ -105,17 +104,17 @@ class MockClient(CommunicationClient):
     
     # Simulated delays (seconds)
     _delays = {
-        "connect": (0.5, 2.0),      # Connect delay range
-        "disconnect": (0.1, 0.5),    # Disconnect delay range
-        "read": (0.05, 0.2),        # Read delay range
-        "write": (0.1, 0.3)         # Write delay range
+        "connect": (0.1, 0.2),      # Connect delay range
+        "disconnect": (0.1, 0.2),    # Disconnect delay range
+        "read": (0.05, 0.1),        # Read delay range
+        "write": (0.05, 0.1)        # Write delay range
     }
     
-    # Error simulation
+    # Error simulation (disabled)
     _error_rates = {
-        "connect": 0.1,    # 10% connect failure
-        "read": 0.05,      # 5% read failure
-        "write": 0.05      # 5% write failure
+        "connect": 0.0,    # Disabled
+        "read": 0.0,       # Disabled
+        "write": 0.0       # Disabled
     }
     
     def __init__(self, config: Dict[str, Any]):
@@ -246,7 +245,7 @@ class MockClient(CommunicationClient):
         await self._simulate_delay("write")
         self._simulate_error("write")
         
-        # Update tag value
+        # Set tag value
         if tag not in self._tag_values:
             raise create_error(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -255,6 +254,35 @@ class MockClient(CommunicationClient):
             
         self._tag_values[tag] = value
         logger.debug(f"Wrote mock {self._client_type} tag {tag} = {value}")
+
+    async def read_tags(self, tags: Dict[str, Any]) -> Dict[str, Any]:
+        """Read multiple mock tag values.
+        
+        Args:
+            tags: Dictionary of tag names and expected types
+            
+        Returns:
+            Dictionary of tag names and values
+            
+        Raises:
+            HTTPException: If read fails or any tag not found
+        """
+        values = {}
+        for tag in tags:
+            values[tag] = await self.read_tag(tag)
+        return values
+
+    async def write_tags(self, tags: Dict[str, Any]) -> None:
+        """Write multiple mock tag values.
+        
+        Args:
+            tags: Dictionary of tag names and values
+            
+        Raises:
+            HTTPException: If write fails or any tag not found
+        """
+        for tag, value in tags.items():
+            await self.write_tag(tag, value)
 
     async def start(self) -> None:
         """Start the mock client.
@@ -277,3 +305,20 @@ class MockClient(CommunicationClient):
         """
         await self.disconnect()
         logger.info(f"Stopped mock {self._client_type} client")
+
+    async def check_connection(self) -> bool:
+        """Check if mock client is connected.
+        
+        Returns:
+            True if connected, False otherwise
+            
+        Raises:
+            HTTPException: If connection check fails
+        """
+        # Simulate connection check delay and possible error
+        await self._simulate_delay("connect")
+        self._simulate_error("connect")
+        
+        # Return connection status
+        logger.debug(f"Mock {self._client_type} client connection status: {self._connected}")
+        return self._connected

@@ -4,135 +4,77 @@
     <h2>Service Monitor</h2>
     <div class="control-group">
         <h3>Service Status</h3>
-        <div id="service-list"></div>
+        <div id="service-list" class="service-grid"></div>
     </div>
     
     <div class="control-group">
         <h3>Service Logs</h3>
-        <div id="service-logs" class="log-display"></div>
+        <div id="service-logs" class="log-display">
+            <div class="log-status">Connecting to log stream...</div>
+        </div>
     </div>
 </div>
 
 <script>
 // Service status updates
 let updateInterval;
-let isUpdating = false;  // Add flag to prevent multiple updates
+let isUpdating = false;
 
-// Initial load function
 async function updateServices() {
-    if (isUpdating) return;  // Prevent concurrent updates
+    if (isUpdating) return;
     isUpdating = true;
     
-    const serviceList = document.getElementById('service-list');
     try {
-        // Show loading state
-        serviceList.innerHTML = `
-            <div class="service-card loading">
-                <div class="loading-spinner"></div>
-                <p>Loading services...</p>
-            </div>
-        `;
-        
         const response = await fetch('/monitoring/services/status');
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         const services = await response.json();
         
-        // Get current service IDs
-        const currentServiceIds = new Set(
+        const serviceList = document.getElementById('service-list');
+        const currentCards = new Map(
             Array.from(serviceList.children)
-                .map(card => card.id)
-                .filter(id => id && id.startsWith('service-'))
-                .map(id => id.replace('service-', ''))
+                .filter(el => el.id.startsWith('service-'))
+                .map(el => [el.id.replace('service-', ''), el])
         );
         
-        // Track which services we've updated
-        const updatedServiceIds = new Set();
-        
         // Update or add services
-        Object.values(services).forEach(service => {
-            updatedServiceIds.add(service.name);
-            const existingCard = document.querySelector(`#service-${service.name}`);
-            if (!existingCard || 
-                existingCard.dataset.status !== service.status ||
-                existingCard.dataset.uptime !== service.uptime ||
-                existingCard.dataset.memory !== service.memory_usage) {
-                
-                // Update or create card
-                const newCard = getServiceCard(service);
-                if (existingCard) {
-                    existingCard.outerHTML = newCard;
-                } else {
-                    document.getElementById('service-list').innerHTML += newCard;
+        for (const service of Object.values(services)) {
+            const cardId = `service-${service.name}`;
+            const existingCard = currentCards.get(service.name);
+            
+            if (existingCard) {
+                // Update existing card if data changed
+                if (hasDataChanged(existingCard, service)) {
+                    const newCard = createServiceCard(service);
+                    existingCard.replaceWith(newCard);
                 }
+            } else {
+                // Add new card
+                serviceList.insertAdjacentHTML('beforeend', createServiceCard(service));
             }
-        });
+            currentCards.delete(service.name);
+        }
         
-        // Remove services that no longer exist
-        currentServiceIds.forEach(serviceId => {
-            if (!updatedServiceIds.has(serviceId)) {
-                const oldCard = document.querySelector(`#service-${serviceId}`);
-                if (oldCard) {
-                    oldCard.remove();
-                }
-            }
-        });
+        // Remove obsolete cards
+        currentCards.forEach(card => card.remove());
+        
     } catch (error) {
-        serviceList.innerHTML = `
-            <div class="service-card error">
-                <div class="service-header">
-                    <h4>Error</h4>
-                    <span class="status-badge">error</span>
-                </div>
-                <div class="service-details">
-                    <p>Failed to load services: ${error.message}</p>
-                </div>
-            </div>
-        `;
+        console.error('Failed to update services:', error);
+        showError(`Failed to update services: ${error.message}`);
     } finally {
-        isUpdating = false;  // Reset update flag
+        isUpdating = false;
     }
 }
 
-function startUpdates() {
-    if (updateInterval) {
-        stopUpdates();  // Clear any existing interval
-    }
-    updateServices();  // Initial update
-    updateInterval = setInterval(updateServices, 5000);
+function hasDataChanged(card, service) {
+    return (
+        card.dataset.status !== service.status ||
+        card.dataset.uptime !== service.uptime ||
+        card.dataset.memory !== service.memory_usage ||
+        card.dataset.version !== service.version
+    );
 }
 
-function stopUpdates() {
-    if (updateInterval) {
-        clearInterval(updateInterval);
-        updateInterval = null;
-    }
-}
-
-// Clean up on page unload
-window.addEventListener('unload', () => {
-    stopUpdates();
-});
-
-// Start updates when page loads, stop when page is hidden
-document.addEventListener('visibilitychange', () => {
-    if (document.hidden) {
-        stopUpdates();
-    } else {
-        startUpdates();
-    }
-});
-
-// Initialize on page load
-const initMonitor = () => {
-    updateServices();
-    startUpdates();
-};
-
-// Clean up existing listener and add new one
-document.removeEventListener('DOMContentLoaded', initMonitor);
-document.addEventListener('DOMContentLoaded', initMonitor);
-
-// Update service card template to include data attributes
-function getServiceCard(service) {
+function createServiceCard(service) {
     const info = service.service_info || {};
     const isRunning = info.running === true;
     const status = service.status || 'unknown';
@@ -142,7 +84,8 @@ function getServiceCard(service) {
              class="service-card ${status}"
              data-status="${status}"
              data-uptime="${service.uptime}"
-             data-memory="${service.memory_usage}">
+             data-memory="${service.memory_usage}"
+             data-version="${info.version || ''}">
             <div class="service-header">
                 <div class="service-title">
                     <h4>${service.name}</h4>
@@ -173,105 +116,207 @@ function getServiceCard(service) {
     `;
 }
 
-// Control service
+// Service control with proper error handling and visual feedback
 async function controlService(serviceName, action) {
-    const button = event.target.closest('button');  // Handle icon clicks
+    const button = event.target.closest('button');
     if (!button) return;
     
+    const card = button.closest('.service-card');
+    const controls = card.querySelector('.service-controls');
+    const statusBadge = card.querySelector('.status-badge');
+    const originalStatus = statusBadge.textContent;
+    
     try {
-        button.disabled = true;
-        const card = button.closest('.service-card');
+        // Disable controls and show loading state
+        controls.querySelectorAll('button').forEach(btn => btn.disabled = true);
         card.classList.add('updating');
+        statusBadge.textContent = 'Updating...';
         
         const response = await fetch('/monitoring/services/control', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                service: serviceName,
-                action: action
-            })
+            body: JSON.stringify({ service: serviceName, action })
         });
         
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.detail?.message || 'Service control failed');
+            throw new Error(error.detail?.message || `Failed to ${action} service`);
         }
-
-        // Add visual feedback
-        const statusBadge = card.querySelector('.status-badge');
-        statusBadge.textContent = 'Updating...';
-        statusBadge.style.background = '#ffc107';  // Yellow warning color
-
-        // Force an immediate status update
+        
+        // Update immediately and start polling for status changes
         await updateServices();
+        pollServiceStatus(serviceName);
+        
     } catch (error) {
         console.error('Service control error:', error);
-        showError(error.message || 'Failed to control service');
+        showError(error.message);
         
-        // Revert visual state on error
-        const card = button.closest('.service-card');
+        // Restore original state
+        statusBadge.textContent = originalStatus;
         card.classList.remove('updating');
-        updateServices();  // Refresh to show correct state
-    } finally {
-        button.disabled = false;
+        controls.querySelectorAll('button').forEach(btn => btn.disabled = false);
     }
 }
 
-// WebSocket for log updates
-const ws = connectWebSocket(WS_URLS.services, (event) => {
-    const log = JSON.parse(event.data);
-    updateLogDisplay(log);
-});
+// Poll service status after control action
+async function pollServiceStatus(serviceName, attempts = 30) {
+    const interval = setInterval(async () => {
+        try {
+            const response = await fetch('/monitoring/services/status');
+            if (!response.ok) throw new Error('Failed to get service status');
+            
+            const services = await response.json();
+            const service = services[serviceName];
+            
+            if (service && service.status !== 'updating') {
+                clearInterval(interval);
+                updateServices();
+            }
+        } catch (error) {
+            console.error('Status poll error:', error);
+            clearInterval(interval);
+        }
+        
+        if (--attempts <= 0) {
+            clearInterval(interval);
+            updateServices();
+        }
+    }, 1000);
+}
 
-function updateLogDisplay(log) {
+// WebSocket for log updates with reconnection
+let ws;
+let wsReconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
+
+function setupWebSocket() {
     const logDisplay = document.getElementById('service-logs');
+    const statusDiv = logDisplay.querySelector('.log-status');
     
-    const logEntry = document.createElement('div');
-    logEntry.className = `log-entry ${log.level.toLowerCase()}`;
-    logEntry.innerHTML = `
+    try {
+        ws = new WebSocket(`ws://${window.location.host}/ws/logs`);
+        
+        ws.onopen = () => {
+            statusDiv.textContent = 'Connected to log stream';
+            statusDiv.classList.remove('error');
+            wsReconnectAttempts = 0;
+        };
+        
+        ws.onmessage = (event) => {
+            const log = JSON.parse(event.data);
+            addLogEntry(log);
+            statusDiv.style.display = 'none';
+        };
+        
+        ws.onclose = () => {
+            statusDiv.textContent = 'Disconnected from log stream';
+            statusDiv.classList.add('error');
+            statusDiv.style.display = 'block';
+            
+            if (wsReconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                wsReconnectAttempts++;
+                setTimeout(setupWebSocket, 5000);
+            }
+        };
+        
+        ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            statusDiv.textContent = 'Error connecting to log stream';
+            statusDiv.classList.add('error');
+        };
+        
+    } catch (error) {
+        console.error('WebSocket setup error:', error);
+        statusDiv.textContent = 'Failed to connect to log stream';
+        statusDiv.classList.add('error');
+    }
+}
+
+function addLogEntry(log) {
+    const logDisplay = document.getElementById('service-logs');
+    const entry = document.createElement('div');
+    entry.className = `log-entry ${log.level.toLowerCase()}`;
+    entry.innerHTML = `
         <span class="timestamp">${new Date(log.timestamp).toLocaleString()}</span>
         <span class="service">${log.service}</span>
         <span class="level">${log.level}</span>
         <span class="message">${log.message}</span>
     `;
     
-    logDisplay.appendChild(logEntry);
-    while (logDisplay.childNodes.length > 100) {
-        logDisplay.removeChild(logDisplay.firstChild);
+    logDisplay.appendChild(entry);
+    
+    // Keep last 100 entries
+    while (logDisplay.children.length > 101) { // +1 for status div
+        logDisplay.removeChild(logDisplay.children[1]); // Skip status div
     }
+    
     logDisplay.scrollTop = logDisplay.scrollHeight;
 }
 
-// Add memory and uptime formatting
+// Utility functions
 function formatMemoryUsage(bytes) {
-    if (bytes === 'N/A') return bytes;
+    if (!bytes || bytes === 'N/A') return 'N/A';
     const mb = bytes / (1024 * 1024);
     return `${mb.toFixed(1)} MB`;
 }
 
 function formatUptime(seconds) {
-    if (seconds === 'N/A') return seconds;
+    if (!seconds || seconds === 'N/A') return 'N/A';
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     return `${hours}h ${minutes}m`;
 }
+
+// Initialize
+function initMonitor() {
+    updateServices();
+    setupWebSocket();
+    startUpdates();
+}
+
+function startUpdates() {
+    updateInterval = setInterval(updateServices, 5000);
+}
+
+function stopUpdates() {
+    clearInterval(updateInterval);
+    if (ws) ws.close();
+}
+
+// Event listeners
+document.addEventListener('DOMContentLoaded', initMonitor);
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        stopUpdates();
+    } else {
+        startUpdates();
+    }
+});
+window.addEventListener('unload', stopUpdates);
 </script>
 
 <style>
+.service-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+    padding: 20px 0;
+}
+
 .service-card {
     background: white;
     border-radius: 4px;
     padding: 15px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    margin-bottom: 0;
-    height: fit-content;
     display: flex;
     flex-direction: column;
+    transition: all 0.3s ease;
 }
 
-.service-card.running { border-left: 4px solid var(--success-color); }
-.service-card.stopped { border-left: 4px solid var(--error-color); }
-.service-card.error { border-left: 4px solid #ff9800; }
+.service-card.updating {
+    opacity: 0.7;
+    pointer-events: none;
+}
 
 .service-header {
     display: flex;
@@ -280,52 +325,15 @@ function formatUptime(seconds) {
     margin-bottom: 10px;
 }
 
-.status-badge {
-    padding: 4px 8px;
-    border-radius: 12px;
-    font-size: 0.8em;
-    font-weight: bold;
-}
-
-.running .status-badge { background: var(--success-color); color: white; }
-.stopped .status-badge { background: var(--error-color); color: white; }
-.error .status-badge { background: #ff9800; color: white; }
-
-.service-controls {
-    margin-top: 10px;
-    display: flex;
-    gap: 10px;
-}
-
-.start-btn { background: var(--success-color); }
-.stop-btn { background: var(--error-color); }
-.restart-btn { background: var(--primary-color); }
-
-.log-display {
-    height: 300px;
-    overflow-y: auto;
-    background: #1e1e1e;
-    color: #d4d4d4;
-    padding: 10px;
-    font-family: monospace;
-    border-radius: 4px;
-}
-
-.log-entry {
-    padding: 2px 0;
-    border-bottom: 1px solid #333;
-}
-
-.log-entry .timestamp { color: #569cd6; }
-.log-entry .service { color: #4ec9b0; margin: 0 10px; }
-.log-entry .level { color: #ce9178; margin-right: 10px; }
-.log-entry.error { color: #f44747; }
-.log-entry.warning { color: #dcdcaa; }
-
 .service-title {
     display: flex;
     align-items: center;
     gap: 10px;
+}
+
+.service-title h4 {
+    margin: 0;
+    font-size: 1.1em;
 }
 
 .version {
@@ -336,32 +344,12 @@ function formatUptime(seconds) {
     border-radius: 10px;
 }
 
-.service-details i {
-    width: 20px;
-    text-align: center;
-    color: #666;
-}
-
-.service-controls button i {
-    margin-right: 5px;
-}
-
-#service-list {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 20px;
-    padding: 20px;
-}
-
-.service-card {
-    background: white;
-    border-radius: 4px;
-    padding: 15px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    margin-bottom: 0;
-    height: fit-content;
-    display: flex;
-    flex-direction: column;
+.status-badge {
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.8em;
+    font-weight: bold;
+    color: white;
 }
 
 .service-details {
@@ -371,114 +359,100 @@ function formatUptime(seconds) {
 
 .service-details p {
     margin: 5px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.service-details i {
+    width: 16px;
+    color: #666;
 }
 
 .service-controls {
-    margin-top: 8px;
+    margin-top: 10px;
     display: flex;
     gap: 8px;
 }
 
 .service-controls button {
     padding: 6px 12px;
-    font-size: 0.9em;
+    border: none;
+    border-radius: 4px;
+    color: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    transition: opacity 0.2s;
 }
 
-.service-header {
-    margin-bottom: 8px;
+.service-controls button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
-.service-header h4 {
-    margin: 0;
-    font-size: 1.1em;
-}
+.start-btn { background: var(--success-color); }
+.stop-btn { background: var(--error-color); }
+.restart-btn { background: var(--primary-color); }
 
-.status-badge {
-    padding: 3px 8px;
-    font-size: 0.75em;
-}
-
-.version {
-    font-size: 0.75em;
-    padding: 1px 4px;
-}
-
-.service-details i {
-    width: 16px;
-    font-size: 0.9em;
-}
-
-.loading-spinner {
-    width: 30px;
-    height: 30px;
-    border: 3px solid #f3f3f3;
-    border-top: 3px solid var(--primary-color);
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-    margin: 20px auto;
-}
-
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
-
-.service-card.loading {
-    text-align: center;
-    color: #666;
-}
-
+/* Status colors */
 .service-card.ok { border-left: 4px solid var(--success-color); }
-.service-card.degraded { border-left: 4px solid #ff9800; }
 .service-card.error { border-left: 4px solid var(--error-color); }
-.service-card.stopped { border-left: 4px solid var(--error-color); }
 .service-card.unknown { border-left: 4px solid #6c757d; }
 
-.ok .status-badge { background: var(--success-color); color: white; }
-.degraded .status-badge { background: #ff9800; color: white; }
-.error .status-badge { background: var(--error-color); color: white; }
-.stopped .status-badge { background: var(--error-color); color: white; }
-.unknown .status-badge { background: #6c757d; color: white; }
+.ok .status-badge { background: var(--success-color); }
+.error .status-badge { background: var(--error-color); }
+.unknown .status-badge { background: #6c757d; }
 
-.error-message {
-    color: var(--error-color);
-    font-size: 0.9em;
-    margin-top: 5px;
-}
-
-/* Add updating state styles */
-.service-card.updating {
-    opacity: 0.7;
-    pointer-events: none;
+/* Log display */
+.log-display {
+    height: 300px;
+    overflow-y: auto;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    padding: 10px;
+    font-family: monospace;
+    border-radius: 4px;
     position: relative;
 }
 
-.service-card.updating::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(255, 255, 255, 0.7);
-    display: flex;
-    align-items: center;
-    justify-content: center;
+.log-status {
+    padding: 8px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+    margin-bottom: 8px;
+    text-align: center;
 }
 
-.service-card.updating::before {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 30px;
-    height: 30px;
-    border: 3px solid #f3f3f3;
-    border-top: 3px solid var(--primary-color);
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-    z-index: 1;
+.log-status.error {
+    background: rgba(255, 0, 0, 0.1);
+    color: #ff6b6b;
+}
+
+.log-entry {
+    padding: 2px 0;
+    border-bottom: 1px solid #333;
+    font-size: 0.9em;
+    line-height: 1.4;
+}
+
+.log-entry .timestamp { color: #569cd6; }
+.log-entry .service { color: #4ec9b0; margin: 0 10px; }
+.log-entry .level { color: #ce9178; margin-right: 10px; }
+.log-entry.error { color: #f44747; }
+.log-entry.warning { color: #dcdcaa; }
+
+/* Error message */
+.error-message {
+    background: rgba(255, 0, 0, 0.1);
+    color: var(--error-color);
+    padding: 8px;
+    border-radius: 4px;
+    margin: 10px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 </style>
 {% endblock %} 

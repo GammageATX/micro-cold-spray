@@ -1,13 +1,14 @@
 """FastAPI router for validation endpoints."""
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from datetime import datetime
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from loguru import logger
 
 from micro_cold_spray.api.validation.validation_service import ValidationService
 from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.ui.utils import get_uptime, get_memory_usage
 
 
 class ValidationRequest(BaseModel):
@@ -27,9 +28,14 @@ class ValidationResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     """Health check response model."""
-    status: str
-    is_running: bool
-    timestamp: datetime
+    status: str = Field(..., description="Service status (ok or error)")
+    service_name: str = Field(..., description="Service name")
+    version: str = Field(..., description="Service version")
+    is_running: bool = Field(..., description="Whether service is running")
+    uptime: float = Field(..., description="Service uptime in seconds")
+    memory_usage: Dict[str, float] = Field(..., description="Memory usage stats")
+    error: Optional[str] = Field(None, description="Error message if any")
+    timestamp: datetime = Field(default_factory=datetime.now, description="Response timestamp")
 
 
 # Create router
@@ -37,17 +43,7 @@ router = APIRouter()
 
 
 def get_validation_service(request: Request) -> ValidationService:
-    """Get validation service from app state.
-    
-    Args:
-        request: FastAPI request
-        
-    Returns:
-        ValidationService instance
-        
-    Raises:
-        HTTPException: If service not initialized
-    """
+    """Get validation service from app state."""
     if not hasattr(request.app.state, "validation_service"):
         raise create_error(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -143,28 +139,28 @@ async def validate_data(
 async def health_check(
     service: ValidationService = Depends(get_validation_service)
 ) -> HealthResponse:
-    """Check service health status.
-    
-    Args:
-        service: Validation service
-        
-    Returns:
-        Health check response
-        
-    Raises:
-        HTTPException: If health check fails
-    """
+    """Check service health status."""
     try:
         return HealthResponse(
             status="ok" if service.is_running else "error",
+            service_name=service.name,
+            version=service.version,
             is_running=service.is_running,
+            uptime=get_uptime(),
+            memory_usage=get_memory_usage(),
+            error=None if service.is_running else "Service not running",
             timestamp=datetime.now()
         )
     except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        if isinstance(e, create_error):
-            raise e
-        raise create_error(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            message=f"Health check failed: {str(e)}"
+        error_msg = f"Health check failed: {str(e)}"
+        logger.error(error_msg)
+        return HealthResponse(
+            status="error",
+            service_name=getattr(service, "name", "validation"),
+            version=getattr(service, "version", "1.0.0"),
+            is_running=False,
+            uptime=0.0,
+            memory_usage={},
+            error=error_msg,
+            timestamp=datetime.now()
         )
