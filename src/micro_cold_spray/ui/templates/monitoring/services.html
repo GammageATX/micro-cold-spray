@@ -1,475 +1,63 @@
 {% extends "base.html" %}
+
 {% block content %}
-<div class="panel">
-    <h2>Service Monitor</h2>
-    <div class="control-group">
-        <h3>Service Status</h3>
-        <div id="service-list" class="service-grid"></div>
-    </div>
-    
-    <div class="control-group">
-        <h3>Service Logs</h3>
-        <div id="service-logs" class="log-display">
-            <div class="log-status">Connecting to log stream...</div>
-        </div>
+<div class="container mx-auto px-4 py-8">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="services-grid">
+        <!-- Service blocks will be dynamically added here -->
     </div>
 </div>
 
-<style>
-.service-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 20px;
-    padding: 20px 0;
-}
-
-.service-card {
-    background: white;
-    border-radius: 4px;
-    padding: 15px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    display: flex;
-    flex-direction: column;
-    transition: all 0.3s ease;
-}
-
-.service-card.updating {
-    opacity: 0.7;
-    pointer-events: none;
-}
-
-.service-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 10px;
-}
-
-.service-title {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.service-title h4 {
-    margin: 0;
-    font-size: 1.1em;
-}
-
-.version {
-    font-size: 0.8em;
-    color: #666;
-    padding: 2px 6px;
-    background: #eee;
-    border-radius: 10px;
-}
-
-.status-badge {
-    padding: 4px 8px;
-    border-radius: 12px;
-    font-size: 0.8em;
-    font-weight: bold;
-    color: white;
-}
-
-.service-details {
-    flex-grow: 1;
-    font-size: 0.9em;
-}
-
-.service-details p {
-    margin: 5px 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.service-details i {
-    width: 16px;
-    color: #666;
-}
-
-.service-controls {
-    margin-top: 10px;
-    display: flex;
-    gap: 8px;
-}
-
-.service-controls button {
-    padding: 6px 12px;
-    border: none;
-    border-radius: 4px;
-    color: white;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    transition: opacity 0.2s;
-}
-
-.service-controls button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.start-btn { background: var(--success-color); }
-.stop-btn { background: var(--error-color); }
-.restart-btn { background: var(--primary-color); }
-
-/* Status colors */
-.service-card.ok { border-left: 4px solid var(--success-color); }
-.service-card.error { border-left: 4px solid var(--error-color); }
-.service-card.unknown { border-left: 4px solid #6c757d; }
-
-.ok .status-badge { background: var(--success-color); }
-.error .status-badge { background: var(--error-color); }
-.unknown .status-badge { background: #6c757d; }
-
-/* Log display */
-.log-display {
-    height: 300px;
-    overflow-y: auto;
-    background: #1e1e1e;
-    color: #d4d4d4;
-    padding: 10px;
-    font-family: monospace;
-    border-radius: 4px;
-    position: relative;
-}
-
-.log-status {
-    padding: 8px;
-    background: rgba(0, 0, 0, 0.3);
-    border-radius: 4px;
-    margin-bottom: 8px;
-    text-align: center;
-}
-
-.log-status.error {
-    background: rgba(255, 0, 0, 0.1);
-    color: #ff6b6b;
-}
-
-.log-entry {
-    padding: 2px 0;
-    border-bottom: 1px solid #333;
-    font-size: 0.9em;
-    line-height: 1.4;
-    white-space: pre-wrap;
-    word-wrap: break-word;
-}
-
-.log-entry .timestamp { color: #569cd6; }
-.log-entry .service { color: #4ec9b0; margin: 0 10px; }
-.log-entry .level { color: #ce9178; margin-right: 10px; }
-.log-entry.error { color: #f44747; }
-.log-entry.warning { color: #dcdcaa; }
-.log-entry.debug { color: #888888; }
-.log-entry.critical { color: #ff0000; font-weight: bold; }
-
-/* Error message */
-.error-message {
-    background: rgba(255, 0, 0, 0.1);
-    color: var(--error-color);
-    padding: 8px;
-    border-radius: 4px;
-    margin: 10px 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-</style>
-
 <script>
-// Service status updates
-let updateInterval;
-let isUpdating = false;
-
-function escapeHtml(unsafe) {
-    return unsafe
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-}
+const serviceColors = {
+    ok: 'bg-green-100 border-green-500',
+    error: 'bg-red-100 border-red-500'
+};
 
 function formatUptime(seconds) {
-    if (!seconds || isNaN(seconds)) return '0h 0m';
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     return `${hours}h ${minutes}m`;
 }
 
-function formatMemoryUsage(memory) {
-    if (!memory || typeof memory !== 'object') return '0 MB';
-    const total = memory.total || 0;
-    return `${total.toFixed(1)} MB`;
+function updateServices() {
+    fetch('/monitoring/services/status')
+        .then(response => response.json())
+        .then(services => {
+            const grid = document.getElementById('services-grid');
+            grid.innerHTML = '';
+
+            Object.entries(services).forEach(([name, service]) => {
+                const block = document.createElement('div');
+                block.className = `p-6 rounded-lg border-2 ${serviceColors[service.status]}`;
+                block.innerHTML = `
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-semibold capitalize">${name}</h3>
+                        <span class="px-2 py-1 rounded text-sm ${service.status === 'ok' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}">
+                            ${service.status}
+                        </span>
+                    </div>
+                    <div class="space-y-2">
+                        <p class="text-sm">
+                            <span class="font-medium">Port:</span> ${service.port}
+                        </p>
+                        <p class="text-sm">
+                            <span class="font-medium">Uptime:</span> ${formatUptime(service.uptime)}
+                        </p>
+                        ${service.service_info.error ? `
+                            <p class="text-sm text-red-600 mt-2">
+                                <span class="font-medium">Error:</span> ${service.service_info.error}
+                            </p>
+                        ` : ''}
+                    </div>
+                `;
+                grid.appendChild(block);
+            });
+        })
+        .catch(error => console.error('Failed to fetch services status:', error));
 }
 
-async function updateServices() {
-    if (isUpdating) return;
-    isUpdating = true;
-    
-    try {
-        const response = await fetch('/monitoring/services/status');
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-        const services = await response.json();
-        
-        const serviceList = document.getElementById('service-list');
-        const currentCards = new Map(
-            Array.from(serviceList.children)
-                .filter(el => el.id.startsWith('service-'))
-                .map(el => [el.id.replace('service-', ''), el])
-        );
-        
-        // Update or add services
-        for (const [serviceName, service] of Object.entries(services)) {
-            const cardId = `service-${serviceName}`;
-            const existingCard = currentCards.get(serviceName);
-            
-            if (existingCard) {
-                // Update existing card if data changed
-                if (hasDataChanged(existingCard, service)) {
-                    existingCard.replaceWith(createServiceCard(serviceName, service));
-                }
-            } else {
-                // Add new card
-                serviceList.appendChild(createServiceCard(serviceName, service));
-            }
-            currentCards.delete(serviceName);
-        }
-        
-        // Remove obsolete cards
-        currentCards.forEach(card => card.remove());
-        
-    } catch (error) {
-        console.error('Failed to update services:', error);
-        showError(`Failed to update services: ${error.message}`);
-    } finally {
-        isUpdating = false;
-    }
-}
-
-function hasDataChanged(card, service) {
-    return (
-        card.dataset.status !== service.status ||
-        card.dataset.uptime !== String(service.uptime) ||
-        card.dataset.memory !== JSON.stringify(service.memory_usage) ||
-        card.dataset.version !== (service.service_info?.version || '')
-    );
-}
-
-function createServiceCard(serviceName, service) {
-    const info = service.service_info || {};
-    const isRunning = info.running === true;
-    const status = service.status || 'unknown';
-    const version = info.version ? escapeHtml(info.version) : '';
-    const error = info.error ? escapeHtml(info.error) : '';
-    
-    const card = document.createElement('div');
-    card.id = `service-${serviceName}`;
-    card.className = `service-card ${status}`;
-    card.dataset.status = status;
-    card.dataset.uptime = service.uptime;
-    card.dataset.memory = JSON.stringify(service.memory_usage);
-    card.dataset.version = version;
-    
-    card.innerHTML = `
-        <div class="service-header">
-            <div class="service-title">
-                <h4>${escapeHtml(serviceName)}</h4>
-                ${version ? `<span class="version">v${version}</span>` : ''}
-            </div>
-            <span class="status-badge">${escapeHtml(status)}</span>
-        </div>
-        <div class="service-details">
-            <p><i class="fas fa-network-wired"></i> Port: ${service.port}</p>
-            <p><i class="fas fa-clock"></i> Uptime: ${formatUptime(service.uptime)}</p>
-            <p><i class="fas fa-memory"></i> Memory: ${formatMemoryUsage(service.memory_usage)}</p>
-            ${error ? `<p class="error"><i class="fas fa-exclamation-triangle"></i> ${error}</p>` : ''}
-        </div>
-        <div class="service-controls">
-            ${isRunning ? 
-                `<button onclick="controlService('${escapeHtml(serviceName)}', 'stop')" class="stop-btn">
-                    <i class="fas fa-stop"></i> Stop
-                </button>
-                <button onclick="controlService('${escapeHtml(serviceName)}', 'restart')" class="restart-btn">
-                    <i class="fas fa-sync"></i> Restart
-                </button>` :
-                `<button onclick="controlService('${escapeHtml(serviceName)}', 'start')" class="start-btn">
-                    <i class="fas fa-play"></i> Start
-                </button>`
-            }
-        </div>
-    `;
-    
-    return card;
-}
-
-// Service control with proper error handling and visual feedback
-async function controlService(serviceName, action) {
-    const button = event.target.closest('button');
-    if (!button) return;
-    
-    const card = button.closest('.service-card');
-    const controls = card.querySelector('.service-controls');
-    const statusBadge = card.querySelector('.status-badge');
-    const originalStatus = statusBadge.textContent;
-    
-    try {
-        // Disable controls and show loading state
-        controls.querySelectorAll('button').forEach(btn => btn.disabled = true);
-        card.classList.add('updating');
-        statusBadge.textContent = 'Updating...';
-        
-        const response = await fetch('/monitoring/services/control', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ 
-                service: serviceName, 
-                action: action 
-            })
-        });
-        
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail?.message || `Failed to ${action} service`);
-        }
-        
-        // Update immediately and start polling for status changes
-        await updateServices();
-        pollServiceStatus(serviceName);
-        
-    } catch (error) {
-        console.error('Service control error:', error);
-        showError(error.message);
-        
-        // Restore original state
-        statusBadge.textContent = originalStatus;
-        card.classList.remove('updating');
-        controls.querySelectorAll('button').forEach(btn => btn.disabled = false);
-    }
-}
-
-// Poll service status after control action
-async function pollServiceStatus(serviceName, attempts = 30) {
-    const interval = setInterval(async () => {
-        try {
-            const response = await fetch('/monitoring/services/status');
-            if (!response.ok) throw new Error('Failed to get service status');
-            
-            const services = await response.json();
-            const service = services[serviceName];
-            
-            if (service && service.status !== 'updating') {
-                clearInterval(interval);
-                updateServices();
-            }
-        } catch (error) {
-            console.error('Status poll error:', error);
-            clearInterval(interval);
-        }
-        
-        if (--attempts <= 0) {
-            clearInterval(interval);
-            updateServices();
-        }
-    }, 1000);
-}
-
-// WebSocket for log updates with reconnection
-let ws;
-let wsReconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 5;
-
-function setupWebSocket() {
-    const logDisplay = document.getElementById('service-logs');
-    const statusDiv = logDisplay.querySelector('.log-status');
-    
-    try {
-        ws = new WebSocket(`ws://${window.location.host}/monitoring/logs`);
-        
-        ws.onopen = () => {
-            statusDiv.textContent = 'Connected to log stream';
-            statusDiv.classList.remove('error');
-            wsReconnectAttempts = 0;
-        };
-        
-        ws.onmessage = (event) => {
-            const log = JSON.parse(event.data);
-            addLogEntry(log);
-            statusDiv.style.display = 'none';
-        };
-        
-        ws.onclose = () => {
-            statusDiv.textContent = 'Disconnected from log stream';
-            statusDiv.classList.add('error');
-            statusDiv.style.display = 'block';
-            
-            if (wsReconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-                wsReconnectAttempts++;
-                setTimeout(setupWebSocket, 5000);
-            }
-        };
-        
-        ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            statusDiv.textContent = 'Error connecting to log stream';
-            statusDiv.classList.add('error');
-        };
-        
-    } catch (error) {
-        console.error('WebSocket setup error:', error);
-        statusDiv.textContent = 'Failed to connect to log stream';
-        statusDiv.classList.add('error');
-    }
-}
-
-function addLogEntry(log) {
-    const logDisplay = document.getElementById('service-logs');
-    const entry = document.createElement('div');
-    entry.className = `log-entry ${log.level.toLowerCase()}`;
-    
-    // Format timestamp
-    const timestamp = new Date(log.timestamp).toLocaleTimeString();
-    
-    // Create log content with escaped HTML
-    const message = escapeHtml(log.message).replace(/\n/g, '<br>');
-    entry.innerHTML = `
-        <span class="timestamp">${timestamp}</span>
-        <span class="service">${escapeHtml(log.service)}</span>
-        <span class="level">${escapeHtml(log.level)}</span>
-        <span class="message">${message}</span>
-    `;
-    
-    logDisplay.appendChild(entry);
-    
-    // Keep last 100 entries and auto-scroll
-    while (logDisplay.children.length > 101) { // +1 for status div
-        logDisplay.removeChild(logDisplay.children[1]); // Skip status div
-    }
-    
-    // Auto-scroll to bottom
-    logDisplay.scrollTop = logDisplay.scrollHeight;
-}
-
-function showError(message) {
-    // You can implement this to show errors in a user-friendly way
-    console.error(message);
-}
-
-// Start monitoring
-document.addEventListener('DOMContentLoaded', () => {
-    updateServices();
-    updateInterval = setInterval(updateServices, 5000);
-    setupWebSocket();
-});
-
-// Cleanup on page unload
-window.addEventListener('beforeunload', () => {
-    if (updateInterval) clearInterval(updateInterval);
-    if (ws) ws.close();
-});
+// Update services status every 5 seconds
+updateServices();
+setInterval(updateServices, 5000);
 </script>
 {% endblock %} 

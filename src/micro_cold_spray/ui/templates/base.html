@@ -1,20 +1,20 @@
 <!-- micro_cold_spray/ui/templates/base.html -->
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>MicroColdSpray UI</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MicroColdSpray Service Monitor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body>
-    <nav>
-        <a href="/">Home</a>
-        <a href="/testing">Testing</a>
-        <a href="/monitoring/services">Services</a>
-    </nav>
+<body class="bg-gray-50">
+    <header class="bg-white shadow">
+        <div class="container mx-auto px-4 py-4">
+            <h1 class="text-2xl font-bold text-gray-800">Service Monitor</h1>
+        </div>
+    </header>
     <main>
         {% block content %}{% endblock %}
     </main>
-    <script src="{{ url_for('static', path='js/main.js') }}"></script>
 </body>
 </html>
