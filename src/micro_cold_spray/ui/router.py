@@ -42,6 +42,8 @@ class ServiceInfo(BaseModel):
     """Service information model."""
     running: bool = Field(..., description="Service running status")
     version: str = Field("1.0.0", description="Service version")
+    uptime: float = Field(..., description="Service uptime in seconds")
+    memory_usage: Dict[str, float] = Field(..., description="Memory usage stats")
     error: Optional[str] = Field(None, description="Error message if any")
 
 
@@ -97,16 +99,15 @@ async def check_service_health(url: str, service_name: str = None) -> ServiceInf
         ServiceInfo with status details
     """
     try:
-        # Use service-specific health endpoint path
-        health_path = "/messaging/health" if service_name == "messaging" else "/health"
-        
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{url}{health_path}", timeout=2) as response:
+            async with session.get(f"{url}/health", timeout=2) as response:
                 if response.status == 200:
                     data = await response.json()
                     return ServiceInfo(
                         running=True,
                         version=data.get("version", "1.0.0"),
+                        uptime=data.get("uptime", 0.0),
+                        memory_usage=data.get("memory_usage", {}),
                         error=None
                     )
                 return ServiceInfo(
@@ -189,7 +190,7 @@ def create_app() -> FastAPI:
                 return HealthResponse(
                     status="ok",
                     service_name="ui",
-                    version="1.0.0",
+                    version=app.version,
                     is_running=True,
                     uptime=get_uptime(),
                     memory_usage=get_memory_usage(),
@@ -202,7 +203,7 @@ def create_app() -> FastAPI:
                 return HealthResponse(
                     status="error",
                     service_name="ui",
-                    version="1.0.0",
+                    version=app.version,
                     is_running=False,
                     uptime=0.0,
                     memory_usage={},
@@ -263,8 +264,8 @@ def create_app() -> FastAPI:
                         name=service_name,
                         port=port,
                         status="ok" if service_info.running else "error",
-                        uptime=get_uptime(),
-                        memory_usage=get_memory_usage(),
+                        uptime=service_info.uptime,
+                        memory_usage=service_info.memory_usage,
                         service_info=service_info
                     )
 

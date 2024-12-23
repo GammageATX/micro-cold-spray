@@ -18,6 +18,7 @@ class BaseConfigService:
             name: Service name
         """
         self.name = name
+        self._version = "1.0.0"
         self._is_running = False
         self._start_time = None
         self._error = None
@@ -26,6 +27,11 @@ class BaseConfigService:
     def is_running(self) -> bool:
         """Get service running state."""
         return self._is_running
+
+    @property
+    def version(self) -> str:
+        """Get service version."""
+        return self._version
 
     @property
     def uptime(self) -> float:

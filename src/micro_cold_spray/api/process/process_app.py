@@ -8,6 +8,7 @@ from loguru import logger
 from micro_cold_spray.api.base.base_errors import create_error
 from micro_cold_spray.api.process.process_service import ProcessService
 from micro_cold_spray.api.process.endpoints.process_endpoints import ProcessRouter, HealthResponse
+from micro_cold_spray.ui.utils import get_uptime, get_memory_usage
 
 
 @asynccontextmanager
@@ -83,20 +84,37 @@ def create_app() -> FastAPI:
             if not hasattr(app.state, "process_service"):
                 return HealthResponse(
                     status="error",
+                    service_name="process",
+                    version="1.0.0",
                     is_running=False,
+                    uptime=0.0,
+                    memory_usage=get_memory_usage(),
+                    error="Service not initialized",
                     timestamp=datetime.now()
                 )
                 
             return HealthResponse(
                 status="ok" if app.state.process_service.is_running else "error",
+                service_name="process",
+                version="1.0.0",
                 is_running=app.state.process_service.is_running,
+                uptime=get_uptime(),
+                memory_usage=get_memory_usage(),
+                error=None if app.state.process_service.is_running else "Service not running",
                 timestamp=datetime.now()
             )
         except Exception as e:
-            logger.error(f"Health check failed: {e}")
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"Health check failed: {str(e)}"
+            error_msg = f"Health check failed: {str(e)}"
+            logger.error(error_msg)
+            return HealthResponse(
+                status="error",
+                service_name="process",
+                version="1.0.0",
+                is_running=False,
+                uptime=0.0,
+                memory_usage=get_memory_usage(),
+                error=error_msg,
+                timestamp=datetime.now()
             )
     
     return app

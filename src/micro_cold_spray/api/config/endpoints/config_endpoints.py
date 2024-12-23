@@ -1,6 +1,6 @@
 """Configuration service endpoints."""
 
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 from datetime import datetime
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
@@ -26,7 +26,7 @@ class HealthResponse(BaseModel):
     memory_usage: Dict[str, float] = Field(..., description="Memory usage stats")
     error: Optional[str] = Field(None, description="Error message if any")
     timestamp: datetime = Field(default_factory=datetime.now, description="Response timestamp")
-    services: Dict[str, Dict[str, any]] = Field(default_factory=dict, description="Status of sub-services")
+    services: Dict[str, Dict[str, Any]] = Field(default_factory=dict, description="Status of sub-services")
 
 
 def get_config_router() -> APIRouter:

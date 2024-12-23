@@ -15,286 +15,6 @@
     </div>
 </div>
 
-<script>
-// Service status updates
-let updateInterval;
-let isUpdating = false;
-
-async function updateServices() {
-    if (isUpdating) return;
-    isUpdating = true;
-    
-    try {
-        const response = await fetch('/monitoring/services/status');
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-        const services = await response.json();
-        
-        const serviceList = document.getElementById('service-list');
-        const currentCards = new Map(
-            Array.from(serviceList.children)
-                .filter(el => el.id.startsWith('service-'))
-                .map(el => [el.id.replace('service-', ''), el])
-        );
-        
-        // Update or add services
-        for (const service of Object.values(services)) {
-            const cardId = `service-${service.name}`;
-            const existingCard = currentCards.get(service.name);
-            
-            if (existingCard) {
-                // Update existing card if data changed
-                if (hasDataChanged(existingCard, service)) {
-                    const newCard = createServiceCard(service);
-                    existingCard.replaceWith(newCard);
-                }
-            } else {
-                // Add new card
-                serviceList.insertAdjacentHTML('beforeend', createServiceCard(service));
-            }
-            currentCards.delete(service.name);
-        }
-        
-        // Remove obsolete cards
-        currentCards.forEach(card => card.remove());
-        
-    } catch (error) {
-        console.error('Failed to update services:', error);
-        showError(`Failed to update services: ${error.message}`);
-    } finally {
-        isUpdating = false;
-    }
-}
-
-function hasDataChanged(card, service) {
-    return (
-        card.dataset.status !== service.status ||
-        card.dataset.uptime !== service.uptime ||
-        card.dataset.memory !== service.memory_usage ||
-        card.dataset.version !== service.version
-    );
-}
-
-function createServiceCard(service) {
-    const info = service.service_info || {};
-    const isRunning = info.running === true;
-    const status = service.status || 'unknown';
-    
-    return `
-        <div id="service-${service.name}" 
-             class="service-card ${status}"
-             data-status="${status}"
-             data-uptime="${service.uptime}"
-             data-memory="${service.memory_usage}"
-             data-version="${info.version || ''}">
-            <div class="service-header">
-                <div class="service-title">
-                    <h4>${service.name}</h4>
-                    ${info.version ? `<span class="version">v${info.version}</span>` : ''}
-                </div>
-                <span class="status-badge">${status}</span>
-            </div>
-            <div class="service-details">
-                <p><i class="fas fa-network-wired"></i> Port: ${service.port}</p>
-                <p><i class="fas fa-clock"></i> Uptime: ${formatUptime(service.uptime)}</p>
-                <p><i class="fas fa-memory"></i> Memory: ${formatMemoryUsage(service.memory_usage)}</p>
-                ${info.error ? `<p class="error"><i class="fas fa-exclamation-triangle"></i> ${info.error}</p>` : ''}
-            </div>
-            <div class="service-controls">
-                ${isRunning ? 
-                    `<button onclick="controlService('${service.name}', 'stop')" class="stop-btn">
-                        <i class="fas fa-stop"></i> Stop
-                    </button>
-                     <button onclick="controlService('${service.name}', 'restart')" class="restart-btn">
-                        <i class="fas fa-sync"></i> Restart
-                     </button>` :
-                    `<button onclick="controlService('${service.name}', 'start')" class="start-btn">
-                        <i class="fas fa-play"></i> Start
-                     </button>`
-                }
-            </div>
-        </div>
-    `;
-}
-
-// Service control with proper error handling and visual feedback
-async function controlService(serviceName, action) {
-    const button = event.target.closest('button');
-    if (!button) return;
-    
-    const card = button.closest('.service-card');
-    const controls = card.querySelector('.service-controls');
-    const statusBadge = card.querySelector('.status-badge');
-    const originalStatus = statusBadge.textContent;
-    
-    try {
-        // Disable controls and show loading state
-        controls.querySelectorAll('button').forEach(btn => btn.disabled = true);
-        card.classList.add('updating');
-        statusBadge.textContent = 'Updating...';
-        
-        const response = await fetch('/monitoring/services/control', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ service: serviceName, action })
-        });
-        
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail?.message || `Failed to ${action} service`);
-        }
-        
-        // Update immediately and start polling for status changes
-        await updateServices();
-        pollServiceStatus(serviceName);
-        
-    } catch (error) {
-        console.error('Service control error:', error);
-        showError(error.message);
-        
-        // Restore original state
-        statusBadge.textContent = originalStatus;
-        card.classList.remove('updating');
-        controls.querySelectorAll('button').forEach(btn => btn.disabled = false);
-    }
-}
-
-// Poll service status after control action
-async function pollServiceStatus(serviceName, attempts = 30) {
-    const interval = setInterval(async () => {
-        try {
-            const response = await fetch('/monitoring/services/status');
-            if (!response.ok) throw new Error('Failed to get service status');
-            
-            const services = await response.json();
-            const service = services[serviceName];
-            
-            if (service && service.status !== 'updating') {
-                clearInterval(interval);
-                updateServices();
-            }
-        } catch (error) {
-            console.error('Status poll error:', error);
-            clearInterval(interval);
-        }
-        
-        if (--attempts <= 0) {
-            clearInterval(interval);
-            updateServices();
-        }
-    }, 1000);
-}
-
-// WebSocket for log updates with reconnection
-let ws;
-let wsReconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 5;
-
-function setupWebSocket() {
-    const logDisplay = document.getElementById('service-logs');
-    const statusDiv = logDisplay.querySelector('.log-status');
-    
-    try {
-        ws = new WebSocket(`ws://${window.location.host}/ws/logs`);
-        
-        ws.onopen = () => {
-            statusDiv.textContent = 'Connected to log stream';
-            statusDiv.classList.remove('error');
-            wsReconnectAttempts = 0;
-        };
-        
-        ws.onmessage = (event) => {
-            const log = JSON.parse(event.data);
-            addLogEntry(log);
-            statusDiv.style.display = 'none';
-        };
-        
-        ws.onclose = () => {
-            statusDiv.textContent = 'Disconnected from log stream';
-            statusDiv.classList.add('error');
-            statusDiv.style.display = 'block';
-            
-            if (wsReconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-                wsReconnectAttempts++;
-                setTimeout(setupWebSocket, 5000);
-            }
-        };
-        
-        ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            statusDiv.textContent = 'Error connecting to log stream';
-            statusDiv.classList.add('error');
-        };
-        
-    } catch (error) {
-        console.error('WebSocket setup error:', error);
-        statusDiv.textContent = 'Failed to connect to log stream';
-        statusDiv.classList.add('error');
-    }
-}
-
-function addLogEntry(log) {
-    const logDisplay = document.getElementById('service-logs');
-    const entry = document.createElement('div');
-    entry.className = `log-entry ${log.level.toLowerCase()}`;
-    entry.innerHTML = `
-        <span class="timestamp">${new Date(log.timestamp).toLocaleString()}</span>
-        <span class="service">${log.service}</span>
-        <span class="level">${log.level}</span>
-        <span class="message">${log.message}</span>
-    `;
-    
-    logDisplay.appendChild(entry);
-    
-    // Keep last 100 entries
-    while (logDisplay.children.length > 101) { // +1 for status div
-        logDisplay.removeChild(logDisplay.children[1]); // Skip status div
-    }
-    
-    logDisplay.scrollTop = logDisplay.scrollHeight;
-}
-
-// Utility functions
-function formatMemoryUsage(bytes) {
-    if (!bytes || bytes === 'N/A') return 'N/A';
-    const mb = bytes / (1024 * 1024);
-    return `${mb.toFixed(1)} MB`;
-}
-
-function formatUptime(seconds) {
-    if (!seconds || seconds === 'N/A') return 'N/A';
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    return `${hours}h ${minutes}m`;
-}
-
-// Initialize
-function initMonitor() {
-    updateServices();
-    setupWebSocket();
-    startUpdates();
-}
-
-function startUpdates() {
-    updateInterval = setInterval(updateServices, 5000);
-}
-
-function stopUpdates() {
-    clearInterval(updateInterval);
-    if (ws) ws.close();
-}
-
-// Event listeners
-document.addEventListener('DOMContentLoaded', initMonitor);
-document.addEventListener('visibilitychange', () => {
-    if (document.hidden) {
-        stopUpdates();
-    } else {
-        startUpdates();
-    }
-});
-window.addEventListener('unload', stopUpdates);
-</script>
-
 <style>
 .service-grid {
     display: grid;
@@ -435,6 +155,8 @@ window.addEventListener('unload', stopUpdates);
     border-bottom: 1px solid #333;
     font-size: 0.9em;
     line-height: 1.4;
+    white-space: pre-wrap;
+    word-wrap: break-word;
 }
 
 .log-entry .timestamp { color: #569cd6; }
@@ -442,6 +164,8 @@ window.addEventListener('unload', stopUpdates);
 .log-entry .level { color: #ce9178; margin-right: 10px; }
 .log-entry.error { color: #f44747; }
 .log-entry.warning { color: #dcdcaa; }
+.log-entry.debug { color: #888888; }
+.log-entry.critical { color: #ff0000; font-weight: bold; }
 
 /* Error message */
 .error-message {
@@ -455,4 +179,297 @@ window.addEventListener('unload', stopUpdates);
     gap: 8px;
 }
 </style>
+
+<script>
+// Service status updates
+let updateInterval;
+let isUpdating = false;
+
+function escapeHtml(unsafe) {
+    return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function formatUptime(seconds) {
+    if (!seconds || isNaN(seconds)) return '0h 0m';
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    return `${hours}h ${minutes}m`;
+}
+
+function formatMemoryUsage(memory) {
+    if (!memory || typeof memory !== 'object') return '0 MB';
+    const total = memory.total || 0;
+    return `${total.toFixed(1)} MB`;
+}
+
+async function updateServices() {
+    if (isUpdating) return;
+    isUpdating = true;
+    
+    try {
+        const response = await fetch('/monitoring/services/status');
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const services = await response.json();
+        
+        const serviceList = document.getElementById('service-list');
+        const currentCards = new Map(
+            Array.from(serviceList.children)
+                .filter(el => el.id.startsWith('service-'))
+                .map(el => [el.id.replace('service-', ''), el])
+        );
+        
+        // Update or add services
+        for (const [serviceName, service] of Object.entries(services)) {
+            const cardId = `service-${serviceName}`;
+            const existingCard = currentCards.get(serviceName);
+            
+            if (existingCard) {
+                // Update existing card if data changed
+                if (hasDataChanged(existingCard, service)) {
+                    existingCard.replaceWith(createServiceCard(serviceName, service));
+                }
+            } else {
+                // Add new card
+                serviceList.appendChild(createServiceCard(serviceName, service));
+            }
+            currentCards.delete(serviceName);
+        }
+        
+        // Remove obsolete cards
+        currentCards.forEach(card => card.remove());
+        
+    } catch (error) {
+        console.error('Failed to update services:', error);
+        showError(`Failed to update services: ${error.message}`);
+    } finally {
+        isUpdating = false;
+    }
+}
+
+function hasDataChanged(card, service) {
+    return (
+        card.dataset.status !== service.status ||
+        card.dataset.uptime !== String(service.uptime) ||
+        card.dataset.memory !== JSON.stringify(service.memory_usage) ||
+        card.dataset.version !== (service.service_info?.version || '')
+    );
+}
+
+function createServiceCard(serviceName, service) {
+    const info = service.service_info || {};
+    const isRunning = info.running === true;
+    const status = service.status || 'unknown';
+    const version = info.version ? escapeHtml(info.version) : '';
+    const error = info.error ? escapeHtml(info.error) : '';
+    
+    const card = document.createElement('div');
+    card.id = `service-${serviceName}`;
+    card.className = `service-card ${status}`;
+    card.dataset.status = status;
+    card.dataset.uptime = service.uptime;
+    card.dataset.memory = JSON.stringify(service.memory_usage);
+    card.dataset.version = version;
+    
+    card.innerHTML = `
+        <div class="service-header">
+            <div class="service-title">
+                <h4>${escapeHtml(serviceName)}</h4>
+                ${version ? `<span class="version">v${version}</span>` : ''}
+            </div>
+            <span class="status-badge">${escapeHtml(status)}</span>
+        </div>
+        <div class="service-details">
+            <p><i class="fas fa-network-wired"></i> Port: ${service.port}</p>
+            <p><i class="fas fa-clock"></i> Uptime: ${formatUptime(service.uptime)}</p>
+            <p><i class="fas fa-memory"></i> Memory: ${formatMemoryUsage(service.memory_usage)}</p>
+            ${error ? `<p class="error"><i class="fas fa-exclamation-triangle"></i> ${error}</p>` : ''}
+        </div>
+        <div class="service-controls">
+            ${isRunning ? 
+                `<button onclick="controlService('${escapeHtml(serviceName)}', 'stop')" class="stop-btn">
+                    <i class="fas fa-stop"></i> Stop
+                </button>
+                <button onclick="controlService('${escapeHtml(serviceName)}', 'restart')" class="restart-btn">
+                    <i class="fas fa-sync"></i> Restart
+                </button>` :
+                `<button onclick="controlService('${escapeHtml(serviceName)}', 'start')" class="start-btn">
+                    <i class="fas fa-play"></i> Start
+                </button>`
+            }
+        </div>
+    `;
+    
+    return card;
+}
+
+// Service control with proper error handling and visual feedback
+async function controlService(serviceName, action) {
+    const button = event.target.closest('button');
+    if (!button) return;
+    
+    const card = button.closest('.service-card');
+    const controls = card.querySelector('.service-controls');
+    const statusBadge = card.querySelector('.status-badge');
+    const originalStatus = statusBadge.textContent;
+    
+    try {
+        // Disable controls and show loading state
+        controls.querySelectorAll('button').forEach(btn => btn.disabled = true);
+        card.classList.add('updating');
+        statusBadge.textContent = 'Updating...';
+        
+        const response = await fetch('/monitoring/services/control', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ 
+                service: serviceName, 
+                action: action 
+            })
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail?.message || `Failed to ${action} service`);
+        }
+        
+        // Update immediately and start polling for status changes
+        await updateServices();
+        pollServiceStatus(serviceName);
+        
+    } catch (error) {
+        console.error('Service control error:', error);
+        showError(error.message);
+        
+        // Restore original state
+        statusBadge.textContent = originalStatus;
+        card.classList.remove('updating');
+        controls.querySelectorAll('button').forEach(btn => btn.disabled = false);
+    }
+}
+
+// Poll service status after control action
+async function pollServiceStatus(serviceName, attempts = 30) {
+    const interval = setInterval(async () => {
+        try {
+            const response = await fetch('/monitoring/services/status');
+            if (!response.ok) throw new Error('Failed to get service status');
+            
+            const services = await response.json();
+            const service = services[serviceName];
+            
+            if (service && service.status !== 'updating') {
+                clearInterval(interval);
+                updateServices();
+            }
+        } catch (error) {
+            console.error('Status poll error:', error);
+            clearInterval(interval);
+        }
+        
+        if (--attempts <= 0) {
+            clearInterval(interval);
+            updateServices();
+        }
+    }, 1000);
+}
+
+// WebSocket for log updates with reconnection
+let ws;
+let wsReconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
+
+function setupWebSocket() {
+    const logDisplay = document.getElementById('service-logs');
+    const statusDiv = logDisplay.querySelector('.log-status');
+    
+    try {
+        ws = new WebSocket(`ws://${window.location.host}/monitoring/logs`);
+        
+        ws.onopen = () => {
+            statusDiv.textContent = 'Connected to log stream';
+            statusDiv.classList.remove('error');
+            wsReconnectAttempts = 0;
+        };
+        
+        ws.onmessage = (event) => {
+            const log = JSON.parse(event.data);
+            addLogEntry(log);
+            statusDiv.style.display = 'none';
+        };
+        
+        ws.onclose = () => {
+            statusDiv.textContent = 'Disconnected from log stream';
+            statusDiv.classList.add('error');
+            statusDiv.style.display = 'block';
+            
+            if (wsReconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                wsReconnectAttempts++;
+                setTimeout(setupWebSocket, 5000);
+            }
+        };
+        
+        ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            statusDiv.textContent = 'Error connecting to log stream';
+            statusDiv.classList.add('error');
+        };
+        
+    } catch (error) {
+        console.error('WebSocket setup error:', error);
+        statusDiv.textContent = 'Failed to connect to log stream';
+        statusDiv.classList.add('error');
+    }
+}
+
+function addLogEntry(log) {
+    const logDisplay = document.getElementById('service-logs');
+    const entry = document.createElement('div');
+    entry.className = `log-entry ${log.level.toLowerCase()}`;
+    
+    // Format timestamp
+    const timestamp = new Date(log.timestamp).toLocaleTimeString();
+    
+    // Create log content with escaped HTML
+    const message = escapeHtml(log.message).replace(/\n/g, '<br>');
+    entry.innerHTML = `
+        <span class="timestamp">${timestamp}</span>
+        <span class="service">${escapeHtml(log.service)}</span>
+        <span class="level">${escapeHtml(log.level)}</span>
+        <span class="message">${message}</span>
+    `;
+    
+    logDisplay.appendChild(entry);
+    
+    // Keep last 100 entries and auto-scroll
+    while (logDisplay.children.length > 101) { // +1 for status div
+        logDisplay.removeChild(logDisplay.children[1]); // Skip status div
+    }
+    
+    // Auto-scroll to bottom
+    logDisplay.scrollTop = logDisplay.scrollHeight;
+}
+
+function showError(message) {
+    // You can implement this to show errors in a user-friendly way
+    console.error(message);
+}
+
+// Start monitoring
+document.addEventListener('DOMContentLoaded', () => {
+    updateServices();
+    updateInterval = setInterval(updateServices, 5000);
+    setupWebSocket();
+});
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', () => {
+    if (updateInterval) clearInterval(updateInterval);
+    if (ws) ws.close();
+});
+</script>
 {% endblock %} 
