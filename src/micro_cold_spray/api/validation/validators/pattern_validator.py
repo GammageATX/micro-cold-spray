@@ -1,42 +1,35 @@
 """Pattern validator."""
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 from loguru import logger
 from fastapi import status
 
 from micro_cold_spray.api.base.base_errors import create_error
-from micro_cold_spray.api.messaging import MessagingService
 from micro_cold_spray.api.validation.validators.base_validator import (
     check_required_fields,
     check_unknown_fields,
     check_numeric_range,
-    check_enum_value,
-    check_pattern
+    check_enum_value
 )
 
 
 class PatternValidator:
-    """Validator for spray patterns."""
+    """Validator for pattern configurations."""
 
-    def __init__(
-        self,
-        validation_rules: Dict[str, Any],
-        message_broker: Optional[MessagingService] = None
-    ):
+    def __init__(self, validation_rules: Dict[str, Any]):
         """Initialize pattern validator.
         
         Args:
             validation_rules: Validation rules from config
-            message_broker: Optional message broker for hardware checks
         """
         self._rules = validation_rules
-        self._message_broker = message_broker
 
-    async def validate(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate pattern data.
+    async def validate(self, pattern_type: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate pattern configuration.
         
         Args:
-            data: Pattern data to validate
+            pattern_type: Type of pattern to validate
+            data: Pattern configuration to validate
             
         Returns:
             Dict containing:
@@ -44,32 +37,51 @@ class PatternValidator:
                 - errors: List of error messages
                 - warnings: List of warning messages
         """
-        errors: List[str] = []
-        warnings: List[str] = []
-        
         try:
-            # Check required fields
-            if "patterns" not in self._rules:
-                raise ValueError("No pattern validation rules found")
-                
-            pattern_rules = self._rules["patterns"]
+            errors = []
+            warnings = []
             
-            # Check pattern type
-            pattern_type = data.get("type")
-            if not pattern_type:
-                errors.append("Missing pattern type")
-            elif pattern_type not in pattern_rules:
-                errors.append(f"Unknown pattern type: {pattern_type}")
-            else:
-                # Validate based on pattern type
-                if pattern_type == "serpentine":
-                    type_errors = await self._validate_serpentine_pattern(data)
-                    errors.extend(type_errors)
-                elif pattern_type == "spiral":
-                    type_errors = await self._validate_spiral_pattern(data)
-                    errors.extend(type_errors)
-                else:
-                    errors.append(f"Validation not implemented for pattern type: {pattern_type}")
+            # Get pattern rules
+            pattern_rules = self._rules.get("validation", {}).get("patterns", {}).get(pattern_type, {})
+            if not pattern_rules:
+                logger.warning(f"No validation rules found for pattern type: {pattern_type}")
+                return {
+                    "valid": True,
+                    "errors": [],
+                    "warnings": [f"No validation rules configured for pattern type: {pattern_type}"]
+                }
+
+            # Check required fields
+            if "required_fields" in pattern_rules:
+                errors.extend(check_required_fields(
+                    data,
+                    pattern_rules["required_fields"]["fields"],
+                    pattern_rules["required_fields"]["message"]
+                ))
+
+            # Check unknown fields
+            if "optional_fields" in pattern_rules:
+                warnings.extend(check_unknown_fields(
+                    data,
+                    pattern_rules["required_fields"]["fields"] + pattern_rules["optional_fields"]["fields"],
+                    pattern_rules["optional_fields"]["message"]
+                ))
+
+            # Validate dimensions if present
+            if "dimensions" in pattern_rules and "dimensions" in data:
+                dimension_errors = self._validate_dimensions(
+                    data["dimensions"],
+                    pattern_rules["dimensions"]
+                )
+                errors.extend(dimension_errors)
+
+            # Validate parameters if present
+            if "parameters" in pattern_rules and "parameters" in data:
+                parameter_errors = self._validate_parameters(
+                    data["parameters"],
+                    pattern_rules["parameters"]
+                )
+                errors.extend(parameter_errors)
 
             return {
                 "valid": len(errors) == 0,
@@ -84,132 +96,104 @@ class PatternValidator:
                 message=f"Pattern validation failed: {str(e)}"
             )
 
-    async def _validate_serpentine_pattern(self, data: Dict[str, Any]) -> List[str]:
-        """Validate serpentine pattern parameters.
+    def _validate_dimensions(self, dimensions: Dict[str, Any], rules: Dict[str, Any]) -> List[str]:
+        """Validate pattern dimensions.
         
         Args:
-            data: Pattern data
+            dimensions: Dimension data to validate
+            rules: Validation rules for dimensions
             
         Returns:
             List of error messages
         """
         errors = []
         try:
-            rules = self._rules["patterns"]["serpentine"]
-            params = data.get("params", {})
-            
-            # Check required parameters
-            errors.extend(check_required_fields(
-                params,
-                rules["required_fields"]["fields"],
-                "Serpentine pattern: "
-            ))
-            
-            # Check for unknown parameters
-            if "optional_fields" in rules:
-                valid_fields = (
-                    rules["required_fields"]["fields"] +
-                    rules["optional_fields"]["fields"]
-                )
-                errors.extend(check_unknown_fields(
-                    params,
-                    valid_fields,
-                    "Serpentine pattern: "
+            # Check required fields
+            if "required_fields" in rules:
+                errors.extend(check_required_fields(
+                    dimensions,
+                    rules["required_fields"]["fields"],
+                    rules["required_fields"]["message"]
                 ))
-            
-            # Validate parameter values
-            if "length" in params:
-                error = check_numeric_range(
-                    params["length"],
-                    min_val=0,
-                    field_name="Length"
-                )
-                if error:
-                    errors.append(f"Serpentine pattern: {error}")
-                    
-            if "spacing" in params:
-                error = check_numeric_range(
-                    params["spacing"],
-                    min_val=0,
-                    field_name="Spacing"
-                )
-                if error:
-                    errors.append(f"Serpentine pattern: {error}")
-                    
-            if "direction" in params:
-                error = check_enum_value(
-                    params["direction"],
-                    ["x", "y"],
-                    field_name="Direction"
-                )
-                if error:
-                    errors.append(f"Serpentine pattern: {error}")
-                    
+
+            # Check unknown fields
+            if "optional_fields" in rules:
+                errors.extend(check_unknown_fields(
+                    dimensions,
+                    rules["required_fields"]["fields"] + rules["optional_fields"]["fields"],
+                    rules["optional_fields"]["message"]
+                ))
+
+            # Validate dimension values
+            if "limits" in rules:
+                for dim, limits in rules["limits"].items():
+                    if dim in dimensions:
+                        error = check_numeric_range(
+                            dimensions[dim],
+                            min_val=limits.get("min"),
+                            max_val=limits.get("max"),
+                            field_name=f"Dimension {dim}"
+                        )
+                        if error:
+                            errors.append(error)
+
         except Exception as e:
-            errors.append(f"Serpentine pattern validation error: {str(e)}")
+            errors.append(f"Dimension validation error: {str(e)}")
         return errors
 
-    async def _validate_spiral_pattern(self, data: Dict[str, Any]) -> List[str]:
-        """Validate spiral pattern parameters.
+    def _validate_parameters(self, parameters: Dict[str, Any], rules: Dict[str, Any]) -> List[str]:
+        """Validate pattern parameters.
         
         Args:
-            data: Pattern data
+            parameters: Parameter data to validate
+            rules: Validation rules for parameters
             
         Returns:
             List of error messages
         """
         errors = []
         try:
-            rules = self._rules["patterns"]["spiral"]
-            params = data.get("params", {})
-            
-            # Check required parameters
-            errors.extend(check_required_fields(
-                params,
-                rules["required_fields"]["fields"],
-                "Spiral pattern: "
-            ))
-            
-            # Check for unknown parameters
-            if "optional_fields" in rules:
-                valid_fields = (
-                    rules["required_fields"]["fields"] +
-                    rules["optional_fields"]["fields"]
-                )
-                errors.extend(check_unknown_fields(
-                    params,
-                    valid_fields,
-                    "Spiral pattern: "
+            # Check required fields
+            if "required_fields" in rules:
+                errors.extend(check_required_fields(
+                    parameters,
+                    rules["required_fields"]["fields"],
+                    rules["required_fields"]["message"]
                 ))
-            
+
+            # Check unknown fields
+            if "optional_fields" in rules:
+                errors.extend(check_unknown_fields(
+                    parameters,
+                    rules["required_fields"]["fields"] + rules["optional_fields"]["fields"],
+                    rules["optional_fields"]["message"]
+                ))
+
             # Validate parameter values
-            if "radius" in params:
-                error = check_numeric_range(
-                    params["radius"],
-                    min_val=0,
-                    field_name="Radius"
-                )
-                if error:
-                    errors.append(f"Spiral pattern: {error}")
-                    
-            if "spacing" in params:
-                error = check_numeric_range(
-                    params["spacing"],
-                    min_val=0,
-                    field_name="Spacing"
-                )
-                if error:
-                    errors.append(f"Spiral pattern: {error}")
-                    
-            if "direction" in params:
-                error = check_enum_value(
-                    params["direction"],
-                    ["CW", "CCW"],
-                    field_name="Direction"
-                )
-                if error:
-                    errors.append(f"Spiral pattern: {error}")
-                    
+            if "limits" in rules:
+                for param, limits in rules["limits"].items():
+                    if param in parameters:
+                        error = check_numeric_range(
+                            parameters[param],
+                            min_val=limits.get("min"),
+                            max_val=limits.get("max"),
+                            field_name=f"Parameter {param}"
+                        )
+                        if error:
+                            errors.append(error)
+
+            # Validate enum values
+            if "enum_values" in rules:
+                for param, values in rules["enum_values"].items():
+                    if param in parameters:
+                        error = check_enum_value(
+                            parameters[param],
+                            values["values"],
+                            field_name=f"Parameter {param}"
+                        )
+                        if error:
+                            errors.append(error)
+
         except Exception as e:
-            errors.append(f"Spiral pattern validation error: {str(e)}")
+            errors.append(f"Parameter validation error: {str(e)}")
         return errors

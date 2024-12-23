@@ -14,7 +14,7 @@ from loguru import logger
 import aiohttp
 
 from micro_cold_spray.api.base.base_errors import create_error
-from .utils import get_uptime
+from micro_cold_spray.utils.monitoring import get_uptime
 
 
 class ApiUrls(BaseModel):
