@@ -30,6 +30,18 @@ class ProcessService:
         self._sequence_service = SequenceService()
         self._current_sequence: Optional[str] = None
         self._is_running = False
+        self._name = "process"
+        self._version = "1.0.0"
+
+    @property
+    def name(self) -> str:
+        """Get service name."""
+        return self._name
+
+    @property
+    def version(self) -> str:
+        """Get service version."""
+        return self._version
 
     @property
     def is_running(self) -> bool:

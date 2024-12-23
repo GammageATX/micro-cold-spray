@@ -47,41 +47,6 @@ def get_service(request: Request) -> MessagingService:
     return request.app.service
 
 
-@router.get(
-    "/health",
-    response_model=HealthResponse,
-    responses={
-        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service is not running"}
-    }
-)
-async def health_check(service: MessagingService = Depends(get_service)) -> HealthResponse:
-    """Check service health."""
-    try:
-        return HealthResponse(
-            status="ok" if service.is_running else "error",
-            service_name=service.name,
-            version=service.version,
-            is_running=service.is_running,
-            uptime=get_uptime(),
-            memory_usage=get_memory_usage(),
-            error=None if service.is_running else "Service not running",
-            timestamp=datetime.now()
-        )
-    except Exception as e:
-        error_msg = f"Health check failed: {str(e)}"
-        logger.error(error_msg)
-        return HealthResponse(
-            status="error",
-            service_name=service.name,
-            version=service.version,
-            is_running=False,
-            uptime=0.0,
-            memory_usage={},
-            error=error_msg,
-            timestamp=datetime.now()
-        )
-
-
 @router.post(
     "/publish/{topic:path}",
     response_model=MessageResponse,

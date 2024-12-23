@@ -1,16 +1,24 @@
 """UI utility functions."""
 
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import psutil
 from loguru import logger
 from pathlib import Path
 import aiofiles
 from typing import Dict, Optional, Any, List
+import re
 
 _start_time = datetime.now()
 _last_log_position = 0
 LOG_FILE = Path("logs/micro_cold_spray.log")
+
+# Regular expression for parsing log entries
+LOG_PATTERN = re.compile(
+    r"(?P<timestamp>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}.\d{3})\s+\|\s+"
+    r"(?P<level>\w+)\s+\|\s+"
+    r"(?P<service>[^:]+):(?P<message>.*)"
+)
 
 
 def get_uptime() -> float:
@@ -87,26 +95,33 @@ async def monitor_service_logs() -> Optional[Dict[str, Any]]:
                     _last_log_position = await f.tell()
                     
                     # Parse log entry
-                    try:
-                        parts = [p.strip() for p in new_entry.split('|')]
-                        if len(parts) != 3:
-                            logger.warning(f"Invalid log format: {new_entry}")
-                            return None
-                            
-                        message_parts = parts[2].split('-', 1)
-                        if len(message_parts) != 2:
-                            logger.warning(f"Invalid message format: {parts[2]}")
-                            return None
-                            
-                        return {
-                            "timestamp": parts[0],
-                            "level": parts[1].strip(),
-                            "service": message_parts[0].strip(),
-                            "message": message_parts[1].strip()
-                        }
-                    except Exception as e:
-                        logger.error(f"Failed to parse log entry: {e}")
+                    match = LOG_PATTERN.match(new_entry)
+                    if not match:
+                        # If it's not a new log entry, it might be a continuation of a previous one
+                        # In this case, we'll just return it as part of the previous service's message
+                        if new_entry.strip():
+                            return {
+                                "timestamp": datetime.now().isoformat(),
+                                "level": "INFO",
+                                "service": "system",
+                                "message": new_entry.strip()
+                            }
                         return None
+                        
+                    # Extract log components
+                    log_data = match.groupdict()
+                    timestamp = datetime.strptime(log_data["timestamp"], "%Y-%m-%d %H:%M:%S.%f")
+                    
+                    # Only return logs from the last minute
+                    if datetime.now() - timestamp > timedelta(minutes=1):
+                        return None
+                        
+                    return {
+                        "timestamp": timestamp.isoformat(),
+                        "level": log_data["level"],
+                        "service": log_data["service"].strip(),
+                        "message": log_data["message"].strip()
+                    }
                         
             except OSError as e:
                 logger.error(f"Error reading log file: {e}")
@@ -140,7 +155,18 @@ async def get_log_entries(n: int = 100) -> List[str]:
             async with aiofiles.open(file_path, 'r') as f:
                 content = await f.read()
                 lines = content.splitlines()
-                return lines[-n:]
+                # Only return logs from the last minute
+                recent_logs = []
+                for line in reversed(lines):
+                    match = LOG_PATTERN.match(line)
+                    if match:
+                        log_data = match.groupdict()
+                        timestamp = datetime.strptime(log_data["timestamp"], "%Y-%m-%d %H:%M:%S.%f")
+                        if datetime.now() - timestamp <= timedelta(minutes=1):
+                            recent_logs.append(line)
+                        if len(recent_logs) >= n:
+                            break
+                return list(reversed(recent_logs))
         except PermissionError:
             return ["Permission denied while reading log file"]
         except OSError as e:

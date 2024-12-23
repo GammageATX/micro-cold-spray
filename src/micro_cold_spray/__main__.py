@@ -187,18 +187,8 @@ async def start_service(name: str, port: int, test_mode: bool = False) -> bool:
             # Try to connect to health endpoint
             try:
                 async with aiohttp.ClientSession() as session:
-                    # Each service has its own health endpoint pattern
-                    endpoint = {
-                        'messaging': '/messaging/health',
-                        'config': '/health',
-                        'communication': '/health',
-                        'state': '/health',
-                        'data_collection': '/health',
-                        'validation': '/health',
-                        'ui': '/health'
-                    }.get(name, '/health')
-                    
-                    async with session.get(f"http://localhost:{port}{endpoint}", timeout=2) as resp:
+                    # All services now use the standard /health endpoint
+                    async with session.get(f"http://localhost:{port}/health", timeout=2) as resp:
                         if resp.status == 200:
                             # Wait a bit longer after health check passes
                             await asyncio.sleep(2.0)
@@ -287,8 +277,7 @@ async def main(test_mode: bool = False):
                     for _ in range(30):  # Wait up to 30 seconds
                         try:
                             async with aiohttp.ClientSession() as session:
-                                endpoint = '/messaging/health' if dep == 'messaging' else '/health'
-                                async with session.get(f"http://localhost:{dep_port}{endpoint}", timeout=1) as resp:
+                                async with session.get(f"http://localhost:{dep_port}/health", timeout=1) as resp:
                                     if resp.status == 200:
                                         logger.info(f"Dependency {dep} is ready")
                                         break

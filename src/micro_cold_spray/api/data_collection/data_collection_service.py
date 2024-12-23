@@ -18,6 +18,24 @@ class DataCollectionService:
         self.storage = storage
         self.collecting = False
         self.current_sequence = None
+        self._name = "data_collection"
+        self._version = "1.0.0"
+        self._is_running = False
+
+    @property
+    def name(self) -> str:
+        """Get service name."""
+        return self._name
+
+    @property
+    def version(self) -> str:
+        """Get service version."""
+        return self._version
+
+    @property
+    def is_running(self) -> bool:
+        """Get service running state."""
+        return self._is_running
 
     async def initialize(self) -> None:
         """Initialize service."""
@@ -25,6 +43,7 @@ class DataCollectionService:
             if not self.storage:
                 self.storage = DataCollectionStorage()
                 await self.storage.initialize()
+            self._is_running = True
             logging.info("Data collection service initialized")
         except Exception as e:
             logging.error(f"Failed to initialize data collection service: {e}")
@@ -38,6 +57,7 @@ class DataCollectionService:
         try:
             self.collecting = False
             self.current_sequence = None
+            self._is_running = False
             logging.info("Data collection service stopped")
         except Exception as e:
             logging.error(f"Failed to stop data collection service: {e}")

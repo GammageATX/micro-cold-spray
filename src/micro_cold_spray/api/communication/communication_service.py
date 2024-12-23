@@ -25,6 +25,7 @@ class CommunicationService:
     def __init__(self):
         """Initialize communication service."""
         self._service_name = "communication"
+        self._version = "1.0.0"
         self._client: Optional[CommunicationClient] = None
         self._tag_cache: Optional[TagCacheService] = None
         self._tag_mapping: Optional[TagMappingService] = None
@@ -37,6 +38,11 @@ class CommunicationService:
     def is_running(self) -> bool:
         """Check if service is running."""
         return self._is_running
+
+    @property
+    def version(self) -> str:
+        """Get service version."""
+        return self._version
 
     @property
     def tag_cache(self) -> TagCacheService:

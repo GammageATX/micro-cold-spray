@@ -23,6 +23,7 @@ class ValidationService:
     def __init__(self):
         """Initialize validation service."""
         self._service_name = "validation"
+        self._version = "1.0.0"
         self._is_running = False
         self._validation_rules = {}
         self._message_broker: Optional[MessagingService] = None
@@ -31,6 +32,16 @@ class ValidationService:
         self._hardware_validator: Optional[HardwareValidator] = None
         self._parameter_validator: Optional[ParameterValidator] = None
         logger.info("Validation service initialized")
+
+    @property
+    def name(self) -> str:
+        """Get service name."""
+        return self._service_name
+
+    @property
+    def version(self) -> str:
+        """Get service version."""
+        return self._version
 
     @property
     def is_running(self) -> bool:
