@@ -1,0 +1,109 @@
+application:
+  development:
+    mock_hardware: true
+    profiling: false
+    testing:
+      coverage: false
+      enabled: false
+  environment:
+    async_mode: true
+    debug: false
+    log_level: INFO
+    mode: development
+    test_value: updated
+    user: Michael Gammage
+    user_history:
+    - Default User
+    - Michael Gammage
+  info:
+    description: Test description
+    name: Test App
+    version: 1.0.0
+  invalid: true
+  paths:
+    config: config/
+    data:
+      parameters: data/parameters/
+      nozzles: data/parameters/nozzles/
+      patterns:
+        root: data/patterns/
+        custom: data/patterns/
+        serpentine: data/patterns/
+        spiral: data/patterns/
+      sequences: data/sequences/
+      powders: data/powders/
+      runs: data/runs/
+    logs: logs/
+    resources: resources/
+    tags: resources/tags/
+  services:
+    config_manager:
+      backup_enabled: true
+      backup_interval: 3600
+      validation_enabled: true
+    data_manager:
+      cache_enabled: true
+      cache_timeout: 1000
+      formats:
+      - parameters
+      - patterns
+      - sequences
+      - nozzles
+      - powders
+      - runs
+      - spray_data
+      validation_enabled: true
+    state_manager:
+      history_enabled: true
+      history_length: 1000
+      transition_timeout: 5000
+    tag_manager:
+      cache_enabled: true
+      cache_timeout: 1000
+      poll_rate: 100
+    ui_manager:
+      error_display_timeout: 5000
+      update_rate: 100
+invalid_section:
+  test: true
+version: 1.0.0
+window:
+  geometry:
+    height: 720
+    width: 1280
+    x: 100
+    y: 100
+  layout:
+    main:
+    - dashboard
+    - motion
+    - process
+    - editor
+    - config
+    - diagnostics
+  style:
+    font:
+      family: Segoe UI
+      size: 10
+    theme: system
+  title: Micro Cold Spray Control System
+  widgets:
+    config:
+    - config_editor
+    - hardware_setup
+    dashboard:
+    - status_panel
+    - control_panel
+    diagnostics:
+    - tag_monitor
+    - validation_panel
+    editor:
+    - pattern_editor
+    - sequence_builder
+    - sequence_visualizer
+    motion:
+    - chamber_view
+    - motion_control
+    process:
+    - parameter_editor
+    - process_display

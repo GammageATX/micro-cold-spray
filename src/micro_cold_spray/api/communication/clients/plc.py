@@ -18,12 +18,12 @@ class PLCClient(CommunicationClient):
         """Initialize PLC client.
         
         Args:
-            config: Client configuration from hardware.yaml
+            config: Client configuration from communication.yaml
         """
         super().__init__(config)
         
         # Extract PLC config
-        plc_config = config["hardware"]["network"]["plc"]
+        plc_config = config["network"]["plc"]
         self._ip = plc_config["ip"]
         self._tag_file = plc_config["tag_file"]
         self._timeout = plc_config.get("timeout", 5.0)

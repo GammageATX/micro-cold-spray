@@ -1,40 +1,47 @@
 """Communication service for hardware control."""
 
-from typing import Dict, Any, Optional, List, Set
-import os
-import yaml
-from fastapi import status
-from loguru import logger
+from typing import Dict, Any, Optional
 from datetime import datetime
-import asyncio
-import time
+from loguru import logger
+from fastapi import status
 
 from micro_cold_spray.utils.errors import create_error
-from micro_cold_spray.api.communication.clients import create_client, CommunicationClient
-from micro_cold_spray.api.communication.clients.mock import MockClient
-from micro_cold_spray.api.communication.services.tag_cache import TagCacheService
-from micro_cold_spray.api.communication.services.motion import MotionService
-from micro_cold_spray.api.communication.services.equipment import EquipmentService
 from micro_cold_spray.api.communication.services.tag_mapping import TagMappingService
-from micro_cold_spray.api.communication.models.tags import TagValue, TagMetadata
-from micro_cold_spray.utils import get_uptime
+from micro_cold_spray.api.communication.services.tag_cache import TagCacheService
+from micro_cold_spray.api.communication.services.equipment import EquipmentService
+from micro_cold_spray.api.communication.services.motion import MotionService
 
 
 class CommunicationService:
     """Service for managing hardware communication."""
 
-    def __init__(self):
-        """Initialize communication service."""
-        self._service_name = "communication"
-        self._version = "1.0.0"
-        self._start_time = None
-        self._client: Optional[CommunicationClient] = None
-        self._tag_cache = TagCacheService()
-        self._tag_mapping = TagMappingService()
-        self._motion = MotionService()
-        self._equipment = EquipmentService()
+    def __init__(self, config: Dict[str, Any]):
+        """Initialize communication service.
+        
+        Args:
+            config: Service configuration
+        """
+        self._config = config
         self._is_running = False
-        logger.info("CommunicationService initialized")
+        self._start_time = None
+        
+        # Initialize services
+        self._tag_mapping = TagMappingService(config)
+        self._tag_cache = TagCacheService(
+            plc_address=config["communication"]["hardware"]["network"]["plc"]["ip"],
+            tags_file=config["communication"]["hardware"]["network"]["plc"]["tag_file"],
+            tag_mapping=self._tag_mapping,
+            poll_rate=config["communication"]["services"]["tag_cache"]["poll_rate"] / 1000.0,  # Convert ms to seconds
+            config=config
+        )
+        self._equipment = EquipmentService(config)
+        self._motion = MotionService(config)
+        
+        # Set tag cache for services that need it
+        self._equipment.set_tag_cache(self._tag_cache)
+        self._motion.set_tag_cache(self._tag_cache)
+        
+        logger.info("Communication service initialized")
 
     @property
     def is_running(self) -> bool:
@@ -42,42 +49,21 @@ class CommunicationService:
         return self._is_running
 
     @property
-    def version(self) -> str:
-        """Get service version."""
-        return self._version
-
-    @property
-    def tag_cache(self) -> TagCacheService:
-        """Get tag cache service."""
-        if not self._tag_cache:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Tag cache service not initialized"
-            )
-        return self._tag_cache
+    def equipment(self) -> EquipmentService:
+        """Get equipment service."""
+        return self._equipment
 
     @property
     def motion(self) -> MotionService:
         """Get motion service."""
-        if not self._motion:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Motion service not initialized"
-            )
         return self._motion
 
-    @property
-    def equipment(self) -> EquipmentService:
-        """Get equipment service."""
-        if not self._equipment:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Equipment service not initialized"
-            )
-        return self._equipment
-
-    async def start(self) -> None:
-        """Start communication service and all sub-services."""
+    async def initialize(self) -> None:
+        """Initialize communication service.
+        
+        Raises:
+            HTTPException: If initialization fails
+        """
         try:
             if self.is_running:
                 raise create_error(
@@ -85,28 +71,64 @@ class CommunicationService:
                     message="Service already running"
                 )
 
-            # Start sub-services
-            await self._tag_cache.start()
-            await self._tag_mapping.start()
-            await self._motion.start()
-            await self._equipment.start()
+            # Initialize in order
+            logger.info("Initializing tag mapping service...")
+            await self._tag_mapping.initialize()
+            logger.info("Tag mapping service initialized")
 
-            # Initialize hardware client
-            config_path = os.getenv("HARDWARE_CONFIG", "config/hardware.yaml")
-            if os.path.exists(config_path):
-                with open(config_path) as f:
-                    config = yaml.safe_load(f)
-                client_type = config.get("client_type", "mock")
-                self._client = create_client(client_type, config)
-                await self._client.connect()
-            else:
-                logger.warning(f"No hardware config found at {config_path}, using mock client")
-                self._client = MockClient({})
+            logger.info("Initializing tag cache service...")
+            await self._tag_cache.initialize()
+            logger.info("Tag cache service initialized")
 
-            self._start_time = datetime.now()
+            logger.info("Initializing equipment service...")
+            await self._equipment.initialize()
+            logger.info("Equipment service initialized")
+
+            logger.info("Initializing motion service...")
+            await self._motion.initialize()
+            logger.info("Motion service initialized")
+            
             self._is_running = True
-            logger.info("Communication service started")
+            self._start_time = datetime.now()
+            logger.info("Communication service initialized")
+            
+        except Exception as e:
+            error_msg = f"Failed to initialize communication service: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
 
+    async def start(self) -> None:
+        """Start communication service.
+        
+        Raises:
+            HTTPException: If startup fails
+        """
+        try:
+            if not self.is_running:
+                await self.initialize()
+            
+            # Start services in order
+            logger.info("Starting tag mapping service...")
+            await self._tag_mapping.start()
+            logger.info("Tag mapping service started")
+
+            logger.info("Starting tag cache service...")
+            await self._tag_cache.start()
+            logger.info("Tag cache service started")
+
+            logger.info("Starting equipment service...")
+            await self._equipment.start()
+            logger.info("Equipment service started")
+
+            logger.info("Starting motion service...")
+            await self._motion.start()
+            logger.info("Motion service started")
+            
+            logger.info("Communication service started")
+            
         except Exception as e:
             error_msg = f"Failed to start communication service: {str(e)}"
             logger.error(error_msg)
@@ -116,36 +138,23 @@ class CommunicationService:
             )
 
     async def stop(self) -> None:
-        """Stop communication service and all sub-services."""
+        """Stop communication service."""
         try:
-            if not self.is_running:
-                raise create_error(
-                    status_code=status.HTTP_409_CONFLICT,
-                    message="Service not running"
-                )
-
-            # Stop sub-services
-            await self._tag_cache.stop()
-            await self._tag_mapping.stop()
+            logger.info("Stopping communication service...")
+            
+            # Stop in reverse order
             await self._motion.stop()
             await self._equipment.stop()
-
-            # Disconnect hardware client
-            if self._client:
-                await self._client.disconnect()
-                self._client = None
-
+            await self._tag_cache.stop()
+            await self._tag_mapping.stop()
+            
             self._is_running = False
             self._start_time = None
             logger.info("Communication service stopped")
-
+            
         except Exception as e:
-            error_msg = f"Failed to stop communication service: {str(e)}"
-            logger.error(error_msg)
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=error_msg
-            )
+            logger.error(f"Error stopping communication service: {str(e)}")
+            # Don't raise during shutdown
 
     async def health(self) -> Dict[str, Any]:
         """Get service health status.
@@ -153,22 +162,32 @@ class CommunicationService:
         Returns:
             Health status dictionary
         """
-        uptime = time.time() - self._start_time.timestamp() if self._start_time else 0
-        
-        return {
-            "status": "ok" if self.is_running else "error",
-            "service": self._service_name,
-            "version": self._version,
-            "running": self.is_running,
-            "uptime": uptime,
-            "client": {
-                "type": self._client.__class__.__name__ if self._client else None,
-                "connected": self._client.is_connected if self._client else False
-            },
-            "sub_services": {
-                "tag_cache": await self._tag_cache.health(),
-                "tag_mapping": await self._tag_mapping.health(),
-                "motion": await self._motion.health(),
-                "equipment": await self._equipment.health()
+        try:
+            services_running = all([
+                self._tag_mapping.is_running,
+                self._tag_cache.is_running,
+                self._equipment.is_running,
+                self._motion.is_running
+            ])
+            
+            uptime = None
+            if self._start_time:
+                uptime = (datetime.now() - self._start_time).total_seconds()
+            
+            return {
+                "status": "ok" if services_running else "error",
+                "service_name": "communication",
+                "version": "1.0.0",
+                "is_running": services_running,
+                "uptime": uptime,
+                "error": None if services_running else "One or more services not running",
+                "timestamp": datetime.now()
             }
-        }
+            
+        except Exception as e:
+            error_msg = f"Failed to get health status: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )

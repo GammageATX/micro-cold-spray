@@ -160,7 +160,7 @@ tag_groups:
       type: bool
     shutter_engaged:
       access: read
-      description: Shutter position feedback
+      description: Shutter engaged status
       mapped: true
       plc_tag: Shutter
       type: bool
@@ -370,41 +370,10 @@ tag_groups:
     status:
       x_axis:
         access: read
-        bit_definitions:
-          '1': Timer Active
-          '10': Aborted - Hit Limit
-          '11': Aborted - Communications Failure
-          '12': Aborted - IO Fault
-          '13': Aborted - Over Max Accel
-          '14': Aborted - Over Max Decel
-          '15': Aborted - Over Max Velocity
-          '16': Axis Occupied
-          '17': Invalid Input/Edge Combination
-          '18': Aborted - Velocity Out of Range
-          '19': Aborted - Accel/Decel/Ramp Out of Range
-          '2': Steady Velocity
-          '20': Aborted - Jerk/S-Curve Out of Range
-          '21': Axis Status Present
-          '22': Aborted - General Parameter
-          '23': Aborted - Preset Parameter
-          '24': Aborted - Registration Parameter
-          '25': Alert - Target Reached During Accel/Decel
-          '26': 'Alert - Adjusted: Over Max Accel'
-          '27': 'Alert - Adjusted: Over Max Decel'
-          '28': 'Alert - Adjusted: Over Max Velocity'
-          '29': Axis Not Defined
-          '3': Sequence Loop
-          '4': Initialization Complete
-          '6': Application Move
-          '7': Stopped at Move Target
-          '8': Stopped at Registration Target
-          '9': Aborted - Instruction Disabled
-        description: X axis detailed status
+        description: X axis status
         mapped: true
         plc_tag: AMC.Ax1AxisStatus
         type: integer
-      y_axis:
-        access: read
         bit_definitions:
           '1': Timer Active
           '10': Aborted - Hit Limit
@@ -433,13 +402,12 @@ tag_groups:
           '6': Application Move
           '7': Stopped at Move Target
           '8': Stopped at Registration Target
-          '9': Aborted - Instruction Disabled
-        description: Y axis detailed status
+      y_axis:
+        access: read
+        description: Y axis status
         mapped: true
         plc_tag: AMC.Ax2AxisStatus
         type: integer
-      z_axis:
-        access: read
         bit_definitions:
           '1': Timer Active
           '10': Aborted - Hit Limit
@@ -468,11 +436,40 @@ tag_groups:
           '6': Application Move
           '7': Stopped at Move Target
           '8': Stopped at Registration Target
-          '9': Aborted - Instruction Disabled
-        description: Z axis detailed status
+      z_axis:
+        access: read
+        description: Z axis status
         mapped: true
         plc_tag: AMC.Ax3AxisStatus
         type: integer
+        bit_definitions:
+          '1': Timer Active
+          '10': Aborted - Hit Limit
+          '11': Aborted - Communications Failure
+          '12': Aborted - IO Fault
+          '13': Aborted - Over Max Accel
+          '14': Aborted - Over Max Decel
+          '15': Aborted - Over Max Velocity
+          '16': Axis Occupied
+          '17': Invalid Input/Edge Combination
+          '18': Aborted - Velocity Out of Range
+          '19': Aborted - Accel/Decel/Ramp Out of Range
+          '2': Steady Velocity
+          '20': Aborted - Jerk/S-Curve Out of Range
+          '21': Axis Status Present
+          '22': Aborted - General Parameter
+          '23': Aborted - Preset Parameter
+          '24': Aborted - Registration Parameter
+          '25': Alert - Target Reached During Accel/Decel
+          '26': 'Alert - Adjusted: Over Max Accel'
+          '27': 'Alert - Adjusted: Over Max Decel'
+          '28': 'Alert - Adjusted: Over Max Velocity'
+          '29': Axis Not Defined
+          '3': Sequence Loop
+          '4': Initialization Complete
+          '6': Application Move
+          '7': Stopped at Move Target
+          '8': Stopped at Registration Target
   pressure:
     chamber_pressure:
       access: read

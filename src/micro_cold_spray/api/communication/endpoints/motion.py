@@ -1,171 +1,135 @@
-"""Motion endpoints."""
+"""Motion control endpoints."""
 
-from datetime import datetime
-from typing import Dict, Any, List
-from fastapi import APIRouter, status, Depends
-from pydantic import BaseModel, Field
+from typing import Dict, Any
+from fastapi import APIRouter, Request, status
 from loguru import logger
 
 from micro_cold_spray.utils.errors import create_error
-from micro_cold_spray.api.communication.services.motion import MotionService
-from micro_cold_spray.api.communication.dependencies import get_motion_service
-
-
-class MotionResponse(BaseModel):
-    """Motion response model."""
-    status: str
-    message: str
-    timestamp: datetime
-
-
-class MotionStatusResponse(BaseModel):
-    """Motion status response model."""
-    status: str
-    axis_id: str
-    state: Dict[str, Any]
-    timestamp: datetime
-
-
-class MotionListResponse(BaseModel):
-    """Motion list response model."""
-    status: str
-    axes: List[Dict[str, Any]]
-    timestamp: datetime
-
-
-class MoveRequest(BaseModel):
-    """Move request model."""
-    axis_id: str = Field(..., description="Axis to move")
-    position: float = Field(..., description="Target position")
-    velocity: float = Field(None, description="Optional velocity override")
-
-
-router = APIRouter(
-    prefix="/motion",
-    tags=["motion"]
+from micro_cold_spray.api.communication.models.motion import (
+    Position,
+    SystemStatus,
+    JogRequest,
+    MoveRequest
 )
 
-
-@router.get("/status/{axis_id}")
-async def get_axis_status(
-    axis_id: str,
-    service: MotionService = Depends(get_motion_service)
-) -> MotionStatusResponse:
-    """Get axis status.
-    
-    Args:
-        axis_id: Axis identifier
-        
-    Returns:
-        Axis status response
-    """
-    try:
-        logger.debug(f"Getting status for axis {axis_id}")
-        status_data = await service.get_status(axis_id)
-        
-        return MotionStatusResponse(
-            status="ok",
-            axis_id=axis_id,
-            state=status_data,
-            timestamp=datetime.now()
-        )
-        
-    except Exception as e:
-        logger.error(f"Failed to get status for axis {axis_id}: {str(e)}")
-        raise create_error(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=f"Failed to get status for axis {axis_id}"
-        )
+router = APIRouter(prefix="/motion", tags=["motion"])
 
 
-@router.get("/list")
-async def list_axes(
-    service: MotionService = Depends(get_motion_service)
-) -> MotionListResponse:
-    """List available axes.
+@router.get("/position", response_model=Position)
+async def get_position(request: Request) -> Position:
+    """Get current position.
     
     Returns:
-        List of available axes
+        Current position
     """
     try:
-        logger.debug("Listing available axes")
-        axes_list = await service.list_axes()
-        
-        return MotionListResponse(
-            status="ok",
-            axes=axes_list,
-            timestamp=datetime.now()
-        )
-        
+        service = request.app.state.service
+        if not service.is_running:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Service not running"
+            )
+
+        position = await service.motion.get_position()
+        return position
+
     except Exception as e:
-        logger.error(f"Failed to list axes: {str(e)}")
+        error_msg = "Failed to get position"
+        logger.error(f"{error_msg}: {str(e)}")
         raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message="Failed to list axes"
+            message=f"{error_msg}: {str(e)}"
+        )
+
+
+@router.get("/status", response_model=SystemStatus)
+async def get_status(request: Request) -> SystemStatus:
+    """Get motion system status.
+    
+    Returns:
+        System status
+    """
+    try:
+        service = request.app.state.service
+        if not service.is_running:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Service not running"
+            )
+
+        system_status = await service.motion.get_status()
+        return system_status
+
+    except Exception as e:
+        error_msg = "Failed to get status"
+        logger.error(f"{error_msg}: {str(e)}")
+        raise create_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            message=f"{error_msg}: {str(e)}"
+        )
+
+
+@router.post("/jog/{axis}")
+async def jog_axis(request: Request, axis: str, jog: JogRequest):
+    """Perform relative move on single axis."""
+    try:
+        await request.app.state.service.motion.jog_axis(
+            axis=axis.lower(),
+            distance=jog.distance,
+            velocity=jog.velocity
+        )
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Failed to jog {axis} axis: {str(e)}")
+        raise create_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            message=f"Failed to jog {axis} axis: {str(e)}"
         )
 
 
 @router.post("/move")
-async def move_axis(
-    request: MoveRequest,
-    service: MotionService = Depends(get_motion_service)
-) -> MotionResponse:
-    """Move axis to position.
-    
-    Args:
-        request: Move request parameters
-        
-    Returns:
-        Move response
-    """
+async def move(request: Request, move: MoveRequest):
+    """Execute coordinated move."""
     try:
-        logger.debug(f"Moving axis {request.axis_id} to position {request.position}")
-        await service.move_axis(
-            axis_id=request.axis_id,
-            position=request.position,
-            velocity=request.velocity
+        await request.app.state.service.motion.move(
+            x=move.x,
+            y=move.y,
+            z=move.z,
+            velocity=move.velocity,
+            wait_complete=move.wait_complete
         )
-        
-        return MotionResponse(
-            status="ok",
-            message=f"Moving axis {request.axis_id} to position {request.position}",
-            timestamp=datetime.now()
-        )
-        
+        return {"status": "success"}
     except Exception as e:
-        logger.error(f"Failed to move axis {request.axis_id}: {str(e)}")
+        logger.error(f"Failed to execute move: {str(e)}")
         raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=f"Failed to move axis {request.axis_id}"
+            message=f"Failed to execute move: {str(e)}"
         )
 
 
-@router.post("/stop/{axis_id}")
-async def stop_axis(
-    axis_id: str,
-    service: MotionService = Depends(get_motion_service)
-) -> MotionResponse:
-    """Stop axis motion.
-    
-    Args:
-        axis_id: Axis identifier
-        
-    Returns:
-        Stop response
-    """
+@router.post("/home/set")
+async def set_home(request: Request):
+    """Set current position as home."""
     try:
-        logger.debug(f"Stopping axis {axis_id}")
-        await service.stop_axis(axis_id)
-        
-        return MotionResponse(
-            status="ok",
-            message=f"Stopped axis {axis_id}",
-            timestamp=datetime.now()
-        )
-        
+        await request.app.state.service.motion.set_home()
+        return {"status": "success"}
     except Exception as e:
-        logger.error(f"Failed to stop axis {axis_id}: {str(e)}")
+        logger.error(f"Failed to set home: {str(e)}")
         raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=f"Failed to stop axis {axis_id}"
+            message=f"Failed to set home: {str(e)}"
+        )
+
+
+@router.post("/home/move")
+async def move_to_home(request: Request):
+    """Move to home position."""
+    try:
+        await request.app.state.service.motion.move_to_home()
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Failed to move to home: {str(e)}")
+        raise create_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            message=f"Failed to move to home: {str(e)}"
         )
