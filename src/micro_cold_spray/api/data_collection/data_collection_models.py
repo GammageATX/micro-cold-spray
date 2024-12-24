@@ -1,10 +1,9 @@
 """Data models for data collection."""
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 import re
-import math
 
 
 class CollectionSession(BaseModel):
@@ -62,8 +61,7 @@ class SprayEvent(BaseModel):
         return (
             f"SprayEvent(sequence_id='{self.sequence_id}', "
             f"spray_index={self.spray_index}, "
-            f"timestamp={self.timestamp.isoformat()}, "
-            f"pos=({self.x_pos}, {self.y_pos}, {self.z_pos}), "
-            f"pressure={self.pressure}, temp={self.temperature}, "
-            f"flow={self.flow_rate}, status='{self.status}')"
+            f"start_time={self.start_time.isoformat()}, "
+            f"pattern='{self.pattern_name}', "
+            f"completed={self.completed})"
         )

@@ -7,8 +7,9 @@ from fastapi import status
 from loguru import logger
 from datetime import datetime
 import asyncio
+import time
 
-from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.api.communication.clients import create_client, CommunicationClient
 from micro_cold_spray.api.communication.clients.mock import MockClient
 from micro_cold_spray.api.communication.services.tag_cache import TagCacheService
@@ -16,7 +17,7 @@ from micro_cold_spray.api.communication.services.motion import MotionService
 from micro_cold_spray.api.communication.services.equipment import EquipmentService
 from micro_cold_spray.api.communication.services.tag_mapping import TagMappingService
 from micro_cold_spray.api.communication.models.tags import TagValue, TagMetadata
-from micro_cold_spray.ui.utils import get_uptime, get_memory_usage
+from micro_cold_spray.utils import get_uptime
 
 
 class CommunicationService:
@@ -26,11 +27,12 @@ class CommunicationService:
         """Initialize communication service."""
         self._service_name = "communication"
         self._version = "1.0.0"
+        self._start_time = None
         self._client: Optional[CommunicationClient] = None
-        self._tag_cache: Optional[TagCacheService] = None
-        self._tag_mapping: Optional[TagMappingService] = None
-        self._motion: Optional[MotionService] = None
-        self._equipment: Optional[EquipmentService] = None
+        self._tag_cache = TagCacheService()
+        self._tag_mapping = TagMappingService()
+        self._motion = MotionService()
+        self._equipment = EquipmentService()
         self._is_running = False
         logger.info("CommunicationService initialized")
 
@@ -74,108 +76,8 @@ class CommunicationService:
             )
         return self._equipment
 
-    async def _load_tag_mapping(self) -> None:
-        """Load tag mapping from tags.yaml."""
-        try:
-            # Get config path
-            config_path = os.path.join(os.getcwd(), "config", "tags.yaml")
-            if not os.path.exists(config_path):
-                raise FileNotFoundError(f"Tags config file not found at {config_path}")
-            
-            # Read config file
-            with open(config_path, "r") as f:
-                config_data = f.read()
-            
-            # Parse YAML content
-            config = yaml.safe_load(config_data)
-            
-            # Initialize tag mapping service
-            self._tag_mapping = TagMappingService()
-            await self._tag_mapping.start()
-            
-            def process_tag_group(group_name: str, group_data: Dict[str, Any], parent_path: str = "") -> None:
-                """Process a tag group recursively.
-                
-                Args:
-                    group_name: Name of the current group
-                    group_data: Group data dictionary
-                    parent_path: Parent path for nested groups
-                """
-                for tag_name, tag_data in group_data.items():
-                    if isinstance(tag_data, dict):
-                        # Build current path
-                        current_path = f"{parent_path}.{tag_name}" if parent_path else tag_name
-                        
-                        # Check if this is a mapped tag
-                        if tag_data.get("mapped", False) and "plc_tag" in tag_data:
-                            program_tag = current_path
-                            plc_tag = tag_data["plc_tag"]
-                            self._tag_mapping._tag_map[program_tag] = plc_tag
-                            self._tag_mapping._reverse_map[plc_tag] = program_tag
-                        
-                        # Recursively process nested groups
-                        process_tag_group(tag_name, tag_data, current_path)
-            
-            # Load mappings from config
-            tag_groups = config.get("tag_groups", {})
-            for group_name, group_data in tag_groups.items():
-                process_tag_group(group_name, group_data)
-            
-            logger.info(f"Loaded {len(self._tag_mapping._tag_map)} tag mappings")
-            
-        except Exception as e:
-            error_msg = f"Failed to load tag mapping: {str(e)}"
-            logger.error(error_msg)
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=error_msg
-            )
-
-    async def _populate_mock_tags(self) -> None:
-        """Populate tag cache with mock tags if using mock client."""
-        if not isinstance(self._client, MockClient):
-            return
-            
-        # Get mock tags from client
-        mock_tags = self._client._tag_values
-        if not mock_tags:
-            return
-            
-        # Write mock tags to cache
-        for plc_tag, value in mock_tags.items():
-            try:
-                # Try to get program tag from mapping
-                try:
-                    program_tag = self._tag_mapping.get_tag_path(plc_tag)
-                except Exception:
-                    # If tag is not mapped, use the PLC tag as the program tag
-                    program_tag = plc_tag
-                
-                # Create tag value with metadata
-                tag_value = TagValue(
-                    metadata=TagMetadata(
-                        name=plc_tag,  # Use PLC tag name as metadata name
-                        description=f"Mock tag for {plc_tag}",
-                        units="",
-                        min_value=None,
-                        max_value=None,
-                        is_mapped=True
-                    ),
-                    value=value,
-                    timestamp=datetime.now()
-                )
-                
-                # Write to cache
-                await self._tag_cache.write_tag(program_tag, tag_value)
-                
-            except Exception as e:
-                logger.warning(f"Failed to populate mock tag {plc_tag}: {e}")
-                continue
-                
-        logger.info(f"Populated tag cache with {len(mock_tags)} mock tags")
-
     async def start(self) -> None:
-        """Start communication service."""
+        """Start communication service and all sub-services."""
         try:
             if self.is_running:
                 raise create_error(
@@ -183,34 +85,28 @@ class CommunicationService:
                     message="Service already running"
                 )
 
-            # Load local config first
-            config = await self._load_local_config()
-            
-            # Create and start client
-            client_type = config.get("client_type", "mock")
-            client_config = config.get("client_config", {})
-            self._client = create_client(client_type, client_config)
-            await self._client.start()
-            
-            # Initialize services
-            self._tag_cache = TagCacheService()
+            # Start sub-services
             await self._tag_cache.start()
-            
-            # Load tag mapping
-            await self._load_tag_mapping()
-            
-            # Populate mock tags if using mock client
-            await self._populate_mock_tags()
-            
-            self._motion = MotionService()
+            await self._tag_mapping.start()
             await self._motion.start()
-            
-            self._equipment = EquipmentService()
             await self._equipment.start()
-            
+
+            # Initialize hardware client
+            config_path = os.getenv("HARDWARE_CONFIG", "config/hardware.yaml")
+            if os.path.exists(config_path):
+                with open(config_path) as f:
+                    config = yaml.safe_load(f)
+                client_type = config.get("client_type", "mock")
+                self._client = create_client(client_type, config)
+                await self._client.connect()
+            else:
+                logger.warning(f"No hardware config found at {config_path}, using mock client")
+                self._client = MockClient({})
+
+            self._start_time = datetime.now()
             self._is_running = True
-            logger.info(f"Started communication service with {client_type} client")
-            
+            logger.info("Communication service started")
+
         except Exception as e:
             error_msg = f"Failed to start communication service: {str(e)}"
             logger.error(error_msg)
@@ -220,7 +116,7 @@ class CommunicationService:
             )
 
     async def stop(self) -> None:
-        """Stop communication service."""
+        """Stop communication service and all sub-services."""
         try:
             if not self.is_running:
                 raise create_error(
@@ -228,30 +124,21 @@ class CommunicationService:
                     message="Service not running"
                 )
 
-            # Stop all services
-            if self._equipment:
-                await self._equipment.stop()
-                self._equipment = None
-                
-            if self._motion:
-                await self._motion.stop()
-                self._motion = None
-                
-            if self._tag_cache:
-                await self._tag_cache.stop()
-                self._tag_cache = None
-                
-            if self._tag_mapping:
-                await self._tag_mapping.stop()
-                self._tag_mapping = None
+            # Stop sub-services
+            await self._tag_cache.stop()
+            await self._tag_mapping.stop()
+            await self._motion.stop()
+            await self._equipment.stop()
 
+            # Disconnect hardware client
             if self._client:
-                await self._client.stop()
+                await self._client.disconnect()
                 self._client = None
-            
+
             self._is_running = False
-            logger.info("Stopped communication service")
-            
+            self._start_time = None
+            logger.info("Communication service stopped")
+
         except Exception as e:
             error_msg = f"Failed to stop communication service: {str(e)}"
             logger.error(error_msg)
@@ -260,104 +147,28 @@ class CommunicationService:
                 message=error_msg
             )
 
-    async def _load_local_config(self) -> Dict[str, Any]:
-        """Load local communication configuration.
+    async def health(self) -> Dict[str, Any]:
+        """Get service health status.
         
         Returns:
-            Dict[str, Any]: Communication configuration
-            
-        Raises:
-            HTTPException: If configuration loading fails
+            Health status dictionary
         """
-        try:
-            # Get config path
-            config_path = os.path.join(os.getcwd(), "config", "communication.yaml")
-            if not os.path.exists(config_path):
-                raise FileNotFoundError(f"Communication config file not found at {config_path}")
-            
-            # Read config file
-            with open(config_path, "r") as f:
-                config_data = f.read()
-            
-            # Parse YAML content
-            config = yaml.safe_load(config_data)
-            
-            # Validate config structure
-            if not isinstance(config, dict):
-                raise create_error(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    message="Invalid communication configuration: not a dict"
-                )
-            
-            return config.get("communication", {})
-            
-        except FileNotFoundError as e:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=str(e)
-            )
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"Failed to load communication configuration: {str(e)}"
-            )
-
-    async def check_connection(self) -> bool:
-        """Check if hardware connection is healthy."""
-        try:
-            if not self._client:
-                return False
-            return await self._client.check_connection()
-        except Exception as e:
-            logger.warning(f"Connection check failed: {e}")
-            return False
-
-    async def health(self) -> Dict[str, Any]:
-        """Get service health status."""
-        try:
-            is_healthy = await self.check_connection()
-            
-            # Check all service healths
-            tag_cache_health = await self._tag_cache.health() if self._tag_cache else None
-            tag_mapping_health = await self._tag_mapping.health() if self._tag_mapping else None
-            motion_health = await self._motion.health() if self._motion else None
-            equipment_health = await self._equipment.health() if self._equipment else None
-            
-            return {
-                "status": "ok" if is_healthy else "error",
-                "service_name": self._service_name,
-                "version": getattr(self, "version", "1.0.0"),
-                "is_running": self.is_running,
-                "uptime": get_uptime(),
-                "memory_usage": get_memory_usage(),
-                "error": None if is_healthy else "Service not connected",
-                "timestamp": datetime.now(),
-                "client": {
-                    "initialized": self._client is not None,
-                    "connected": is_healthy
-                },
-                "services": {
-                    "tag_cache": tag_cache_health,
-                    "tag_mapping": tag_mapping_health,
-                    "motion": motion_health,
-                    "equipment": equipment_health
-                }
+        uptime = time.time() - self._start_time.timestamp() if self._start_time else 0
+        
+        return {
+            "status": "ok" if self.is_running else "error",
+            "service": self._service_name,
+            "version": self._version,
+            "running": self.is_running,
+            "uptime": uptime,
+            "client": {
+                "type": self._client.__class__.__name__ if self._client else None,
+                "connected": self._client.is_connected if self._client else False
+            },
+            "sub_services": {
+                "tag_cache": await self._tag_cache.health(),
+                "tag_mapping": await self._tag_mapping.health(),
+                "motion": await self._motion.health(),
+                "equipment": await self._equipment.health()
             }
-        except Exception as e:
-            error_msg = f"Failed to check health: {str(e)}"
-            logger.error(error_msg)
-            return {
-                "status": "error",
-                "service_name": self._service_name,
-                "version": getattr(self, "version", "1.0.0"),
-                "is_running": False,
-                "uptime": 0.0,
-                "memory_usage": {},
-                "error": error_msg,
-                "timestamp": datetime.now(),
-                "client": {
-                    "initialized": False,
-                    "connected": False
-                },
-                "services": {}
-            }
+        }

@@ -1,222 +1,122 @@
-"""Process sequence service implementation."""
+"""Sequence service for process execution."""
 
-from typing import Dict, Any, List
-from loguru import logger
+from datetime import datetime
+import time
+from typing import Dict, List, Any
 from fastapi import status
+from loguru import logger
 
-from micro_cold_spray.api.base.base_errors import create_error
-from micro_cold_spray.api.process.models import SequenceMetadata
+from micro_cold_spray.utils.errors import create_error
+from micro_cold_spray.api.process.models.process_models import (
+    ExecutionStatus,
+    SequenceMetadata,
+    SequenceStep
+)
 
 
 class SequenceService:
-    """Process sequence service implementation."""
+    """Service for managing process sequences."""
 
-    def __init__(self, name: str = "sequence"):
-        """Initialize sequence service.
-        
-        Args:
-            name: Service name
-        """
-        self.name = name
-        self._sequences: Dict[str, SequenceMetadata] = {}
+    def __init__(self):
+        """Initialize sequence service."""
+        self._service_name = "sequence"
+        self._version = "1.0.0"
+        self._start_time = None
         self._is_running = False
+        self._sequences: Dict[str, SequenceMetadata] = {}
+        self._current_sequence = None
+        logger.info("SequenceService initialized")
 
     @property
     def is_running(self) -> bool:
-        """Get service running state."""
+        """Check if service is running."""
         return self._is_running
+
+    @property
+    def version(self) -> str:
+        """Get service version."""
+        return self._version
+
+    @property
+    def uptime(self) -> float:
+        """Get service uptime in seconds."""
+        return time.time() - self._start_time.timestamp() if self._start_time else 0
 
     async def initialize(self) -> None:
         """Initialize service."""
-        logger.info(f"Initializing {self.name} service")
+        try:
+            logger.info("Sequence service initialized")
+        except Exception as e:
+            error_msg = f"Failed to initialize sequence service: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg,
+                context={"error": str(e)}
+            )
 
     async def start(self) -> None:
-        """Start sequence service."""
+        """Start service."""
         try:
-            # Initialize sequences
-            self._sequences = {}
+            if self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message="Service already running"
+                )
+
+            self._start_time = datetime.now()
             self._is_running = True
-            logger.info(f"{self.name} service started")
+            logger.info("Sequence service started")
+
         except Exception as e:
-            logger.error(f"Failed to start {self.name} service: {e}")
+            error_msg = f"Failed to start sequence service: {str(e)}"
+            logger.error(error_msg)
             raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=f"Failed to start {self.name} service",
-                context={"error": str(e)},
-                cause=e
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg,
+                context={"error": str(e)}
             )
 
     async def stop(self) -> None:
-        """Stop sequence service."""
+        """Stop service."""
         try:
-            # Clear sequences
-            self._sequences.clear()
-            self._is_running = False
-            logger.info(f"{self.name} service stopped")
-        except Exception as e:
-            logger.error(f"Failed to stop {self.name} service: {e}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=f"Failed to stop {self.name} service",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def create_sequence(self, sequence: SequenceMetadata) -> None:
-        """Create sequence.
-        
-        Args:
-            sequence: Sequence to create
-            
-        Raises:
-            HTTPException: If creation fails
-        """
-        if not self.is_running:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Service not running",
-                context={"service": self.name}
-            )
-            
-        try:
-            # Validate sequence
-            if sequence.id in self._sequences:
+            if not self.is_running:
                 raise create_error(
                     status_code=status.HTTP_409_CONFLICT,
-                    message=f"Sequence {sequence.id} already exists",
-                    context={"sequence_id": sequence.id}
+                    message="Service not running"
                 )
-                
-            # Store sequence
-            self._sequences[sequence.id] = sequence
-            logger.info(f"Created sequence: {sequence.id}")
-            
+
+            self._is_running = False
+            self._start_time = None
+            logger.info("Sequence service stopped")
+
         except Exception as e:
-            logger.error(f"Failed to create sequence: {e}")
+            error_msg = f"Failed to stop sequence service: {str(e)}"
+            logger.error(error_msg)
             raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to create sequence",
-                context={"error": str(e)},
-                cause=e
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg,
+                context={"error": str(e)}
             )
 
-    async def get_sequence(self, sequence_id: str) -> SequenceMetadata:
-        """Get sequence.
+    async def health(self) -> Dict[str, Any]:
+        """Get service health status.
         
-        Args:
-            sequence_id: Sequence ID
-            
         Returns:
-            Sequence
-            
-        Raises:
-            HTTPException: If sequence not found
+            Health status dictionary
         """
-        if not self.is_running:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Service not running",
-                context={"service": self.name}
-            )
-            
-        try:
-            if sequence_id not in self._sequences:
-                raise create_error(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    message=f"Sequence {sequence_id} not found",
-                    context={"sequence_id": sequence_id}
-                )
-                
-            return self._sequences[sequence_id]
-            
-        except Exception as e:
-            logger.error(f"Failed to get sequence {sequence_id}: {e}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=f"Failed to get sequence {sequence_id}",
-                context={
-                    "sequence_id": sequence_id,
-                    "error": str(e)
-                },
-                cause=e
-            )
+        return {
+            "status": "ok" if self.is_running else "error",
+            "service": self._service_name,
+            "version": self._version,
+            "running": self.is_running,
+            "uptime": self.uptime,
+            "sequence_count": len(self._sequences),
+            "current_sequence": self._current_sequence
+        }
 
-    async def update_sequence(self, sequence: SequenceMetadata) -> None:
-        """Update sequence.
-        
-        Args:
-            sequence: Sequence to update
-            
-        Raises:
-            HTTPException: If update fails
-        """
-        if not self.is_running:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Service not running",
-                context={"service": self.name}
-            )
-            
-        try:
-            if sequence.id not in self._sequences:
-                raise create_error(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    message=f"Sequence {sequence.id} not found",
-                    context={"sequence_id": sequence.id}
-                )
-                
-            # Update sequence
-            self._sequences[sequence.id] = sequence
-            logger.info(f"Updated sequence: {sequence.id}")
-            
-        except Exception as e:
-            logger.error(f"Failed to update sequence: {e}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to update sequence",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def delete_sequence(self, sequence_id: str) -> None:
-        """Delete sequence.
-        
-        Args:
-            sequence_id: Sequence ID to delete
-            
-        Raises:
-            HTTPException: If deletion fails
-        """
-        if not self.is_running:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Service not running",
-                context={"service": self.name}
-            )
-            
-        try:
-            if sequence_id not in self._sequences:
-                raise create_error(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    message=f"Sequence {sequence_id} not found",
-                    context={"sequence_id": sequence_id}
-                )
-                
-            # Delete sequence
-            del self._sequences[sequence_id]
-            logger.info(f"Deleted sequence: {sequence_id}")
-            
-        except Exception as e:
-            logger.error(f"Failed to delete sequence: {e}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to delete sequence",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def list_sequences(self) -> List[Dict[str, Any]]:
-        """List sequences.
+    async def list_sequences(self) -> List[SequenceMetadata]:
+        """List available sequences.
         
         Returns:
             List of sequences
@@ -224,43 +124,194 @@ class SequenceService:
         Raises:
             HTTPException: If listing fails
         """
-        if not self.is_running:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Service not running",
-                context={"service": self.name}
-            )
-            
         try:
-            return [
-                {
-                    "id": s.id,
-                    "name": s.name,
-                    "description": s.description,
-                    "pattern": s.pattern,
-                    "parameters": s.parameters,
-                    "metadata": s.metadata
-                }
-                for s in self._sequences.values()
-            ]
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+            return list(self._sequences.values())
         except Exception as e:
-            logger.error(f"Failed to list sequences: {e}")
+            error_msg = "Failed to list sequences"
+            logger.error(f"{error_msg}: {str(e)}")
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to list sequences",
-                context={"error": str(e)},
-                cause=e
+                message=error_msg,
+                context={"error": str(e)}
             )
 
-    async def health(self) -> dict:
-        """Get service health status.
+    async def get_sequence(self, sequence_id: str) -> SequenceMetadata:
+        """Get sequence by ID.
         
+        Args:
+            sequence_id: Sequence identifier
+            
         Returns:
-            Health check result
+            Sequence metadata
+            
+        Raises:
+            HTTPException: If sequence not found or retrieval fails
         """
-        return {
-            "status": "ok" if self.is_running else "error",
-            "context": {
-                "sequences": len(self._sequences)
-            }
-        }
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            if sequence_id not in self._sequences:
+                raise create_error(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    message=f"Sequence {sequence_id} not found"
+                )
+
+            return self._sequences[sequence_id]
+        except Exception as e:
+            error_msg = f"Failed to get sequence {sequence_id}"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg,
+                context={"error": str(e)}
+            )
+
+    async def start_sequence(self, sequence_id: str) -> ExecutionStatus:
+        """Start sequence execution.
+        
+        Args:
+            sequence_id: Sequence identifier
+            
+        Returns:
+            Execution status
+            
+        Raises:
+            HTTPException: If sequence not found or start fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            if sequence_id not in self._sequences:
+                raise create_error(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    message=f"Sequence {sequence_id} not found"
+                )
+
+            if self._current_sequence:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message="Another sequence is already running",
+                    context={"current_sequence": self._current_sequence}
+                )
+
+            self._current_sequence = sequence_id
+            logger.info(f"Started sequence: {sequence_id}")
+            return ExecutionStatus.RUNNING
+
+        except Exception as e:
+            error_msg = f"Failed to start sequence {sequence_id}"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg,
+                context={"error": str(e)}
+            )
+
+    async def stop_sequence(self, sequence_id: str) -> ExecutionStatus:
+        """Stop sequence execution.
+        
+        Args:
+            sequence_id: Sequence identifier
+            
+        Returns:
+            Execution status
+            
+        Raises:
+            HTTPException: If sequence not found or stop fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            if sequence_id not in self._sequences:
+                raise create_error(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    message=f"Sequence {sequence_id} not found"
+                )
+
+            if not self._current_sequence:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message="No sequence is running"
+                )
+
+            if self._current_sequence != sequence_id:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"Sequence {sequence_id} is not running",
+                    context={
+                        "sequence_id": sequence_id,
+                        "current_sequence": self._current_sequence
+                    }
+                )
+
+            self._current_sequence = None
+            logger.info(f"Stopped sequence: {sequence_id}")
+            return ExecutionStatus.COMPLETED
+
+        except Exception as e:
+            error_msg = f"Failed to stop sequence {sequence_id}"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg,
+                context={"error": str(e)}
+            )
+
+    async def get_sequence_status(self, sequence_id: str) -> ExecutionStatus:
+        """Get sequence execution status.
+        
+        Args:
+            sequence_id: Sequence identifier
+            
+        Returns:
+            Execution status
+            
+        Raises:
+            HTTPException: If sequence not found or status check fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            if sequence_id not in self._sequences:
+                raise create_error(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    message=f"Sequence {sequence_id} not found"
+                )
+
+            if not self._current_sequence:
+                return ExecutionStatus.IDLE
+
+            if self._current_sequence != sequence_id:
+                return ExecutionStatus.IDLE
+
+            return ExecutionStatus.RUNNING
+
+        except Exception as e:
+            error_msg = f"Failed to get status for sequence {sequence_id}"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg,
+                context={"error": str(e)}
+            )

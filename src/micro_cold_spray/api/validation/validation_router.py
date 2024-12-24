@@ -7,57 +7,15 @@ from pydantic import BaseModel, Field
 from loguru import logger
 
 from micro_cold_spray.utils.errors import create_error
-from micro_cold_spray.utils.monitoring import get_uptime
 from micro_cold_spray.api.validation.validation_service import ValidationService
 
 
-class HealthResponse(BaseModel):
-    """Health check response model."""
-    status: str = Field(..., description="Service status (ok or error)")
-    service_name: str = Field(..., description="Service name")
-    version: str = Field(..., description="Service version")
-    uptime: float = Field(..., description="Service uptime in seconds")
-    error: Optional[str] = Field(None, description="Error message if any")
-    timestamp: datetime = Field(default_factory=datetime.now, description="Response timestamp")
-
-
 router = APIRouter(
-    prefix="/api/validation",
+    prefix="/validation",
     tags=["validation"]
 )
 
 validation_service = ValidationService()
-
-
-@router.get(
-    "/health",
-    response_model=HealthResponse,
-    responses={
-        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service unavailable"}
-    }
-)
-async def health_check() -> HealthResponse:
-    """Check service health status."""
-    try:
-        return HealthResponse(
-            status="ok",
-            service_name="validation",
-            version="1.0.0",
-            uptime=get_uptime(),
-            error=None,
-            timestamp=datetime.now()
-        )
-    except Exception as e:
-        error_msg = f"Health check failed: {str(e)}"
-        logger.error(error_msg)
-        return HealthResponse(
-            status="error",
-            service_name="validation",
-            version="1.0.0",
-            uptime=0.0,
-            error=error_msg,
-            timestamp=datetime.now()
-        )
 
 
 @router.post("/hardware")

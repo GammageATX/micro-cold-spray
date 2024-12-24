@@ -1,10 +1,12 @@
 """Process management service."""
 
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+from datetime import datetime
+import time
 from fastapi import status
 from loguru import logger
 
-from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.api.process.models.process_models import (
     ExecutionStatus,
     ActionStatus,
@@ -20,23 +22,27 @@ from micro_cold_spray.api.process.services.sequence_service import SequenceServi
 
 
 class ProcessService:
-    """Process management service."""
+    """Service for managing process execution."""
 
-    def __init__(self) -> None:
-        """Initialize service."""
-        self._action_service = ActionService()
-        self._parameter_service = ParameterService()
-        self._pattern_service = PatternService()
-        self._sequence_service = SequenceService()
-        self._current_sequence: Optional[str] = None
-        self._is_running = False
-        self._name = "process"
+    def __init__(self):
+        """Initialize process service."""
+        self._service_name = "process"
         self._version = "1.0.0"
+        self._start_time = None
+        self._is_running = False
+        
+        # Initialize sub-services
+        self._action = ActionService()
+        self._parameter = ParameterService()
+        self._pattern = PatternService()
+        self._sequence = SequenceService()
+        
+        logger.info("ProcessService initialized")
 
     @property
-    def name(self) -> str:
-        """Get service name."""
-        return self._name
+    def is_running(self) -> bool:
+        """Check if service is running."""
+        return self._is_running
 
     @property
     def version(self) -> str:
@@ -44,533 +50,240 @@ class ProcessService:
         return self._version
 
     @property
-    def is_running(self) -> bool:
-        """Get service running state."""
-        return self._is_running
+    def uptime(self) -> float:
+        """Get service uptime in seconds."""
+        return time.time() - self._start_time.timestamp() if self._start_time else 0
 
     async def initialize(self) -> None:
-        """Initialize service.
-        
-        Raises:
-            HTTPException: If initialization fails (503)
-        """
+        """Initialize service and sub-services."""
         try:
-            logger.info("Initializing process service")
-            await self._action_service.initialize()
-            await self._parameter_service.initialize()
-            await self._pattern_service.initialize()
-            await self._sequence_service.initialize()
+            # Initialize sub-services
+            await self._action.initialize()
+            await self._parameter.initialize()
+            await self._pattern.initialize()
+            await self._sequence.initialize()
+            
             logger.info("Process service initialized")
+            
         except Exception as e:
+            error_msg = f"Failed to initialize process service: {str(e)}"
+            logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to initialize process service",
-                context={"error": str(e)},
-                cause=e
+                message=error_msg,
+                context={"error": str(e)}
             )
 
     async def start(self) -> None:
-        """Start service.
-        
-        Raises:
-            HTTPException: If start fails (503)
-        """
+        """Start process service and sub-services."""
         try:
-            logger.info("Starting process service")
-            await self._action_service.start()
-            await self._parameter_service.start()
-            await self._pattern_service.start()
-            await self._sequence_service.start()
+            if self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message="Service already running"
+                )
+
+            # Start sub-services
+            await self._action.start()
+            await self._parameter.start()
+            await self._pattern.start()
+            await self._sequence.start()
+
+            self._start_time = datetime.now()
             self._is_running = True
             logger.info("Process service started")
+
         except Exception as e:
+            error_msg = f"Failed to start process service: {str(e)}"
+            logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to start process service",
-                context={"error": str(e)},
-                cause=e
+                message=error_msg,
+                context={"error": str(e)}
             )
 
     async def stop(self) -> None:
-        """Stop service.
-        
-        Raises:
-            HTTPException: If stop fails (503)
-        """
+        """Stop process service and sub-services."""
         try:
-            logger.info("Stopping process service")
-            await self._sequence_service.stop()
-            await self._pattern_service.stop()
-            await self._parameter_service.stop()
-            await self._action_service.stop()
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message="Service not running"
+                )
+
+            # Stop sub-services
+            await self._sequence.stop()
+            await self._pattern.stop()
+            await self._parameter.stop()
+            await self._action.stop()
+
             self._is_running = False
+            self._start_time = None
             logger.info("Process service stopped")
+
         except Exception as e:
+            error_msg = f"Failed to stop process service: {str(e)}"
+            logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to stop process service",
-                context={"error": str(e)},
-                cause=e
+                message=error_msg,
+                context={"error": str(e)}
             )
 
-    async def get_status(self) -> ExecutionStatus:
-        """Get execution status.
+    async def health(self) -> Dict[str, Any]:
+        """Get service health status.
         
         Returns:
-            Current execution status
-            
-        Raises:
-            HTTPException: If service unavailable (503)
+            Health status dictionary
         """
-        try:
-            if not self._is_running:
-                return ExecutionStatus.IDLE
-                
-            if self._current_sequence:
-                action_status = await self._action_service.get_status()
-                if action_status == ActionStatus.RUNNING:
-                    return ExecutionStatus.RUNNING
-                elif action_status == ActionStatus.COMPLETED:
-                    return ExecutionStatus.COMPLETED
-                elif action_status == ActionStatus.FAILED:
-                    return ExecutionStatus.ERROR
-                elif action_status == ActionStatus.ERROR:
-                    return ExecutionStatus.ERROR
-                
-            return ExecutionStatus.IDLE
-            
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to get status",
-                context={"error": str(e)},
-                cause=e
-            )
+        return {
+            "status": "ok" if self.is_running else "error",
+            "service": self._service_name,
+            "version": self._version,
+            "running": self.is_running,
+            "uptime": self.uptime,
+            "sub_services": {
+                "action": await self._action.health(),
+                "parameter": await self._parameter.health(),
+                "pattern": await self._pattern.health(),
+                "sequence": await self._sequence.health()
+            }
+        }
 
-    async def get_current_sequence(self) -> Optional[SequenceMetadata]:
-        """Get current sequence.
+    # Process management methods
+    async def list_sequences(self) -> List[SequenceMetadata]:
+        """List available sequences.
         
         Returns:
-            Current sequence if running, None otherwise
+            List of sequence metadata
             
         Raises:
-            HTTPException: If service unavailable (503)
+            HTTPException: If listing fails
         """
         try:
-            if not self._current_sequence:
-                return None
-                
-            return await self._sequence_service.get_sequence(self._current_sequence)
-            
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+            return await self._sequence.list_sequences()
         except Exception as e:
+            error_msg = "Failed to list sequences"
+            logger.error(f"{error_msg}: {str(e)}")
             raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to get current sequence",
-                context={"error": str(e)},
-                cause=e
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg,
+                context={"error": str(e)}
             )
 
-    async def start_sequence(self, sequence_id: str) -> None:
+    async def get_sequence(self, sequence_id: str) -> SequenceMetadata:
+        """Get sequence by ID.
+        
+        Args:
+            sequence_id: Sequence identifier
+            
+        Returns:
+            Sequence metadata
+            
+        Raises:
+            HTTPException: If sequence not found or retrieval fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+            return await self._sequence.get_sequence(sequence_id)
+        except Exception as e:
+            error_msg = f"Failed to get sequence {sequence_id}"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg,
+                context={"error": str(e)}
+            )
+
+    async def start_sequence(self, sequence_id: str) -> ExecutionStatus:
         """Start sequence execution.
         
         Args:
-            sequence_id: Sequence ID to start
+            sequence_id: Sequence identifier
+            
+        Returns:
+            Execution status
             
         Raises:
-            HTTPException: If sequence not found (404) or service unavailable (503)
+            HTTPException: If start fails
         """
         try:
-            # Check if sequence exists
-            sequence = await self._sequence_service.get_sequence(sequence_id)
-            if not sequence:
+            if not self.is_running:
                 raise create_error(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    message=f"Sequence {sequence_id} not found",
-                    context={"sequence_id": sequence_id}
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
                 )
-                
-            # Check if already running
-            if self._current_sequence:
-                raise create_error(
-                    status_code=status.HTTP_409_CONFLICT,
-                    message="Another sequence is already running",
-                    context={"sequence_id": self._current_sequence}
-                )
-                
-            # Start sequence
-            self._current_sequence = sequence_id
-            logger.info(f"Started sequence: {sequence_id}")
-            
+            return await self._sequence.start_sequence(sequence_id)
         except Exception as e:
-            if isinstance(e, create_error):
-                raise e
+            error_msg = f"Failed to start sequence {sequence_id}"
+            logger.error(f"{error_msg}: {str(e)}")
             raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to start sequence",
-                context={"error": str(e), "sequence_id": sequence_id},
-                cause=e
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg,
+                context={"error": str(e)}
             )
 
-    async def stop_sequence(self, sequence_id: str) -> None:
+    async def stop_sequence(self, sequence_id: str) -> ExecutionStatus:
         """Stop sequence execution.
         
         Args:
-            sequence_id: Sequence ID to stop
+            sequence_id: Sequence identifier
+            
+        Returns:
+            Execution status
             
         Raises:
-            HTTPException: If sequence not found (404) or service unavailable (503)
+            HTTPException: If stop fails
         """
         try:
-            # Check if sequence exists
-            sequence = await self._sequence_service.get_sequence(sequence_id)
-            if not sequence:
+            if not self.is_running:
                 raise create_error(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    message=f"Sequence {sequence_id} not found",
-                    context={"sequence_id": sequence_id}
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
                 )
-                
-            # Check if running
-            if not self._current_sequence:
+            return await self._sequence.stop_sequence(sequence_id)
+        except Exception as e:
+            error_msg = f"Failed to stop sequence {sequence_id}"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg,
+                context={"error": str(e)}
+            )
+
+    async def get_sequence_status(self, sequence_id: str) -> ExecutionStatus:
+        """Get sequence execution status.
+        
+        Args:
+            sequence_id: Sequence identifier
+            
+        Returns:
+            Execution status
+            
+        Raises:
+            HTTPException: If status check fails
+        """
+        try:
+            if not self.is_running:
                 raise create_error(
-                    status_code=status.HTTP_409_CONFLICT,
-                    message="No sequence is running",
-                    context={"sequence_id": sequence_id}
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
                 )
-                
-            if self._current_sequence != sequence_id:
-                raise create_error(
-                    status_code=status.HTTP_409_CONFLICT,
-                    message=f"Sequence {sequence_id} is not running",
-                    context={
-                        "sequence_id": sequence_id,
-                        "current_sequence": self._current_sequence
-                    }
-                )
-                
-            # Stop sequence
-            await self._action_service.stop_action()
-            self._current_sequence = None
-            logger.info(f"Stopped sequence: {sequence_id}")
-            
+            return await self._sequence.get_sequence_status(sequence_id)
         except Exception as e:
-            if isinstance(e, create_error):
-                raise e
+            error_msg = f"Failed to get status for sequence {sequence_id}"
+            logger.error(f"{error_msg}: {str(e)}")
             raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to stop sequence",
-                context={"error": str(e), "sequence_id": sequence_id},
-                cause=e
-            )
-
-    async def get_sequences(self) -> List[SequenceMetadata]:
-        """Get sequences.
-        
-        Returns:
-            List of sequences
-            
-        Raises:
-            HTTPException: If service unavailable (503)
-        """
-        try:
-            return await self._sequence_service.list_sequences()
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to get sequences",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def get_sequence(self, sequence_id: str) -> Optional[SequenceMetadata]:
-        """Get sequence.
-        
-        Args:
-            sequence_id: Sequence ID
-            
-        Returns:
-            Sequence if found, None otherwise
-            
-        Raises:
-            HTTPException: If service unavailable (503)
-        """
-        try:
-            return await self._sequence_service.get_sequence(sequence_id)
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to get sequence",
-                context={"error": str(e), "sequence_id": sequence_id},
-                cause=e
-            )
-
-    async def create_sequence(self, sequence: SequenceMetadata) -> None:
-        """Create sequence.
-        
-        Args:
-            sequence: Sequence to create
-            
-        Raises:
-            HTTPException: If sequence exists (409) or service unavailable (503)
-        """
-        try:
-            await self._sequence_service.create_sequence(sequence)
-        except Exception as e:
-            if isinstance(e, create_error):
-                raise e
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to create sequence",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def update_sequence(self, sequence: SequenceMetadata) -> None:
-        """Update sequence.
-        
-        Args:
-            sequence: Sequence to update
-            
-        Raises:
-            HTTPException: If sequence not found (404) or service unavailable (503)
-        """
-        try:
-            await self._sequence_service.update_sequence(sequence)
-        except Exception as e:
-            if isinstance(e, create_error):
-                raise e
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to update sequence",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def delete_sequence(self, sequence_id: str) -> None:
-        """Delete sequence.
-        
-        Args:
-            sequence_id: Sequence ID
-            
-        Raises:
-            HTTPException: If sequence not found (404) or service unavailable (503)
-        """
-        try:
-            await self._sequence_service.delete_sequence(sequence_id)
-        except Exception as e:
-            if isinstance(e, create_error):
-                raise e
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to delete sequence",
-                context={"error": str(e), "sequence_id": sequence_id},
-                cause=e
-            )
-
-    async def get_patterns(self) -> List[ProcessPattern]:
-        """Get patterns.
-        
-        Returns:
-            List of patterns
-            
-        Raises:
-            HTTPException: If service unavailable (503)
-        """
-        try:
-            return await self._pattern_service.list_patterns()
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to get patterns",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def get_pattern(self, pattern_id: str) -> Optional[ProcessPattern]:
-        """Get pattern.
-        
-        Args:
-            pattern_id: Pattern ID
-            
-        Returns:
-            Pattern if found, None otherwise
-            
-        Raises:
-            HTTPException: If service unavailable (503)
-        """
-        try:
-            return await self._pattern_service.get_pattern(pattern_id)
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to get pattern",
-                context={"error": str(e), "pattern_id": pattern_id},
-                cause=e
-            )
-
-    async def create_pattern(self, pattern: ProcessPattern) -> None:
-        """Create pattern.
-        
-        Args:
-            pattern: Pattern to create
-            
-        Raises:
-            HTTPException: If pattern exists (409) or service unavailable (503)
-        """
-        try:
-            await self._pattern_service.create_pattern(pattern)
-        except Exception as e:
-            if isinstance(e, create_error):
-                raise e
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to create pattern",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def update_pattern(self, pattern: ProcessPattern) -> None:
-        """Update pattern.
-        
-        Args:
-            pattern: Pattern to update
-            
-        Raises:
-            HTTPException: If pattern not found (404) or service unavailable (503)
-        """
-        try:
-            await self._pattern_service.update_pattern(pattern)
-        except Exception as e:
-            if isinstance(e, create_error):
-                raise e
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to update pattern",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def delete_pattern(self, pattern_id: str) -> None:
-        """Delete pattern.
-        
-        Args:
-            pattern_id: Pattern ID
-            
-        Raises:
-            HTTPException: If pattern not found (404) or service unavailable (503)
-        """
-        try:
-            await self._pattern_service.delete_pattern(pattern_id)
-        except Exception as e:
-            if isinstance(e, create_error):
-                raise e
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to delete pattern",
-                context={"error": str(e), "pattern_id": pattern_id},
-                cause=e
-            )
-
-    async def get_parameters(self) -> List[ParameterSet]:
-        """Get parameters.
-        
-        Returns:
-            List of parameters
-            
-        Raises:
-            HTTPException: If service unavailable (503)
-        """
-        try:
-            return await self._parameter_service.list_parameter_sets()
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to get parameters",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def get_parameter(self, parameter_id: str) -> Optional[ParameterSet]:
-        """Get parameter.
-        
-        Args:
-            parameter_id: Parameter ID
-            
-        Returns:
-            Parameter if found, None otherwise
-            
-        Raises:
-            HTTPException: If service unavailable (503)
-        """
-        try:
-            return await self._parameter_service.get_parameter_set(parameter_id)
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to get parameter",
-                context={"error": str(e), "parameter_id": parameter_id},
-                cause=e
-            )
-
-    async def create_parameter(self, parameter: ParameterSet) -> None:
-        """Create parameter.
-        
-        Args:
-            parameter: Parameter to create
-            
-        Raises:
-            HTTPException: If parameter exists (409) or service unavailable (503)
-        """
-        try:
-            await self._parameter_service.create_parameter_set(parameter)
-        except Exception as e:
-            if isinstance(e, create_error):
-                raise e
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to create parameter",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def update_parameter(self, parameter: ParameterSet) -> None:
-        """Update parameter.
-        
-        Args:
-            parameter: Parameter to update
-            
-        Raises:
-            HTTPException: If parameter not found (404) or service unavailable (503)
-        """
-        try:
-            await self._parameter_service.update_parameter_set(parameter)
-        except Exception as e:
-            if isinstance(e, create_error):
-                raise e
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to update parameter",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def delete_parameter(self, parameter_id: str) -> None:
-        """Delete parameter.
-        
-        Args:
-            parameter_id: Parameter ID
-            
-        Raises:
-            HTTPException: If parameter not found (404) or service unavailable (503)
-        """
-        try:
-            await self._parameter_service.delete_parameter_set(parameter_id)
-        except Exception as e:
-            if isinstance(e, create_error):
-                raise e
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to delete parameter",
-                context={"error": str(e), "parameter_id": parameter_id},
-                cause=e
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg,
+                context={"error": str(e)}
             )

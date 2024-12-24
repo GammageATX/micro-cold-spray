@@ -2,37 +2,42 @@
 
 import json
 from typing import Dict, Any, Optional
+from datetime import datetime
 from fastapi import status
 from loguru import logger
 from jsonschema import validate, ValidationError, SchemaError
 
-from micro_cold_spray.api.base import create_error
-from micro_cold_spray.api.config.services.base_config_service import BaseConfigService
+from micro_cold_spray.utils.errors import create_error
 
 
-class SchemaService(BaseConfigService):
+class SchemaService:
     """Configuration schema service implementation."""
 
     def __init__(self):
         """Initialize service."""
-        super().__init__(name="schema")
+        self.is_running = False
+        self._start_time = None
         self._schemas: Dict[str, Dict[str, Any]] = {}
 
-    async def _start(self) -> None:
-        """Start implementation."""
+    async def start(self) -> None:
+        """Start service."""
+        self.is_running = True
+        self._start_time = datetime.now()
         logger.info("Schema service started")
 
-    async def _stop(self) -> None:
-        """Stop implementation."""
+    async def stop(self) -> None:
+        """Stop service."""
+        self.is_running = False
+        self._start_time = None
         self._schemas.clear()
         logger.info("Schema service stopped")
 
-    def register_schema(self, name: str, schema: Dict[str, Any]) -> None:
+    def register_schema(self, name: str, schema_definition: Dict[str, Any]) -> None:
         """Register JSON schema.
         
         Args:
             name: Schema name
-            schema: JSON schema definition
+            schema_definition: JSON schema definition
             
         Raises:
             HTTPException: If service not running or schema invalid
@@ -45,11 +50,11 @@ class SchemaService(BaseConfigService):
 
         try:
             # Validate schema itself
-            if not isinstance(schema, dict):
+            if not isinstance(schema_definition, dict):
                 raise SchemaError("Schema must be a dictionary")
             
             # Store schema
-            self._schemas[name] = schema
+            self._schemas[name] = schema_definition
             logger.info(f"Registered schema: {name}")
             
         except Exception as e:
@@ -74,15 +79,15 @@ class SchemaService(BaseConfigService):
                 message="Schema service not running"
             )
 
-        schema = self._schemas.get(name)
-        if not schema:
+        schema_definition = self._schemas.get(name)
+        if not schema_definition:
             raise create_error(
                 status_code=status.HTTP_404_NOT_FOUND,
                 message=f"Schema not found: {name}"
             )
 
         try:
-            validate(instance=config, schema=schema)
+            validate(instance=config, schema=schema_definition)
         except ValidationError as e:
             raise create_error(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -131,11 +136,14 @@ class SchemaService(BaseConfigService):
 
         return list(self._schemas.keys())
 
-    async def health(self) -> dict:
+    async def health(self) -> Dict[str, Any]:
         """Get service health status."""
-        health = await super().health()
-        health.update({
-            "schema_count": len(self._schemas),
-            "schemas": list(self._schemas.keys())
-        })
-        return health
+        return {
+            "status": "ok" if self.is_running else "error",
+            "is_running": self.is_running,
+            "uptime": (datetime.now() - self._start_time).total_seconds() if self._start_time else 0,
+            "details": {
+                "schema_count": len(self._schemas),
+                "schemas": list(self._schemas.keys())
+            }
+        }

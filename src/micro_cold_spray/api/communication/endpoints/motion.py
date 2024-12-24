@@ -6,7 +6,7 @@ from fastapi import APIRouter, status, Depends
 from pydantic import BaseModel, Field
 from loguru import logger
 
-from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.api.communication.services.motion import MotionService
 from micro_cold_spray.api.communication.dependencies import get_motion_service
 
@@ -40,7 +40,10 @@ class MoveRequest(BaseModel):
     velocity: float = Field(None, description="Optional velocity override")
 
 
-router = APIRouter(prefix="/motion", tags=["motion"])
+router = APIRouter(
+    prefix="/motion",
+    tags=["motion"]
+)
 
 
 @router.get("/status/{axis_id}")

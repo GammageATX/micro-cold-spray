@@ -1,4 +1,4 @@
-"""Process management services."""
+"""Process API services package."""
 
 from micro_cold_spray.api.process.services.action_service import ActionService
 from micro_cold_spray.api.process.services.parameter_service import ParameterService

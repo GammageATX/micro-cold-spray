@@ -4,7 +4,7 @@ from typing import Dict, Any
 from fastapi import APIRouter, Depends, status
 from loguru import logger
 
-from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.api.communication.services.equipment import EquipmentService
 from micro_cold_spray.api.communication.dependencies import get_equipment_service
 
@@ -25,19 +25,14 @@ async def check_health(
         Health status dictionary
     """
     try:
-        is_healthy = await service.check_health()
-        return {
-            "status": "ok" if is_healthy else "error",
-            "service": {
-                "name": service.name,
-                "running": service.is_running and is_healthy
-            }
-        }
+        health_data = await service.health()
+        return health_data
     except Exception as e:
         logger.error(f"Failed to check equipment service health: {str(e)}")
         raise create_error(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            message="Failed to check equipment service health"
+            message="Failed to check equipment service health",
+            context={"error": str(e)}
         )
 
 

@@ -6,7 +6,7 @@ import asyncpg
 from loguru import logger
 from fastapi import status
 
-from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.api.data_collection.data_collection_models import SprayEvent
 
 
@@ -33,9 +33,14 @@ class DataStorage(Protocol):
 class DataCollectionStorage:
     """PostgreSQL storage implementation."""
     
-    def __init__(self, dsn: str = None):
-        """Initialize with database connection string."""
-        self._dsn = dsn or "postgresql://postgres:dbpassword@localhost:5432/postgres"
+    def __init__(self, dsn: str = None, pool_config: Dict[str, Any] = None):
+        """Initialize with database connection string and pool configuration."""
+        self._dsn = dsn
+        self._pool_config = pool_config or {
+            "min_size": 2,
+            "max_size": 10,
+            "command_timeout": 60.0
+        }
         self._pool = None
 
     async def initialize(self) -> None:
@@ -48,9 +53,9 @@ class DataCollectionStorage:
             # Create connection pool
             self._pool = await asyncpg.create_pool(
                 self._dsn,
-                min_size=2,
-                max_size=10,
-                command_timeout=60.0
+                min_size=self._pool_config["min_size"],
+                max_size=self._pool_config["max_size"],
+                command_timeout=self._pool_config["command_timeout"]
             )
             
             # Create tables if they don't exist
@@ -107,7 +112,7 @@ class DataCollectionStorage:
             logger.error(f"Failed to initialize database: {e}")
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Failed to initialize database"
+                message=f"Failed to initialize database: {str(e)}"
             )
 
     async def save_spray_event(self, event: SprayEvent) -> None:
@@ -175,11 +180,11 @@ class DataCollectionStorage:
             logger.error(f"Failed to save spray event: {e}")
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to save spray event"
+                message=f"Failed to save spray event: {str(e)}"
             )
 
     async def get_spray_events(self, sequence_id: str) -> List[SprayEvent]:
-        """Get all spray events for a sequence."""
+        """Get all events for a sequence."""
         if not self._pool:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -237,7 +242,7 @@ class DataCollectionStorage:
             logger.error(f"Failed to get spray events: {e}")
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to get spray events"
+                message=f"Failed to get spray events: {str(e)}"
             )
 
     async def check_health(self) -> Dict[str, Any]:

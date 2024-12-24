@@ -6,7 +6,7 @@ from fastapi import APIRouter, status, Depends
 from pydantic import BaseModel, Field
 from loguru import logger
 
-from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.api.communication.communication_service import CommunicationService
 from micro_cold_spray.api.communication.dependencies import get_communication_service
 
@@ -40,7 +40,10 @@ class WriteRequest(BaseModel):
     data_type: Optional[str] = Field(None, description="Optional data type override")
 
 
-router = APIRouter(prefix="/tags", tags=["tags"])
+router = APIRouter(
+    prefix="/tags",
+    tags=["tags"]
+)
 
 
 @router.get("/read/{tag_id}")
