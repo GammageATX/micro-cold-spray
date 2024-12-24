@@ -21,9 +21,9 @@ CLIENT_TYPES = {
 
 # Required config fields for each client type
 REQUIRED_CONFIG = {
-    "mock": ["hardware"],
-    "plc": ["hardware", "hardware.network", "hardware.network.plc"],
-    "ssh": ["hardware", "hardware.network", "hardware.network.ssh"]
+    "mock": ["communication.hardware.network.mock"],
+    "plc": ["communication.hardware.network.plc"],
+    "ssh": ["communication.hardware.network.ssh"]
 }
 
 
@@ -32,7 +32,7 @@ def validate_config(client_type: str, config: Dict[str, Any]) -> None:
     
     Args:
         client_type: Type of client to validate
-        config: Configuration to validate
+        config: Configuration to validate from communication.yaml
         
     Raises:
         HTTPException: If config is invalid

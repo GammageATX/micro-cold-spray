@@ -15,7 +15,7 @@ class CommunicationClient(ABC):
         """Initialize communication client.
         
         Args:
-            config: Client configuration from hardware.yaml
+            config: Client configuration from communication.yaml
         """
         self._config = config
         self._connected = False
@@ -25,15 +25,6 @@ class CommunicationClient(ABC):
     def is_connected(self) -> bool:
         """Check if client is connected."""
         return self._connected
-
-    @abstractmethod
-    async def start(self) -> None:
-        """Start the client and establish initial connection.
-        
-        Raises:
-            HTTPException: If startup fails
-        """
-        pass
 
     @abstractmethod
     async def connect(self) -> None:

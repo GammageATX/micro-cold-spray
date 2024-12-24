@@ -24,12 +24,12 @@ class SSHClient(CommunicationClient):
         """Initialize SSH client.
         
         Args:
-            config: Client configuration from hardware.yaml
+            config: Client configuration from communication.yaml
         """
         super().__init__(config)
         
         # Extract SSH config
-        ssh_config = config["hardware"]["network"]["ssh"]
+        ssh_config = config["network"]["ssh"]
         self._host = ssh_config["host"]
         self._port = ssh_config["port"]
         self._username = ssh_config["username"]

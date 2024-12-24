@@ -19,40 +19,27 @@ class MockClient(CommunicationClient):
         "AMC.Ax1Position": 0.0,  # X axis position
         "AMC.Ax2Position": 0.0,  # Y axis position
         "AMC.Ax3Position": 0.0,  # Z axis position
-        "AMC.ModuleStatus": False,  # Motion controller ready
-        "AMC.Ax1AxisStatus": 0,  # X axis status
-        "AMC.Ax2AxisStatus": 0,  # Y axis status
-        "AMC.Ax3AxisStatus": 0,  # Z axis status
+        "AMC.ModuleStatus": True,  # Motion controller ready
+        "AMC.Ax1AxisStatus": 0x0090,  # X axis status (initialized & homed)
+        "AMC.Ax2AxisStatus": 0x0090,  # Y axis status (initialized & homed)
+        "AMC.Ax3AxisStatus": 0x0090,  # Z axis status (initialized & homed)
         
         # Motion Parameters
-        "XAxis.Velocity": 0.0,
-        "YAxis.Velocity": 0.0,
-        "ZAxis.Velocity": 0.0,
-        "XAxis.Accel": 0.0,
-        "YAxis.Accel": 0.0,
-        "ZAxis.Accel": 0.0,
-        "XAxis.Decel": 0.0,
-        "YAxis.Decel": 0.0,
-        "ZAxis.Decel": 0.0,
+        "XAxis.Velocity": 50.0,
+        "YAxis.Velocity": 50.0,
+        "ZAxis.Velocity": 25.0,
+        "XAxis.Accel": 100.0,
+        "YAxis.Accel": 100.0,
+        "ZAxis.Accel": 50.0,
+        "XAxis.Decel": 100.0,
+        "YAxis.Decel": 100.0,
+        "ZAxis.Decel": 50.0,
         "XAxis.InProgress": False,
         "YAxis.InProgress": False,
         "ZAxis.InProgress": False,
-        "XAxis.Complete": False,
-        "YAxis.Complete": False,
-        "ZAxis.Complete": False,
-        
-        # Coordinated Move
-        "XYMove.XPosition": 0.0,
-        "XYMove.YPosition": 0.0,
-        "XYMove.LINVelocity": 0.0,
-        "XYMove.LINRamps": 0.0,
-        "XYMove.InProgress": False,
-        "XYMove.Complete": False,
-        "MoveXY": False,
-        "MoveX": False,
-        "MoveY": False,
-        "MoveZ": False,
-        "SetHome": False,
+        "XAxis.Complete": True,
+        "YAxis.Complete": True,
+        "ZAxis.Complete": True,
         
         # Gas Control
         "FeederFlowRate": 0.0,
@@ -61,10 +48,10 @@ class MockClient(CommunicationClient):
         "AOS32-0.1.2.2": 0.0,  # Feeder gas flow setpoint
         
         # Hardware Sets
-        "NozzleSelect": False,
-        "AOS32-0.1.6.1": 30,  # Deagglomerator 1 duty cycle
+        "NozzleSelect": False,  # False=1, True=2
+        "AOS32-0.1.6.1": 35,  # Deagglomerator 1 duty cycle (35=off)
         "AOS32-0.1.6.2": 500,  # Deagglomerator 1 frequency
-        "AOS32-0.1.6.3": 30,  # Deagglomerator 2 duty cycle
+        "AOS32-0.1.6.3": 35,  # Deagglomerator 2 duty cycle (35=off)
         "AOS32-0.1.6.4": 500,  # Deagglomerator 2 frequency
         
         # Pressure
@@ -92,13 +79,13 @@ class MockClient(CommunicationClient):
     # Simulated SSH (feeder) tag values for both feeders
     _ssh_tags = {
         # Feeder 1
-        "P6": 100,    # Frequency
-        "P10": 4,     # Start/Stop
+        "P6": 200,    # Frequency (200-1200 Hz)
+        "P10": 4,     # Start/Stop (1=start, 4=stop)
         "P12": 999,   # Time
         
         # Feeder 2
-        "P106": 100,  # Frequency
-        "P110": 4,    # Start/Stop
+        "P106": 200,  # Frequency (200-1200 Hz)
+        "P110": 4,    # Start/Stop (1=start, 4=stop)
         "P112": 999   # Time
     }
     
@@ -121,24 +108,29 @@ class MockClient(CommunicationClient):
         """Initialize mock client.
         
         Args:
-            config: Client configuration from hardware.yaml
+            config: Client configuration from communication.yaml
         """
+        super().__init__(config)
+        
         # Determine client type from config
         self._client_type = "plc"  # Default to PLC
         self._tag_values = self._plc_tags  # Default to PLC tags
         
-        if "hardware" in config and "network" in config["hardware"]:
-            if "plc" in config["hardware"]["network"]:
+        if "communication" in config and "hardware" in config["communication"]:
+            network = config["communication"]["hardware"]["network"]
+            if "plc" in network:
                 self._client_type = "plc"
                 self._tag_values = self._plc_tags
-            elif "ssh" in config["hardware"]["network"]:
+            elif "ssh" in network:
                 self._client_type = "ssh"
                 self._tag_values = self._ssh_tags
             else:
                 self._client_type = "unknown"
                 self._tag_values = {}
                 
-        super().__init__(config)
+        # Get mock delay from config
+        self._mock_delay = config["communication"]["hardware"]["network"]["mock"]["delay"]
+        
         logger.info(f"Initialized mock {self._client_type} client")
         
     async def _simulate_delay(self, operation: str) -> None:
@@ -204,6 +196,7 @@ class MockClient(CommunicationClient):
         """
         # Check connection
         if not self._connected:
+            logger.error(f"Mock {self._client_type} client not connected")
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=f"Mock {self._client_type} client not connected"
@@ -215,6 +208,7 @@ class MockClient(CommunicationClient):
         
         # Get tag value
         if tag not in self._tag_values:
+            logger.error(f"Tag '{tag}' not found in {self._client_type} client")
             raise create_error(
                 status_code=status.HTTP_404_NOT_FOUND,
                 message=f"Tag '{tag}' not found in {self._client_type} client"
@@ -259,17 +253,36 @@ class MockClient(CommunicationClient):
         """Read multiple mock tag values.
         
         Args:
-            tags: Dictionary of tag names and expected types
+            tags: Dict of tag names to read
             
         Returns:
-            Dictionary of tag names and values
+            Dict of tag values
             
         Raises:
-            HTTPException: If read fails or any tag not found
+            HTTPException: If read fails or tag not found
         """
+        # Check connection
+        if not self._connected:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=f"Mock {self._client_type} client not connected"
+            )
+            
+        # Simulate read delay and possible error
+        await self._simulate_delay("read")
+        self._simulate_error("read")
+        
+        # Get tag values
         values = {}
         for tag in tags:
-            values[tag] = await self.read_tag(tag)
+            if tag not in self._tag_values:
+                raise create_error(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    message=f"Tag '{tag}' not found in {self._client_type} client"
+                )
+            values[tag] = self._tag_values[tag]
+            
+        logger.debug(f"Read {len(values)} mock {self._client_type} tags")
         return values
 
     async def write_tags(self, tags: Dict[str, Any]) -> None:
@@ -322,3 +335,30 @@ class MockClient(CommunicationClient):
         # Return connection status
         logger.debug(f"Mock {self._client_type} client connection status: {self._connected}")
         return self._connected
+
+    async def get(self) -> Dict[str, Any]:
+        """Get all tag values.
+        
+        Returns:
+            Dict of all tag values
+            
+        Raises:
+            HTTPException: If read fails
+        """
+        # Check connection
+        if not self._connected:
+            logger.error(f"Mock {self._client_type} client not connected")
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=f"Mock {self._client_type} client not connected"
+            )
+            
+        # Simulate read delay and possible error
+        await self._simulate_delay("read")
+        self._simulate_error("read")
+        
+        # Return all tag values
+        logger.debug(f"Reading all mock {self._client_type} tags ({len(self._tag_values)} tags)")
+        values = self._tag_values.copy()  # Return copy to prevent modification
+        logger.debug(f"Read {len(values)} mock {self._client_type} tags")
+        return values

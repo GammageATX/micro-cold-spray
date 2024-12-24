@@ -1,42 +1,43 @@
-"""Motion control models."""
+"""Motion models."""
 
-from typing import Optional, Dict, Any
+from typing import Optional
 from pydantic import BaseModel, Field
 
 
 class Position(BaseModel):
-    """Position model with XYZ coordinates."""
-
-    x: Optional[float] = Field(None, description="X position in mm")
-    y: Optional[float] = Field(None, description="Y position in mm")
-    z: Optional[float] = Field(None, description="Z position in mm")
-
-
-class Velocity(BaseModel):
-    """Velocity model with XYZ components."""
-
-    x: Optional[float] = Field(None, description="X velocity in mm/s")
-    y: Optional[float] = Field(None, description="Y velocity in mm/s")
-    z: Optional[float] = Field(None, description="Z velocity in mm/s")
-    path: Optional[float] = Field(None, description="Path velocity in mm/s")
+    """Position model."""
+    x: float = Field(..., description="X position")
+    y: float = Field(..., description="Y position")
+    z: float = Field(..., description="Z position")
 
 
-class SingleAxisMoveRequest(BaseModel):
-    """Single axis move request."""
-    axis_id: str = Field(..., description="Axis identifier")
-    position: float = Field(..., description="Target position")
-    velocity: Optional[float] = Field(None, description="Optional velocity override")
+class AxisStatus(BaseModel):
+    """Axis status model."""
+    position: float = Field(..., description="Current position")
+    in_position: bool = Field(..., description="At target position")
+    moving: bool = Field(..., description="Currently moving")
+    error: bool = Field(..., description="Error state")
+    homed: bool = Field(..., description="Homed state")
 
 
-class CoordinatedMoveRequest(BaseModel):
-    """Coordinated multi-axis move request."""
-    position: Position = Field(..., description="Target position")
-    velocity: Optional[Velocity] = Field(None, description="Optional velocity override")
-
-
-class MotionStatus(BaseModel):
+class SystemStatus(BaseModel):
     """Motion system status."""
-    position: Position = Field(..., description="Current position")
-    velocity: Velocity = Field(..., description="Current velocity")
-    state: Dict[str, Any] = Field(..., description="Motion system state")
-    error: Optional[str] = Field(None, description="Error message if any")
+    x_axis: AxisStatus = Field(..., description="X axis status")
+    y_axis: AxisStatus = Field(..., description="Y axis status")
+    z_axis: AxisStatus = Field(..., description="Z axis status")
+    module_ready: bool = Field(..., description="Motion controller ready")
+
+
+class JogRequest(BaseModel):
+    """Jog motion request."""
+    axis: str = Field(..., description="Axis to jog (x, y, z)")
+    direction: int = Field(..., ge=-1, le=1, description="Jog direction (-1, 0, 1)")
+    velocity: float = Field(..., gt=0, description="Jog velocity")
+
+
+class MoveRequest(BaseModel):
+    """Move request."""
+    x: Optional[float] = Field(None, description="X target position")
+    y: Optional[float] = Field(None, description="Y target position")
+    z: Optional[float] = Field(None, description="Z target position")
+    velocity: float = Field(..., gt=0, description="Move velocity")
