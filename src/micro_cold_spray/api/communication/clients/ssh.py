@@ -7,7 +7,7 @@ from fastapi import status
 from loguru import logger
 import paramiko
 
-from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.api.communication.clients.base import CommunicationClient
 
 

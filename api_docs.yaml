@@ -8,7 +8,19 @@ info:
 
 servers:
 - url: http://localhost:8000
-  description: Local development server
+  description: UI Service
+- url: http://localhost:8001
+  description: Config Service
+- url: http://localhost:8002
+  description: State Service
+- url: http://localhost:8003
+  description: Communication Service
+- url: http://localhost:8004
+  description: Process Service
+- url: http://localhost:8005
+  description: Data Collection Service
+- url: http://localhost:8006
+  description: Validation Service
 
 components:
   schemas:
@@ -54,109 +66,94 @@ components:
           format: date-time
           description: Response timestamp
 
-    ProcessPattern:
+    ConfigRequest:
       type: object
       required:
-      - id
       - name
+      - data
+      - format
       properties:
-        id:
-          type: string
-          description: Pattern ID
         name:
           type: string
-          description: Pattern name
-        description:
-          type: string
-          nullable: true
-          description: Pattern description
-        parameters:
+          description: Configuration name
+        data:
           type: object
-          description: Pattern parameters
-          additionalProperties: true
+          description: Configuration data
+        format:
+          type: string
+          description: Data format (yaml/json)
+          enum: [ yaml, json ]
 
-    ParameterSet:
+    ConfigResponse:
       type: object
       required:
-      - id
       - name
+      - data
+      - format
       properties:
-        id:
-          type: string
-          description: Parameter set ID
         name:
           type: string
-          description: Parameter set name
-        description:
-          type: string
-          nullable: true
-          description: Parameter set description
-        parameters:
+          description: Configuration name
+        data:
           type: object
-          description: Parameter values
-          additionalProperties: true
+          description: Configuration data
+        format:
+          type: string
+          description: Data format (yaml/json)
 
-    SequenceStep:
+    SchemaRequest:
       type: object
       required:
-      - pattern_id
-      - parameter_id
-      properties:
-        pattern_id:
-          type: string
-          description: Pattern ID
-        parameter_id:
-          type: string
-          description: Parameter set ID
-        description:
-          type: string
-          nullable: true
-          description: Step description
-
-    SequenceMetadata:
-      type: object
-      required:
-      - id
       - name
-      - steps
+      - schema_definition
       properties:
-        id:
+        name:
+          type: string
+          description: Schema name
+        schema_definition:
+          type: object
+          description: JSON Schema definition
+
+    SchemaResponse:
+      type: object
+      required:
+      - name
+      - schema_definition
+      properties:
+        name:
+          type: string
+          description: Schema name
+        schema_definition:
+          type: object
+          description: JSON Schema definition
+
+    MessageResponse:
+      type: object
+      required:
+      - message
+      properties:
+        message:
+          type: string
+          description: Response message
+
+    SprayEvent:
+      type: object
+      required:
+      - sequence_id
+      - timestamp
+      - data
+      properties:
+        sequence_id:
           type: string
           description: Sequence ID
-        name:
-          type: string
-          description: Sequence name
-        description:
-          type: string
-          nullable: true
-          description: Sequence description
-        steps:
-          type: array
-          items:
-            $ref: '#/components/schemas/SequenceStep'
-          description: Sequence steps
-
-    ExecutionStatus:
-      type: string
-      enum: [ idle, running, paused, completed, aborted, error ]
-      description: Process execution status
-
-    TagValue:
-      type: object
-      required:
-      - value
-      - timestamp
-      properties:
-        value:
-          description: Tag value
-          oneOf:
-          - type: number
-          - type: string
-          - type: boolean
         timestamp:
           type: string
           format: date-time
-          description: Value timestamp
+          description: Event timestamp
+        data:
+          type: object
+          description: Event data
+          additionalProperties: true
 
 paths:
   /health:
@@ -175,186 +172,364 @@ paths:
         '503':
           description: Service unavailable
 
-  /api/process/patterns:
+  /monitoring/services/status:
     get:
-      summary: List Patterns
-      description: Get list of available spray patterns
-      operationId: listPatterns
-      tags: [ Process ]
+      summary: Get Services Status
+      description: Get status of all services
+      operationId: getServicesStatus
+      tags: [ Monitoring ]
       responses:
         '200':
-          description: List of patterns
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ProcessPattern'
-        '503':
-          description: Service unavailable
-
-  /api/process/patterns/{pattern_id}:
-    get:
-      summary: Get Pattern
-      description: Get pattern by ID
-      operationId: getPattern
-      tags: [ Process ]
-      parameters:
-      - name: pattern_id
-        in: path
-        required: true
-        schema:
-          type: string
-      responses:
-        '200':
-          description: Pattern details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProcessPattern'
-        '404':
-          description: Pattern not found
-        '503':
-          description: Service unavailable
-
-  /api/process/parameters:
-    get:
-      summary: List Parameter Sets
-      description: Get list of available parameter sets
-      operationId: listParameterSets
-      tags: [ Process ]
-      responses:
-        '200':
-          description: List of parameter sets
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ParameterSet'
-        '503':
-          description: Service unavailable
-
-  /api/process/parameters/{parameter_id}:
-    get:
-      summary: Get Parameter Set
-      description: Get parameter set by ID
-      operationId: getParameterSet
-      tags: [ Process ]
-      parameters:
-      - name: parameter_id
-        in: path
-        required: true
-        schema:
-          type: string
-      responses:
-        '200':
-          description: Parameter set details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ParameterSet'
-        '404':
-          description: Parameter set not found
-        '503':
-          description: Service unavailable
-
-  /api/process/sequences:
-    get:
-      summary: List Sequences
-      description: Get list of available sequences
-      operationId: listSequences
-      tags: [ Process ]
-      responses:
-        '200':
-          description: List of sequences
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/SequenceMetadata'
-        '503':
-          description: Service unavailable
-
-  /api/process/sequences/{sequence_id}/start:
-    post:
-      summary: Start Sequence
-      description: Start sequence execution
-      operationId: startSequence
-      tags: [ Process ]
-      parameters:
-      - name: sequence_id
-        in: path
-        required: true
-        schema:
-          type: string
-      responses:
-        '200':
-          description: Sequence started
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ExecutionStatus'
-        '404':
-          description: Sequence not found
-        '409':
-          description: Another sequence is running
-        '503':
-          description: Service unavailable
-
-  /api/process/sequences/{sequence_id}/stop:
-    post:
-      summary: Stop Sequence
-      description: Stop sequence execution
-      operationId: stopSequence
-      tags: [ Process ]
-      parameters:
-      - name: sequence_id
-        in: path
-        required: true
-        schema:
-          type: string
-      responses:
-        '200':
-          description: Sequence stopped
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ExecutionStatus'
-        '404':
-          description: Sequence not found
-        '409':
-          description: No sequence running
-        '503':
-          description: Service unavailable
-
-  /communication/tags:
-    get:
-      summary: Get Tag Values
-      description: Get current values of all tags
-      operationId: getTagValues
-      tags: [ Communication ]
-      responses:
-        '200':
-          description: Tag values
+          description: Services status
           content:
             application/json:
               schema:
                 type: object
                 additionalProperties:
-                  $ref: '#/components/schemas/TagValue'
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    port:
+                      type: integer
+                    status:
+                      type: string
+                      enum: [ ok, error ]
+                    uptime:
+                      type: number
+                    service_info:
+                      $ref: '#/components/schemas/HealthResponse'
+        '500':
+          description: Internal server error
+
+  /config/{name}:
+    get:
+      summary: Get Configuration
+      description: Get configuration by name
+      operationId: getConfig
+      tags: [ Config ]
+      parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Configuration details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigResponse'
+        '500':
+          description: Internal server error
+    put:
+      summary: Update Configuration
+      description: Update configuration
+      operationId: updateConfig
+      tags: [ Config ]
+      parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigRequest'
+      responses:
+        '200':
+          description: Configuration updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '500':
+          description: Internal server error
+
+  /config/validate/{name}:
+    post:
+      summary: Validate Configuration
+      description: Validate configuration against schema
+      operationId: validateConfig
+      tags: [ Config ]
+      parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigRequest'
+      responses:
+        '200':
+          description: Configuration validation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '422':
+          description: Validation failed
+
+  /config/schema/{name}:
+    get:
+      summary: Get Schema
+      description: Get schema by name
+      operationId: getSchema
+      tags: [ Config ]
+      parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Schema details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchemaResponse'
+        '404':
+          description: Schema not found
+        '500':
+          description: Internal server error
+    put:
+      summary: Update Schema
+      description: Update schema
+      operationId: updateSchema
+      tags: [ Config ]
+      parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SchemaRequest'
+      responses:
+        '200':
+          description: Schema updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '500':
+          description: Internal server error
+
+  /start:
+    post:
+      summary: Start State Service
+      description: Start the state service
+      operationId: startStateService
+      tags: [ State ]
+      responses:
+        '200':
+          description: Service started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ started ]
+
+  /stop:
+    post:
+      summary: Stop State Service
+      description: Stop the state service
+      operationId: stopStateService
+      tags: [ State ]
+      responses:
+        '200':
+          description: Service stopped
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ stopped ]
+
+  /state:
+    get:
+      summary: Get Current State
+      description: Get current state of the system
+      operationId: getCurrentState
+      tags: [ State ]
+      responses:
+        '200':
+          description: Current state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state:
+                    type: string
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /transitions:
+    get:
+      summary: Get Valid Transitions
+      description: Get valid state transitions
+      operationId: getValidTransitions
+      tags: [ State ]
+      responses:
+        '200':
+          description: Valid transitions
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: array
+                  items:
+                    type: string
+
+  /transition/{new_state}:
+    post:
+      summary: Transition State
+      description: Transition to new state
+      operationId: transitionState
+      tags: [ State ]
+      parameters:
+      - name: new_state
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: State transition result
+
+  /history:
+    get:
+      summary: Get State History
+      description: Get state transition history
+      operationId: getStateHistory
+      tags: [ State ]
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: State history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    state:
+                      type: string
+                    timestamp:
+                      type: string
+                      format: date-time
+
+  /equipment/health:
+    get:
+      summary: Check Equipment Health
+      description: Check equipment service health
+      operationId: checkEquipmentHealth
+      tags: [ Equipment ]
+      responses:
+        '200':
+          description: Equipment health status
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
         '503':
           description: Service unavailable
 
-  /communication/tags/{tag_name}:
+  /equipment/gas/{action}:
     post:
-      summary: Set Tag Value
-      description: Set value for a specific tag
-      operationId: setTagValue
-      tags: [ Communication ]
+      summary: Control Gas System
+      description: Control gas system (on/off)
+      operationId: controlGas
+      tags: [ Equipment ]
       parameters:
-      - name: tag_name
+      - name: action
+        in: path
+        required: true
+        schema:
+          type: string
+          enum: [ on, off ]
+      responses:
+        '200':
+          description: Gas control result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          description: Invalid action
+        '500':
+          description: Internal server error
+
+  /validation/hardware:
+    post:
+      summary: Validate Hardware Configuration
+      description: Validate hardware configuration
+      operationId: validateHardware
+      tags: [ Validation ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                  errors:
+                    type: array
+                    items:
+                      type: string
+                  warnings:
+                    type: array
+                    items:
+                      type: string
+        '422':
+          description: Validation failed
+
+  /validation/parameter/{parameter_type}:
+    post:
+      summary: Validate Parameter Configuration
+      description: Validate parameter configuration
+      operationId: validateParameter
+      tags: [ Validation ]
+      parameters:
+      - name: parameter_type
         in: path
         required: true
         schema:
@@ -365,35 +540,86 @@ paths:
           application/json:
             schema:
               type: object
-              required: [ value ]
-              properties:
-                value:
-                  oneOf:
-                  - type: number
-                  - type: string
-                  - type: boolean
+              additionalProperties: true
       responses:
         '200':
-          description: Tag value set successfully
-        '404':
-          description: Tag not found
-        '503':
-          description: Service unavailable
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                  errors:
+                    type: array
+                    items:
+                      type: string
+                  warnings:
+                    type: array
+                    items:
+                      type: string
+        '422':
+          description: Validation failed
 
-  /ws/communication/tags:
-    get:
-      summary: Tag Updates WebSocket
-      description: WebSocket endpoint for real-time tag value updates
-      tags: [ Communication ]
+  /data_collection/data/stop:
+    post:
+      summary: Stop Data Collection
+      description: Stop current data collection
+      operationId: stopDataCollection
+      tags: [ Data Collection ]
       responses:
-        '101':
-          description: WebSocket connection established
+        '200':
+          description: Data collection stopped
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '500':
+          description: Internal server error
 
-  /ws/monitoring/logs:
-    get:
-      summary: Service Logs WebSocket
-      description: WebSocket endpoint for real-time service log updates
-      tags: [ Monitoring ]
+  /data_collection/data/record:
+    post:
+      summary: Record Spray Event
+      description: Record a spray event
+      operationId: recordSprayEvent
+      tags: [ Data Collection ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SprayEvent'
       responses:
-        '101':
-          description: WebSocket connection established
+        '200':
+          description: Event recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '500':
+          description: Internal server error
+
+  /data_collection/data/{sequence_id}:
+    get:
+      summary: Get Sequence Events
+      description: Get all events for a sequence
+      operationId: getSequenceEvents
+      tags: [ Data Collection ]
+      parameters:
+      - name: sequence_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Sequence events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SprayEvent'
+        '500':
+          description: Internal server error

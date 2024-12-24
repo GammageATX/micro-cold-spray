@@ -2,10 +2,12 @@
 
 import os
 import sys
+import yaml
 import uvicorn
 from loguru import logger
 
 from micro_cold_spray.api.data_collection.data_collection_app import DataCollectionApp
+from micro_cold_spray.utils.errors import create_error
 
 
 def setup_logging():
@@ -42,6 +44,32 @@ def setup_logging():
     )
 
 
+def load_config():
+    """Load service configuration."""
+    try:
+        config_path = os.path.join("config", "data_collection.yaml")
+        if not os.path.exists(config_path):
+            logger.warning(f"Config file not found at {config_path}, using defaults")
+            return {
+                "service": {
+                    "version": "1.0.0",
+                    "host": "0.0.0.0",
+                    "port": 8006,
+                    "history_retention_days": 30
+                }
+            }
+
+        with open(config_path, 'r') as f:
+            return yaml.safe_load(f)
+
+    except Exception as e:
+        logger.error(f"Failed to load config: {e}")
+        raise create_error(
+            status_code=500,
+            message=f"Failed to load configuration: {str(e)}"
+        )
+
+
 def main():
     """Run data collection service."""
     try:
@@ -49,9 +77,13 @@ def main():
         setup_logging()
         logger.info("Starting data collection service...")
         
+        # Load config
+        config = load_config()
+        service_config = config.get("service", {})
+        
         # Get config from environment or use defaults
-        host = os.getenv("DATA_COLLECTION_HOST", "0.0.0.0")
-        port = int(os.getenv("DATA_COLLECTION_PORT", "8005"))  # Default port for data collection
+        host = os.getenv("DATA_COLLECTION_HOST", service_config.get("host", "0.0.0.0"))
+        port = int(os.getenv("DATA_COLLECTION_PORT", service_config.get("port", 8006)))
         reload = os.getenv("DATA_COLLECTION_RELOAD", "false").lower() == "true"
         
         # Log startup configuration

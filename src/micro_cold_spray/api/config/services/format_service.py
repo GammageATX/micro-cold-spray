@@ -3,18 +3,19 @@
 import json
 import yaml
 from typing import Dict, Any
+from datetime import datetime
 from loguru import logger
 
-from micro_cold_spray.api.base import create_error
-from micro_cold_spray.api.config.services.base_config_service import BaseConfigService
+from micro_cold_spray.utils.errors import create_error
 
 
-class FormatService(BaseConfigService):
+class FormatService:
     """Configuration format service implementation."""
 
     def __init__(self):
         """Initialize service."""
-        super().__init__(name="format")
+        self.is_running = False
+        self._start_time = None
         self.formatters = {
             "json": {
                 "parse": self._parse_json,
@@ -26,12 +27,16 @@ class FormatService(BaseConfigService):
             }
         }
 
-    async def _start(self) -> None:
-        """Start implementation."""
+    async def start(self) -> None:
+        """Start service."""
+        self.is_running = True
+        self._start_time = datetime.now()
         logger.info("Format service started")
 
-    async def _stop(self) -> None:
-        """Stop implementation."""
+    async def stop(self) -> None:
+        """Stop service."""
+        self.is_running = False
+        self._start_time = None
         logger.info("Format service stopped")
 
     def _parse_json(self, data: str) -> Dict[str, Any]:
@@ -156,10 +161,11 @@ class FormatService(BaseConfigService):
         Returns:
             Dict[str, Any]: Health status
         """
-        health_status = await super().health()
-        health_status.update({
+        return {
+            "status": "ok" if self.is_running else "error",
+            "is_running": self.is_running,
+            "uptime": (datetime.now() - self._start_time).total_seconds() if self._start_time else 0,
             "details": {
                 "supported_formats": list(self.formatters.keys())
             }
-        })
-        return health_status
+        }

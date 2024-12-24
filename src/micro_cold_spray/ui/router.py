@@ -4,7 +4,6 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
 from fastapi import FastAPI, Request, status
-from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.gzip import GZipMiddleware
@@ -20,12 +19,11 @@ from micro_cold_spray.utils.monitoring import get_uptime
 class ApiUrls(BaseModel):
     """API URLs configuration model."""
     config: str = Field("http://localhost:8001", description="Config service URL")
-    messaging: str = Field("http://localhost:8002", description="Messaging service URL")
+    state: str = Field("http://localhost:8002", description="State service URL")
     communication: str = Field("http://localhost:8003", description="Communication service URL")
-    state: str = Field("http://localhost:8004", description="State service URL")
-    process: str = Field("http://localhost:8005", description="Process service URL")
-    data_collection: str = Field("http://localhost:8006", description="Data collection service URL")
-    validation: str = Field("http://localhost:8007", description="Validation service URL")
+    process: str = Field("http://localhost:8004", description="Process service URL")
+    data_collection: str = Field("http://localhost:8005", description="Data collection service URL")
+    validation: str = Field("http://localhost:8006", description="Validation service URL")
 
 
 class ServiceInfo(BaseModel):
@@ -114,13 +112,6 @@ def create_app() -> FastAPI:
         # Add GZip middleware
         app.add_middleware(GZipMiddleware, minimum_size=1000)
 
-        # Mount static files
-        app.mount(
-            "/static",
-            StaticFiles(directory=Path(__file__).parent / "static"),
-            name="static"
-        )
-
         # Setup templates
         templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
@@ -142,11 +133,10 @@ def create_app() -> FastAPI:
                     }
                 )
             except Exception as e:
+                logger.error(f"Failed to render service monitor page: {e}")
                 raise create_error(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    message="Failed to render service monitor page",
-                    context={"error": str(e)},
-                    cause=e
+                    message=f"Failed to render service monitor page: {str(e)}"
                 )
 
         @app.get(
@@ -196,9 +186,9 @@ def create_app() -> FastAPI:
             try:
                 for service_name, url in {
                     "config": api_urls.config,
-                    "communication": api_urls.communication,
-                    "messaging": api_urls.messaging,
                     "state": api_urls.state,
+                    "communication": api_urls.communication,
+                    "process": api_urls.process,
                     "data_collection": api_urls.data_collection,
                     "validation": api_urls.validation
                 }.items():
@@ -215,19 +205,17 @@ def create_app() -> FastAPI:
 
                 return services
             except Exception as e:
+                logger.error(f"Failed to get services status: {e}")
                 raise create_error(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    message="Failed to get services status",
-                    context={"error": str(e)},
-                    cause=e
+                    message=f"Failed to get services status: {str(e)}"
                 )
 
         return app
 
     except Exception as e:
+        logger.error(f"Failed to create UI application: {e}")
         raise create_error(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            message="Failed to create UI application",
-            context={"error": str(e)},
-            cause=e
+            message=f"Failed to create UI application: {str(e)}"
         )

@@ -1,6 +1,6 @@
 """Process API models package."""
 
-from .process_models import (
+from micro_cold_spray.api.process.models.process_models import (
     ExecutionStatus,
     ActionStatus,
     ProcessPattern,

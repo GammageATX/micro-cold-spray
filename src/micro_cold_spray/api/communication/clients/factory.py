@@ -5,7 +5,7 @@ from fastapi import status
 
 from loguru import logger
 
-from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.api.communication.clients.base import CommunicationClient
 from micro_cold_spray.api.communication.clients.mock import MockClient
 from micro_cold_spray.api.communication.clients.plc import PLCClient

@@ -4,7 +4,7 @@ from typing import Dict, Any, List, Tuple
 from fastapi import status
 from loguru import logger
 
-from micro_cold_spray.api.base.base_errors import create_error
+from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.api.communication.models.motion import Position, Velocity
 
 

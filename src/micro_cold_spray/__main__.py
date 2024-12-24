@@ -8,46 +8,50 @@ import multiprocessing as mp
 from pathlib import Path
 from typing import Dict, List, Optional
 from importlib import import_module
+from datetime import datetime, timedelta
 from loguru import logger
 
 
 # Service module paths
 SERVICE_MODULES = {
     'config': "micro_cold_spray.api.config.config_app:create_config_service",
-    'messaging': "micro_cold_spray.api.messaging.messaging_app:MessagingApp",
-    'communication': "micro_cold_spray.api.communication.communication_app:create_app",
     'state': "micro_cold_spray.api.state.state_app:create_state_service",
+    'communication': "micro_cold_spray.api.communication.communication_app:create_app",
     'process': "micro_cold_spray.api.process.process_app:create_app",
     'data_collection': "micro_cold_spray.api.data_collection.data_collection_app:DataCollectionApp",
     'validation': "micro_cold_spray.api.validation.validation_app:create_app",
     'ui': "micro_cold_spray.ui.router:create_app"
 }
 
-# Critical services that must start in order
+# Service startup order (for initial startup only)
 STARTUP_ORDER = [
-    'config',           # Must be first - port 8001
-    'messaging',        # Must be second - port 8002
+    'config',           # port 8001
+    'state',           # port 8002
     'communication',    # port 8003
-    'state',            # port 8004
-    'process',          # port 8005 - process control
-    'data_collection',  # port 8006
-    'validation',       # port 8007
+    'process',          # port 8004
+    'data_collection',  # port 8005
+    'validation',       # port 8006
     'ui'                # port 8000 - web interface
 ]
 
-# Service dependencies
-SERVICE_DEPENDENCIES = {
-    'messaging': ['config'],
-    'communication': ['config', 'messaging'],
-    'state': ['config', 'messaging', 'communication'],
-    'process': ['config', 'messaging', 'communication'],
-    'data_collection': ['config', 'messaging', 'communication'],
-    'validation': ['config', 'messaging', 'communication'],
-    'ui': ['config', 'messaging']
+# Service processes and their state
+processes: Dict[str, Dict[str, any]] = {}
+
+# Service port mapping
+PORT_MAP = {
+    'config': 8001,           # Config on 8001
+    'state': 8002,           # State on 8002
+    'communication': 8003,    # Communication on 8003
+    'process': 8004,          # Process on 8004
+    'data_collection': 8005,  # Data Collection on 8005
+    'validation': 8006,       # Validation on 8006
+    'ui': 8000               # UI on 8000 - web interface
 }
 
-# Service processes
-processes: Dict[str, mp.Process] = {}
+# Service recovery settings
+MAX_RESTART_ATTEMPTS = 3   # Maximum number of restart attempts
+RESTART_COOLDOWN = 60      # Seconds to wait between restart attempts
+HEALTH_CHECK_INTERVAL = 5  # Seconds between health checks
 
 
 def ensure_directories():
@@ -55,8 +59,7 @@ def ensure_directories():
     required_dirs = [
         Path("logs"),
         Path("config"),
-        Path("config/schemas"),
-        Path("config/validation_rules")  # Added for validation rules
+        Path("config/schemas")
     ]
     
     for dir_path in required_dirs:
@@ -86,9 +89,35 @@ def import_app(module_path: str, test_mode: bool = False) -> Optional[object]:
         # Handle different app types
         if attr_name.startswith('create_'):
             # Factory function
-            return app()
-        elif attr_name in ["DataCollectionApp", "StateApp", "MessagingApp"]:
-            # Apps that handle their own FastAPI params
+            app_instance = app()
+            
+            # Initialize service state for factory-created apps
+            if hasattr(app_instance, 'state'):
+                service_name = module_name.split('.')[-2]
+                if service_name == 'validation':
+                    from micro_cold_spray.api.validation.validation_service import ValidationService
+                    app_instance.state.validation_service = ValidationService()
+                elif service_name == 'process':
+                    from micro_cold_spray.api.process.process_service import ProcessService
+                    app_instance.state.process_service = ProcessService()
+                elif service_name == 'communication':
+                    from micro_cold_spray.api.communication.communication_service import CommunicationService
+                    app_instance.state.communication_service = CommunicationService()
+                elif service_name == 'config':
+                    from micro_cold_spray.api.config.services.file_service import FileService
+                    from micro_cold_spray.api.config.services.format_service import FormatService
+                    from micro_cold_spray.api.config.services.schema_service import SchemaService
+                    app_instance.state.file = FileService()
+                    app_instance.state.format = FormatService()
+                    app_instance.state.schema = SchemaService()
+                elif service_name == 'state':
+                    from micro_cold_spray.api.state.state_service import StateService
+                    app_instance.state.service = StateService()
+            
+            return app_instance
+            
+        elif attr_name in ["DataCollectionApp"]:
+            # Apps that handle their own FastAPI params and state
             return app()
         elif isinstance(app, type):
             # Class that needs to be instantiated with FastAPI args
@@ -142,6 +171,24 @@ def run_service(name: str, module_path: str, port: int, test_mode: bool = False)
         logger.error(f"Error running {name} service: {e}")
 
 
+async def check_service_health(name: str, port: int) -> bool:
+    """Check if a service is healthy.
+    
+    Args:
+        name: Service name
+        port: Service port
+        
+    Returns:
+        bool: True if service is healthy
+    """
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"http://localhost:{port}/health", timeout=2) as resp:
+                return resp.status == 200
+    except Exception:
+        return False
+
+
 async def start_service(name: str, port: int, test_mode: bool = False) -> bool:
     """Start service process.
     
@@ -158,17 +205,6 @@ async def start_service(name: str, port: int, test_mode: bool = False) -> bool:
             logger.error(f"Unknown service: {name}")
             return False
             
-        if name in processes:
-            logger.warning(f"Service {name} is already running")
-            return True
-            
-        # Check dependencies
-        if name in SERVICE_DEPENDENCIES:
-            for dep in SERVICE_DEPENDENCIES[name]:
-                if dep not in processes or not processes[dep].is_alive():
-                    logger.error(f"Service {name} requires {dep} to be running")
-                    return False
-                    
         # Create and start process
         process = mp.Process(
             target=run_service,
@@ -176,27 +212,27 @@ async def start_service(name: str, port: int, test_mode: bool = False) -> bool:
             name=name
         )
         process.start()
-        processes[name] = process
+        
+        # Initialize process state
+        processes[name] = {
+            'process': process,
+            'port': port,
+            'restart_count': 0,
+            'last_restart': datetime.now(),
+            'last_health_check': datetime.now(),
+            'healthy': False
+        }
         
         # Wait for service to be ready
-        for _ in range(20):  # Increased retries to 20 seconds
+        for _ in range(20):  # Wait up to 20 seconds
             if not process.is_alive():
                 logger.error(f"Service {name} failed to start")
                 return False
             
-            # Try to connect to health endpoint
-            try:
-                async with aiohttp.ClientSession() as session:
-                    # All services now use the standard /health endpoint
-                    async with session.get(f"http://localhost:{port}/health", timeout=2) as resp:
-                        if resp.status == 200:
-                            # Wait a bit longer after health check passes
-                            await asyncio.sleep(2.0)
-                            logger.info(f"Service {name} is ready")
-                            return True
-            except Exception as e:
-                logger.debug(f"Health check attempt failed for {name}: {e}")
-                pass
+            if await check_service_health(name, port):
+                processes[name]['healthy'] = True
+                logger.info(f"Service {name} is ready")
+                return True
                 
             await asyncio.sleep(1.0)
             
@@ -208,6 +244,63 @@ async def start_service(name: str, port: int, test_mode: bool = False) -> bool:
         return False
 
 
+async def monitor_and_recover_services():
+    """Monitor service health and attempt recovery if needed."""
+    while True:
+        try:
+            current_time = datetime.now()
+            
+            for name, info in list(processes.items()):
+                # Skip if too soon for next health check
+                if (current_time - info['last_health_check']) < timedelta(seconds=HEALTH_CHECK_INTERVAL):
+                    continue
+                
+                # Update last health check time
+                info['last_health_check'] = current_time
+                
+                # Check process health
+                process_alive = info['process'].is_alive()
+                service_healthy = await check_service_health(name, info['port'])
+                
+                if not process_alive or not service_healthy:
+                    logger.warning(f"Service {name} is unhealthy (alive={process_alive}, healthy={service_healthy})")
+                    
+                    # Check if we can attempt restart
+                    if info['restart_count'] >= MAX_RESTART_ATTEMPTS:
+                        if (current_time - info['last_restart']) > timedelta(seconds=RESTART_COOLDOWN):
+                            # Reset restart count after cooldown
+                            info['restart_count'] = 0
+                        else:
+                            logger.error(f"Service {name} has failed too many times, waiting for cooldown")
+                            continue
+                    
+                    # Attempt restart
+                    logger.info(f"Attempting to restart {name} service (attempt {info['restart_count'] + 1})")
+                    
+                    # Stop old process if it's still running
+                    if process_alive:
+                        info['process'].terminate()
+                        info['process'].join(timeout=5.0)
+                        if info['process'].is_alive():
+                            info['process'].kill()
+                            info['process'].join()
+                    
+                    # Start new process
+                    if await start_service(name, info['port'], False):
+                        logger.info(f"Successfully restarted {name} service")
+                    else:
+                        info['restart_count'] += 1
+                        info['last_restart'] = current_time
+                        logger.error(f"Failed to restart {name} service")
+                else:
+                    info['healthy'] = True
+                    
+        except Exception as e:
+            logger.error(f"Error in service monitor: {e}")
+            
+        await asyncio.sleep(1.0)
+
+
 def stop_service(name: str):
     """Stop service process.
     
@@ -215,7 +308,8 @@ def stop_service(name: str):
         name: Service name
     """
     if name in processes:
-        process = processes[name]
+        info = processes[name]
+        process = info['process']
         if process.is_alive():
             process.terminate()
             process.join(timeout=5.0)
@@ -254,66 +348,34 @@ async def main(test_mode: bool = False):
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
         
-        # Map services to ports
-        port_map = {
-            'config': 8001,           # Config on 8001
-            'messaging': 8002,        # Messaging on 8002
-            'communication': 8003,    # Communication on 8003
-            'state': 8004,           # State on 8004
-            'process': 8005,          # Process on 8005
-            'data_collection': 8006,  # Data Collection on 8006
-            'validation': 8007,       # Validation on 8007
-            'ui': 8000               # UI on 8000 - web interface
-        }
-        
-        # Start services in order
+        # Start services in order (initial startup)
         for name in STARTUP_ORDER:
-            # Wait for dependencies to be ready first
-            if name in SERVICE_DEPENDENCIES:
-                for dep in SERVICE_DEPENDENCIES[name]:
-                    dep_port = port_map[dep]
-                    logger.info(f"Waiting for dependency {dep} on port {dep_port}...")
-                    
-                    for _ in range(30):  # Wait up to 30 seconds
-                        try:
-                            async with aiohttp.ClientSession() as session:
-                                async with session.get(f"http://localhost:{dep_port}/health", timeout=1) as resp:
-                                    if resp.status == 200:
-                                        logger.info(f"Dependency {dep} is ready")
-                                        break
-                        except Exception:
-                            await asyncio.sleep(1.0)
-                    else:
-                        logger.error(f"Dependency {dep} not ready for {name}")
-                        stop_all_services()
-                        return
-            
-            # Start service
             logger.info(f"Starting {name} service...")
-            if not await start_service(name, port_map[name], test_mode):
+            if not await start_service(name, PORT_MAP[name], test_mode):
                 logger.error(f"Failed to start {name} service")
                 stop_all_services()
                 return
             
-            logger.info(f"Service {name} started successfully on port {port_map[name]}")
-            
-            # Wait briefly between services
+            logger.info(f"Service {name} started successfully on port {PORT_MAP[name]}")
             await asyncio.sleep(2.0)
             
         logger.info("All services started successfully")
         if test_mode:
             logger.info("Running in TEST MODE - using mock tags and configurations")
             
-        # Keep running until interrupted
-        while True:
-            await asyncio.sleep(1.0)
-            
-            # Check if any process died
-            for name, process in list(processes.items()):
-                if not process.is_alive():
-                    logger.error(f"Service {name} died unexpectedly")
-                    stop_all_services()
-                    return
+        # Start service monitor
+        monitor_task = asyncio.create_task(monitor_and_recover_services())
+        
+        try:
+            # Keep running until interrupted
+            while True:
+                await asyncio.sleep(1.0)
+        except asyncio.CancelledError:
+            monitor_task.cancel()
+            try:
+                await monitor_task
+            except asyncio.CancelledError:
+                pass
                     
     except Exception as e:
         logger.error(f"Application error: {e}")

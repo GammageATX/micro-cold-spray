@@ -1,259 +1,233 @@
-"""Process action service implementation."""
+"""Action service for process execution."""
 
-from typing import Dict, Any, Optional
 from datetime import datetime
-from loguru import logger
+import time
+from typing import Dict, Any
 from fastapi import status
+from loguru import logger
 
-from micro_cold_spray.api.base.base_errors import create_error
-from micro_cold_spray.api.process.models import (
-    ActionStatus,
-    ProcessPattern,
-    ParameterSet
-)
+from micro_cold_spray.utils.errors import create_error
+from micro_cold_spray.api.process.models.process_models import ActionStatus
 
 
 class ActionService:
-    """Process action service implementation."""
+    """Service for managing process actions."""
 
-    def __init__(self, name: str = "action"):
-        """Initialize action service.
-        
-        Args:
-            name: Service name
-        """
-        self.name = name
-        self._current_action: Optional[Dict[str, Any]] = None
-        self._status = ActionStatus.IDLE
+    def __init__(self):
+        """Initialize action service."""
+        self._service_name = "action"
+        self._version = "1.0.0"
+        self._start_time = None
         self._is_running = False
+        self._current_action = None
+        logger.info("ActionService initialized")
 
     @property
     def is_running(self) -> bool:
-        """Get service running state."""
+        """Check if service is running."""
         return self._is_running
+
+    @property
+    def version(self) -> str:
+        """Get service version."""
+        return self._version
+
+    @property
+    def uptime(self) -> float:
+        """Get service uptime in seconds."""
+        return time.time() - self._start_time.timestamp() if self._start_time else 0
 
     async def initialize(self) -> None:
         """Initialize service."""
-        logger.info(f"Initializing {self.name} service")
+        try:
+            logger.info("Action service initialized")
+        except Exception as e:
+            error_msg = f"Failed to initialize action service: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg,
+                context={"error": str(e)}
+            )
 
     async def start(self) -> None:
-        """Start action service."""
+        """Start service."""
         try:
+            if self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message="Service already running"
+                )
+
+            self._start_time = datetime.now()
             self._is_running = True
-            logger.info(f"{self.name} service started")
+            logger.info("Action service started")
+
         except Exception as e:
-            logger.error(f"Failed to start {self.name} service: {e}")
+            error_msg = f"Failed to start action service: {str(e)}"
+            logger.error(error_msg)
             raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=f"Failed to start {self.name} service",
-                context={"error": str(e)},
-                cause=e
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg,
+                context={"error": str(e)}
             )
 
     async def stop(self) -> None:
-        """Stop action service."""
+        """Stop service."""
         try:
-            # Stop current action if any
-            if self._current_action:
-                await self.stop_action()
-            
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message="Service not running"
+                )
+
             self._is_running = False
-            logger.info(f"{self.name} service stopped")
-        except Exception as e:
-            logger.error(f"Failed to stop {self.name} service: {e}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=f"Failed to stop {self.name} service",
-                context={"error": str(e)},
-                cause=e
-            )
+            self._start_time = None
+            logger.info("Action service stopped")
 
-    async def execute_action(
-        self,
-        action_type: str,
-        pattern: ProcessPattern,
-        parameters: ParameterSet,
-        context: Optional[Dict[str, Any]] = None
-    ) -> None:
-        """Execute process action.
-        
-        Args:
-            action_type: Type of action to execute
-            pattern: Process pattern
-            parameters: Parameter set
-            context: Optional execution context
-            
-        Raises:
-            HTTPException: If action execution fails
-        """
-        if not self.is_running:
+        except Exception as e:
+            error_msg = f"Failed to stop action service: {str(e)}"
+            logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Service not running",
-                context={"service": self.name}
-            )
-            
-        if self._status != ActionStatus.IDLE:
-            raise create_error(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                message="Another action is already running",
-                context={"status": self._status}
-            )
-            
-        try:
-            # Initialize action
-            self._current_action = {
-                "type": action_type,
-                "pattern": pattern,
-                "parameters": parameters,
-                "context": context or {},
-                "start_time": datetime.now().isoformat()
-            }
-            self._status = ActionStatus.RUNNING
-            
-            # Execute action
-            await self._execute_action_type(action_type, pattern, parameters)
-            
-            # Complete action
-            self._current_action["end_time"] = datetime.now().isoformat()
-            self._status = ActionStatus.IDLE
-            
-        except Exception as e:
-            self._status = ActionStatus.ERROR
-            if self._current_action:
-                self._current_action["error"] = str(e)
-                self._current_action["end_time"] = datetime.now().isoformat()
-                
-            logger.error(f"Action execution failed: {e}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Action execution failed",
-                context={
-                    "action_type": action_type,
-                    "error": str(e)
-                },
-                cause=e
+                message=error_msg,
+                context={"error": str(e)}
             )
 
-    async def stop_action(self) -> None:
-        """Stop current action.
-        
-        Raises:
-            HTTPException: If stop fails
-        """
-        if not self.is_running:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Service not running",
-                context={"service": self.name}
-            )
-            
-        if self._status != ActionStatus.RUNNING:
-            raise create_error(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                message="No action is running",
-                context={"status": self._status}
-            )
-            
-        try:
-            # Stop action
-            await self._stop_current_action()
-            
-            # Update state
-            self._current_action["end_time"] = datetime.now().isoformat()
-            self._status = ActionStatus.IDLE
-            
-        except Exception as e:
-            self._status = ActionStatus.ERROR
-            if self._current_action:
-                self._current_action["error"] = str(e)
-                self._current_action["end_time"] = datetime.now().isoformat()
-                
-            logger.error(f"Failed to stop action: {e}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to stop action",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def get_current_action(self) -> Optional[Dict[str, Any]]:
-        """Get currently executing action.
-        
-        Returns:
-            Action data if running, None otherwise
-            
-        Raises:
-            HTTPException: If service error
-        """
-        if not self.is_running:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Service not running",
-                context={"service": self.name}
-            )
-            
-        return self._current_action
-
-    async def _execute_action_type(
-        self,
-        action_type: str,
-        pattern: ProcessPattern,
-        parameters: ParameterSet
-    ) -> None:
-        """Execute specific action type.
-        
-        Args:
-            action_type: Type of action
-            pattern: Process pattern
-            parameters: Parameter set
-            
-        Raises:
-            HTTPException: If execution fails
-        """
-        try:
-            # TODO: Implement action type execution
-            pass
-        except Exception as e:
-            logger.error(f"Failed to execute action type {action_type}: {e}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=f"Failed to execute action type {action_type}",
-                context={
-                    "action_type": action_type,
-                    "error": str(e)
-                },
-                cause=e
-            )
-
-    async def _stop_current_action(self) -> None:
-        """Stop current action implementation.
-        
-        Raises:
-            HTTPException: If stop fails
-        """
-        try:
-            # TODO: Implement action stop
-            pass
-        except Exception as e:
-            logger.error(f"Failed to stop current action: {e}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message="Failed to stop current action",
-                context={"error": str(e)},
-                cause=e
-            )
-
-    async def health(self) -> dict:
+    async def health(self) -> Dict[str, Any]:
         """Get service health status.
         
         Returns:
-            Health check result
+            Health status dictionary
         """
         return {
             "status": "ok" if self.is_running else "error",
-            "context": {
-                "status": self._status,
-                "current_action": self._current_action
-            }
+            "service": self._service_name,
+            "version": self._version,
+            "running": self.is_running,
+            "uptime": self.uptime,
+            "current_action": self._current_action
         }
+
+    async def start_action(self, action_id: str) -> ActionStatus:
+        """Start action execution.
+        
+        Args:
+            action_id: Action identifier
+            
+        Returns:
+            Action status
+            
+        Raises:
+            HTTPException: If start fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            if self._current_action:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message="Another action is already running",
+                    context={"current_action": self._current_action}
+                )
+
+            self._current_action = action_id
+            logger.info(f"Started action: {action_id}")
+            return ActionStatus.RUNNING
+
+        except Exception as e:
+            error_msg = f"Failed to start action {action_id}"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg,
+                context={"error": str(e)}
+            )
+
+    async def stop_action(self, action_id: str) -> ActionStatus:
+        """Stop action execution.
+        
+        Args:
+            action_id: Action identifier
+            
+        Returns:
+            Action status
+            
+        Raises:
+            HTTPException: If stop fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            if not self._current_action:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message="No action is running"
+                )
+
+            if self._current_action != action_id:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"Action {action_id} is not running",
+                    context={
+                        "action_id": action_id,
+                        "current_action": self._current_action
+                    }
+                )
+
+            self._current_action = None
+            logger.info(f"Stopped action: {action_id}")
+            return ActionStatus.COMPLETED
+
+        except Exception as e:
+            error_msg = f"Failed to stop action {action_id}"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg,
+                context={"error": str(e)}
+            )
+
+    async def get_action_status(self, action_id: str) -> ActionStatus:
+        """Get action execution status.
+        
+        Args:
+            action_id: Action identifier
+            
+        Returns:
+            Action status
+            
+        Raises:
+            HTTPException: If status check fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            if not self._current_action:
+                return ActionStatus.IDLE
+
+            if self._current_action != action_id:
+                return ActionStatus.IDLE
+
+            return ActionStatus.RUNNING
+
+        except Exception as e:
+            error_msg = f"Failed to get status for action {action_id}"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg,
+                context={"error": str(e)}
+            )

@@ -14,9 +14,14 @@ const serviceColors = {
 };
 
 function formatUptime(seconds) {
+    if (!seconds || seconds < 0) return '0h 0m';
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     return `${hours}h ${minutes}m`;
+}
+
+function formatServiceName(name) {
+    return name.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 }
 
 function updateServices() {
@@ -31,12 +36,15 @@ function updateServices() {
                 block.className = `p-6 rounded-lg border-2 ${serviceColors[service.status]}`;
                 block.innerHTML = `
                     <div class="flex justify-between items-center mb-4">
-                        <h3 class="text-lg font-semibold capitalize">${name}</h3>
+                        <h3 class="text-lg font-semibold">${formatServiceName(name)}</h3>
                         <span class="px-2 py-1 rounded text-sm ${service.status === 'ok' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}">
-                            ${service.status}
+                            ${service.status.toUpperCase()}
                         </span>
                     </div>
                     <div class="space-y-2">
+                        <p class="text-sm">
+                            <span class="font-medium">Version:</span> ${service.service_info.version}
+                        </p>
                         <p class="text-sm">
                             <span class="font-medium">Port:</span> ${service.port}
                         </p>
@@ -53,7 +61,15 @@ function updateServices() {
                 grid.appendChild(block);
             });
         })
-        .catch(error => console.error('Failed to fetch services status:', error));
+        .catch(error => {
+            console.error('Failed to fetch services status:', error);
+            const grid = document.getElementById('services-grid');
+            grid.innerHTML = `
+                <div class="col-span-full p-6 rounded-lg border-2 bg-red-100 border-red-500">
+                    <p class="text-red-600">Failed to fetch services status. Please try refreshing the page.</p>
+                </div>
+            `;
+        });
 }
 
 // Update services status every 5 seconds

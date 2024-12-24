@@ -2,13 +2,13 @@
 
 import os
 from typing import List, Dict, Any
+from datetime import datetime
 from loguru import logger
 
-from micro_cold_spray.api.base import create_error
-from micro_cold_spray.api.config.services.base_config_service import BaseConfigService
+from micro_cold_spray.utils.errors import create_error
 
 
-class FileService(BaseConfigService):
+class FileService:
     """Service for managing configuration files."""
     
     def __init__(self, base_path: str = None):
@@ -17,19 +17,34 @@ class FileService(BaseConfigService):
         Args:
             base_path: Base path for configuration files
         """
-        super().__init__("file")
         self.base_path = base_path or os.getcwd()
+        self.is_running = False
+        self._start_time = None
         
-    async def _start(self):
+    async def start(self):
         """Start file service."""
-        # Create base path if it doesn't exist
-        if not os.path.exists(self.base_path):
-            os.makedirs(self.base_path)
-            logger.info(f"Created config directory: {self.base_path}")
+        try:
+            # Create base path if it doesn't exist
+            if not os.path.exists(self.base_path):
+                os.makedirs(self.base_path)
+                logger.info(f"Created config directory: {self.base_path}")
+            
+            self.is_running = True
+            self._start_time = datetime.now()
+            logger.info("File service started")
+            
+        except Exception as e:
+            logger.error(f"Failed to start file service: {e}")
+            raise create_error(
+                status_code=503,
+                message=f"Failed to start file service: {str(e)}"
+            )
     
-    async def _stop(self):
+    async def stop(self):
         """Stop file service."""
-        pass
+        self.is_running = False
+        self._start_time = None
+        logger.info("File service stopped")
     
     def list_configs(self) -> List[str]:
         """List available configuration files.
@@ -58,14 +73,14 @@ class FileService(BaseConfigService):
                 message=f"Failed to list configs: {str(e)}"
             )
     
-    def read(self, filename: str) -> Dict[str, Any]:
+    def read(self, filename: str) -> str:
         """Read configuration file.
         
         Args:
             filename: Name of file to read
             
         Returns:
-            Dict[str, Any]: Configuration data
+            str: File contents
         """
         if not self.is_running:
             raise create_error(
@@ -162,29 +177,30 @@ class FileService(BaseConfigService):
         Returns:
             Dict[str, Any]: Health status
         """
-        status = await super().health()
-        
         try:
             # Check if base path exists and is writable
             path_exists = os.path.exists(self.base_path)
             path_writable = os.access(self.base_path, os.W_OK)
             
-            status.update({
+            return {
+                "status": "ok" if self.is_running else "error",
+                "is_running": self.is_running,
+                "uptime": (datetime.now() - self._start_time).total_seconds() if self._start_time else 0,
                 "details": {
                     "base_path": self.base_path,
                     "path_exists": path_exists,
                     "path_writable": path_writable,
                     "config_count": len(self.list_configs()) if self.is_running else 0
                 }
-            })
+            }
             
-        except (OSError, PermissionError) as e:
+        except Exception as e:
             logger.error(f"Health check failed: {e}")
-            status.update({
-                "is_healthy": False,
+            return {
+                "status": "error",
+                "is_running": False,
+                "uptime": 0,
                 "details": {
                     "error": str(e)
                 }
-            })
-            
-        return status
+            }

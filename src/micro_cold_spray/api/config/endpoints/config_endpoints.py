@@ -2,7 +2,7 @@
 
 from typing import Dict, Optional, Any
 from datetime import datetime
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, status
 from pydantic import BaseModel, Field
 from loguru import logger
 
@@ -13,197 +13,122 @@ from micro_cold_spray.api.config.models.config_models import (
     SchemaResponse,
     MessageResponse
 )
-from micro_cold_spray.ui.utils import get_uptime, get_memory_usage
-
-
-class HealthResponse(BaseModel):
-    """Health check response model."""
-    status: str = Field(..., description="Service status (ok or error)")
-    service_name: str = Field(..., description="Service name")
-    version: str = Field(..., description="Service version")
-    is_running: bool = Field(..., description="Whether service is running")
-    uptime: float = Field(..., description="Service uptime in seconds")
-    memory_usage: Dict[str, float] = Field(..., description="Memory usage stats")
-    error: Optional[str] = Field(None, description="Error message if any")
-    timestamp: datetime = Field(default_factory=datetime.now, description="Response timestamp")
-    services: Dict[str, Dict[str, Any]] = Field(default_factory=dict, description="Status of sub-services")
+from micro_cold_spray.utils.errors import create_error
 
 
 def get_config_router() -> APIRouter:
-    """Create configuration router.
+    """Get configuration router.
     
     Returns:
-        APIRouter: Router with configuration endpoints
+        APIRouter: Router instance
     """
-    router = APIRouter(tags=["config"])
-
-    async def get_services(request: Request):
-        """Get service instances from app state."""
-        return {
-            "cache": request.app.state.cache,
-            "file": request.app.state.file,
-            "format": request.app.state.format,
-            "registry": request.app.state.registry,
-            "schema": request.app.state.schema
-        }
-
-    @router.get("/health", response_model=HealthResponse)
-    async def health(services=Depends(get_services)):
-        """Get service health status."""
+    router = APIRouter(prefix="/config", tags=["config"])
+    
+    @router.get("/{name}", response_model=ConfigResponse)
+    async def get_config(name: str, request: Request) -> ConfigResponse:
+        """Get configuration by name."""
         try:
-            # Check all service healths
-            service_health = {}
-            is_healthy = True
-
-            for name, service in services.items():
-                health = await service.health()
-                service_health[name] = health
-                if not health.get("is_healthy", False):
-                    is_healthy = False
-
-            return HealthResponse(
-                status="ok" if is_healthy else "error",
-                service_name="config",
-                version="1.0.0",
-                is_running=is_healthy,
-                uptime=get_uptime(),
-                memory_usage=get_memory_usage(),
-                error=None if is_healthy else "One or more services are unhealthy",
-                timestamp=datetime.now(),
-                services=service_health
+            # Read from file
+            raw_data = request.app.state.file.read(f"{name}.yaml")
+            
+            # Parse YAML content
+            config_data = request.app.state.format.parse(raw_data, "yaml")
+            
+            return ConfigResponse(
+                name=name,
+                data=config_data,
+                format="yaml"
             )
+            
         except Exception as e:
-            error_msg = f"Health check failed: {str(e)}"
-            logger.error(error_msg)
-            return HealthResponse(
-                status="error",
-                service_name="config",
-                version="1.0.0",
-                is_running=False,
-                uptime=0.0,
-                memory_usage={},
-                error=error_msg,
-                timestamp=datetime.now(),
-                services={}
+            logger.error(f"Failed to get config {name}: {e}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=f"Failed to get config {name}: {str(e)}"
             )
-
-    @router.post("/config/{name}", response_model=MessageResponse)
-    async def save_config(
-        name: str,
-        request: ConfigRequest,
-        services=Depends(get_services)
-    ):
-        """Save configuration.
-        
-        Args:
-            name: Configuration name
-            request: Configuration request
-            services: Service instances
+    
+    @router.put("/{name}", response_model=MessageResponse)
+    async def update_config(name: str, config: ConfigRequest, request: Request) -> MessageResponse:
+        """Update configuration."""
+        try:
+            # Validate against schema if exists
+            schema = request.app.state.schema.get_schema(name)
+            if schema:
+                request.app.state.schema.validate_config(name, config.data)
             
-        Returns:
-            MessageResponse: Success response
-        """
-        # Validate schema if exists
-        schema_name = f"{name}_schema"
-        if services["schema"].get_schema(schema_name):
-            services["schema"].validate_config(schema_name, request.data)
-
-        # Format and save config
-        formatted_config = services["format"].format(request.data, request.format)
-        services["file"].write(f"{name}.{request.format}", formatted_config)
-
-        # Update registry and cache
-        services["registry"].register(name, request.data)
-        services["cache"].set(name, request.data)
-
-        return {"message": f"Configuration {name} saved successfully"}
-
-    @router.get("/config/{name}", response_model=ConfigResponse)
-    async def get_config(
-        name: str,
-        use_cache: bool = True,
-        services=Depends(get_services)
-    ):
-        """Get configuration.
-        
-        Args:
-            name: Configuration name
-            use_cache: Whether to use cache
-            services: Service instances
+            # Format data
+            formatted_data = request.app.state.format.format(config.data, config.format)
             
-        Returns:
-            ConfigResponse: Configuration data
-        """
-        # Try cache first
-        if use_cache:
-            cached = services["cache"].get(name)
-            if cached:
-                return {
-                    "name": name,
-                    "data": cached,
-                    "format": "json"
-                }
-
-        # Get from registry
-        data = services["registry"].get(name)
-        return {
-            "name": name,
-            "data": data,
-            "format": "json"
-        }
-
-    @router.delete("/config/{name}", response_model=MessageResponse)
-    async def delete_config(name: str, services=Depends(get_services)):
-        """Delete configuration.
-        
-        Args:
-            name: Configuration name
-            services: Service instances
+            # Write to file
+            request.app.state.file.write(f"{name}.yaml", formatted_data)
             
-        Returns:
-            MessageResponse: Success response
-        """
-        # Delete from all services
-        services["registry"].delete(name)
-        services["file"].delete(f"{name}.json")
-        services["cache"].delete(name)
-
-        return {"message": f"Configuration {name} deleted successfully"}
-
-    @router.post("/schema/{name}", response_model=MessageResponse)
-    async def register_schema(
-        name: str,
-        request: SchemaRequest,
-        services=Depends(get_services)
-    ):
-        """Register JSON schema.
-        
-        Args:
-            name: Schema name
-            request: Schema request
-            services: Service instances
+            return MessageResponse(message=f"Configuration {name} updated successfully")
             
-        Returns:
-            MessageResponse: Success response
-        """
-        services["schema"].register_schema(name, request.schema)
-        return {"message": f"Schema {name} registered successfully"}
-
+        except Exception as e:
+            logger.error(f"Failed to update config {name}: {e}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=f"Failed to update config {name}: {str(e)}"
+            )
+    
+    @router.post("/validate/{name}", response_model=MessageResponse)
+    async def validate_config(name: str, config: ConfigRequest, request: Request) -> MessageResponse:
+        """Validate configuration against schema."""
+        try:
+            # Get schema
+            schema = request.app.state.schema.get_schema(name)
+            if not schema:
+                return MessageResponse(message=f"No schema found for {name}, skipping validation")
+            
+            # Validate config
+            request.app.state.schema.validate_config(name, config.data)
+            
+            return MessageResponse(message=f"Configuration {name} is valid")
+            
+        except Exception as e:
+            logger.error(f"Validation failed for {name}: {e}")
+            raise create_error(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                message=f"Validation failed: {str(e)}"
+            )
+    
     @router.get("/schema/{name}", response_model=SchemaResponse)
-    async def get_schema(name: str, services=Depends(get_services)):
-        """Get JSON schema.
-        
-        Args:
-            name: Schema name
-            services: Service instances
+    async def get_schema(name: str, request: Request) -> SchemaResponse:
+        """Get schema by name."""
+        try:
+            schema = request.app.state.schema.get_schema(name)
+            if not schema:
+                raise create_error(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    message=f"Schema not found: {name}"
+                )
             
-        Returns:
-            SchemaResponse: Schema definition
-        """
-        schema = services["schema"].get_schema(name)
-        return {
-            "name": name,
-            "schema": schema
-        }
-
+            return SchemaResponse(
+                name=name,
+                schema_definition=schema
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to get schema {name}: {e}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=f"Failed to get schema {name}: {str(e)}"
+            )
+    
+    @router.put("/schema/{name}", response_model=MessageResponse)
+    async def update_schema(name: str, schema: SchemaRequest, request: Request) -> MessageResponse:
+        """Update schema."""
+        try:
+            # Register schema
+            request.app.state.schema.register_schema(name, schema.schema_definition)
+            
+            return MessageResponse(message=f"Schema {name} updated successfully")
+            
+        except Exception as e:
+            logger.error(f"Failed to update schema {name}: {e}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=f"Failed to update schema {name}: {str(e)}"
+            )
+    
     return router
