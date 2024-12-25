@@ -2,67 +2,124 @@
 
 import os
 from pathlib import Path
+from typing import Dict, Any, Optional
+from datetime import datetime
 from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 import yaml
+import sys
 
 from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.utils.monitoring import get_uptime
+from micro_cold_spray.api.communication.endpoints import router as state_router
 from micro_cold_spray.api.communication.endpoints.equipment import router as equipment_router
 from micro_cold_spray.api.communication.endpoints.motion import router as motion_router
-from micro_cold_spray.api.communication.endpoints.tags import router as tags_router
 from micro_cold_spray.api.communication.communication_service import CommunicationService
 
 
-def create_app() -> FastAPI:
+def setup_logging():
+    """Setup logging configuration."""
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+
+    # Remove default handler
+    logger.remove()
+    
+    # Add console handler with color
+    log_format = (
+        "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
+        "<level>{level: <8}</level> | "
+        "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+        "<level>{message}</level>"
+    )
+    logger.add(sys.stderr, format=log_format, level="INFO")
+    
+    # Add file handler with rotation
+    file_format = (
+        "{time:YYYY-MM-DD HH:mm:ss} | "
+        "{level: <8} | "
+        "{name}:{function}:{line} - "
+        "{message}"
+    )
+    logger.add(
+        str(log_dir / "communication.log"),
+        rotation="1 day",
+        retention="30 days",
+        format=file_format,
+        level="DEBUG"
+    )
+
+
+def load_config() -> Dict[str, Any]:
+    """Load service configuration.
+    
+    Returns:
+        Dict[str, Any]: Configuration dictionary
+        
+    Raises:
+        HTTPException: If config loading fails
+    """
+    try:
+        config_dir = Path("config")
+        config_path = config_dir / "communication.yaml"
+        
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+            
+        # Add standard paths
+        config["paths"] = {
+            "config": str(config_dir),
+            "tags": str(config_dir / "tags.yaml"),
+            "mock_data": str(config_dir / "mock_data.yaml")
+        }
+        
+        # Add service info
+        config["service"] = {
+            "name": "communication",
+            "version": config.get("version", "1.0.0")
+        }
+        
+        logger.info(f"Loaded config from {config_path}")
+        logger.info(f"Using {'mock' if config['communication']['hardware']['network']['force_mock'] else 'hardware'} mode")
+        
+        return config
+            
+    except Exception as e:
+        error_msg = f"Failed to load config: {str(e)}"
+        logger.error(error_msg)
+        raise create_error(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            message=error_msg
+        )
+
+
+def create_communication_service(config: Optional[Dict[str, Any]] = None) -> FastAPI:
     """Create communication service application.
+    
+    Args:
+        config: Optional configuration dictionary. If not provided, will load from file.
     
     Returns:
         FastAPI application instance
     """
-    # Load config
-    try:
-        # Get config directory
-        config_dir = Path("config")
-        if not config_dir.exists():
-            config_dir = Path(__file__).parent.parent.parent.parent.parent / "config"
-            
-        # Load config
-        config_path = config_dir / "communication.yaml"
-        if not config_path.exists():
-            raise FileNotFoundError(f"Config not found: {config_path}")
-            
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
-            
-        # Add paths
-        config["paths"] = {
-            "config": str(config_dir),
-            "tags": str(config_dir / "tags.yaml")
-        }
-        
-        # Create logs directory
-        log_dir = Path("logs")
-        log_dir.mkdir(exist_ok=True)
-        
-        logger.info(f"Loaded config from {config_path}")
-            
-    except Exception as e:
-        logger.error(f"Failed to load config: {str(e)}")
-        raise create_error(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            message=f"Failed to load config: {str(e)}"
-        )
+    # Setup logging
+    setup_logging()
+    logger.info("Starting communication service...")
+
+    # Load configuration if not provided
+    if config is None:
+        config = load_config()
 
     app = FastAPI(
         title="Communication Service",
         description="Service for hardware communication",
-        version="1.0.0"
+        version=config["service"]["version"]
     )
 
-    # Store config in app instance
-    app.config = config
+    # Store config and start time in app state
+    app.state.config = config
+    app.state.start_time = None
 
     # Add CORS middleware
     app.add_middleware(
@@ -83,10 +140,16 @@ def create_app() -> FastAPI:
         try:
             await service.initialize()
             await service.start()
+            app.state.start_time = datetime.now()
             logger.info("Communication service started")
+            
         except Exception as e:
-            logger.error(f"Failed to start communication service: {str(e)}")
-            raise
+            error_msg = f"Failed to start communication service: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
 
     @app.on_event("shutdown")
     async def shutdown():
@@ -94,18 +157,42 @@ def create_app() -> FastAPI:
         try:
             await service.stop()
             logger.info("Communication service stopped")
+            
         except Exception as e:
-            logger.error(f"Failed to stop communication service: {str(e)}")
-            raise
+            error_msg = f"Failed to stop communication service: {str(e)}"
+            logger.error(error_msg)
+            # Log but don't raise during shutdown
 
     @app.get("/health")
-    async def health_check():
+    async def health_check() -> Dict[str, Any]:
         """Get service health status."""
-        return await service.health()
+        try:
+            service_health = await service.health()
+            uptime = (datetime.now() - app.state.start_time).total_seconds() if app.state.start_time else 0
+            
+            return {
+                "status": "ok" if service_health["status"] == "ok" else "error",
+                "service": config["service"]["name"],
+                "version": config["service"]["version"],
+                "is_running": service.is_running,
+                "uptime": uptime,
+                "mode": "mock" if config["communication"]["hardware"]["network"]["force_mock"] else "hardware",
+                "components": service_health
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "service": config["service"]["name"],
+                "version": config["service"]["version"],
+                "is_running": False,
+                "uptime": 0,
+                "error": str(e),
+                "timestamp": datetime.now()
+            }
 
     # Include routers
+    app.include_router(state_router)
     app.include_router(equipment_router)
     app.include_router(motion_router)
-    app.include_router(tags_router)
 
     return app

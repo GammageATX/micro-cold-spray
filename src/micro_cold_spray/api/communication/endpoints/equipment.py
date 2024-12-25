@@ -1,8 +1,9 @@
 """Equipment control endpoints."""
 
 from typing import Dict, Any, Literal
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect, status
 from loguru import logger
+import asyncio
 
 from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.api.communication.models.equipment import (
@@ -34,7 +35,7 @@ async def get_state(request: Request) -> EquipmentState:
                 message="Service not running"
             )
 
-        state = await service.equipment.get_state()
+        state = await service.get_state()
         return state
 
     except Exception as e:
@@ -44,6 +45,67 @@ async def get_state(request: Request) -> EquipmentState:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             message=f"{error_msg}: {str(e)}"
         )
+
+
+@router.websocket("/ws/state")
+async def websocket_equipment_state(websocket: WebSocket):
+    """WebSocket endpoint for equipment state updates.
+    Uses event subscription to push updates only when state changes."""
+    try:
+        # Get service from app state
+        service = websocket.app.state.service
+        if not service.is_running:
+            await websocket.close(code=status.WS_1013_TRY_AGAIN_LATER)
+            return
+
+        # Accept connection
+        await websocket.accept()
+        logger.info("Equipment WebSocket client connected")
+
+        # Create queue for state updates
+        queue = asyncio.Queue()
+        
+        # Subscribe to equipment state updates
+        def state_changed(state: EquipmentState):
+            asyncio.create_task(queue.put(state))
+        
+        # Register callback
+        service.equipment.on_state_changed(state_changed)
+
+        try:
+            # Send initial state
+            initial_state = await service.equipment.get_state()
+            await websocket.send_json({
+                "type": "equipment_state",
+                "data": initial_state.dict()
+            })
+
+            # Wait for state updates
+            while True:
+                try:
+                    # Get next state update from queue
+                    state = await queue.get()
+                    
+                    # Send update
+                    await websocket.send_json({
+                        "type": "equipment_state",
+                        "data": state.dict()
+                    })
+
+                except WebSocketDisconnect:
+                    logger.info("Equipment WebSocket client disconnected")
+                    break
+                except Exception as e:
+                    logger.error(f"Equipment WebSocket error: {str(e)}")
+                    break
+
+        finally:
+            # Unregister callback when connection closes
+            service.equipment.remove_state_changed_callback(state_changed)
+
+    except Exception as e:
+        logger.error(f"Failed to handle equipment WebSocket connection: {str(e)}")
+        await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
 
 
 @router.post("/gas/main/flow")
@@ -82,7 +144,7 @@ async def set_feeder_frequency(
 ):
     """Set feeder frequency."""
     try:
-        await request.app.state.equipment.set_feeder_frequency(feeder_id, freq.frequency)
+        await request.app.state.service.equipment.set_feeder_frequency(feeder_id, freq.frequency)
         return {"status": "success"}
     except Exception as e:
         logger.error(f"Failed to set feeder {feeder_id} frequency: {str(e)}")
@@ -96,7 +158,7 @@ async def set_feeder_frequency(
 async def start_feeder(request: Request, feeder_id: int):
     """Start feeder."""
     try:
-        await request.app.state.equipment.start_feeder(feeder_id)
+        await request.app.state.service.equipment.start_feeder(feeder_id)
         return {"status": "success"}
     except Exception as e:
         logger.error(f"Failed to start feeder {feeder_id}: {str(e)}")
@@ -110,7 +172,7 @@ async def start_feeder(request: Request, feeder_id: int):
 async def stop_feeder(request: Request, feeder_id: int):
     """Stop feeder."""
     try:
-        await request.app.state.equipment.stop_feeder(feeder_id)
+        await request.app.state.service.equipment.stop_feeder(feeder_id)
         return {"status": "success"}
     except Exception as e:
         logger.error(f"Failed to stop feeder {feeder_id}: {str(e)}")
@@ -128,7 +190,7 @@ async def set_deagg_speed(
 ):
     """Set deagglomerator speed."""
     try:
-        await request.app.state.equipment.set_deagg_speed(deagg_id, speed.speed)
+        await request.app.state.service.equipment.set_deagg_speed(deagg_id, speed.speed)
         return {"status": "success"}
     except Exception as e:
         logger.error(f"Failed to set deagg {deagg_id} speed: {str(e)}")

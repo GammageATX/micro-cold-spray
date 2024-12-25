@@ -1,8 +1,9 @@
 """Motion control endpoints."""
 
 from typing import Dict, Any
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect, status
 from loguru import logger
+import asyncio
 
 from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.api.communication.models.motion import (
@@ -67,6 +68,94 @@ async def get_status(request: Request) -> SystemStatus:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             message=f"{error_msg}: {str(e)}"
         )
+
+
+@router.websocket("/ws/state")
+async def websocket_motion_state(websocket: WebSocket):
+    """WebSocket endpoint for motion state updates.
+    Uses event subscription to push updates only when state changes."""
+    try:
+        # Get service from app state
+        service = websocket.app.state.service
+        if not service.is_running:
+            await websocket.close(code=status.WS_1013_TRY_AGAIN_LATER)
+            return
+
+        # Accept connection
+        await websocket.accept()
+        logger.info("Motion WebSocket client connected")
+
+        # Create queues for state updates
+        position_queue = asyncio.Queue()
+        status_queue = asyncio.Queue()
+        
+        # Subscribe to state updates
+        def position_changed(pos: Position):
+            asyncio.create_task(position_queue.put(pos))
+            
+        def status_changed(status: SystemStatus):
+            asyncio.create_task(status_queue.put(status))
+        
+        # Register callbacks
+        service.motion.on_position_changed(position_changed)
+        service.motion.on_status_changed(status_changed)
+
+        try:
+            # Send initial state
+            position = await service.motion.get_position()
+            system_status = await service.motion.get_status()
+            await websocket.send_json({
+                "type": "motion_state",
+                "data": {
+                    "position": position.dict(),
+                    "status": system_status.dict()
+                }
+            })
+
+            # Wait for state updates
+            while True:
+                try:
+                    # Wait for either position or status update
+                    done, pending = await asyncio.wait(
+                        [
+                            asyncio.create_task(position_queue.get()),
+                            asyncio.create_task(status_queue.get())
+                        ],
+                        return_when=asyncio.FIRST_COMPLETED
+                    )
+                    
+                    # Cancel pending tasks
+                    for task in pending:
+                        task.cancel()
+                    
+                    # Get latest position and status
+                    position = await service.motion.get_position()
+                    system_status = await service.motion.get_status()
+                    
+                    # Send update
+                    await websocket.send_json({
+                        "type": "motion_state",
+                        "data": {
+                            "position": position.dict(),
+                            "status": system_status.dict()
+                        }
+                    })
+
+                except WebSocketDisconnect:
+                    logger.info("Motion WebSocket client disconnected")
+                    break
+                except Exception as e:
+                    logger.error(f"Motion WebSocket error: {str(e)}")
+                    break
+
+        finally:
+            # Unregister callbacks when connection closes
+            service.motion.remove_position_changed_callback(position_changed)
+            service.motion.remove_status_changed_callback(status_changed)
+
+    except Exception as e:
+        logger.error(f"Failed to handle motion WebSocket connection: {str(e)}")
+        await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
 
 
 @router.post("/jog/{axis}")

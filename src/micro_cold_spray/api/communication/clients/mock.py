@@ -1,146 +1,142 @@
-"""Mock communication client for testing."""
+"""Mock client that simulates PLC behavior."""
 
-from typing import Dict, Any
-import random
+import asyncio
+import yaml
+from typing import Any, Dict, Optional, List
+from pathlib import Path
 from loguru import logger
 
-from micro_cold_spray.api.communication.clients.base import CommunicationClient
 
-
-class MockClient(CommunicationClient):
-    """Mock client for testing without hardware."""
-
-    # Simulated PLC tag values
-    _plc_tags = {
-        # Motion Control
-        "AMC.Ax1Position": 0.0,  # X axis position
-        "AMC.Ax2Position": 0.0,  # Y axis position
-        "AMC.Ax3Position": 0.0,  # Z axis position
-        "AMC.ModuleStatus": True,  # Motion controller ready
-        "AMC.Ax1AxisStatus": 0x0090,  # X axis status (initialized & homed)
-        "AMC.Ax2AxisStatus": 0x0090,  # Y axis status (initialized & homed)
-        "AMC.Ax3AxisStatus": 0x0090,  # Z axis status (initialized & homed)
-        
-        # Motion Parameters
-        "XAxis.Velocity": 50.0,
-        "YAxis.Velocity": 50.0,
-        "ZAxis.Velocity": 25.0,
-        "XAxis.Accel": 100.0,
-        "YAxis.Accel": 100.0,
-        "ZAxis.Accel": 50.0,
-        "XAxis.Decel": 100.0,
-        "YAxis.Decel": 100.0,
-        "ZAxis.Decel": 50.0,
-        "XAxis.InProgress": False,
-        "YAxis.InProgress": False,
-        "ZAxis.InProgress": False,
-        "XAxis.Complete": True,
-        "YAxis.Complete": True,
-        "ZAxis.Complete": True,
-        
-        # Gas Control
-        "FeederFlowRate": 0.0,    # Measured feeder gas flow
-        "MainFlowRate": 0.0,      # Measured main gas flow
-        "AOS32-0.1.2.1": 0.0,     # Main gas flow setpoint
-        "AOS32-0.1.2.2": 0.0,     # Feeder gas flow setpoint
-        "MainGasValve": False,    # Main gas valve state
-        "FeederGasValve": False,  # Feeder gas valve state
-        
-        # Hardware Sets
-        "NozzleSelect": False,  # False=1, True=2
-        "AOS32-0.1.6.1": 35,    # Deagglomerator 1 duty cycle (35=off)
-        "AOS32-0.1.6.2": 500,   # Deagglomerator 1 frequency
-        "AOS32-0.1.6.3": 35,    # Deagglomerator 2 duty cycle (35=off)
-        "AOS32-0.1.6.4": 500,   # Deagglomerator 2 frequency
-        
-        # Pressure
-        "ChamberPressure": 0.0,
-        "FeederPressure": 0.0,
-        "MainGasPressure": 0.0,
-        "NozzlePressure": 0.0,
-        "RegulatorPressure": 0.0,
-        
-        # Valves and Pumps
-        "FeederSwitch": False,
-        "MainSwitch": False,
-        "VentSwitch": False,
-        "GateValveOpen": False,     # Gate valve open state
-        "GateValvePartial": False,  # Gate valve partial state
-        "BoosterPumpStart": False,  # Booster pump start state
-        "MechPumpStart": False,     # Mechanical pump start state
-        
-        # Shutter
-        "Shutter": False,  # Shutter state
-    }
-
+class MockPLCClient:
+    """Mock client that simulates PLC behavior."""
+    
     def __init__(self, config: Dict[str, Any]):
         """Initialize mock client.
         
         Args:
             config: Client configuration
         """
-        super().__init__(config)
+        self._connected = False
+        self._config = config
         
-        # Extract mock config
-        mock_config = config["communication"]["hardware"]["network"]["plc"]
-        self._tag_file = mock_config["tag_file"]
-        logger.info("Initialized mock client")
+        # Load mock data
+        mock_data_path = Path("config/mock_data.yaml")
+        if not mock_data_path.exists():
+            logger.warning(f"Mock data file not found: {mock_data_path}")
+            self._mock_data = {"plc_tags": {}}
+        else:
+            with open(mock_data_path) as f:
+                self._mock_data = yaml.safe_load(f)
+            logger.info(f"Loaded mock data from {mock_data_path}")
+            
+        # Initialize mock tag values
+        self._plc_tags = self._mock_data.get("plc_tags", {})
+        
+        # Add simulated behavior
+        self._update_task = None
+        self._running = False
+        logger.info(f"Mock client initialized with {len(self._plc_tags)} tags")
 
     async def connect(self) -> None:
-        """Connect mock client."""
+        """Simulate connection."""
+        await asyncio.sleep(0.1)  # Simulate connection delay
         self._connected = True
-        logger.info("Connected mock client")
+        self._running = True
+        
+        # Start background task to simulate tag updates
+        self._update_task = asyncio.create_task(self._simulate_updates())
+        logger.info("Mock client connected")
 
     async def disconnect(self) -> None:
-        """Disconnect mock client."""
+        """Simulate disconnection."""
+        self._running = False
+        if self._update_task:
+            self._update_task.cancel()
+            try:
+                await self._update_task
+            except asyncio.CancelledError:
+                pass
+            self._update_task = None
+            
         self._connected = False
-        logger.info("Disconnected mock client")
+        logger.info("Mock client disconnected")
 
     async def read_tag(self, tag: str) -> Any:
         """Read mock tag value.
         
         Args:
-            tag: Tag name
+            tag: Tag name to read
             
         Returns:
             Mock tag value
         """
         if not self._connected:
-            raise RuntimeError("Mock client not connected")
+            raise ConnectionError("Mock client not connected")
             
-        if tag not in self._plc_tags:
-            raise KeyError(f"Tag {tag} not found")
-            
-        return self._plc_tags[tag]
+        # Return mock value if exists, otherwise 0
+        value = self._plc_tags.get(tag, 0)
+        logger.debug(f"Read mock tag {tag} = {value}")
+        return value
 
     async def write_tag(self, tag: str, value: Any) -> None:
         """Write mock tag value.
         
         Args:
-            tag: Tag name
+            tag: Tag name to write
             value: Value to write
         """
         if not self._connected:
-            raise RuntimeError("Mock client not connected")
+            raise ConnectionError("Mock client not connected")
             
-        if tag not in self._plc_tags:
-            raise KeyError(f"Tag {tag} not found")
-            
+        # Update mock value
         self._plc_tags[tag] = value
         logger.debug(f"Wrote mock tag {tag} = {value}")
 
-    async def get(self) -> Dict[str, Any]:
-        """Get all mock tag values.
+    def is_connected(self) -> bool:
+        """Check if mock client is connected.
         
         Returns:
-            Dict of tag values
+            Connection status
+        """
+        return self._connected
+
+    async def get(self, tags: List[str]) -> Dict[str, Any]:
+        """Read multiple mock tag values.
+        
+        Args:
+            tags: List of tag names to read
+            
+        Returns:
+            Dictionary mapping tag names to values
         """
         if not self._connected:
-            raise RuntimeError("Mock client not connected")
+            raise ConnectionError("Mock client not connected")
             
-        # Add some random noise to analog values
-        for tag in self._plc_tags:
-            if isinstance(self._plc_tags[tag], (int, float)):
-                self._plc_tags[tag] += random.uniform(-0.1, 0.1)
+        # Return mock values for all requested tags
+        values = {tag: self._plc_tags.get(tag, 0) for tag in tags}
+        logger.debug(f"Read mock tags: {values}")
+        return values
+
+    async def _simulate_updates(self) -> None:
+        """Background task to simulate tag value updates."""
+        try:
+            while self._running:
+                # Simulate some tag value changes
+                for tag in self._plc_tags:
+                    if "Position" in tag:
+                        # Simulate small position changes
+                        current = self._plc_tags[tag]
+                        self._plc_tags[tag] = current + (0.1 if current < 100 else -0.1)
+                    elif "Pressure" in tag:
+                        # Simulate pressure fluctuations
+                        current = self._plc_tags[tag]
+                        self._plc_tags[tag] = current + (0.05 if current < 5 else -0.05)
+                        
+                await asyncio.sleep(0.1)  # Update every 100ms
                 
-        return self._plc_tags.copy()
+        except asyncio.CancelledError:
+            logger.debug("Mock update simulation stopped")
+            raise
+        except Exception as e:
+            logger.error(f"Error in mock update simulation: {str(e)}")
+            raise

@@ -1,6 +1,6 @@
 """Equipment service implementation."""
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Callable, List
 from datetime import datetime
 from fastapi import status
 from loguru import logger
@@ -27,7 +27,8 @@ class EquipmentService:
         self._tag_cache: Optional[TagCacheService] = None
         self._is_running = False
         self._start_time = None
-        logger.info("EquipmentService initialized")
+        self._state_callbacks: List[Callable[[EquipmentState], None]] = []
+        logger.info("\n EquipmentService initialized")
 
     @property
     def is_running(self) -> bool:
@@ -58,6 +59,9 @@ class EquipmentService:
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     message="Tag cache service not running"
                 )
+
+            # Register for state updates
+            self._tag_cache.add_state_callback(self._handle_state_change)
 
             logger.info("Equipment service initialized")
 
@@ -100,6 +104,10 @@ class EquipmentService:
             if not self.is_running:
                 return
 
+            # Unregister state callback
+            if self._tag_cache:
+                self._tag_cache.remove_state_callback(self._handle_state_change)
+
             self._is_running = False
             self._start_time = None
             logger.info("Equipment service stopped")
@@ -117,6 +125,73 @@ class EquipmentService:
         """
         self._tag_cache = tag_cache
 
+    def _handle_state_change(self, state_type: str, state: Any) -> None:
+        """Handle state change from tag cache.
+        
+        Args:
+            state_type: Type of state that changed
+            state: New state value
+        """
+        if state_type == "equipment":
+            # Notify equipment state callbacks
+            for callback in self._state_callbacks:
+                try:
+                    callback(state)
+                except Exception as e:
+                    logger.error(f"Error in equipment state callback: {str(e)}")
+
+    def on_state_changed(self, callback: Callable[[EquipmentState], None]) -> None:
+        """Register callback for equipment state changes.
+        
+        Args:
+            callback: Function to call when state changes
+        """
+        if callback not in self._state_callbacks:
+            self._state_callbacks.append(callback)
+
+    def remove_state_changed_callback(self, callback: Callable[[EquipmentState], None]) -> None:
+        """Remove state change callback.
+        
+        Args:
+            callback: Callback to remove
+        """
+        if callback in self._state_callbacks:
+            self._state_callbacks.remove(callback)
+
+    async def get_state(self) -> EquipmentState:
+        """Get complete equipment state.
+        
+        Returns:
+            Equipment state
+            
+        Raises:
+            HTTPException: If read fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            # Get cached equipment state
+            state = await self._tag_cache.get_state("equipment")
+            if not state:
+                raise create_error(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    message="Equipment state not available"
+                )
+
+            return state
+
+        except Exception as e:
+            error_msg = "Failed to get equipment state"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
+
     async def get_gas_state(self) -> GasState:
         """Get gas system state.
         
@@ -133,18 +208,15 @@ class EquipmentService:
                     message="Service not running"
                 )
 
-            # Read gas flow rates and valve states
-            main_flow = await self._tag_cache.read_tag("gas_control.main_flow.measured")
-            feeder_flow = await self._tag_cache.read_tag("gas_control.feeder_flow.measured")
-            main_valve = await self._tag_cache.read_tag("valve_control.main_gas")
-            feeder_valve = await self._tag_cache.read_tag("valve_control.feeder_gas")
+            # Get cached gas state
+            state = await self._tag_cache.get_state("gas")
+            if not state:
+                raise create_error(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    message="Gas state not available"
+                )
 
-            return GasState(
-                main_flow=main_flow,
-                feeder_flow=feeder_flow,
-                main_valve=main_valve,
-                feeder_valve=feeder_valve
-            )
+            return state
 
         except Exception as e:
             error_msg = "Failed to get gas state"
@@ -170,21 +242,46 @@ class EquipmentService:
                     message="Service not running"
                 )
 
-            # Read vacuum system state
-            chamber_pressure = await self._tag_cache.read_tag("pressure.chamber_pressure")
-            gate_valve = await self._tag_cache.read_tag("valve_control.gate_valve.open")
-            mech_pump = await self._tag_cache.read_tag("vacuum_control.mechanical_pump.start")
-            booster_pump = await self._tag_cache.read_tag("vacuum_control.booster_pump.start")
+            # Get cached vacuum state
+            state = await self._tag_cache.get_state("vacuum")
+            if not state:
+                raise create_error(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    message="Vacuum state not available"
+                )
 
-            return VacuumState(
-                chamber_pressure=chamber_pressure,
-                gate_valve=gate_valve,
-                mech_pump=mech_pump,
-                booster_pump=booster_pump
-            )
+            return state
 
         except Exception as e:
             error_msg = "Failed to get vacuum state"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
+
+    async def set_main_flow(self, flow_rate: float) -> None:
+        """Set main gas flow rate.
+        
+        Args:
+            flow_rate: Flow rate in SLPM
+            
+        Raises:
+            HTTPException: If write fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            # Write flow rate setpoint
+            await self._tag_cache.set_tag("gas_control.main_flow.setpoint", flow_rate)
+            logger.info(f"Set main gas flow to {flow_rate} SLPM")
+
+        except Exception as e:
+            error_msg = "Failed to set main flow"
             logger.error(f"{error_msg}: {str(e)}")
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -217,18 +314,15 @@ class EquipmentService:
                     message=f"Invalid feeder ID: {feeder_id}"
                 )
 
-            # Read feeder state
-            frequency = await self._tag_cache.read_tag(f"gas_control.hardware_sets.set{feeder_id}.feeder.frequency")
-            
-            # Get running state from SSH P-tag
-            start_var = f"P{10 if feeder_id == 1 else 110}"  # P10 or P110
-            running = await self._tag_cache.read_tag(f"ssh.{start_var}")
-            running = running == 1  # 1 = running, 4 = stopped
+            # Get cached feeder state
+            state = await self._tag_cache.get_state(f"feeder{feeder_id}")
+            if not state:
+                raise create_error(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    message=f"Feeder {feeder_id} state not available"
+                )
 
-            return FeederState(
-                running=running,
-                frequency=frequency
-            )
+            return state
 
         except Exception as e:
             error_msg = f"Failed to get feeder {feeder_id} state"
@@ -254,14 +348,15 @@ class EquipmentService:
                     message="Service not running"
                 )
 
-            # Read nozzle state
-            selected = await self._tag_cache.read_tag("gas_control.hardware_sets.nozzle_select")
-            shutter = await self._tag_cache.read_tag("relay_control.shutter")
+            # Get cached nozzle state
+            state = await self._tag_cache.get_state("nozzle")
+            if not state:
+                raise create_error(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    message="Nozzle state not available"
+                )
 
-            return NozzleState(
-                selected=selected,  # False = nozzle 1, True = nozzle 2
-                shutter=shutter
-            )
+            return state
 
         except Exception as e:
             error_msg = "Failed to get nozzle state"
@@ -271,81 +366,11 @@ class EquipmentService:
                 message=error_msg
             )
 
-    async def get_state(self) -> EquipmentState:
-        """Get current equipment state.
-        
-        Returns:
-            Current equipment state
-            
-        Raises:
-            HTTPException: If read fails
-        """
-        try:
-            if not self.is_running:
-                raise create_error(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
-                )
-
-            # Get gas state
-            logger.debug("Reading gas state...")
-            gas = GasState(
-                main_flow=await self._tag_cache.read_tag("gas_control.main_flow.measured"),
-                feeder_flow=await self._tag_cache.read_tag("gas_control.feeder_flow.measured"),
-                main_valve=await self._tag_cache.read_tag("valve_control.main_gas"),
-                feeder_valve=await self._tag_cache.read_tag("valve_control.feeder_gas")
-            )
-            
-            # Get vacuum state
-            logger.debug("Reading vacuum state...")
-            vacuum = VacuumState(
-                chamber_pressure=await self._tag_cache.read_tag("pressure.chamber_pressure"),
-                gate_valve=await self._tag_cache.read_tag("valve_control.gate_valve.open"),
-                mech_pump=await self._tag_cache.read_tag("vacuum_control.mechanical_pump.start"),
-                booster_pump=await self._tag_cache.read_tag("vacuum_control.booster_pump.start")
-            )
-            
-            # Get feeder states
-            logger.debug("Reading feeder states...")
-            feeder1 = FeederState(
-                running=await self._tag_cache.read_tag("gas_control.hardware_sets.set1.feeder.running"),
-                frequency=await self._tag_cache.read_tag("gas_control.hardware_sets.set1.feeder.frequency")
-            )
-            
-            feeder2 = FeederState(
-                running=await self._tag_cache.read_tag("gas_control.hardware_sets.set2.feeder.running"),
-                frequency=await self._tag_cache.read_tag("gas_control.hardware_sets.set2.feeder.frequency")
-            )
-            
-            # Get nozzle state
-            logger.debug("Reading nozzle state...")
-            nozzle = NozzleState(
-                selected=await self._tag_cache.read_tag("gas_control.hardware_sets.nozzle_select"),
-                shutter=await self._tag_cache.read_tag("relay_control.shutter")
-            )
-
-            return EquipmentState(
-                gas=gas,
-                vacuum=vacuum,
-                feeder1=feeder1,
-                feeder2=feeder2,
-                nozzle=nozzle
-            )
-
-        except Exception as e:
-            error_msg = "Failed to get equipment state"
-            logger.error(f"{error_msg}: {str(e)}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg
-            )
-
-    async def set_gas_flow(self, main_flow: Optional[float] = None, feeder_flow: Optional[float] = None) -> None:
-        """Set gas flow rates.
+    async def set_feeder_flow(self, flow_rate: float) -> None:
+        """Set feeder gas flow rate.
         
         Args:
-            main_flow: Main gas flow setpoint in SLPM
-            feeder_flow: Feeder gas flow setpoint in SLPM
+            flow_rate: Flow rate in SLPM
             
         Raises:
             HTTPException: If write fails
@@ -357,247 +382,12 @@ class EquipmentService:
                     message="Service not running"
                 )
 
-            # Set flow rates if provided
-            if main_flow is not None:
-                await self._tag_cache.write_tag("gas_control.main_flow.setpoint", main_flow)
-            
-            if feeder_flow is not None:
-                await self._tag_cache.write_tag("gas_control.feeder_flow.setpoint", feeder_flow)
+            # Write flow rate setpoint
+            await self._tag_cache.set_tag("gas_control.feeder_flow.setpoint", flow_rate)
+            logger.info(f"Set feeder gas flow to {flow_rate} SLPM")
 
         except Exception as e:
-            error_msg = "Failed to set gas flow"
-            logger.error(f"{error_msg}: {str(e)}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg
-            )
-
-    async def set_gas_valves(self, main_valve: Optional[bool] = None, feeder_valve: Optional[bool] = None) -> None:
-        """Set gas valve states.
-        
-        Args:
-            main_valve: Main gas valve state
-            feeder_valve: Feeder gas valve state
-            
-        Raises:
-            HTTPException: If write fails
-        """
-        try:
-            if not self.is_running:
-                raise create_error(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
-                )
-
-            # Set valve states if provided
-            if main_valve is not None:
-                await self._tag_cache.write_tag("valve_control.main_gas", main_valve)
-            
-            if feeder_valve is not None:
-                await self._tag_cache.write_tag("valve_control.feeder_gas", feeder_valve)
-
-        except Exception as e:
-            error_msg = "Failed to set gas valves"
-            logger.error(f"{error_msg}: {str(e)}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg
-            )
-
-    async def set_vacuum_pumps(self, mech_pump: Optional[bool] = None, booster_pump: Optional[bool] = None) -> None:
-        """Set vacuum pump states.
-        
-        Args:
-            mech_pump: Mechanical pump state
-            booster_pump: Booster pump state
-            
-        Raises:
-            HTTPException: If write fails
-        """
-        try:
-            if not self.is_running:
-                raise create_error(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
-                )
-
-            # Set pump states if provided
-            if mech_pump is not None:
-                if mech_pump:
-                    await self._tag_cache.write_tag("vacuum_control.mechanical_pump.start", True)
-                else:
-                    await self._tag_cache.write_tag("vacuum_control.mechanical_pump.stop", True)
-            
-            if booster_pump is not None:
-                if booster_pump:
-                    await self._tag_cache.write_tag("vacuum_control.booster_pump.start", True)
-                else:
-                    await self._tag_cache.write_tag("vacuum_control.booster_pump.stop", True)
-
-        except Exception as e:
-            error_msg = "Failed to set vacuum pumps"
-            logger.error(f"{error_msg}: {str(e)}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg
-            )
-
-    async def set_gate_valve(self, position: str) -> None:
-        """Set gate valve position.
-        
-        Args:
-            position: Valve position ("open", "partial", "closed")
-            
-        Raises:
-            HTTPException: If write fails
-        """
-        try:
-            if not self.is_running:
-                raise create_error(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
-                )
-
-            # Validate position
-            if position not in ["open", "partial", "closed"]:
-                raise create_error(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    message=f"Invalid gate valve position: {position}"
-                )
-
-            # Set valve position
-            await self._tag_cache.write_tag("valve_control.gate_valve.open", position == "open")
-            await self._tag_cache.write_tag("valve_control.gate_valve.partial", position == "partial")
-
-        except Exception as e:
-            error_msg = "Failed to set gate valve"
-            logger.error(f"{error_msg}: {str(e)}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg
-            )
-
-    async def set_feeder(self, feeder_id: int, frequency: Optional[float] = None, running: Optional[bool] = None) -> None:
-        """Set feeder parameters.
-        
-        Args:
-            feeder_id: Feeder number (1 or 2)
-            frequency: Operating frequency in Hz
-            running: Whether to start/stop feeder
-            
-        Raises:
-            HTTPException: If write fails
-        """
-        try:
-            if not self.is_running:
-                raise create_error(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
-                )
-
-            # Validate feeder ID
-            if feeder_id not in [1, 2]:
-                raise create_error(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    message=f"Invalid feeder ID: {feeder_id}"
-                )
-
-            # Set frequency if provided
-            if frequency is not None:
-                await self._tag_cache.write_tag(f"gas_control.hardware_sets.set{feeder_id}.feeder.frequency", frequency)
-
-            # Set running state if provided
-            if running is not None:
-                # Get SSH P-tag variables
-                start_var = f"P{10 if feeder_id == 1 else 110}"  # P10 or P110
-                await self._tag_cache.write_tag(f"ssh.{start_var}", 1 if running else 4)  # 1 = start, 4 = stop
-
-        except Exception as e:
-            error_msg = f"Failed to set feeder {feeder_id}"
-            logger.error(f"{error_msg}: {str(e)}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg
-            )
-
-    async def set_deagglomerator(self, feeder_id: int, duty_cycle: float, frequency: float = 500) -> None:
-        """Set deagglomerator parameters.
-        
-        Args:
-            feeder_id: Feeder number (1 or 2)
-            duty_cycle: PWM duty cycle (20-35%)
-            frequency: PWM frequency (fixed at 500Hz)
-            
-        Raises:
-            HTTPException: If write fails
-        """
-        try:
-            if not self.is_running:
-                raise create_error(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
-                )
-
-            # Validate feeder ID
-            if feeder_id not in [1, 2]:
-                raise create_error(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    message=f"Invalid feeder ID: {feeder_id}"
-                )
-
-            # Validate duty cycle
-            if not 20 <= duty_cycle <= 35:
-                raise create_error(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    message=f"Invalid duty cycle: {duty_cycle} (must be 20-35%)"
-                )
-
-            # Validate frequency
-            if frequency != 500:
-                raise create_error(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    message="Frequency must be 500Hz"
-                )
-
-            # Set deagglomerator parameters
-            await self._tag_cache.write_tag(f"gas_control.hardware_sets.set{feeder_id}.deagglomerator.duty_cycle", duty_cycle)
-            await self._tag_cache.write_tag(f"gas_control.hardware_sets.set{feeder_id}.deagglomerator.frequency", frequency)
-
-        except Exception as e:
-            error_msg = f"Failed to set deagglomerator {feeder_id}"
-            logger.error(f"{error_msg}: {str(e)}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg
-            )
-
-    async def set_nozzle(self, selected: Optional[bool] = None, shutter: Optional[bool] = None) -> None:
-        """Set nozzle parameters.
-        
-        Args:
-            selected: Nozzle selection (False=1, True=2)
-            shutter: Shutter state
-            
-        Raises:
-            HTTPException: If write fails
-        """
-        try:
-            if not self.is_running:
-                raise create_error(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
-                )
-
-            # Set nozzle selection if provided
-            if selected is not None:
-                await self._tag_cache.write_tag("gas_control.hardware_sets.nozzle_select", selected)
-
-            # Set shutter state if provided
-            if shutter is not None:
-                await self._tag_cache.write_tag("relay_control.shutter", shutter)
-
-        except Exception as e:
-            error_msg = "Failed to set nozzle"
+            error_msg = "Failed to set feeder flow"
             logger.error(f"{error_msg}: {str(e)}")
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -608,26 +398,503 @@ class EquipmentService:
         """Get service health status.
         
         Returns:
-            Health status dictionary
+            Dict[str, Any]: Health status dictionary
         """
         try:
-            uptime = (datetime.now() - self._start_time).total_seconds() if self._start_time else 0
-            
             return {
                 "status": "ok" if self.is_running else "error",
-                "service": self._service_name,
+                "service_name": self._service_name,
                 "version": self._version,
-                "running": self.is_running,
-                "uptime": uptime,
-                "tag_cache": self._tag_cache is not None
+                "is_running": self.is_running,
+                "uptime": (datetime.now() - self._start_time).total_seconds() if self._start_time else 0,
+                "error": None if self.is_running else "Service not running",
+                "timestamp": datetime.now().isoformat()
             }
         except Exception as e:
-            error_msg = "Failed to get health status"
-            logger.error(f"{error_msg}: {str(e)}")
+            error_msg = f"Failed to get health status: {str(e)}"
+            logger.error(error_msg)
             return {
                 "status": "error",
-                "service": self._service_name,
+                "service_name": self._service_name,
                 "version": self._version,
-                "running": False,
-                "error": str(e)
+                "is_running": False,
+                "uptime": 0,
+                "error": error_msg,
+                "timestamp": datetime.now().isoformat()
             }
+
+    async def set_feeder_frequency(self, feeder_id: int, frequency: float) -> None:
+        """Set feeder frequency.
+        
+        Args:
+            feeder_id: Feeder ID (1 or 2)
+            frequency: Frequency in Hz
+            
+        Raises:
+            HTTPException: If write fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            # Validate feeder ID
+            if feeder_id not in [1, 2]:
+                raise create_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message=f"Invalid feeder ID: {feeder_id}"
+                )
+
+            # Write frequency setpoint
+            await self._tag_cache.set_tag(f"feeder{feeder_id}.frequency.setpoint", frequency)
+            logger.info(f"Set feeder {feeder_id} frequency to {frequency} Hz")
+
+        except Exception as e:
+            error_msg = f"Failed to set feeder {feeder_id} frequency"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
+
+    async def start_feeder(self, feeder_id: int) -> None:
+        """Start feeder.
+        
+        Args:
+            feeder_id: Feeder ID (1 or 2)
+            
+        Raises:
+            HTTPException: If write fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            # Validate feeder ID
+            if feeder_id not in [1, 2]:
+                raise create_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message=f"Invalid feeder ID: {feeder_id}"
+                )
+
+            # Write start command
+            await self._tag_cache.set_tag(f"feeder{feeder_id}.start", True)
+            logger.info(f"Started feeder {feeder_id}")
+
+        except Exception as e:
+            error_msg = f"Failed to start feeder {feeder_id}"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
+
+    async def stop_feeder(self, feeder_id: int) -> None:
+        """Stop feeder.
+        
+        Args:
+            feeder_id: Feeder ID (1 or 2)
+            
+        Raises:
+            HTTPException: If write fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            # Validate feeder ID
+            if feeder_id not in [1, 2]:
+                raise create_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message=f"Invalid feeder ID: {feeder_id}"
+                )
+
+            # Write stop command
+            await self._tag_cache.set_tag(f"feeder{feeder_id}.start", False)
+            logger.info(f"Stopped feeder {feeder_id}")
+
+        except Exception as e:
+            error_msg = f"Failed to stop feeder {feeder_id}"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
+
+    async def set_deagg_speed(self, deagg_id: int, speed: float) -> None:
+        """Set deagglomerator speed.
+        
+        Args:
+            deagg_id: Deagglomerator ID (1 or 2)
+            speed: Speed percentage (0-100)
+            
+        Raises:
+            HTTPException: If write fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            # Validate deagglomerator ID
+            if deagg_id not in [1, 2]:
+                raise create_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message=f"Invalid deagglomerator ID: {deagg_id}"
+                )
+
+            # Validate speed range
+            if not 0 <= speed <= 100:
+                raise create_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message=f"Invalid speed: {speed}. Must be between 0 and 100"
+                )
+
+            # Write speed setpoint
+            await self._tag_cache.set_tag(f"deagg{deagg_id}.speed.setpoint", speed)
+            logger.info(f"Set deagglomerator {deagg_id} speed to {speed}%")
+
+        except Exception as e:
+            error_msg = f"Failed to set deagglomerator {deagg_id} speed"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
+
+    async def select_nozzle(self, nozzle_id: int) -> None:
+        """Select active nozzle.
+        
+        Args:
+            nozzle_id: Nozzle ID (1 or 2)
+            
+        Raises:
+            HTTPException: If write fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            # Validate nozzle ID
+            if nozzle_id not in [1, 2]:
+                raise create_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message=f"Invalid nozzle ID: {nozzle_id}"
+                )
+
+            # Write nozzle selection
+            await self._tag_cache.set_tag("nozzle.selected", nozzle_id)
+            logger.info(f"Selected nozzle {nozzle_id}")
+
+        except Exception as e:
+            error_msg = "Failed to select nozzle"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
+
+    async def set_shutter(self, open: bool) -> None:
+        """Control nozzle shutter.
+        
+        Args:
+            open: True to open shutter, False to close
+            
+        Raises:
+            HTTPException: If write fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            # Write shutter command
+            await self._tag_cache.set_tag("nozzle.shutter.open", open)
+            logger.info(f"{'Opened' if open else 'Closed'} nozzle shutter")
+
+        except Exception as e:
+            error_msg = f"Failed to {'open' if open else 'close'} shutter"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
+
+    async def set_main_gas_valve(self, open: bool) -> None:
+        """Control main gas valve.
+        
+        Args:
+            open: True to open valve, False to close
+            
+        Raises:
+            HTTPException: If write fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            # Write valve command
+            await self._tag_cache.set_tag("gas_control.main_valve.open", open)
+            logger.info(f"{'Opened' if open else 'Closed'} main gas valve")
+
+        except Exception as e:
+            error_msg = f"Failed to {'open' if open else 'close'} main gas valve"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
+
+    async def set_feeder_gas_valve(self, open: bool) -> None:
+        """Control feeder gas valve.
+        
+        Args:
+            open: True to open valve, False to close
+            
+        Raises:
+            HTTPException: If write fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            # Write valve command
+            await self._tag_cache.set_tag("gas_control.feeder_valve.open", open)
+            logger.info(f"{'Opened' if open else 'Closed'} feeder gas valve")
+
+        except Exception as e:
+            error_msg = f"Failed to {'open' if open else 'close'} feeder gas valve"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
+
+    async def set_gate_valve_position(self, position: float) -> None:
+        """Control gate valve position.
+        
+        Args:
+            position: Valve position percentage (0-100)
+            
+        Raises:
+            HTTPException: If write fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            # Validate position range
+            if not 0 <= position <= 100:
+                raise create_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message=f"Invalid position: {position}. Must be between 0 and 100"
+                )
+
+            # Write position setpoint
+            await self._tag_cache.set_tag("vacuum.gate_valve.position", position)
+            logger.info(f"Set gate valve position to {position}%")
+
+        except Exception as e:
+            error_msg = "Failed to set gate valve position"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
+
+    async def set_vent_valve(self, open: bool) -> None:
+        """Control vent valve.
+        
+        Args:
+            open: True to open valve, False to close
+            
+        Raises:
+            HTTPException: If write fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            # Write valve command
+            await self._tag_cache.set_tag("vacuum.vent_valve.open", open)
+            logger.info(f"{'Opened' if open else 'Closed'} vent valve")
+
+        except Exception as e:
+            error_msg = f"Failed to {'open' if open else 'close'} vent valve"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
+
+    async def start_mech_pump(self) -> None:
+        """Start mechanical pump.
+        
+        Raises:
+            HTTPException: If write fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            # Write pump command
+            await self._tag_cache.set_tag("vacuum.mech_pump.start", True)
+            logger.info("Started mechanical pump")
+
+        except Exception as e:
+            error_msg = "Failed to start mechanical pump"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
+
+    async def stop_mech_pump(self) -> None:
+        """Stop mechanical pump.
+        
+        Raises:
+            HTTPException: If write fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            # Write pump command
+            await self._tag_cache.set_tag("vacuum.mech_pump.start", False)
+            logger.info("Stopped mechanical pump")
+
+        except Exception as e:
+            error_msg = "Failed to stop mechanical pump"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
+
+    async def start_booster_pump(self) -> None:
+        """Start booster pump.
+        
+        Raises:
+            HTTPException: If write fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            # Write pump command
+            await self._tag_cache.set_tag("vacuum.booster_pump.start", True)
+            logger.info("Started booster pump")
+
+        except Exception as e:
+            error_msg = "Failed to start booster pump"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
+
+    async def stop_booster_pump(self) -> None:
+        """Stop booster pump.
+        
+        Raises:
+            HTTPException: If write fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            # Write pump command
+            await self._tag_cache.set_tag("vacuum.booster_pump.start", False)
+            logger.info("Stopped booster pump")
+
+        except Exception as e:
+            error_msg = "Failed to stop booster pump"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
+
+    async def set_deagglomerator(self, deagg_id: int, duty_cycle: float, frequency: float) -> None:
+        """Set deagglomerator parameters.
+        
+        Args:
+            deagg_id: Deagglomerator ID (1 or 2)
+            duty_cycle: Duty cycle percentage (0-100)
+            frequency: Frequency in Hz
+            
+        Raises:
+            HTTPException: If write fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            # Validate deagglomerator ID
+            if deagg_id not in [1, 2]:
+                raise create_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message=f"Invalid deagglomerator ID: {deagg_id}"
+                )
+
+            # Validate duty cycle range
+            if not 0 <= duty_cycle <= 100:
+                raise create_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message=f"Invalid duty cycle: {duty_cycle}. Must be between 0 and 100"
+                )
+
+            # Write parameters
+            await self._tag_cache.set_tag(f"deagg{deagg_id}.duty_cycle.setpoint", duty_cycle)
+            await self._tag_cache.set_tag(f"deagg{deagg_id}.frequency.setpoint", frequency)
+            logger.info(f"Set deagglomerator {deagg_id} parameters: duty cycle={duty_cycle}%, frequency={frequency}Hz")
+
+        except Exception as e:
+            error_msg = f"Failed to set deagglomerator {deagg_id} parameters"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )

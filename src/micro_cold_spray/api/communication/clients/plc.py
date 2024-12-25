@@ -1,26 +1,21 @@
 """PLC communication client."""
 
-import logging
 from typing import Any, Dict, Optional
-from fastapi import status
 from loguru import logger
 from productivity import ProductivityPLC
-from pymodbus.pdu import ExceptionResponse
-
-from micro_cold_spray.utils.errors import create_error
-from micro_cold_spray.api.communication.clients.base import CommunicationClient
 
 
-class PLCClient(CommunicationClient):
+class PLCClient:
     """Client for communicating with Productivity PLC."""
-
+    
     def __init__(self, config: Dict[str, Any]):
         """Initialize PLC client.
         
         Args:
             config: Client configuration from communication.yaml
         """
-        super().__init__(config)
+        self._config = config
+        self._connected = False
         
         # Extract PLC config
         plc_config = config["communication"]["hardware"]["network"]["plc"]
@@ -35,9 +30,6 @@ class PLCClient(CommunicationClient):
         """Connect to PLC.
         
         Connection is established on first request.
-        
-        Raises:
-            HTTPException: If connection fails
         """
         try:
             # Create PLC instance
@@ -46,17 +38,13 @@ class PLCClient(CommunicationClient):
             # Get tag configuration and test connection with first request
             self._tags = self._plc.get_tags()
             await self._plc.get()
-            
+                
             self._connected = True
             logger.info(f"Connected to PLC at {self._ip} with {len(self._tags)} tags")
             
         except Exception as e:
-            error_msg = f"Failed to connect to PLC at {self._ip}: {str(e)}"
-            logger.error(error_msg)
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=error_msg
-            )
+            logger.error(f"Failed to connect to PLC at {self._ip}: {str(e)}")
+            raise
 
     async def disconnect(self) -> None:
         """Disconnect from PLC.
@@ -75,48 +63,23 @@ class PLCClient(CommunicationClient):
             
         Returns:
             Tag value
-            
-        Raises:
-            HTTPException: If read fails
         """
-        if not self._plc:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"PLC not connected at {self._ip}"
-            )
+        if not self._connected:
+            raise ConnectionError("PLC not connected")
             
         if tag not in self._tags:
-            raise create_error(
-                status_code=status.HTTP_404_NOT_FOUND,
-                message=f"Tag '{tag}' not found in PLC"
-            )
+            raise ValueError(f"Tag '{tag}' not found in PLC")
             
         try:
             values = await self._plc.get()
             if tag not in values:
-                raise create_error(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    message=f"Tag '{tag}' not found in PLC response"
-                )
-                
-            # Check for Modbus exceptions
-            if isinstance(values, ExceptionResponse):
-                error_msg = f"Modbus exception reading tag '{tag}' from PLC: {values}"
-                logger.error(error_msg)
-                raise create_error(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    message=error_msg
-                )
+                raise ValueError(f"Tag '{tag}' not found in PLC response")
                 
             return values[tag]
             
         except Exception as e:
-            error_msg = f"Failed to read tag '{tag}' from PLC: {str(e)}"
-            logger.error(error_msg)
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg
-            )
+            logger.error(f"Failed to read tag '{tag}' from PLC: {str(e)}")
+            raise
 
     async def write_tag(self, tag: str, value: Any) -> None:
         """Write tag value.
@@ -124,41 +87,26 @@ class PLCClient(CommunicationClient):
         Args:
             tag: Tag name to write
             value: Value to write
-            
-        Raises:
-            HTTPException: If write fails
         """
-        if not self._plc:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"PLC not connected at {self._ip}"
-            )
+        if not self._connected:
+            raise ConnectionError("PLC not connected")
             
         if tag not in self._tags:
-            raise create_error(
-                status_code=status.HTTP_404_NOT_FOUND,
-                message=f"Tag '{tag}' not found in PLC"
-            )
+            raise ValueError(f"Tag '{tag}' not found in PLC")
             
         try:
             # The library handles type validation and conversion
-            responses = await self._plc.set({tag: value})
-            
-            # Check for Modbus exceptions
-            if any("error" in str(r).lower() for r in responses):
-                error_msg = f"Modbus error writing tag '{tag}' = {value} to PLC: {responses}"
-                logger.error(error_msg)
-                raise create_error(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    message=error_msg
-                )
-                
+            await self._plc.set({tag: value})
             logger.debug(f"Wrote tag {tag} = {value}")
             
         except Exception as e:
-            error_msg = f"Failed to write tag '{tag}' = {value} to PLC: {str(e)}"
-            logger.error(error_msg)
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg
-            )
+            logger.error(f"Failed to write tag '{tag}' = {value} to PLC: {str(e)}")
+            raise
+
+    def is_connected(self) -> bool:
+        """Check if client is connected.
+        
+        Returns:
+            Connection status
+        """
+        return self._connected

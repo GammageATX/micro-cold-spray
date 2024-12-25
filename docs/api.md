@@ -2,38 +2,267 @@
 
 ## Communication Service
 
-Base URL: `http://localhost:8002`
+Base URL: `http://localhost:8003`
+
+### Real-time State Updates
+
+#### WebSocket /ws/state
+
+Get real-time system state updates. Provides immediate updates when any state changes (equipment or motion).
+
+Response format:
+
+```json
+{
+  "type": "state_update",
+  "data": {
+    "equipment": {
+      "gas": {
+        "main_flow": 0.0,
+        "feeder_flow": 0.0,
+        "main_pressure": 0.0,
+        "feeder_pressure": 0.0,
+        "nozzle_pressure": 0.0,
+        "regulator_pressure": 0.0,
+        "main_valve": false,
+        "feeder_valve": false
+      },
+      "vacuum": {
+        "chamber_pressure": 0.0,
+        "mech_pump_running": false,
+        "booster_pump_running": false,
+        "vent_valve_open": false,
+        "gate_valve_position": "closed"
+      },
+      "feeders": [
+        {
+          "id": 1,
+          "frequency": 200,
+          "running": false
+        },
+        {
+          "id": 2,
+          "frequency": 200,
+          "running": false
+        }
+      ],
+      "deagglomerators": [
+        {
+          "id": 1,
+          "duty_cycle": 35,
+          "frequency": 500,
+          "speed": 50
+        },
+        {
+          "id": 2,
+          "duty_cycle": 35,
+          "frequency": 500,
+          "speed": 50
+        }
+      ],
+      "nozzle": {
+        "active_id": 1,
+        "shutter_engaged": false
+      }
+    },
+    "motion": {
+      "position": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "status": {
+        "enabled": true,
+        "homed": true,
+        "error": false,
+        "busy": false,
+        "error_message": null
+      }
+    }
+  }
+}
+```
+
+### Gas Control
+
+#### POST /gas/main/flow
+
+Set the main gas flow rate.
+
+Request body:
+
+```json
+{
+  "flow_rate": 50.0
+}
+```
+
+#### POST /gas/feeder/flow
+
+Set the feeder gas flow rate.
+
+Request body:
+
+```json
+{
+  "flow_rate": 25.0
+}
+```
+
+#### POST /gas/main/valve
+
+Control the main gas valve.
+
+Request body:
+
+```json
+{
+  "open": true
+}
+```
+
+#### POST /gas/feeder/valve
+
+Control the feeder gas valve.
+
+Request body:
+
+```json
+{
+  "open": true
+}
+```
+
+### Feeder Control
+
+#### POST /feeder/{feeder_id}/frequency
+
+Set the feeder frequency.
+
+Parameters:
+
+- `feeder_id`: Feeder ID (1 or 2)
+
+Request body:
+
+```json
+{
+  "frequency": 500
+}
+```
+
+#### POST /feeder/{feeder_id}/start
+
+Start a feeder.
+
+Parameters:
+
+- `feeder_id`: Feeder ID (1 or 2)
+
+#### POST /feeder/{feeder_id}/stop
+
+Stop a feeder.
+
+Parameters:
+
+- `feeder_id`: Feeder ID (1 or 2)
+
+### Deagglomerator Control
+
+#### POST /deagg/{deagg_id}/speed
+
+Set the deagglomerator speed.
+
+Parameters:
+
+- `deagg_id`: Deagglomerator ID (1 or 2)
+
+Request body:
+
+```json
+{
+  "speed": 50
+}
+```
+
+#### POST /deagg/{deagg_id}/set
+
+Set complete deagglomerator parameters.
+
+Parameters:
+
+- `deagg_id`: Deagglomerator ID (1 or 2)
+
+Request body:
+
+```json
+{
+  "duty_cycle": 35,
+  "frequency": 500
+}
+```
+
+### Nozzle Control
+
+#### POST /nozzle/select
+
+Select active nozzle.
+
+Request body:
+
+```json
+{
+  "nozzle_id": 1
+}
+```
+
+#### POST /nozzle/shutter/open
+
+Open the nozzle shutter.
+
+#### POST /nozzle/shutter/close
+
+Close the nozzle shutter.
+
+### Vacuum Control
+
+#### POST /vacuum/gate
+
+Control the gate valve position.
+
+Request body:
+
+```json
+{
+  "position": "open"
+}
+```
+
+#### POST /vacuum/vent/open
+
+Open the vent valve.
+
+#### POST /vacuum/vent/close
+
+Close the vent valve.
+
+#### POST /vacuum/mech/start
+
+Start the mechanical pump.
+
+#### POST /vacuum/mech/stop
+
+Stop the mechanical pump.
+
+#### POST /vacuum/booster/start
+
+Start the booster pump.
+
+#### POST /vacuum/booster/stop
+
+Stop the booster pump.
 
 ### Motion Control
-
-#### GET /motion/position
-
-Get the current position of all axes.
-
-Response:
-
-```json
-{
-  "x": 0.0,
-  "y": 0.0,
-  "z": 0.0
-}
-```
-
-#### GET /motion/status
-
-Get the current motion system status.
-
-Response:
-
-```json
-{
-  "enabled": true,
-  "homed": true,
-  "error": false,
-  "busy": false
-}
-```
 
 #### POST /motion/jog/{axis}
 
@@ -42,7 +271,8 @@ Perform a relative move on a single axis.
 Parameters:
 
 - `axis`: Axis to jog (x, y, z)
-- Request body:
+
+Request body:
 
 ```json
 {
@@ -75,155 +305,6 @@ Set the current position as home.
 
 Move to the home position.
 
-### Equipment Control
-
-#### GET /equipment/state
-
-Get the current state of all equipment.
-
-Response:
-
-```json
-{
-  "gas": {
-    "main_flow": 0.0,
-    "feeder_flow": 0.0,
-    "main_pressure": 0.0,
-    "feeder_pressure": 0.0,
-    "nozzle_pressure": 0.0,
-    "regulator_pressure": 0.0
-  },
-  "vacuum": {
-    "chamber_pressure": 0.0,
-    "mech_pump_running": false,
-    "booster_pump_running": false,
-    "vent_valve_open": false,
-    "gate_valve_open": false
-  },
-  "feeders": [
-    {
-      "id": 1,
-      "frequency": 200,
-      "running": false
-    },
-    {
-      "id": 2,
-      "frequency": 200,
-      "running": false
-    }
-  ],
-  "deagglomerators": [
-    {
-      "id": 1,
-      "duty_cycle": 35,
-      "frequency": 500
-    },
-    {
-      "id": 2,
-      "duty_cycle": 35,
-      "frequency": 500
-    }
-  ],
-  "shutter": {
-    "engaged": false
-  }
-}
-```
-
-#### POST /equipment/gas/main/flow
-
-Set the main gas flow rate.
-
-Request body:
-
-```json
-{
-  "flow_rate": 50.0
-}
-```
-
-#### POST /equipment/gas/feeder/flow
-
-Set the feeder gas flow rate.
-
-Request body:
-
-```json
-{
-  "flow_rate": 25.0
-}
-```
-
-#### POST /equipment/feeder/{feeder_id}/frequency
-
-Set the feeder frequency.
-
-Parameters:
-
-- `feeder_id`: Feeder ID (1 or 2)
-- Request body:
-
-```json
-{
-  "frequency": 500
-}
-```
-
-#### POST /equipment/feeder/{feeder_id}/start
-
-Start a feeder.
-
-Parameters:
-
-- `feeder_id`: Feeder ID (1 or 2)
-
-#### POST /equipment/feeder/{feeder_id}/stop
-
-Stop a feeder.
-
-Parameters:
-
-- `feeder_id`: Feeder ID (1 or 2)
-
-#### POST /equipment/deagg/{deagg_id}/speed
-
-Set the deagglomerator speed.
-
-Parameters:
-
-- `deagg_id`: Deagglomerator ID (1 or 2)
-- Request body:
-
-```json
-{
-  "speed": 50
-}
-```
-
-#### POST /equipment/vacuum/vent/open
-
-Open the vent valve.
-
-#### POST /equipment/vacuum/vent/close
-
-Close the vent valve.
-
-#### POST /equipment/vacuum/mech/start
-
-Start the mechanical pump.
-
-#### POST /equipment/vacuum/mech/stop
-
-Stop the mechanical pump.
-
-#### POST /equipment/vacuum/booster/start
-
-Start the booster pump.
-
-#### POST /equipment/vacuum/booster/stop
-
-Stop the booster pump.
-
 ### Health Check
 
 #### GET /health
@@ -235,18 +316,27 @@ Response:
 ```json
 {
   "status": "ok",
-  "service_name": "communication",
+  "service": "communication",
   "version": "1.0.0",
   "is_running": true,
   "uptime": 123.45,
-  "error": null,
-  "timestamp": "2024-01-01T00:00:00.000Z"
+  "mode": "mock",
+  "components": {
+    "equipment": {
+      "status": "ok",
+      "error": null
+    },
+    "motion": {
+      "status": "ok",
+      "error": null
+    }
+  }
 }
 ```
 
 ## Process Service
 
-Base URL: `http://localhost:8003`
+Base URL: `http://localhost:8004`
 
 ### Sequences
 

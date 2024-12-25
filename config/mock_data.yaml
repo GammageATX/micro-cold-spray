@@ -1,0 +1,80 @@
+version: "1.0.0"
+
+# Mock PLC tag values
+plc_tags:
+  # Gas Control
+  MainFlowRate: 50.0 # Main gas flow measured (0-100 SLPM)
+  FeederFlowRate: 5.0 # Feeder gas flow measured (0-10 SLPM)
+  MainSwitch: true # Main gas line valve
+  FeederSwitch: true # Feeder gas line valve
+  NozzleSelect: false # Active nozzle selection (false=1, true=2)
+
+  # Vacuum Control
+  MechPumpStart: false # Mechanical pump running
+  MechPumpStop: false # Mechanical pump stopped
+  BoosterPumpStart: false # Booster pump running
+  BoosterPumpStop: false # Booster pump stopped
+  Open: true # Gate valve open position
+  Partial: false # Gate valve partial position
+  VentSwitch: false # Chamber vent valve
+
+  # Pressure Measurements
+  ChamberPressure: 5.1 # Chamber vacuum pressure (torr)
+  MainGasPressure: 100.0 # Main gas supply pressure (psi)
+  FeederPressure: 500.0 # Powder feeder pressure (torr)
+  NozzlePressure: 501.0 # Nozzle pressure (torr)
+  RegulatorPressure: 80.0 # Regulator pressure (psi)
+
+  # Shutter Control
+  Shutter: false # Nozzle shutter solenoid
+
+  # Motion Control Status
+  "AMC.ModuleStatus": true # Motion controller ready status
+  "AMC.Ax1Position": 50.0 # X axis position (mm)
+  "AMC.Ax2Position": 50.0 # Y axis position (mm)
+  "AMC.Ax3Position": 10.0 # Z axis position (mm)
+  "AMC.Ax1AxisStatus": 4 # X axis status (4 = Initialization Complete)
+  "AMC.Ax2AxisStatus": 4 # Y axis status
+  "AMC.Ax3AxisStatus": 4 # Z axis status
+
+  # Motion Parameters
+  "XAxis.Velocity": 10.0 # X axis velocity (mm/s)
+  "YAxis.Velocity": 10.0 # Y axis velocity
+  "ZAxis.Velocity": 5.0 # Z axis velocity
+  "XAxis.Accel": 100.0 # X axis acceleration (mm/s²)
+  "YAxis.Accel": 100.0 # Y axis acceleration
+  "ZAxis.Accel": 50.0 # Z axis acceleration
+  "XAxis.Decel": 100.0 # X axis deceleration
+  "YAxis.Decel": 100.0 # Y axis deceleration
+  "ZAxis.Decel": 50.0 # Z axis deceleration
+  "XAxis.InProgress": false # X move in progress
+  "YAxis.InProgress": false # Y move in progress
+  "ZAxis.InProgress": false # Z move in progress
+  "XAxis.Complete": true # X move complete
+  "YAxis.Complete": true # Y move complete
+  "ZAxis.Complete": true # Z move complete
+
+  # Coordinated Move Parameters
+  "XYMove.XPosition": 0.0 # XY move X target
+  "XYMove.YPosition": 0.0 # XY move Y target
+  "XYMove.LINVelocity": 10.0 # XY move velocity
+  "XYMove.LINRamps": 75 # XY move Acceleration
+  "XYMove.InProgress": false # XY move in progress
+  "XYMove.Complete": true # XY move complete
+
+  # Hardware Set 1
+  "AOS32-0.1.6.1": 35 # Deagglomerator 1 PWM duty cycle (%)
+  "AOS32-0.1.6.2": 500 # Deagglomerator 1 PWM frequency (Hz)
+  "AOS32-0.1.2.1": 2048 # Main gas flow setpoint (0-4095 = 0-100 SLPM)
+  "AOS32-0.1.2.2": 2048 # Feeder gas flow setpoint (0-4095 = 0-10 SLPM)
+
+  # Hardware Set 2  
+  "AOS32-0.1.6.3": 35 # Deagglomerator 2 PWM duty cycle (%)
+  "AOS32-0.1.6.4": 500 # Deagglomerator 2 PWM frequency (Hz)
+
+  # Control Triggers
+  MoveX: false # Trigger X axis move
+  MoveY: false # Trigger Y axis move
+  MoveZ: false # Trigger Z axis move
+  MoveXY: false # Trigger XY move
+  SetHome: false # Trigger set home position 

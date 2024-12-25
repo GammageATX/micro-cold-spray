@@ -16,7 +16,7 @@ from loguru import logger
 SERVICE_MODULES = {
     'config': "micro_cold_spray.api.config.config_app:create_config_service",
     'state': "micro_cold_spray.api.state.state_app:create_state_service",
-    'communication': "micro_cold_spray.api.communication.communication_app:create_app",
+    'communication': "micro_cold_spray.api.communication:create_communication_service",
     'process': "micro_cold_spray.api.process.process_app:create_app",
     'data_collection': "micro_cold_spray.api.data_collection.data_collection_app:DataCollectionApp",
     'validation': "micro_cold_spray.api.validation.validation_app:create_app",

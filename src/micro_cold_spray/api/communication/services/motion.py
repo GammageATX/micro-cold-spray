@@ -1,6 +1,6 @@
 """Motion service implementation."""
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Callable, List
 from datetime import datetime
 from fastapi import status as http_status
 from loguru import logger
@@ -25,40 +25,74 @@ class MotionService:
         self._tag_cache: Optional[TagCacheService] = None
         self._is_running = False
         self._start_time = None
+        self._state_changed_callbacks: List[Callable[[Dict[str, Any]], None]] = []
         logger.info("MotionService initialized")
+
+    def on_state_changed(self, callback: Callable[[Dict[str, Any]], None]) -> None:
+        """Register callback for state changes.
+        
+        Args:
+            callback: Function to call when state changes
+        """
+        self._state_changed_callbacks.append(callback)
+
+    def remove_state_changed_callback(self, callback: Callable[[Dict[str, Any]], None]) -> None:
+        """Remove state change callback.
+        
+        Args:
+            callback: Callback to remove
+        """
+        if callback in self._state_changed_callbacks:
+            self._state_changed_callbacks.remove(callback)
+
+    async def _notify_state_changed(self) -> None:
+        """Notify all registered callbacks of state change."""
+        try:
+            position = await self.get_position()
+            status = await self.get_status()
+            state = {
+                "position": position.dict(),
+                "status": status.dict()
+            }
+            for callback in self._state_changed_callbacks:
+                try:
+                    callback(state)
+                except Exception as e:
+                    logger.error(f"Error in state change callback: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error notifying state change: {str(e)}")
 
     @property
     def is_running(self) -> bool:
         """Check if service is running."""
         return self._is_running
 
+    def set_tag_cache(self, tag_cache: TagCacheService) -> None:
+        """Set tag cache service.
+        
+        Args:
+            tag_cache: Tag cache service
+        """
+        self._tag_cache = tag_cache
+        logger.info("Tag cache service set")
+
     async def initialize(self) -> None:
-        """Initialize motion service."""
+        """Initialize motion service.
+        
+        Raises:
+            HTTPException: If initialization fails
+        """
         try:
-            if self.is_running:
-                raise create_error(
-                    status_code=http_status.HTTP_409_CONFLICT,
-                    message="Service already running"
-                )
-
-            # Initialize tag cache
             if not self._tag_cache:
-                logger.error("Tag cache service not initialized")
                 raise create_error(
                     status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Tag cache service not initialized"
+                    message="Tag cache service not set"
                 )
-
-            # Wait for tag cache service to be ready
-            if not self._tag_cache.is_running:
-                logger.error("Tag cache service not running")
-                raise create_error(
-                    status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Tag cache service not running"
-                )
-
+            
+            self._is_running = False
+            self._start_time = None
             logger.info("Motion service initialized")
-
+            
         except Exception as e:
             error_msg = f"Failed to initialize motion service: {str(e)}"
             logger.error(error_msg)
@@ -68,22 +102,22 @@ class MotionService:
             )
 
     async def start(self) -> None:
-        """Start motion service."""
+        """Start motion service.
+        
+        Raises:
+            HTTPException: If startup fails
+        """
         try:
-            if self.is_running:
+            if not self._tag_cache:
                 raise create_error(
-                    status_code=http_status.HTTP_409_CONFLICT,
-                    message="Service already running"
+                    status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Tag cache service not set"
                 )
-
-            # Initialize if needed
-            if not self._tag_cache or not self._tag_cache.is_running:
-                await self.initialize()
-
-            self._start_time = datetime.now()
+            
             self._is_running = True
+            self._start_time = datetime.now()
             logger.info("Motion service started")
-
+            
         except Exception as e:
             error_msg = f"Failed to start motion service: {str(e)}"
             logger.error(error_msg)
@@ -93,27 +127,23 @@ class MotionService:
             )
 
     async def stop(self) -> None:
-        """Stop motion service."""
+        """Stop motion service.
+        
+        Raises:
+            HTTPException: If shutdown fails
+        """
         try:
-            if not self.is_running:
-                return
-
             self._is_running = False
             self._start_time = None
             logger.info("Motion service stopped")
-
+            
         except Exception as e:
             error_msg = f"Failed to stop motion service: {str(e)}"
             logger.error(error_msg)
-            # Don't raise during shutdown
-
-    def set_tag_cache(self, tag_cache: TagCacheService) -> None:
-        """Set tag cache service.
-        
-        Args:
-            tag_cache: Tag cache service instance
-        """
-        self._tag_cache = tag_cache
+            raise create_error(
+                status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
 
     async def get_position(self) -> Position:
         """Get current position.
@@ -131,14 +161,15 @@ class MotionService:
                     message="Service not running"
                 )
 
-            # Read position tags from AMC controller
-            logger.debug("Reading position tags...")
-            x = await self._tag_cache.read_tag("motion.position.x_position")  # AMC.Ax1Position
-            logger.debug(f"X position = {x}")
-            y = await self._tag_cache.read_tag("motion.position.y_position")  # AMC.Ax2Position
-            logger.debug(f"Y position = {y}")
-            z = await self._tag_cache.read_tag("motion.position.z_position")  # AMC.Ax3Position
-            logger.debug(f"Z position = {z}")
+            # Read current position from AMC controller
+            x = await self._tag_cache.get_tag("motion.motion_control.coordinated_move.xy_move.parameters.x_position")
+            y = await self._tag_cache.get_tag("motion.motion_control.coordinated_move.xy_move.parameters.y_position")
+            z = await self._tag_cache.get_tag("motion.motion_control.relative_move.z_move.parameters.position")
+
+            # Default to 0 if position is None
+            x = x if x is not None else 0.0
+            y = y if y is not None else 0.0
+            z = z if z is not None else 0.0
 
             return Position(x=x, y=y, z=z)
 
@@ -151,7 +182,7 @@ class MotionService:
             )
 
     async def get_status(self) -> SystemStatus:
-        """Get motion system status.
+        """Get system status.
         
         Returns:
             System status
@@ -166,49 +197,25 @@ class MotionService:
                     message="Service not running"
                 )
 
-            # Read motion controller status
-            logger.debug("Reading motion controller status...")
-            module_ready = await self._tag_cache.read_tag("interlocks.motion_ready")  # AMC.ModuleStatus
-            logger.debug(f"Module ready = {module_ready}")
-            
-            # Read axis status bits
-            logger.debug("Reading axis status bits...")
-            x_status = await self._tag_cache.read_tag("motion.status.x_axis")  # AMC.Ax1AxisStatus
-            logger.debug(f"X status = {x_status} (0x{x_status:04X})")
-            y_status = await self._tag_cache.read_tag("motion.status.y_axis")  # AMC.Ax2AxisStatus
-            logger.debug(f"Y status = {y_status} (0x{y_status:04X})")
-            z_status = await self._tag_cache.read_tag("motion.status.z_axis")  # AMC.Ax3AxisStatus
-            logger.debug(f"Z status = {z_status} (0x{z_status:04X})")
+            # Get axis statuses
+            x_status = await self.get_axis_status("x")
+            y_status = await self.get_axis_status("y")
+            z_status = await self.get_axis_status("z")
 
-            # Parse status bits
-            # Bit 4: Initialization Complete
-            # Bit 16: Axis Occupied (busy)
-            enabled = bool(x_status & (1 << 4) and y_status & (1 << 4) and z_status & (1 << 4))
-            logger.debug(f"Enabled = {enabled}")
-            busy = bool(x_status & (1 << 16) or y_status & (1 << 16) or z_status & (1 << 16))
-            logger.debug(f"Busy = {busy}")
-            
-            # Bit 7: Stopped at Move Target (homed)
-            homed = bool(x_status & (1 << 7) and y_status & (1 << 7) and z_status & (1 << 7))
-            logger.debug(f"Homed = {homed}")
-            
-            # Bits 10-15: Various error conditions
-            error = bool(
-                x_status & 0xFC00 or  # Bits 10-15
-                y_status & 0xFC00 or
-                z_status & 0xFC00
-            )
-            logger.debug(f"Error = {error}")
+            # Get module ready status
+            module_ready = await self._tag_cache.get_tag("interlocks.motion_ready")
+            if module_ready is None:
+                module_ready = False
 
             return SystemStatus(
-                enabled=enabled and module_ready,
-                homed=homed,
-                error=error,
-                busy=busy
+                x_axis=x_status,
+                y_axis=y_status,
+                z_axis=z_status,
+                module_ready=module_ready
             )
 
         except Exception as e:
-            error_msg = "Failed to get status"
+            error_msg = "Failed to get system status"
             logger.error(f"{error_msg}: {str(e)}")
             raise create_error(
                 status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -241,21 +248,33 @@ class MotionService:
                     message=f"Invalid axis: {axis}"
                 )
 
-            # Map axis to status tag
-            status_tag = f"motion.status.{axis}_axis"  # AMC.Ax[1/2/3]AxisStatus
-            axis_status = await self._tag_cache.read_tag(status_tag)
+            # Get axis status
+            if axis in ["x", "y"]:
+                # For X and Y axes, use coordinated move status
+                position = await self._tag_cache.get_tag(f"motion.motion_control.coordinated_move.xy_move.parameters.{axis}_position")
+                in_progress = await self._tag_cache.get_tag("motion.motion_control.coordinated_move.xy_move.parameters.in_progress")
+                complete = await self._tag_cache.get_tag("motion.motion_control.coordinated_move.xy_move.parameters.status")
+            else:
+                # For Z axis, use relative move status
+                position = await self._tag_cache.get_tag(f"motion.motion_control.relative_move.{axis}_move.parameters.position")
+                in_progress = await self._tag_cache.get_tag(f"motion.motion_control.relative_move.{axis}_move.parameters.in_progress")
+                complete = await self._tag_cache.get_tag(f"motion.motion_control.relative_move.{axis}_move.parameters.status")
 
-            # Parse status bits
-            enabled = bool(axis_status & (1 << 4))  # Bit 4: Initialization Complete
-            busy = bool(axis_status & (1 << 16))    # Bit 16: Axis Occupied
-            homed = bool(axis_status & (1 << 7))    # Bit 7: Stopped at Move Target
-            error = bool(axis_status & 0xFC00)      # Bits 10-15: Error conditions
+            # Parse status
+            moving = bool(in_progress)  # Moving if in progress
+            in_position = bool(complete)  # In position if move completed
+            error = not await self._tag_cache.get_tag("interlocks.motion_ready")  # Error if not enabled
+            homed = bool(complete)  # Consider homed if last move completed
+
+            # Default to 0 if position is None
+            position = position if position is not None else 0.0
 
             return AxisStatus(
-                enabled=enabled,
-                homed=homed,
+                position=position,
+                in_position=in_position,
+                moving=moving,
                 error=error,
-                busy=busy
+                homed=homed
             )
 
         except Exception as e:
@@ -266,11 +285,15 @@ class MotionService:
                 message=error_msg
             )
 
-    async def move(self, position: Position) -> None:
+    async def move(self, x: float, y: float, z: float, velocity: float, wait_complete: bool = True) -> None:
         """Move to position.
         
         Args:
-            position: Target position
+            x: X position
+            y: Y position
+            z: Z position
+            velocity: Move velocity
+            wait_complete: Wait for move to complete
             
         Raises:
             HTTPException: If move fails
@@ -283,15 +306,20 @@ class MotionService:
                 )
 
             # Set XY move parameters
-            await self._tag_cache.write_tag("motion.motion_control.coordinated_move.xy_move.parameters.x_position", position.x)
-            await self._tag_cache.write_tag("motion.motion_control.coordinated_move.xy_move.parameters.y_position", position.y)
+            await self._tag_cache.set_tag("motion.motion_control.coordinated_move.xy_move.parameters.x_position", x)
+            await self._tag_cache.set_tag("motion.motion_control.coordinated_move.xy_move.parameters.y_position", y)
+            await self._tag_cache.set_tag("motion.motion_control.coordinated_move.xy_move.parameters.velocity", velocity)
             
             # Trigger XY move
-            await self._tag_cache.write_tag("motion.motion_control.coordinated_move.xy_move.trigger", True)
+            await self._tag_cache.set_tag("motion.motion_control.coordinated_move.xy_move.trigger", True)
             
             # Set Z position and trigger move
-            await self._tag_cache.write_tag("motion.motion_control.relative_move.z_move.parameters.velocity", position.z)
-            await self._tag_cache.write_tag("motion.motion_control.relative_move.z_move.trigger", True)
+            await self._tag_cache.set_tag("motion.motion_control.relative_move.z_move.parameters.position", z)
+            await self._tag_cache.set_tag("motion.motion_control.relative_move.z_move.parameters.velocity", velocity)
+            await self._tag_cache.set_tag("motion.motion_control.relative_move.z_move.trigger", True)
+
+            # Notify state change
+            await self._notify_state_changed()
 
         except Exception as e:
             error_msg = "Failed to move"
@@ -301,12 +329,13 @@ class MotionService:
                 message=error_msg
             )
 
-    async def jog(self, axis: str, distance: float) -> None:
+    async def jog_axis(self, axis: str, distance: float, velocity: float) -> None:
         """Jog axis by distance.
         
         Args:
             axis: Axis to jog (x, y, z)
             distance: Jog distance
+            velocity: Jog velocity
             
         Raises:
             HTTPException: If jog fails
@@ -327,8 +356,12 @@ class MotionService:
 
             # Set velocity and trigger move
             move_tag = f"motion.motion_control.relative_move.{axis}_move"
-            await self._tag_cache.write_tag(f"{move_tag}.parameters.velocity", distance)
-            await self._tag_cache.write_tag(f"{move_tag}.trigger", True)
+            await self._tag_cache.set_tag(f"{move_tag}.parameters.position", distance)
+            await self._tag_cache.set_tag(f"{move_tag}.parameters.velocity", velocity)
+            await self._tag_cache.set_tag(f"{move_tag}.trigger", True)
+
+            # Notify state change
+            await self._notify_state_changed()
 
         except Exception as e:
             error_msg = f"Failed to jog {axis} axis"
@@ -338,14 +371,11 @@ class MotionService:
                 message=error_msg
             )
 
-    async def home(self, axis: Optional[str] = None) -> None:
-        """Home axis or all axes.
-        
-        Args:
-            axis: Optional axis to home (x, y, z). If None, home all axes.
+    async def set_home(self) -> None:
+        """Set current position as home.
             
         Raises:
-            HTTPException: If homing fails
+            HTTPException: If setting home fails
         """
         try:
             if not self.is_running:
@@ -355,10 +385,40 @@ class MotionService:
                 )
 
             # Set current position as home
-            await self._tag_cache.write_tag("motion.motion_control.set_home", True)
+            await self._tag_cache.set_tag("motion.motion_control.set_home", True)
+
+            # Notify state change
+            await self._notify_state_changed()
 
         except Exception as e:
-            error_msg = f"Failed to home {axis if axis else 'all axes'}"
+            error_msg = "Failed to set home"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
+
+    async def move_to_home(self) -> None:
+        """Move to home position.
+            
+        Raises:
+            HTTPException: If move fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            # Trigger move to home
+            await self._tag_cache.set_tag("motion.motion_control.move_to_home", True)
+
+            # Notify state change
+            await self._notify_state_changed()
+
+        except Exception as e:
+            error_msg = "Failed to move to home"
             logger.error(f"{error_msg}: {str(e)}")
             raise create_error(
                 status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -369,26 +429,27 @@ class MotionService:
         """Get service health status.
         
         Returns:
-            Health status dictionary
+            Dict[str, Any]: Health status dictionary
         """
         try:
-            uptime = (datetime.now() - self._start_time).total_seconds() if self._start_time else 0
-            
             return {
                 "status": "ok" if self.is_running else "error",
-                "service": self._service_name,
+                "service_name": self._service_name,
                 "version": self._version,
-                "running": self.is_running,
-                "uptime": uptime,
-                "tag_cache": self._tag_cache is not None
+                "is_running": self.is_running,
+                "uptime": (datetime.now() - self._start_time).total_seconds() if self._start_time else 0,
+                "error": None if self.is_running else "Service not running",
+                "timestamp": datetime.now().isoformat()
             }
         except Exception as e:
-            error_msg = "Failed to get health status"
-            logger.error(f"{error_msg}: {str(e)}")
+            error_msg = f"Failed to get health status: {str(e)}"
+            logger.error(error_msg)
             return {
                 "status": "error",
-                "service": self._service_name,
+                "service_name": self._service_name,
                 "version": self._version,
-                "running": False,
-                "error": str(e)
+                "is_running": False,
+                "uptime": 0,
+                "error": error_msg,
+                "timestamp": datetime.now().isoformat()
             }

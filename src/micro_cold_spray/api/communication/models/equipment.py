@@ -28,8 +28,9 @@ class FeederState(BaseModel):
 
 class NozzleState(BaseModel):
     """Nozzle control state."""
-    selected: bool = Field(..., description="Selected nozzle (False=1, True=2)")
-    shutter: bool = Field(..., description="Shutter state")
+    active_nozzle: Literal[1, 2] = Field(..., description="Active nozzle (1 or 2)")
+    shutter_open: bool = Field(..., description="Shutter state")
+    pressure: float = Field(..., description="Nozzle pressure")
 
 
 class EquipmentState(BaseModel):

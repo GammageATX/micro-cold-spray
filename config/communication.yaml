@@ -2,41 +2,28 @@
 
 version: "1.0.0"
 
-communication:
-  # Force mock mode for testing (overrides real hardware connections)
-  force_mock: true # Set to false to use real hardware
+service:
+  host: "0.0.0.0"
+  port: 8003
+  log_level: "INFO"
 
-  # Hardware connection settings
+communication:
   hardware:
     network:
-      connection:
-        timeout: 30.0
+      force_mock: true # Set to true only for testing without hardware
       plc:
         ip: "192.168.0.130"
         tag_file: "resources/tags/MicroColdSpray_basic.csv"
-        polling_interval: 1.0
-        retry:
-          delay: 1.0
-          max_attempts: 3
-        timeout: 5.0
       ssh:
-        command_timeout: 2.0
         host: "192.168.0.200"
-        password: "deltatau"
         port: 22
-        retry:
-          delay: 5.0
-          max_attempts: 3
-        timeout: 5.0
         username: "root"
-      mock:
-        delay: 0.1 # Simulated delay in seconds
+        password: "deltatau"
 
-  # Service settings
+  polling:
+    interval: 0.2 # Tag polling interval in seconds
+    batch_size: 50 # Number of tags to read in one batch
+
   services:
-    tag_cache:
-      poll_rate: 100 # ms
-      max_age: 1000 # ms
-
     tag_mapping:
-      config_file: "config/tags.yaml" # Use existing tags.yaml
+      config_file: "config/tags.yaml"

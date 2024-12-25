@@ -3,15 +3,11 @@
 import asyncio
 import time
 from typing import Any, Dict, Optional, List
-from fastapi import status
 from loguru import logger
 import paramiko
 
-from micro_cold_spray.utils.errors import create_error
-from micro_cold_spray.api.communication.clients.base import CommunicationClient
 
-
-class SSHClient(CommunicationClient):
+class SSHClient:
     """Client for communicating with feeder over SSH."""
 
     # Buffer size for reading responses
@@ -26,17 +22,21 @@ class SSHClient(CommunicationClient):
         Args:
             config: Client configuration from communication.yaml
         """
-        super().__init__(config)
+        self._config = config
+        self._connected = False
         
         # Extract SSH config
-        ssh_config = config["network"]["ssh"]
+        ssh_config = config["communication"]["hardware"]["network"]["ssh"]
         self._host = ssh_config["host"]
-        self._port = ssh_config["port"]
+        self._port = ssh_config.get("port", 22)
         self._username = ssh_config["username"]
         self._password = ssh_config["password"]
-        self._timeout = ssh_config["timeout"]
-        self._command_timeout = ssh_config["command_timeout"]
-        self._retry = ssh_config["retry"]
+        self._timeout = ssh_config.get("timeout", 30.0)  # 30s default timeout
+        self._command_timeout = ssh_config.get("command_timeout", 5.0)  # 5s default command timeout
+        self._retry = ssh_config.get("retry", {
+            "max_attempts": 3,
+            "delay": 5.0
+        })
         
         # Initialize client
         self._client: Optional[paramiko.SSHClient] = None
@@ -49,11 +49,7 @@ class SSHClient(CommunicationClient):
         logger.info(f"Initialized SSH client for {self._host}")
 
     async def connect(self) -> None:
-        """Connect to device over SSH.
-        
-        Raises:
-            HTTPException: If connection fails
-        """
+        """Connect to device over SSH."""
         attempt = 0
         while True:
             try:
@@ -101,16 +97,12 @@ class SSHClient(CommunicationClient):
                 self._connected = True
                 logger.info(f"Connected to SSH at {self._host}")
                 break
-                
+            
             except Exception as e:
                 attempt += 1
                 if attempt >= self._retry["max_attempts"]:
-                    error_msg = f"Failed to connect to SSH at {self._host} after {attempt} attempts: {str(e)}"
-                    logger.error(error_msg)
-                    raise create_error(
-                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        message=error_msg
-                    )
+                    logger.error(f"Failed to connect to SSH at {self._host} after {attempt} attempts: {str(e)}")
+                    raise
                     
                 logger.warning(f"Connection attempt {attempt} failed, retrying in {self._retry['delay']}s")
                 time.sleep(self._retry["delay"])
@@ -134,10 +126,7 @@ class SSHClient(CommunicationClient):
             Response string
         """
         if not self._terminal:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"SSH not connected at {self._host}"
-            )
+            raise ConnectionError("SSH not connected")
             
         # Read in chunks until we get a complete response
         chunks = []
@@ -158,10 +147,7 @@ class SSHClient(CommunicationClient):
             data: Data to send
         """
         if not self._terminal:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"SSH not connected at {self._host}"
-            )
+            raise ConnectionError("SSH not connected")
             
         self._terminal.send(data)
 
@@ -173,18 +159,12 @@ class SSHClient(CommunicationClient):
             
         Returns:
             List of response lines
-            
-        Raises:
-            HTTPException: If command fails
         """
         # Add to queue
         try:
             await self._command_queue.put(command)
         except asyncio.QueueFull:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"Command queue full ({self._command_queue.qsize()} commands)"
-            )
+            raise RuntimeError(f"Command queue full ({self._command_queue.qsize()} commands)")
             
         # Wait for lock
         async with self._command_lock:
@@ -205,12 +185,8 @@ class SSHClient(CommunicationClient):
                 return response
                 
             except Exception as e:
-                error_msg = f"Failed to send command '{command}' to {self._host}: {str(e)}"
-                logger.error(error_msg)
-                raise create_error(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    message=error_msg
-                )
+                logger.error(f"Failed to send command '{command}' to {self._host}: {str(e)}")
+                raise
             finally:
                 self._command_queue.task_done()
 
@@ -222,19 +198,16 @@ class SSHClient(CommunicationClient):
             
         Returns:
             Tag value
-            
-        Raises:
-            HTTPException: If read fails
         """
+        if not self._connected:
+            raise ConnectionError("SSH not connected")
+            
         # Send read command (e.g. P12)
         response = await self._send_command(f"{tag}\n")
         
         # Parse response
         if not response:
-            raise create_error(
-                status_code=status.HTTP_404_NOT_FOUND,
-                message=f"No response reading tag '{tag}' from {self._host}"
-            )
+            raise ValueError(f"No response reading tag '{tag}' from {self._host}")
             
         try:
             # Response format is "P12=1"
@@ -242,12 +215,8 @@ class SSHClient(CommunicationClient):
             return int(value)  # Convert to int
             
         except Exception as e:
-            error_msg = f"Failed to parse response for tag '{tag}' from {self._host}: {response} ({str(e)})"
-            logger.error(error_msg)
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg
-            )
+            logger.error(f"Failed to parse response for tag '{tag}' from {self._host}: {response} ({str(e)})")
+            raise
 
     async def write_tag(self, tag: str, value: Any) -> None:
         """Write tag value.
@@ -255,27 +224,28 @@ class SSHClient(CommunicationClient):
         Args:
             tag: Tag name to write
             value: Value to write
-            
-        Raises:
-            HTTPException: If write fails
         """
+        if not self._connected:
+            raise ConnectionError("SSH not connected")
+            
         # Send write command (e.g. P12=1)
         try:
             response = await self._send_command(f"{tag}={value}\n")
             
             # Check response
             if not response or "Error" in str(response):
-                raise create_error(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    message=f"Error writing tag '{tag}' = {value} to {self._host}: {response}"
-                )
+                raise RuntimeError(f"Error writing tag '{tag}' = {value} to {self._host}: {response}")
                 
             logger.debug(f"Wrote tag {tag} = {value}")
             
         except Exception as e:
-            error_msg = f"Failed to write tag '{tag}' = {value} to {self._host}: {str(e)}"
-            logger.error(error_msg)
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg
-            )
+            logger.error(f"Failed to write tag '{tag}' = {value} to {self._host}: {str(e)}")
+            raise
+
+    def is_connected(self) -> bool:
+        """Check if client is connected.
+        
+        Returns:
+            Connection status
+        """
+        return self._connected
