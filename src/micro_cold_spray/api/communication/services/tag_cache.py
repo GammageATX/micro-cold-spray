@@ -1,67 +1,162 @@
-"""Tag cache service implementation."""
+"""Service for caching PLC tag values."""
 
 from typing import Dict, Any, Optional
-import asyncio
 from datetime import datetime
-from fastapi import status
+import asyncio
 from loguru import logger
-from pydantic import BaseModel
 
-from micro_cold_spray.utils.errors import create_error
+from micro_cold_spray.api.communication.clients.base import CommunicationClient
 from micro_cold_spray.api.communication.services.tag_mapping import TagMappingService
-from micro_cold_spray.api.communication.clients.factory import create_client
-
-
-class TagValue(BaseModel):
-    """Internal model for tag value."""
-    name: str
-    value: Any
-    timestamp: float
-    is_internal: bool = False  # Whether this is an internally tracked value vs PLC tag
+from micro_cold_spray.utils.errors import create_error
 
 
 class TagCacheService:
-    """Service for caching and accessing tag values."""
+    """Service for caching PLC tag values."""
 
-    def __init__(
-        self,
-        plc_address: str,
-        tags_file: str,
-        tag_mapping: TagMappingService,
-        poll_rate: float = 0.1,
-        config: Optional[Dict[str, Any]] = None
-    ):
+    def __init__(self, client: CommunicationClient, tag_mapping: TagMappingService, poll_interval: float = 0.2):
         """Initialize tag cache service.
         
         Args:
-            plc_address: PLC IP address
-            tags_file: Path to CSV file containing tag definitions
-            tag_mapping: Service for mapping between internal and PLC tag names
-            poll_rate: How often to poll tags in seconds (default 100ms)
-            config: Optional service configuration
+            client: Communication client (PLC or mock)
+            tag_mapping: Tag mapping service
+            poll_interval: Tag polling interval in seconds
         """
         self._service_name = "tag_cache"
         self._version = "1.0.0"
-        self._config = config or {}
-        
-        # Create PLC client based on force_mock setting
-        client_type = "mock" if self._config.get("communication", {}).get("force_mock", False) else "plc"
-        self._plc = create_client(client_type=client_type, config=self._config)
-        
+        self._client = client
         self._tag_mapping = tag_mapping
-        self._poll_rate = poll_rate
-        self._cache: Dict[str, TagValue] = {}
-        self._polling_task: Optional[asyncio.Task] = None
+        self._poll_interval = poll_interval
+        self._tag_cache: Dict[str, Any] = {}  # Cache stores raw PLC tag values
+        self._internal_cache: Dict[str, Any] = {}  # Cache for internal tags
         self._is_running = False
         self._start_time = None
-        self._connection_errors = 0  # Track consecutive connection errors
-        self._max_connection_errors = 3  # Stop service after this many consecutive errors
+        self._poll_task = None
         logger.info("TagCacheService initialized")
 
     @property
     def is_running(self) -> bool:
         """Check if service is running."""
         return self._is_running
+
+    async def read_tag(self, internal_tag: str) -> Optional[Any]:
+        """Read tag value from cache.
+        
+        Args:
+            internal_tag: Internal tag name
+            
+        Returns:
+            Tag value if found, None if not in cache
+            
+        Raises:
+            HTTPException: If read fails
+        """
+        try:
+            # Check internal cache first
+            if internal_tag in self._internal_cache:
+                return self._internal_cache[internal_tag]
+                
+            # Map internal tag to PLC tag
+            plc_tag = self._tag_mapping.get_plc_tag(internal_tag)
+            if not plc_tag:
+                logger.warning(f"No PLC tag mapping found for {internal_tag}")
+                return None
+                
+            # Return value from cache if exists
+            return self._tag_cache.get(plc_tag)
+
+        except Exception as e:
+            error_msg = f"Failed to read tag {internal_tag}"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=500,
+                message=error_msg
+            )
+
+    async def write_tag(self, internal_tag: str, value: Any) -> None:
+        """Write tag value.
+        
+        Args:
+            internal_tag: Internal tag name
+            value: Value to write
+            
+        Raises:
+            HTTPException: If write fails
+        """
+        try:
+            # Handle internal tags
+            if internal_tag in self._internal_cache:
+                self._internal_cache[internal_tag] = value
+                logger.debug(f"Wrote internal tag: {internal_tag} = {value}")
+                return
+                
+            # Map internal tag to PLC tag
+            plc_tag = self._tag_mapping.get_plc_tag(internal_tag)
+            if not plc_tag:
+                raise create_error(
+                    status_code=400,
+                    message=f"No PLC tag mapping found for {internal_tag}"
+                )
+                
+            # Write to PLC and update cache
+            await self._client.write_tag(plc_tag, value)
+            self._tag_cache[plc_tag] = value
+            logger.debug(f"Wrote PLC tag: {plc_tag} = {value}")
+
+        except Exception as e:
+            error_msg = f"Failed to write tag {internal_tag}"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=500,
+                message=error_msg
+            )
+
+    def get_tag_value(self, internal_tag: str) -> Optional[Any]:
+        """Get cached tag value.
+        
+        Args:
+            internal_tag: Internal tag name
+            
+        Returns:
+            Tag value if found, None if not in cache
+        """
+        # Check internal cache first
+        if internal_tag in self._internal_cache:
+            return self._internal_cache[internal_tag]
+            
+        # Map internal tag to PLC tag
+        plc_tag = self._tag_mapping.get_plc_tag(internal_tag)
+        if not plc_tag:
+            return None
+            
+        # Return value from cache if exists
+        return self._tag_cache.get(plc_tag)
+
+    def get_all_tag_values(self) -> Dict[str, Any]:
+        """Get all cached tag values mapped to internal names.
+        
+        Returns:
+            Dict of internal tag names to values
+        """
+        result = {}
+        # Add mapped PLC tags
+        for plc_tag, value in self._tag_cache.items():
+            internal_tag = self._tag_mapping.get_internal_tag(plc_tag)
+            if internal_tag:
+                result[internal_tag] = value
+                
+        # Add internal tags
+        result.update(self._internal_cache)
+        return result
+
+    def set_internal_tag(self, tag: str, value: Any) -> None:
+        """Set internal tag value.
+        
+        Args:
+            tag: Internal tag name
+            value: Tag value
+        """
+        self._internal_cache[tag] = value
+        logger.debug(f"Set internal tag: {tag} = {value}")
 
     async def initialize(self) -> None:
         """Initialize tag cache service.
@@ -72,37 +167,25 @@ class TagCacheService:
         try:
             if self.is_running:
                 raise create_error(
-                    status_code=status.HTTP_409_CONFLICT,
+                    status_code=409,
                     message="Service already running"
                 )
 
-            # Reset error count
-            self._connection_errors = 0
-
-            # Wait for tag mapping service to be ready
-            if not self._tag_mapping.is_running:
-                logger.error("Tag mapping service not running")
-                raise create_error(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Tag mapping service not running"
-                )
-
-            # Connect to PLC
             logger.info("Connecting to PLC...")
-            await self._plc.connect()
+            await self._client.connect()
             logger.info("Connected to PLC")
-
-            # Start polling task
+            
             logger.info("Starting polling task...")
-            self._polling_task = asyncio.create_task(self._poll_tags())
-            self._is_running = True
+            self._poll_task = asyncio.create_task(self._poll_tags())
+            self._is_running = True  # Set running state after successful initialization
+            self._start_time = datetime.now()
             logger.info("Tag cache service initialized")
 
         except Exception as e:
             error_msg = f"Failed to initialize tag cache service: {str(e)}"
             logger.error(error_msg)
             raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                status_code=503,
                 message=error_msg
             )
 
@@ -116,14 +199,13 @@ class TagCacheService:
             if not self.is_running:
                 await self.initialize()
 
-            self._start_time = datetime.now()
             logger.info("Tag cache service started")
 
         except Exception as e:
             error_msg = f"Failed to start tag cache service: {str(e)}"
             logger.error(error_msg)
             raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                status_code=503,
                 message=error_msg
             )
 
@@ -133,16 +215,17 @@ class TagCacheService:
             if not self.is_running:
                 return
 
-            # Stop polling task
-            if self._polling_task:
-                self._polling_task.cancel()
+            if self._poll_task:
+                self._poll_task.cancel()
                 try:
-                    await self._polling_task
+                    await self._poll_task
                 except asyncio.CancelledError:
                     pass
-                self._polling_task = None
+                self._poll_task = None
 
-            self._cache.clear()
+            await self._client.disconnect()
+            self._tag_cache.clear()
+            self._internal_cache.clear()
             self._is_running = False
             self._start_time = None
             logger.info("Tag cache service stopped")
@@ -153,188 +236,31 @@ class TagCacheService:
             # Don't raise during shutdown
 
     async def _poll_tags(self) -> None:
-        """Poll all PLC tags at specified rate."""
+        """Poll PLC tags and update cache."""
+        last_values = {}  # Store last values to check for changes
+        
         while True:
             try:
-                # Connect if needed
-                if not self._plc.is_connected:
-                    await self._plc.connect()
+                # Get all tag values at once
+                values = await self._client.get()
+                if not values:
+                    logger.warning("No tag values received from PLC")
+                    await asyncio.sleep(self._poll_interval)
+                    continue
 
-                # Get all tag values from PLC
-                logger.debug("Polling PLC tags...")
-                plc_values = await self._plc.get()
-                now = datetime.now().timestamp()
-                logger.debug(f"Got {len(plc_values)} tag values from PLC")
+                # Update cache with new values and log changes
+                for plc_tag, new_value in values.items():
+                    if plc_tag not in last_values or last_values[plc_tag] != new_value:
+                        last_values[plc_tag] = new_value
+                        self._tag_cache[plc_tag] = new_value
 
-                # Map PLC tags to internal names and update cache
-                for plc_name, value in plc_values.items():
-                    # Get internal name for this PLC tag
-                    internal_name = self._tag_mapping.get_internal_tag(plc_name)
-                    logger.debug(f"Mapping {plc_name} -> {internal_name}")
-                    if internal_name:  # Only cache if we have a mapping
-                        self._cache[internal_name] = TagValue(
-                            name=internal_name,
-                            value=value,
-                            timestamp=now,
-                            is_internal=False
-                        )
-                        logger.debug(f"Updated tag cache: {internal_name} = {value}")
-
-                # Reset error count on successful poll
-                self._connection_errors = 0
-
+            except asyncio.CancelledError:
+                logger.info("Tag polling cancelled")
+                break
             except Exception as e:
-                logger.error(f"Failed to poll tags: {str(e)}")
-                self._connection_errors += 1
-                
-                # Stop service if too many consecutive errors
-                if self._connection_errors >= self._max_connection_errors:
-                    logger.error(f"Too many consecutive connection errors ({self._connection_errors}), stopping service")
-                    await self.stop()
-                    return
+                logger.error(f"Error polling tags: {str(e)}")
 
-            await asyncio.sleep(self._poll_rate)
-
-    async def read_tag(self, name: str) -> Any:
-        """Read tag value from cache.
-        
-        Args:
-            name: Internal tag name
-            
-        Returns:
-            Tag value
-            
-        Raises:
-            HTTPException: If tag not found or service not running
-        """
-        try:
-            if not self.is_running:
-                logger.error("Tag cache service not running")
-                raise create_error(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
-                )
-
-            logger.debug(f"Reading tag: {name}")
-
-            # Check if tag exists in mapping
-            plc_tag = self._tag_mapping.get_plc_tag(name)
-            logger.debug(f"Mapped {name} -> {plc_tag}")
-            if not plc_tag:
-                logger.error(f"Tag {name} not found in mapping")
-                raise create_error(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    message=f"Tag {name} not found in mapping"
-                )
-
-            # Check if tag exists in cache
-            if name not in self._cache:
-                logger.error(f"Tag {name} not found in cache")
-                raise create_error(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    message=f"Tag {name} not found in cache"
-                )
-
-            # Get value from cache
-            value = self._cache[name].value
-            logger.debug(f"Read tag {name} = {value}")
-            return value
-
-        except Exception as e:
-            error_msg = f"Failed to read tag {name}"
-            logger.error(f"{error_msg}: {str(e)}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg
-            )
-
-    async def write_tag(self, name: str, value: Any) -> None:
-        """Write tag value to PLC and cache.
-        
-        Args:
-            name: Internal tag name
-            value: Tag value
-            
-        Raises:
-            HTTPException: If write fails or service not running
-        """
-        try:
-            if not self.is_running:
-                raise create_error(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
-                )
-
-            # Map internal name to PLC tag
-            plc_name = self._tag_mapping.get_plc_tag(name)
-            if not plc_name:
-                raise create_error(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    message=f"No PLC tag mapping found for {name}"
-                )
-
-            try:
-                # Write to PLC
-                await self._plc.write_tag(plc_name, value)
-            except Exception as e:
-                self._connection_errors += 1
-                if self._connection_errors >= self._max_connection_errors:
-                    await self.stop()
-                raise create_error(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message=f"Failed to write to PLC: {str(e)}"
-                )
-
-            # Update cache with internal name
-            self._cache[name] = TagValue(
-                name=name,
-                value=value,
-                timestamp=datetime.now().timestamp(),
-                is_internal=False
-            )
-
-            # Reset error count on successful write
-            self._connection_errors = 0
-
-        except Exception as e:
-            error_msg = f"Failed to write tag {name}"
-            logger.error(f"{error_msg}: {str(e)}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg
-            )
-
-    async def write_internal(self, name: str, value: Any) -> None:
-        """Write internal tracked value to cache (e.g. SSH P-tags).
-        
-        Args:
-            name: Value name
-            value: Value to store
-            
-        Raises:
-            HTTPException: If service not running
-        """
-        try:
-            if not self.is_running:
-                raise create_error(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
-                )
-
-            self._cache[name] = TagValue(
-                name=name,
-                value=value,
-                timestamp=datetime.now().timestamp(),
-                is_internal=True
-            )
-
-        except Exception as e:
-            error_msg = f"Failed to write internal value {name}"
-            logger.error(f"{error_msg}: {str(e)}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg
-            )
+            await asyncio.sleep(self._poll_interval)
 
     async def health(self) -> Dict[str, Any]:
         """Get service health status.
@@ -351,9 +277,7 @@ class TagCacheService:
                 "version": self._version,
                 "running": self.is_running,
                 "uptime": uptime,
-                "tag_count": len(self._cache),
-                "plc_connected": self._plc.is_connected,
-                "connection_errors": self._connection_errors
+                "tag_count": len(self._tag_cache) + len(self._internal_cache)
             }
         except Exception as e:
             error_msg = "Failed to get health status"

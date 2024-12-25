@@ -92,7 +92,6 @@ The micro cold spray system is a novel coating process with the following key ch
     * Real-time progress tracking
     * System status monitoring
         * Gas flow rates
-        * Temperature readings
         * Pressure measurements
 
 3. **Configuration Interface**

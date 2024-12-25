@@ -287,34 +287,49 @@ class EquipmentService:
                     message="Service not running"
                 )
 
-            # Read gas flow rates
-            logger.debug("Reading gas flow rates...")
-            feeder_flow = await self._tag_cache.read_tag("gas_control.feeder_flow.measured")
-            logger.debug(f"Feeder flow = {feeder_flow}")
-            main_flow = await self._tag_cache.read_tag("gas_control.main_flow.measured")
-            logger.debug(f"Main flow = {main_flow}")
-
-            # Read gas flow setpoints
-            logger.debug("Reading gas flow setpoints...")
-            feeder_setpoint = await self._tag_cache.read_tag("gas_control.feeder_flow.setpoint")
-            logger.debug(f"Feeder setpoint = {feeder_setpoint}")
-            main_setpoint = await self._tag_cache.read_tag("gas_control.main_flow.setpoint")
-            logger.debug(f"Main setpoint = {main_setpoint}")
-
-            # Read nozzle state
+            # Get gas state
+            logger.debug("Reading gas state...")
+            gas = GasState(
+                main_flow=await self._tag_cache.read_tag("gas_control.main_flow.measured"),
+                feeder_flow=await self._tag_cache.read_tag("gas_control.feeder_flow.measured"),
+                main_valve=await self._tag_cache.read_tag("valve_control.main_gas"),
+                feeder_valve=await self._tag_cache.read_tag("valve_control.feeder_gas")
+            )
+            
+            # Get vacuum state
+            logger.debug("Reading vacuum state...")
+            vacuum = VacuumState(
+                chamber_pressure=await self._tag_cache.read_tag("pressure.chamber_pressure"),
+                gate_valve=await self._tag_cache.read_tag("valve_control.gate_valve.open"),
+                mech_pump=await self._tag_cache.read_tag("vacuum_control.mechanical_pump.start"),
+                booster_pump=await self._tag_cache.read_tag("vacuum_control.booster_pump.start")
+            )
+            
+            # Get feeder states
+            logger.debug("Reading feeder states...")
+            feeder1 = FeederState(
+                running=await self._tag_cache.read_tag("gas_control.hardware_sets.set1.feeder.running"),
+                frequency=await self._tag_cache.read_tag("gas_control.hardware_sets.set1.feeder.frequency")
+            )
+            
+            feeder2 = FeederState(
+                running=await self._tag_cache.read_tag("gas_control.hardware_sets.set2.feeder.running"),
+                frequency=await self._tag_cache.read_tag("gas_control.hardware_sets.set2.feeder.frequency")
+            )
+            
+            # Get nozzle state
             logger.debug("Reading nozzle state...")
-            nozzle_select = await self._tag_cache.read_tag("gas_control.hardware_sets.nozzle_select")
-            logger.debug(f"Nozzle select = {nozzle_select}")
-            shutter_engaged = await self._tag_cache.read_tag("interlocks.shutter_engaged")
-            logger.debug(f"Shutter engaged = {shutter_engaged}")
+            nozzle = NozzleState(
+                selected=await self._tag_cache.read_tag("gas_control.hardware_sets.nozzle_select"),
+                shutter=await self._tag_cache.read_tag("relay_control.shutter")
+            )
 
             return EquipmentState(
-                feeder_flow=feeder_flow,
-                main_flow=main_flow,
-                feeder_setpoint=feeder_setpoint,
-                main_setpoint=main_setpoint,
-                nozzle_select=2 if nozzle_select else 1,
-                shutter_engaged=shutter_engaged
+                gas=gas,
+                vacuum=vacuum,
+                feeder1=feeder1,
+                feeder2=feeder2,
+                nozzle=nozzle
             )
 
         except Exception as e:

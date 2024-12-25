@@ -23,7 +23,7 @@ class PLCClient(CommunicationClient):
         super().__init__(config)
         
         # Extract PLC config
-        plc_config = config["network"]["plc"]
+        plc_config = config["communication"]["hardware"]["network"]["plc"]
         self._ip = plc_config["ip"]
         self._tag_file = plc_config["tag_file"]
         self._timeout = plc_config.get("timeout", 5.0)

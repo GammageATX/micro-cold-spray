@@ -101,8 +101,13 @@ def import_app(module_path: str, test_mode: bool = False) -> Optional[object]:
                     from micro_cold_spray.api.process.process_service import ProcessService
                     app_instance.state.process_service = ProcessService()
                 elif service_name == 'communication':
+                    # Communication service needs config from app
                     from micro_cold_spray.api.communication.communication_service import CommunicationService
-                    app_instance.state.communication_service = CommunicationService()
+                    if hasattr(app_instance, 'config'):
+                        app_instance.state.communication_service = CommunicationService(app_instance.config)
+                    else:
+                        logger.error("Communication app missing config")
+                        return None
                 elif service_name == 'config':
                     from micro_cold_spray.api.config.services.file_service import FileService
                     from micro_cold_spray.api.config.services.format_service import FormatService

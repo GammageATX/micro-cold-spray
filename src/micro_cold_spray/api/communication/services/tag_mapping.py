@@ -177,7 +177,6 @@ class TagMappingService:
             logger.error(f"No PLC tag defined for: {internal_tag}")
             return None
             
-        logger.debug(f"Mapped {internal_tag} -> {plc_tag}")
         return plc_tag
 
     def get_internal_tag(self, plc_tag: str) -> Optional[str]:
@@ -196,7 +195,6 @@ class TagMappingService:
         # Search for PLC tag in mappings
         for internal_name, tag_info in self._tag_map.items():
             if tag_info.get("mapped", False) and tag_info.get("plc_tag") == plc_tag:
-                logger.debug(f"Mapped {plc_tag} -> {internal_name}")
                 return internal_name
                 
         logger.error(f"No mapping found for PLC tag: {plc_tag}")

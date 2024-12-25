@@ -11,6 +11,7 @@ from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.utils.monitoring import get_uptime
 from micro_cold_spray.api.communication.endpoints.equipment import router as equipment_router
 from micro_cold_spray.api.communication.endpoints.motion import router as motion_router
+from micro_cold_spray.api.communication.endpoints.tags import router as tags_router
 from micro_cold_spray.api.communication.communication_service import CommunicationService
 
 
@@ -60,6 +61,9 @@ def create_app() -> FastAPI:
         version="1.0.0"
     )
 
+    # Store config in app instance
+    app.config = config
+
     # Add CORS middleware
     app.add_middleware(
         CORSMiddleware,
@@ -102,5 +106,6 @@ def create_app() -> FastAPI:
     # Include routers
     app.include_router(equipment_router)
     app.include_router(motion_router)
+    app.include_router(tags_router)
 
     return app

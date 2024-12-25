@@ -10,6 +10,7 @@ from micro_cold_spray.api.communication.services.tag_mapping import TagMappingSe
 from micro_cold_spray.api.communication.services.tag_cache import TagCacheService
 from micro_cold_spray.api.communication.services.equipment import EquipmentService
 from micro_cold_spray.api.communication.services.motion import MotionService
+from micro_cold_spray.api.communication.clients.factory import create_client
 
 
 class CommunicationService:
@@ -27,13 +28,18 @@ class CommunicationService:
         
         # Initialize services
         self._tag_mapping = TagMappingService(config)
+        
+        # Create client based on force_mock setting
+        client_type = "mock" if config["communication"]["hardware"]["network"].get("force_mock", False) else "plc"
+        client = create_client(client_type=client_type, config=config)
+        
+        # Initialize tag cache with client
         self._tag_cache = TagCacheService(
-            plc_address=config["communication"]["hardware"]["network"]["plc"]["ip"],
-            tags_file=config["communication"]["hardware"]["network"]["plc"]["tag_file"],
+            client=client,
             tag_mapping=self._tag_mapping,
-            poll_rate=config["communication"]["services"]["tag_cache"]["poll_rate"] / 1000.0,  # Convert ms to seconds
-            config=config
+            poll_interval=config["communication"]["services"]["tag_cache"]["poll_rate"] / 1000.0  # Convert ms to seconds
         )
+        
         self._equipment = EquipmentService(config)
         self._motion = MotionService(config)
         
