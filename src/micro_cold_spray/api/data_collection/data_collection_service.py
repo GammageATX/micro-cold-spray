@@ -214,35 +214,3 @@ class DataCollectionService:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 message=f"Failed to get sequence events: {str(e)}"
             )
-
-    async def check_health(self) -> dict:
-        """Check service health."""
-        try:
-            if not self._is_running:
-                return {
-                    "status": "error",
-                    "message": "Service not running",
-                    "collecting": False,
-                    "current_sequence": None,
-                    "storage": None,
-                    "uptime": 0
-                }
-            
-            storage_health = await self.storage.check_health() if self.storage else None
-            uptime = (datetime.now() - self._start_time).total_seconds() if self._start_time else 0
-            
-            return {
-                "status": "ok",
-                "version": self._version,
-                "collecting": self.collecting,
-                "current_sequence": self.current_sequence,
-                "storage": storage_health,
-                "uptime": uptime
-            }
-            
-        except Exception as e:
-            logging.error(f"Health check failed: {e}")
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"Health check failed: {str(e)}"
-            )

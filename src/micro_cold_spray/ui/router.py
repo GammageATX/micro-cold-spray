@@ -112,8 +112,12 @@ def create_app() -> FastAPI:
         # Add GZip middleware
         app.add_middleware(GZipMiddleware, minimum_size=1000)
 
-        # Setup templates
+        # Setup templates and static files
         templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+        static_dir = Path(__file__).parent / "static"
+        if static_dir.exists():
+            from fastapi.staticfiles import StaticFiles
+            app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
         @app.get(
             "/",

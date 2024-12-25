@@ -6,6 +6,7 @@ import logging
 from typing import Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from datetime import datetime
 
 from micro_cold_spray.api.data_collection.data_collection_router import router
 from micro_cold_spray.api.data_collection.data_collection_service import DataCollectionService
@@ -28,6 +29,7 @@ class DataCollectionApp(FastAPI):
         self.service: Optional[DataCollectionService] = None
         self.storage: Optional[DataCollectionStorage] = None
         self._config: Dict[str, Any] = {}
+        self._start_time: Optional[datetime] = None
         
         # Add CORS middleware
         self.add_middleware(
@@ -40,6 +42,32 @@ class DataCollectionApp(FastAPI):
         
         # Add routes
         self.include_router(router)
+        
+        # Add health endpoint
+        @self.get("/health")
+        async def health():
+            """Health check endpoint."""
+            try:
+                uptime = (datetime.now() - self._start_time).total_seconds() if self._start_time else 0
+                return {
+                    "status": "ok",
+                    "service": "data_collection",
+                    "version": self.version,
+                    "is_running": bool(self.service and self.storage),
+                    "uptime": uptime,
+                    "error": None,
+                    "timestamp": datetime.now()
+                }
+            except Exception as e:
+                return {
+                    "status": "error",
+                    "service": "data_collection",
+                    "version": self.version,
+                    "is_running": False,
+                    "uptime": 0,
+                    "error": str(e),
+                    "timestamp": datetime.now()
+                }
         
         # Add event handlers
         self.add_event_handler("startup", self.startup_event)
@@ -90,6 +118,9 @@ class DataCollectionApp(FastAPI):
         """Initialize service on startup."""
         try:
             logging.info("Starting data collection service...")
+            
+            # Set start time
+            self._start_time = datetime.now()
             
             # Load configuration
             self._config = await self._load_config()

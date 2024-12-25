@@ -34,7 +34,7 @@ def setup_logging():
         "{message}"
     )
     logger.add(
-        os.path.join(log_dir, "communication_service.log"),
+        os.path.join(log_dir, "communication.log"),
         rotation="1 day",
         retention="30 days",
         format=file_format,
@@ -54,7 +54,7 @@ def main():
         
         # Get config from environment or use defaults
         host = os.getenv("COMMUNICATION_SERVICE_HOST", "0.0.0.0")
-        port = int(os.getenv("COMMUNICATION_SERVICE_PORT", "8002"))
+        port = int(os.getenv("COMMUNICATION_SERVICE_PORT", "8003"))
         reload = os.getenv("COMMUNICATION_SERVICE_RELOAD", "false").lower() == "true"
         
         # Log startup configuration
