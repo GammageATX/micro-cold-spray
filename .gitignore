@@ -55,6 +55,10 @@ data/powders/*
 # Exclude desktop.ini files
 *.ini
 
+# Logs
+logs/
+*.log
+
 # TODO Notes
 # 1. Validation Split:
 #    - Design-time: File structure and content validation
