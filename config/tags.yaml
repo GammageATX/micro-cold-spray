@@ -1,144 +1,432 @@
 version: "1.0.0"
 tag_groups:
   gas_control:
-    feeder_flow:
-      measured:
-        access: read
-        description: Feeder gas flow measured
-        mapped: true
-        plc_tag: FeederFlowRate
-        range:
-        - 0.0
-        - 10.0
-        scaling: 12bit_linear
-        type: float
-        unit: SLPM
-      setpoint:
+    main_valve:
+      open:
         access: read/write
-        description: Feeder gas flow setpoint
+        description: Main gas line valve control
         mapped: true
-        plc_tag: AOS32-0.1.2.2
-        range:
-        - 0.0
-        - 10.0
-        scaling: 12bit_dac
-        type: float
-        unit: SLPM
-    hardware_sets:
-      nozzle_select:
-        access: read/write
-        description: Active nozzle selection (1 or 2)
-        mapped: true
-        plc_tag: NozzleSelect
-        states:
-          nozzle1: false
-          nozzle2: true
+        plc_tag: MainSwitch
         type: bool
-      set1:
-        deagglomerator:
-          duty_cycle:
-            access: read/write
-            description: Deagglomerator 1 PWM duty cycle (higher duty = lower speed)
-            mapped: true
-            plc_tag: AOS32-0.1.6.1
-            range:
-            - 20
-            - 35
-            speeds:
-              high: 20
-              med: 25
-              low: 30
-              false: 35
-            type: integer
-            unit: '%'
-          frequency:
-            access: read/write
-            default: 500
-            description: Deagglomerator 1 PWM frequency
-            mapped: true
-            plc_tag: AOS32-0.1.6.2
-            type: integer
-            unit: Hz
-        feeder:
-          frequency:
-            access: read/write
-            description: Feeder 1 frequency
-            mapped: true
-            max_value: 1200
-            min_value: 200
-            ssh:
-              default_time: 999
-              freq_step: 200
-              freq_var: P6
-              start_val: 1
-              start_var: P10
-              stop_val: 4
-              time_var: P12
-            type: integer
-      set2:
-        deagglomerator:
-          duty_cycle:
-            access: read/write
-            description: Deagglomerator 2 PWM duty cycle (higher duty = lower speed)
-            mapped: true
-            plc_tag: AOS32-0.1.6.3
-            range:
-            - 20
-            - 35
-            speeds:
-              high: 20
-              med: 25
-              low: 30
-              false: 35
-            type: integer
-            unit: '%'
-          frequency:
-            access: read/write
-            default: 500
-            description: Deagglomerator 2 PWM frequency
-            mapped: true
-            plc_tag: AOS32-0.1.6.4
-            type: integer
-            unit: Hz
-        feeder:
-          frequency:
-            access: read/write
-            description: Feeder 2 frequency
-            mapped: true
-            max_value: 1200
-            min_value: 200
-            ssh:
-              default_time: 999
-              freq_step: 200
-              freq_var: P106
-              start_val: 1
-              start_var: P110
-              stop_val: 4
-              time_var: P112
-            type: integer
-    main_flow:
-      measured:
-        access: read
-        description: Main gas flow measured
+    feeder_valve:
+      open:
+        access: read/write
+        description: Feeder gas line valve control
         mapped: true
-        plc_tag: MainFlowRate
-        range:
-        - 0.0
-        - 100.0
-        scaling: 12bit_linear
-        type: float
-        unit: SLPM
+        plc_tag: FeederSwitch
+        type: bool
+    main_flow:
       setpoint:
         access: read/write
         description: Main gas flow setpoint
         mapped: true
         plc_tag: AOS32-0.1.2.1
-        range:
-        - 0.0
-        - 100.0
+        range: [ 0.0, 100.0 ]
         scaling: 12bit_dac
         type: float
         unit: SLPM
+      measured:
+        access: read
+        description: Main gas flow measured
+        mapped: true
+        plc_tag: MainFlowRate
+        range: [ 0.0, 100.0 ]
+        scaling: 12bit_linear
+        type: float
+        unit: SLPM
+    feeder_flow:
+      setpoint:
+        access: read/write
+        description: Feeder gas flow setpoint
+        mapped: true
+        plc_tag: AOS32-0.1.2.2
+        range: [ 0.0, 10.0 ]
+        scaling: 12bit_dac
+        type: float
+        unit: SLPM
+      measured:
+        access: read
+        description: Feeder gas flow measured
+        mapped: true
+        plc_tag: FeederFlowRate
+        range: [ 0.0, 10.0 ]
+        scaling: 12bit_linear
+        type: float
+        unit: SLPM
+
+  feeders:
+    feeder1:
+      frequency:
+        access: read/write
+        description: Feeder 1 frequency
+        mapped: true
+        plc_tag: P6
+        type: integer
+        min_value: 200
+        max_value: 1200
+      running:
+        access: read/write
+        description: Feeder 1 running state
+        mapped: true
+        plc_tag: P10
+        type: bool
+    feeder2:
+      frequency:
+        access: read/write
+        description: Feeder 2 frequency
+        mapped: true
+        plc_tag: P106
+        type: integer
+        min_value: 200
+        max_value: 1200
+      running:
+        access: read/write
+        description: Feeder 2 running state
+        mapped: true
+        plc_tag: P110
+        type: bool
+
+  deagglomerators:
+    deagg1:
+      duty_cycle:
+        access: read/write
+        description: Deagglomerator 1 PWM duty cycle (higher duty = lower speed)
+        mapped: true
+        plc_tag: AOS32-0.1.6.1
+        range: [ 20, 35 ]
+        speeds:
+          high: 20
+          med: 25
+          low: 30
+          off: 35
+        type: integer
+        unit: '%'
+      frequency:
+        access: read/write
+        description: Deagglomerator 1 PWM frequency
+        mapped: true
+        plc_tag: AOS32-0.1.6.2
+        type: integer
+        unit: Hz
+        default: 500
+    deagg2:
+      duty_cycle:
+        access: read/write
+        description: Deagglomerator 2 PWM duty cycle (higher duty = lower speed)
+        mapped: true
+        plc_tag: AOS32-0.1.6.3
+        range: [ 20, 35 ]
+        speeds:
+          high: 20
+          med: 25
+          low: 30
+          off: 35
+        type: integer
+        unit: '%'
+      frequency:
+        access: read/write
+        description: Deagglomerator 2 PWM frequency
+        mapped: true
+        plc_tag: AOS32-0.1.6.4
+        type: integer
+        unit: Hz
+        default: 500
+
+  vacuum:
+    gate_valve:
+      open:
+        access: read/write
+        description: Gate valve open position
+        mapped: true
+        plc_tag: Open
+        type: bool
+      partial:
+        access: read/write
+        description: Gate valve partial position
+        mapped: true
+        plc_tag: Partial
+        type: bool
+    mechanical_pump:
+      start:
+        access: read/write
+        description: Start mechanical pump
+        mapped: true
+        plc_tag: MechPumpStart
+        type: bool
+      stop:
+        access: read/write
+        description: Stop mechanical pump
+        mapped: true
+        plc_tag: MechPumpStop
+        type: bool
+    booster_pump:
+      start:
+        access: read/write
+        description: Start booster pump
+        mapped: true
+        plc_tag: BoosterPumpStart
+        type: bool
+      stop:
+        access: read/write
+        description: Stop booster pump
+        mapped: true
+        plc_tag: BoosterPumpStop
+        type: bool
+    chamber_pressure:
+      access: read
+      description: Chamber vacuum pressure
+      mapped: true
+      plc_tag: ChamberPressure
+      range: [ 0.01, 1000.0 ]
+      scaling: 12bit_linear
+      type: float
+      unit: torr
+
+  nozzle:
+    select:
+      access: read/write
+      description: Active nozzle selection (1 or 2)
+      mapped: true
+      plc_tag: NozzleSelect
+      states:
+        nozzle1: false
+        nozzle2: true
+      type: bool
+    shutter:
+      open:
+        access: read/write
+        description: Nozzle shutter control
+        mapped: true
+        plc_tag: Shutter
+        type: bool
+    pressure:
+      access: read
+      description: Nozzle pressure
+      mapped: true
+      plc_tag: NozzlePressure
+      range: [ 0.0, 1520.0 ]
+      scaling: 12bit_linear
+      type: float
+      unit: torr
+
+  motion:
+    position:
+      x:
+        access: read
+        description: X axis position
+        mapped: true
+        plc_tag: AMC.Ax1Position
+        type: float
+        unit: mm
+      y:
+        access: read
+        description: Y axis position
+        mapped: true
+        plc_tag: AMC.Ax2Position
+        type: float
+        unit: mm
+      z:
+        access: read
+        description: Z axis position
+        mapped: true
+        plc_tag: AMC.Ax3Position
+        type: float
+        unit: mm
+    status:
+      x:
+        access: read
+        description: X axis status
+        mapped: true
+        plc_tag: AMC.Ax1AxisStatus
+        type: integer
+      y:
+        access: read
+        description: Y axis status
+        mapped: true
+        plc_tag: AMC.Ax2AxisStatus
+        type: integer
+      z:
+        access: read
+        description: Z axis status
+        mapped: true
+        plc_tag: AMC.Ax3AxisStatus
+        type: integer
+    coordinated_move:
+      xy:
+        trigger:
+          access: read/write
+          description: Trigger coordinated XY move
+          mapped: true
+          plc_tag: MoveXY
+          type: bool
+        in_progress:
+          access: read
+          description: XY move in progress
+          mapped: true
+          plc_tag: XYMove.InProgress
+          type: bool
+        status:
+          access: read
+          description: XY move status
+          mapped: true
+          plc_tag: XYMove.Complete
+          type: bool
+        velocity:
+          access: read/write
+          description: XY coordinated move velocity
+          mapped: true
+          plc_tag: XYMove.LINVelocity
+          type: float
+          unit: mm/s
+        ramps:
+          access: read/write
+          description: XY coordinated move ramp time
+          mapped: true
+          plc_tag: XYMove.LINRamps
+          type: float
+          unit: s
+        x_position:
+          access: read/write
+          description: XY move X target position
+          mapped: true
+          plc_tag: XYMove.XPosition
+          type: float
+          unit: mm
+        y_position:
+          access: read/write
+          description: XY move Y target position
+          mapped: true
+          plc_tag: XYMove.YPosition
+          type: float
+          unit: mm
+    relative_move:
+      x:
+        trigger:
+          access: read/write
+          description: Trigger X axis relative move
+          mapped: true
+          plc_tag: MoveX
+          type: bool
+        in_progress:
+          access: read
+          description: X move in progress
+          mapped: true
+          plc_tag: XAxis.InProgress
+          type: bool
+        status:
+          access: read
+          description: X move status
+          mapped: true
+          plc_tag: XAxis.Complete
+          type: bool
+        velocity:
+          access: read/write
+          description: X axis velocity
+          mapped: true
+          plc_tag: XAxis.Velocity
+          type: float
+          unit: mm/s
+        acceleration:
+          access: read/write
+          description: X axis acceleration
+          mapped: true
+          plc_tag: XAxis.Accel
+          type: float
+          unit: "mm/s²"
+        deceleration:
+          access: read/write
+          description: X axis deceleration
+          mapped: true
+          plc_tag: XAxis.Decel
+          type: float
+          unit: "mm/s²"
+      y:
+        trigger:
+          access: read/write
+          description: Trigger Y axis relative move
+          mapped: true
+          plc_tag: MoveY
+          type: bool
+        in_progress:
+          access: read
+          description: Y move in progress
+          mapped: true
+          plc_tag: YAxis.InProgress
+          type: bool
+        status:
+          access: read
+          description: Y move status
+          mapped: true
+          plc_tag: YAxis.Complete
+          type: bool
+        velocity:
+          access: read/write
+          description: Y axis velocity
+          mapped: true
+          plc_tag: YAxis.Velocity
+          type: float
+          unit: mm/s
+        acceleration:
+          access: read/write
+          description: Y axis acceleration
+          mapped: true
+          plc_tag: YAxis.Accel
+          type: float
+          unit: "mm/s²"
+        deceleration:
+          access: read/write
+          description: Y axis deceleration
+          mapped: true
+          plc_tag: YAxis.Decel
+          type: float
+          unit: "mm/s²"
+      z:
+        trigger:
+          access: read/write
+          description: Trigger Z axis relative move
+          mapped: true
+          plc_tag: MoveZ
+          type: bool
+        in_progress:
+          access: read
+          description: Z move in progress
+          mapped: true
+          plc_tag: ZAxis.InProgress
+          type: bool
+        status:
+          access: read
+          description: Z move status
+          mapped: true
+          plc_tag: ZAxis.Complete
+          type: bool
+        velocity:
+          access: read/write
+          description: Z axis velocity
+          mapped: true
+          plc_tag: ZAxis.Velocity
+          type: float
+          unit: mm/s
+        acceleration:
+          access: read/write
+          description: Z axis acceleration
+          mapped: true
+          plc_tag: ZAxis.Accel
+          type: float
+          unit: "mm/s²"
+        deceleration:
+          access: read/write
+          description: Z axis deceleration
+          mapped: true
+          plc_tag: ZAxis.Decel
+          type: float
+          unit: "mm/s²"
+    set_home:
+      access: read/write
+      description: Set current position as home (0,0,0)
+      mapped: true
+      plc_tag: SetHome
+      type: bool
+
   interlocks:
     motion_ready:
       access: read
@@ -164,375 +452,7 @@ tag_groups:
       mapped: true
       plc_tag: Shutter
       type: bool
-  motion:
-    motion_control:
-      coordinated_move:
-        xy_move:
-          parameters:
-            in_progress:
-              access: read
-              description: XY move in progress
-              mapped: true
-              plc_tag: XYMove.InProgress
-              type: bool
-            ramps:
-              access: read/write
-              description: XY coordinated move ramp time
-              mapped: true
-              plc_tag: XYMove.LINRamps
-              type: float
-              unit: s
-            status:
-              access: read
-              description: XY move status
-              mapped: true
-              plc_tag: XYMove.Complete
-              type: bool
-            velocity:
-              access: read/write
-              description: XY coordinated move velocity
-              mapped: true
-              plc_tag: XYMove.LINVelocity
-              type: float
-              unit: mm/s
-            x_position:
-              access: read/write
-              description: XY move X target position
-              mapped: true
-              plc_tag: XYMove.XPosition
-              type: float
-              unit: mm
-            y_position:
-              access: read/write
-              description: XY move Y target position
-              mapped: true
-              plc_tag: XYMove.YPosition
-              type: float
-              unit: mm
-          trigger:
-            access: read/write
-            description: Trigger coordinated XY move
-            mapped: true
-            plc_tag: MoveXY
-            type: bool
-      relative_move:
-        x_move:
-          parameters:
-            acceleration:
-              access: read/write
-              description: X axis acceleration
-              mapped: true
-              plc_tag: XAxis.Accel
-              type: float
-              unit: "mm/sÂ²"
-            deceleration:
-              access: read/write
-              description: X axis deceleration
-              mapped: true
-              plc_tag: XAxis.Decel
-              type: float
-              unit: "mm/sÂ²"
-            in_progress:
-              access: read
-              description: X move in progress
-              mapped: true
-              plc_tag: XAxis.InProgress
-              type: bool
-            status:
-              access: read
-              description: X move status
-              mapped: true
-              plc_tag: XAxis.Complete
-              type: bool
-            velocity:
-              access: read/write
-              description: X axis velocity
-              mapped: true
-              plc_tag: XAxis.Velocity
-              type: float
-              unit: mm/s
-          trigger:
-            access: read/write
-            description: Trigger X axis relative move
-            mapped: true
-            plc_tag: MoveX
-            type: bool
-        y_move:
-          parameters:
-            acceleration:
-              access: read/write
-              description: Y axis acceleration
-              mapped: true
-              plc_tag: YAxis.Accel
-              type: float
-              unit: "mm/sÂ²"
-            deceleration:
-              access: read/write
-              description: Y axis deceleration
-              mapped: true
-              plc_tag: YAxis.Decel
-              type: float
-              unit: "mm/sÂ²"
-            in_progress:
-              access: read
-              description: Y move in progress
-              mapped: true
-              plc_tag: YAxis.InProgress
-              type: bool
-            status:
-              access: read
-              description: Y move status
-              mapped: true
-              plc_tag: YAxis.Complete
-              type: bool
-            velocity:
-              access: read/write
-              description: Y axis velocity
-              mapped: true
-              plc_tag: YAxis.Velocity
-              type: float
-              unit: mm/s
-          trigger:
-            access: read/write
-            description: Trigger Y axis relative move
-            mapped: true
-            plc_tag: MoveY
-            type: bool
-        z_move:
-          parameters:
-            acceleration:
-              access: read/write
-              description: Z axis acceleration
-              mapped: true
-              plc_tag: ZAxis.Accel
-              type: float
-              unit: "mm/sÂ²"
-            deceleration:
-              access: read/write
-              description: Z axis deceleration
-              mapped: true
-              plc_tag: ZAxis.Decel
-              type: float
-              unit: "mm/sÂ²"
-            in_progress:
-              access: read
-              description: Z move in progress
-              mapped: true
-              plc_tag: ZAxis.InProgress
-              type: bool
-            status:
-              access: read
-              description: Z move status
-              mapped: true
-              plc_tag: ZAxis.Complete
-              type: bool
-            velocity:
-              access: read/write
-              description: Z axis velocity
-              mapped: true
-              plc_tag: ZAxis.Velocity
-              type: float
-              unit: mm/s
-          trigger:
-            access: read/write
-            description: Trigger Z axis relative move
-            mapped: true
-            plc_tag: MoveZ
-            type: bool
-      set_home:
-        access: read/write
-        description: Set current position as home (0,0,0)
-        mapped: true
-        plc_tag: SetHome
-        type: bool
-    position:
-      x_position:
-        access: read
-        description: X axis position
-        mapped: true
-        plc_tag: AMC.Ax1Position
-        type: float
-        unit: mm
-      y_position:
-        access: read
-        description: Y axis position
-        mapped: true
-        plc_tag: AMC.Ax2Position
-        type: float
-        unit: mm
-      z_position:
-        access: read
-        description: Z axis position
-        mapped: true
-        plc_tag: AMC.Ax3Position
-        type: float
-        unit: mm
-    status:
-      x_axis:
-        access: read
-        description: X axis status
-        mapped: true
-        plc_tag: AMC.Ax1AxisStatus
-        type: integer
-        bit_definitions:
-          '1': Timer Active
-          '10': Aborted - Hit Limit
-          '11': Aborted - Communications Failure
-          '12': Aborted - IO Fault
-          '13': Aborted - Over Max Accel
-          '14': Aborted - Over Max Decel
-          '15': Aborted - Over Max Velocity
-          '16': Axis Occupied
-          '17': Invalid Input/Edge Combination
-          '18': Aborted - Velocity Out of Range
-          '19': Aborted - Accel/Decel/Ramp Out of Range
-          '2': Steady Velocity
-          '20': Aborted - Jerk/S-Curve Out of Range
-          '21': Axis Status Present
-          '22': Aborted - General Parameter
-          '23': Aborted - Preset Parameter
-          '24': Aborted - Registration Parameter
-          '25': Alert - Target Reached During Accel/Decel
-          '26': 'Alert - Adjusted: Over Max Accel'
-          '27': 'Alert - Adjusted: Over Max Decel'
-          '28': 'Alert - Adjusted: Over Max Velocity'
-          '29': Axis Not Defined
-          '3': Sequence Loop
-          '4': Initialization Complete
-          '6': Application Move
-          '7': Stopped at Move Target
-          '8': Stopped at Registration Target
-      y_axis:
-        access: read
-        description: Y axis status
-        mapped: true
-        plc_tag: AMC.Ax2AxisStatus
-        type: integer
-        bit_definitions:
-          '1': Timer Active
-          '10': Aborted - Hit Limit
-          '11': Aborted - Communications Failure
-          '12': Aborted - IO Fault
-          '13': Aborted - Over Max Accel
-          '14': Aborted - Over Max Decel
-          '15': Aborted - Over Max Velocity
-          '16': Axis Occupied
-          '17': Invalid Input/Edge Combination
-          '18': Aborted - Velocity Out of Range
-          '19': Aborted - Accel/Decel/Ramp Out of Range
-          '2': Steady Velocity
-          '20': Aborted - Jerk/S-Curve Out of Range
-          '21': Axis Status Present
-          '22': Aborted - General Parameter
-          '23': Aborted - Preset Parameter
-          '24': Aborted - Registration Parameter
-          '25': Alert - Target Reached During Accel/Decel
-          '26': 'Alert - Adjusted: Over Max Accel'
-          '27': 'Alert - Adjusted: Over Max Decel'
-          '28': 'Alert - Adjusted: Over Max Velocity'
-          '29': Axis Not Defined
-          '3': Sequence Loop
-          '4': Initialization Complete
-          '6': Application Move
-          '7': Stopped at Move Target
-          '8': Stopped at Registration Target
-      z_axis:
-        access: read
-        description: Z axis status
-        mapped: true
-        plc_tag: AMC.Ax3AxisStatus
-        type: integer
-        bit_definitions:
-          '1': Timer Active
-          '10': Aborted - Hit Limit
-          '11': Aborted - Communications Failure
-          '12': Aborted - IO Fault
-          '13': Aborted - Over Max Accel
-          '14': Aborted - Over Max Decel
-          '15': Aborted - Over Max Velocity
-          '16': Axis Occupied
-          '17': Invalid Input/Edge Combination
-          '18': Aborted - Velocity Out of Range
-          '19': Aborted - Accel/Decel/Ramp Out of Range
-          '2': Steady Velocity
-          '20': Aborted - Jerk/S-Curve Out of Range
-          '21': Axis Status Present
-          '22': Aborted - General Parameter
-          '23': Aborted - Preset Parameter
-          '24': Aborted - Registration Parameter
-          '25': Alert - Target Reached During Accel/Decel
-          '26': 'Alert - Adjusted: Over Max Accel'
-          '27': 'Alert - Adjusted: Over Max Decel'
-          '28': 'Alert - Adjusted: Over Max Velocity'
-          '29': Axis Not Defined
-          '3': Sequence Loop
-          '4': Initialization Complete
-          '6': Application Move
-          '7': Stopped at Move Target
-          '8': Stopped at Registration Target
-  pressure:
-    chamber_pressure:
-      access: read
-      description: Chamber vacuum pressure
-      mapped: true
-      plc_tag: ChamberPressure
-      range:
-      - 0.01
-      - 1000.0
-      scaling: 12bit_linear
-      type: float
-      unit: torr
-    feeder_pressure:
-      access: read
-      description: Powder feeder pressure
-      mapped: true
-      plc_tag: FeederPressure
-      range:
-      - 0.0
-      - 1520.0
-      scaling: 12bit_linear
-      type: float
-      unit: torr
-    main_supply_pressure:
-      access: read
-      description: Main gas supply pressure
-      mapped: true
-      plc_tag: MainGasPressure
-      range:
-      - 0.0
-      - 1520.0
-      scaling: 12bit_linear
-      type: float
-      unit: torr
-    nozzle_pressure:
-      access: read
-      description: Nozzle pressure
-      mapped: true
-      plc_tag: NozzlePressure
-      range:
-      - 0.0
-      - 1520.0
-      scaling: 12bit_linear
-      type: float
-      unit: torr
-    regulator_pressure:
-      access: read
-      description: Regulator pressure
-      mapped: true
-      plc_tag: RegulatorPressure
-      range:
-      - 0.0
-      - 1520.0
-      scaling: 12bit_linear
-      type: float
-      unit: torr
-  relay_control:
-    shutter:
-      access: read/write
-      description: Nozzle shutter solenoid control
-      mapped: true
-      plc_tag: Shutter
-      type: bool
+
   safety:
     approach_z:
       access: read/write
@@ -552,95 +472,35 @@ tag_groups:
       internal: true
       type: float
       unit: mm
+
   status:
     hardware:
       access: read
-      components:
-        motion_enabled: bool
-        plc_connected: bool
-        position_valid: bool
       description: Hardware component status
       internal: true
       mapped: false
       type: dict
+      components:
+        motion_enabled: bool
+        plc_connected: bool
+        position_valid: bool
     process:
       access: read
       description: Process parameters status
       internal: true
       mapped: false
+      type: dict
       parameters:
         gas_flow_stable: bool
         powder_feed_active: bool
         process_ready: bool
-      type: dict
     safety:
       access: read
-      conditions:
-        emergency_stop: bool
-        interlocks_ok: bool
-        limits_ok: bool
       description: Safety conditions status
       internal: true
       mapped: false
       type: dict
-  vacuum_control:
-    booster_pump:
-      start:
-        access: read/write
-        description: Start booster pump
-        mapped: true
-        plc_tag: BoosterPumpStart
-        type: bool
-      stop:
-        access: read/write
-        description: Stop booster pump
-        mapped: true
-        plc_tag: BoosterPumpStop
-        type: bool
-    mechanical_pump:
-      start:
-        access: read/write
-        description: Start mechanical pump
-        mapped: true
-        plc_tag: MechPumpStart
-        type: bool
-      stop:
-        access: read/write
-        description: Stop mechanical pump
-        mapped: true
-        plc_tag: MechPumpStop
-        type: bool
-  valve_control:
-    feeder_gas:
-      access: read/write
-      description: Feeder gas line valve
-      mapped: true
-      plc_tag: FeederSwitch
-      type: bool
-    gate_valve:
-      open:
-        access: read/write
-        default: false
-        description: Gate valve full open position
-        mapped: true
-        plc_tag: Open
-        type: bool
-      partial:
-        access: read/write
-        default: false
-        description: Gate valve partial position
-        mapped: true
-        plc_tag: Partial
-        type: bool
-    main_gas:
-      access: read/write
-      description: Main gas line valve
-      mapped: true
-      plc_tag: MainSwitch
-      type: bool
-    vent:
-      access: read/write
-      description: Chamber vent valve
-      mapped: true
-      plc_tag: VentSwitch
-      type: bool
+      conditions:
+        emergency_stop: bool
+        interlocks_ok: bool
+        limits_ok: bool

@@ -529,49 +529,6 @@ class EquipmentService:
                 message=error_msg
             )
 
-    async def set_deagg_speed(self, deagg_id: int, speed: float) -> None:
-        """Set deagglomerator speed.
-        
-        Args:
-            deagg_id: Deagglomerator ID (1 or 2)
-            speed: Speed percentage (0-100)
-            
-        Raises:
-            HTTPException: If write fails
-        """
-        try:
-            if not self.is_running:
-                raise create_error(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
-                )
-
-            # Validate deagglomerator ID
-            if deagg_id not in [1, 2]:
-                raise create_error(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    message=f"Invalid deagglomerator ID: {deagg_id}"
-                )
-
-            # Validate speed range
-            if not 0 <= speed <= 100:
-                raise create_error(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    message=f"Invalid speed: {speed}. Must be between 0 and 100"
-                )
-
-            # Write speed setpoint
-            await self._tag_cache.set_tag(f"deagg{deagg_id}.speed.setpoint", speed)
-            logger.info(f"Set deagglomerator {deagg_id} speed to {speed}%")
-
-        except Exception as e:
-            error_msg = f"Failed to set deagglomerator {deagg_id} speed"
-            logger.error(f"{error_msg}: {str(e)}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg
-            )
-
     async def select_nozzle(self, nozzle_id: int) -> None:
         """Select active nozzle.
         
@@ -691,11 +648,11 @@ class EquipmentService:
                 message=error_msg
             )
 
-    async def set_gate_valve_position(self, position: float) -> None:
+    async def set_gate_valve_position(self, position: str) -> None:
         """Control gate valve position.
         
         Args:
-            position: Valve position percentage (0-100)
+            position: Valve position ("open", "partial", "closed")
             
         Raises:
             HTTPException: If write fails
@@ -707,16 +664,25 @@ class EquipmentService:
                     message="Service not running"
                 )
 
-            # Validate position range
-            if not 0 <= position <= 100:
+            # Validate position
+            if position not in ["open", "partial", "closed"]:
                 raise create_error(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    message=f"Invalid position: {position}. Must be between 0 and 100"
+                    message=f"Invalid position: {position}. Must be 'open', 'partial', or 'closed'"
                 )
 
-            # Write position setpoint
-            await self._tag_cache.set_tag("vacuum.gate_valve.position", position)
-            logger.info(f"Set gate valve position to {position}%")
+            # Set gate valve state based on position
+            if position == "open":
+                await self._tag_cache.set_tag("vacuum.gate_valve.open", True)
+                await self._tag_cache.set_tag("vacuum.gate_valve.partial", False)
+            elif position == "partial":
+                await self._tag_cache.set_tag("vacuum.gate_valve.open", False)
+                await self._tag_cache.set_tag("vacuum.gate_valve.partial", True)
+            else:  # closed
+                await self._tag_cache.set_tag("vacuum.gate_valve.open", False)
+                await self._tag_cache.set_tag("vacuum.gate_valve.partial", False)
+
+            logger.info(f"Set gate valve position to {position}")
 
         except Exception as e:
             error_msg = "Failed to set gate valve position"
@@ -893,6 +859,59 @@ class EquipmentService:
 
         except Exception as e:
             error_msg = f"Failed to set deagglomerator {deagg_id} parameters"
+            logger.error(f"{error_msg}: {str(e)}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
+
+    async def set_deagglomerator_speed(self, deagg_id: int, speed: str) -> None:
+        """Set deagglomerator speed using predefined settings.
+        
+        Args:
+            deagg_id: Deagglomerator ID (1 or 2)
+            speed: Speed setting ("high", "med", "low", "off")
+            
+        Raises:
+            HTTPException: If write fails
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
+
+            # Validate deagglomerator ID
+            if deagg_id not in [1, 2]:
+                raise create_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message=f"Invalid deagglomerator ID: {deagg_id}"
+                )
+
+            # Validate speed setting
+            speed = speed.lower()
+            duty_cycles = {
+                "high": 20,  # Higher speed = lower duty cycle
+                "med": 25,
+                "low": 30,
+                "off": 35
+            }
+            if speed not in duty_cycles:
+                raise create_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message=f"Invalid speed: {speed}. Must be 'high', 'med', 'low', or 'off'"
+                )
+
+            # Set duty cycle and fixed frequency
+            duty_cycle = duty_cycles[speed]
+            await self._tag_cache.set_tag(f"gas_control.hardware_sets.set{deagg_id}.deagglomerator.duty_cycle", duty_cycle)
+            await self._tag_cache.set_tag(f"gas_control.hardware_sets.set{deagg_id}.deagglomerator.frequency", 500)  # Fixed at 500Hz
+
+            logger.info(f"Set deagglomerator {deagg_id} to {speed} speed (duty cycle: {duty_cycle}%)")
+
+        except Exception as e:
+            error_msg = f"Failed to set deagglomerator {deagg_id} speed"
             logger.error(f"{error_msg}: {str(e)}")
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

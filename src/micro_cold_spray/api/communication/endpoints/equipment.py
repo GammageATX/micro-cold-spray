@@ -20,13 +20,10 @@ from micro_cold_spray.api.communication.models.equipment import (
 router = APIRouter(prefix="/equipment", tags=["equipment"])
 
 
+# State query endpoint
 @router.get("/state", response_model=EquipmentState)
 async def get_state(request: Request) -> EquipmentState:
-    """Get current equipment state.
-    
-    Returns:
-        Current equipment state
-    """
+    """Get current equipment state."""
     try:
         service = request.app.state.service
         if not service.is_running:
@@ -47,70 +44,10 @@ async def get_state(request: Request) -> EquipmentState:
         )
 
 
-@router.websocket("/ws/state")
-async def websocket_equipment_state(websocket: WebSocket):
-    """WebSocket endpoint for equipment state updates.
-    Uses event subscription to push updates only when state changes."""
-    try:
-        # Get service from app state
-        service = websocket.app.state.service
-        if not service.is_running:
-            await websocket.close(code=status.WS_1013_TRY_AGAIN_LATER)
-            return
-
-        # Accept connection
-        await websocket.accept()
-        logger.info("Equipment WebSocket client connected")
-
-        # Create queue for state updates
-        queue = asyncio.Queue()
-        
-        # Subscribe to equipment state updates
-        def state_changed(state: EquipmentState):
-            asyncio.create_task(queue.put(state))
-        
-        # Register callback
-        service.equipment.on_state_changed(state_changed)
-
-        try:
-            # Send initial state
-            initial_state = await service.equipment.get_state()
-            await websocket.send_json({
-                "type": "equipment_state",
-                "data": initial_state.dict()
-            })
-
-            # Wait for state updates
-            while True:
-                try:
-                    # Get next state update from queue
-                    state = await queue.get()
-                    
-                    # Send update
-                    await websocket.send_json({
-                        "type": "equipment_state",
-                        "data": state.dict()
-                    })
-
-                except WebSocketDisconnect:
-                    logger.info("Equipment WebSocket client disconnected")
-                    break
-                except Exception as e:
-                    logger.error(f"Equipment WebSocket error: {str(e)}")
-                    break
-
-        finally:
-            # Unregister callback when connection closes
-            service.equipment.remove_state_changed_callback(state_changed)
-
-    except Exception as e:
-        logger.error(f"Failed to handle equipment WebSocket connection: {str(e)}")
-        await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
-
-
+# Setpoint command endpoints (POST)
 @router.post("/gas/main/flow")
 async def set_main_flow(request: Request, flow: GasFlowRequest):
-    """Set main gas flow rate."""
+    """Set main gas flow setpoint."""
     try:
         await request.app.state.service.equipment.set_main_flow(flow.flow_rate)
         return {"status": "success"}
@@ -124,7 +61,7 @@ async def set_main_flow(request: Request, flow: GasFlowRequest):
 
 @router.post("/gas/feeder/flow")
 async def set_feeder_flow(request: Request, flow: GasFlowRequest):
-    """Set feeder gas flow rate."""
+    """Set feeder gas flow setpoint."""
     try:
         await request.app.state.service.equipment.set_feeder_flow(flow.flow_rate)
         return {"status": "success"}
@@ -142,7 +79,7 @@ async def set_feeder_frequency(
     feeder_id: int,
     freq: FeederRequest
 ):
-    """Set feeder frequency."""
+    """Set feeder frequency setpoint."""
     try:
         await request.app.state.service.equipment.set_feeder_frequency(feeder_id, freq.frequency)
         return {"status": "success"}
@@ -154,221 +91,7 @@ async def set_feeder_frequency(
         )
 
 
-@router.post("/feeder/{feeder_id}/start")
-async def start_feeder(request: Request, feeder_id: int):
-    """Start feeder."""
-    try:
-        await request.app.state.service.equipment.start_feeder(feeder_id)
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"Failed to start feeder {feeder_id}: {str(e)}")
-        raise create_error(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=f"Failed to start feeder {feeder_id}: {str(e)}"
-        )
-
-
-@router.post("/feeder/{feeder_id}/stop")
-async def stop_feeder(request: Request, feeder_id: int):
-    """Stop feeder."""
-    try:
-        await request.app.state.service.equipment.stop_feeder(feeder_id)
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"Failed to stop feeder {feeder_id}: {str(e)}")
-        raise create_error(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=f"Failed to stop feeder {feeder_id}: {str(e)}"
-        )
-
-
-@router.post("/deagg/{deagg_id}/speed")
-async def set_deagg_speed(
-    request: Request,
-    deagg_id: int,
-    speed: DeagglomeratorRequest
-):
-    """Set deagglomerator speed."""
-    try:
-        await request.app.state.service.equipment.set_deagg_speed(deagg_id, speed.speed)
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"Failed to set deagg {deagg_id} speed: {str(e)}")
-        raise create_error(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=f"Failed to set deagg {deagg_id} speed: {str(e)}"
-        )
-
-
-@router.post("/nozzle/select")
-async def select_nozzle(request: Request, nozzle_id: Literal[1, 2]):
-    """Select active nozzle."""
-    try:
-        await request.app.state.service.equipment.select_nozzle(nozzle_id)
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"Failed to select nozzle: {str(e)}")
-        raise create_error(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=f"Failed to select nozzle: {str(e)}"
-        )
-
-
-@router.post("/nozzle/shutter/open")
-async def open_shutter(request: Request):
-    """Open shutter."""
-    try:
-        await request.app.state.service.equipment.set_shutter(True)
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"Failed to open shutter: {str(e)}")
-        raise create_error(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=f"Failed to open shutter: {str(e)}"
-        )
-
-
-@router.post("/nozzle/shutter/close")
-async def close_shutter(request: Request):
-    """Close shutter."""
-    try:
-        await request.app.state.service.equipment.set_shutter(False)
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"Failed to close shutter: {str(e)}")
-        raise create_error(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=f"Failed to close shutter: {str(e)}"
-        )
-
-
-@router.post("/gas/main/valve")
-async def set_main_gas_valve(request: Request, valve: GasValveRequest):
-    """Control main gas valve."""
-    try:
-        await request.app.state.service.equipment.set_main_gas_valve(valve.open)
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"Failed to control main gas valve: {str(e)}")
-        raise create_error(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=f"Failed to control main gas valve: {str(e)}"
-        )
-
-
-@router.post("/gas/feeder/valve")
-async def set_feeder_gas_valve(request: Request, valve: GasValveRequest):
-    """Control feeder gas valve."""
-    try:
-        await request.app.state.service.equipment.set_feeder_gas_valve(valve.open)
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"Failed to control feeder gas valve: {str(e)}")
-        raise create_error(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=f"Failed to control feeder gas valve: {str(e)}"
-        )
-
-
-@router.post("/vacuum/gate")
-async def set_gate_valve(request: Request, valve: GateValveRequest):
-    """Control gate valve position."""
-    try:
-        await request.app.state.service.equipment.set_gate_valve_position(valve.position)
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"Failed to control gate valve: {str(e)}")
-        raise create_error(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=f"Failed to control gate valve: {str(e)}"
-        )
-
-
-@router.post("/vacuum/vent/open")
-async def open_vent_valve(request: Request):
-    """Open vent valve."""
-    try:
-        await request.app.state.service.equipment.set_vent_valve(True)
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"Failed to open vent valve: {str(e)}")
-        raise create_error(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=f"Failed to open vent valve: {str(e)}"
-        )
-
-
-@router.post("/vacuum/vent/close")
-async def close_vent_valve(request: Request):
-    """Close vent valve."""
-    try:
-        await request.app.state.service.equipment.set_vent_valve(False)
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"Failed to close vent valve: {str(e)}")
-        raise create_error(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=f"Failed to close vent valve: {str(e)}"
-        )
-
-
-@router.post("/vacuum/mech/start")
-async def start_mech_pump(request: Request):
-    """Start mechanical pump."""
-    try:
-        await request.app.state.service.equipment.start_mech_pump()
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"Failed to start mechanical pump: {str(e)}")
-        raise create_error(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=f"Failed to start mechanical pump: {str(e)}"
-        )
-
-
-@router.post("/vacuum/mech/stop")
-async def stop_mech_pump(request: Request):
-    """Stop mechanical pump."""
-    try:
-        await request.app.state.service.equipment.stop_mech_pump()
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"Failed to stop mechanical pump: {str(e)}")
-        raise create_error(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=f"Failed to stop mechanical pump: {str(e)}"
-        )
-
-
-@router.post("/vacuum/booster/start")
-async def start_booster_pump(request: Request):
-    """Start booster pump."""
-    try:
-        await request.app.state.service.equipment.start_booster_pump()
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"Failed to start booster pump: {str(e)}")
-        raise create_error(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=f"Failed to start booster pump: {str(e)}"
-        )
-
-
-@router.post("/vacuum/booster/stop")
-async def stop_booster_pump(request: Request):
-    """Stop booster pump."""
-    try:
-        await request.app.state.service.equipment.stop_booster_pump()
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"Failed to stop booster pump: {str(e)}")
-        raise create_error(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=f"Failed to stop booster pump: {str(e)}"
-        )
-
-
-@router.post("/deagg/{deagg_id}/set")
+@router.post("/deagg/{deagg_id}/settings")
 async def set_deagglomerator(
     request: Request,
     deagg_id: Literal[1, 2],
@@ -387,4 +110,126 @@ async def set_deagglomerator(
         raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             message=f"Failed to set deagglomerator {deagg_id}: {str(e)}"
+        )
+
+
+# State change endpoints (PUT)
+@router.put("/gas/main/valve")
+async def set_main_gas_valve(request: Request, valve: GasValveRequest):
+    """Set main gas valve state."""
+    try:
+        await request.app.state.service.equipment.set_main_gas_valve(valve.open)
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Failed to set main gas valve: {str(e)}")
+        raise create_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            message=f"Failed to set main gas valve: {str(e)}"
+        )
+
+
+@router.put("/gas/feeder/valve")
+async def set_feeder_gas_valve(request: Request, valve: GasValveRequest):
+    """Set feeder gas valve state."""
+    try:
+        await request.app.state.service.equipment.set_feeder_gas_valve(valve.open)
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Failed to set feeder gas valve: {str(e)}")
+        raise create_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            message=f"Failed to set feeder gas valve: {str(e)}"
+        )
+
+
+@router.put("/vacuum/gate")
+async def set_gate_valve(request: Request, valve: GateValveRequest):
+    """Set gate valve position state."""
+    try:
+        await request.app.state.service.equipment.set_gate_valve_position(valve.position)
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Failed to set gate valve: {str(e)}")
+        raise create_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            message=f"Failed to set gate valve: {str(e)}"
+        )
+
+
+@router.put("/vacuum/mechanical_pump/state")
+async def set_mech_pump_state(request: Request, pump: VacuumPumpRequest):
+    """Set mechanical pump state."""
+    try:
+        if pump.start:
+            await request.app.state.service.equipment.start_mech_pump()
+        else:
+            await request.app.state.service.equipment.stop_mech_pump()
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Failed to set mechanical pump state: {str(e)}")
+        raise create_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            message=f"Failed to set mechanical pump state: {str(e)}"
+        )
+
+
+@router.put("/vacuum/booster_pump/state")
+async def set_booster_pump_state(request: Request, pump: VacuumPumpRequest):
+    """Set booster pump state."""
+    try:
+        if pump.start:
+            await request.app.state.service.equipment.start_booster_pump()
+        else:
+            await request.app.state.service.equipment.stop_booster_pump()
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Failed to set booster pump state: {str(e)}")
+        raise create_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            message=f"Failed to set booster pump state: {str(e)}"
+        )
+
+
+@router.put("/feeder/{feeder_id}/state")
+async def set_feeder_state(request: Request, feeder_id: int, running: bool):
+    """Set feeder running state."""
+    try:
+        if running:
+            await request.app.state.service.equipment.start_feeder(feeder_id)
+        else:
+            await request.app.state.service.equipment.stop_feeder(feeder_id)
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Failed to set feeder {feeder_id} state: {str(e)}")
+        raise create_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            message=f"Failed to set feeder {feeder_id} state: {str(e)}"
+        )
+
+
+@router.put("/nozzle/select")
+async def select_nozzle(request: Request, nozzle_id: Literal[1, 2]):
+    """Set active nozzle state."""
+    try:
+        await request.app.state.service.equipment.select_nozzle(nozzle_id)
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Failed to set nozzle selection: {str(e)}")
+        raise create_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            message=f"Failed to set nozzle selection: {str(e)}"
+        )
+
+
+@router.put("/nozzle/shutter/state")
+async def set_shutter_state(request: Request, shutter: ShutterRequest):
+    """Set nozzle shutter state."""
+    try:
+        await request.app.state.service.equipment.set_shutter(shutter.open)
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Failed to set shutter state: {str(e)}")
+        raise create_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            message=f"Failed to set shutter state: {str(e)}"
         )
