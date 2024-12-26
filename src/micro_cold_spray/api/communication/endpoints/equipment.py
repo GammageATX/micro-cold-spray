@@ -233,3 +233,108 @@ async def set_shutter_state(request: Request, shutter: ShutterRequest):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             message=f"Failed to set shutter state: {str(e)}"
         )
+
+
+@router.websocket("/ws/state")
+async def websocket_equipment_state(websocket: WebSocket):
+    """WebSocket endpoint for equipment state updates."""
+    try:
+        service = websocket.app.state.service
+        if not service.is_running:
+            await websocket.close(code=status.WS_1013_TRY_AGAIN_LATER)
+            return
+
+        await websocket.accept()
+        logger.info("Equipment WebSocket client connected")
+
+        # Create queue for state updates
+        queue = asyncio.Queue()
+        
+        # Subscribe to equipment state updates
+        def state_changed(state: dict):
+            asyncio.create_task(queue.put(state))
+        
+        # Register callback
+        service.equipment.on_state_changed(state_changed)
+
+        try:
+            # Send initial state
+            initial_state = await service.get_state()
+            await websocket.send_json({
+                "type": "state_update",
+                "data": {
+                    "equipment": {
+                        "gas": {
+                            "main_flow": initial_state.gas.main_flow,
+                            "main_flow_measured": initial_state.gas.main_flow_measured,
+                            "feeder_flow": initial_state.gas.feeder_flow,
+                            "feeder_flow_measured": initial_state.gas.feeder_flow_measured,
+                            "main_valve": initial_state.gas.main_valve,
+                            "feeder_valve": initial_state.gas.feeder_valve
+                        },
+                        "vacuum": {
+                            "chamber_pressure": initial_state.vacuum.chamber_pressure,
+                            "gate_valve": initial_state.vacuum.gate_valve,
+                            "mech_pump": initial_state.vacuum.mech_pump,
+                            "booster_pump": initial_state.vacuum.booster_pump,
+                            "vent_valve": initial_state.vacuum.vent_valve
+                        },
+                        "feeder1": initial_state.feeder1,
+                        "feeder2": initial_state.feeder2,
+                        "deagg1": initial_state.deagg1,
+                        "deagg2": initial_state.deagg2,
+                        "nozzle": {
+                            "active_nozzle": initial_state.nozzle.active_nozzle,
+                            "shutter_open": initial_state.nozzle.shutter_open
+                        },
+                        "pressures": {
+                            "chamber": initial_state.pressures.chamber,
+                            "feeder": initial_state.pressures.feeder,
+                            "main_supply": initial_state.pressures.main_supply,
+                            "nozzle": initial_state.pressures.nozzle,
+                            "regulator": initial_state.pressures.regulator
+                        }
+                    },
+                    "motion": {
+                        "position": {
+                            "x": initial_state.motion.position.x,
+                            "y": initial_state.motion.position.y,
+                            "z": initial_state.motion.position.z
+                        },
+                        "status": {
+                            "x_axis": initial_state.motion.status.x_axis,
+                            "y_axis": initial_state.motion.status.y_axis,
+                            "z_axis": initial_state.motion.status.z_axis,
+                            "module_ready": initial_state.motion.status.module_ready
+                        }
+                    },
+                    "safety": {
+                        "hardware": initial_state.safety.hardware,
+                        "process": initial_state.safety.process,
+                        "safety": initial_state.safety.safety
+                    }
+                }
+            })
+
+            # Wait for state updates
+            while True:
+                try:
+                    state = await queue.get()
+                    await websocket.send_json({
+                        "type": "state_update",
+                        "data": state
+                    })
+                except WebSocketDisconnect:
+                    logger.info("Equipment WebSocket client disconnected")
+                    break
+                except Exception as e:
+                    logger.error(f"Equipment WebSocket error: {str(e)}")
+                    break
+
+        finally:
+            # Unregister callback when connection closes
+            service.equipment.remove_state_changed_callback(state_changed)
+
+    except Exception as e:
+        logger.error(f"Failed to handle equipment WebSocket connection: {str(e)}")
+        await websocket.close(code=status.WS_1011_INTERNAL_ERROR)

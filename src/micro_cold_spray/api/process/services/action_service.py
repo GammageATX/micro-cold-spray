@@ -100,14 +100,36 @@ class ActionService:
         Returns:
             Health status dictionary
         """
-        return {
-            "status": "ok" if self.is_running else "error",
-            "service": self._service_name,
-            "version": self._version,
-            "running": self.is_running,
-            "uptime": self.uptime,
-            "current_action": self._current_action
-        }
+        try:
+            return {
+                "status": "ok" if self.is_running else "error",
+                "service": self._service_name,
+                "version": self._version,
+                "is_running": self.is_running,
+                "error": None if self.is_running else "Service not running",
+                "components": {
+                    "action_executor": {
+                        "status": "ok" if self.is_running else "error",
+                        "error": None if self.is_running else "Action executor not running"
+                    }
+                }
+            }
+        except Exception as e:
+            error_msg = f"Health check failed: {str(e)}"
+            logger.error(error_msg)
+            return {
+                "status": "error",
+                "service": self._service_name,
+                "version": self._version,
+                "is_running": False,
+                "error": error_msg,
+                "components": {
+                    "action_executor": {
+                        "status": "error",
+                        "error": error_msg
+                    }
+                }
+            }
 
     async def start_action(self, action_id: str) -> ActionStatus:
         """Start action execution.

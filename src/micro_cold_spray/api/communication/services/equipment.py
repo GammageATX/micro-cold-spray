@@ -10,6 +10,7 @@ from micro_cold_spray.api.communication.services.tag_cache import TagCacheServic
 from micro_cold_spray.api.communication.models.equipment import (
     GasState, VacuumState, FeederState, NozzleState, EquipmentState
 )
+from micro_cold_spray.utils.health import get_uptime, ServiceHealth
 
 
 class EquipmentService:
@@ -394,34 +395,63 @@ class EquipmentService:
                 message=error_msg
             )
 
-    async def health(self) -> Dict[str, Any]:
+    async def health(self) -> ServiceHealth:
         """Get service health status.
         
         Returns:
-            Dict[str, Any]: Health status dictionary
+            ServiceHealth: Health status
         """
         try:
-            return {
-                "status": "ok" if self.is_running else "error",
-                "service_name": self._service_name,
-                "version": self._version,
-                "is_running": self.is_running,
-                "uptime": (datetime.now() - self._start_time).total_seconds() if self._start_time else 0,
-                "error": None if self.is_running else "Service not running",
-                "timestamp": datetime.now().isoformat()
+            # Check equipment components
+            components = {
+                "gas_control": {
+                    "status": "ok" if self.is_running else "error",
+                    "error": None if self.is_running else "Gas control not initialized"
+                },
+                "vacuum": {
+                    "status": "ok" if self.is_running else "error",
+                    "error": None if self.is_running else "Vacuum control not initialized"
+                },
+                "motion": {
+                    "status": "ok" if self.is_running else "error",
+                    "error": None if self.is_running else "Motion control not initialized"
+                },
+                "pressure": {
+                    "status": "ok" if self.is_running else "error",
+                    "error": None if self.is_running else "Pressure monitoring not initialized"
+                }
             }
+            
+            # Overall status is error if any component is in error
+            overall_status = "error" if any(c["status"] == "error" for c in components.values()) else "ok"
+            
+            return ServiceHealth(
+                status=overall_status,
+                service="equipment",
+                version="1.0.0",
+                is_running=self.is_running,
+                uptime=get_uptime(),
+                error=None if overall_status == "ok" else "One or more components in error state",
+                components=components
+            )
+            
         except Exception as e:
-            error_msg = f"Failed to get health status: {str(e)}"
+            error_msg = f"Health check failed: {str(e)}"
             logger.error(error_msg)
-            return {
-                "status": "error",
-                "service_name": self._service_name,
-                "version": self._version,
-                "is_running": False,
-                "uptime": 0,
-                "error": error_msg,
-                "timestamp": datetime.now().isoformat()
-            }
+            return ServiceHealth(
+                status="error",
+                service="equipment",
+                version="1.0.0",
+                is_running=False,
+                uptime=0.0,
+                error=error_msg,
+                components={
+                    "gas_control": {"status": "error", "error": error_msg},
+                    "vacuum": {"status": "error", "error": error_msg},
+                    "motion": {"status": "error", "error": error_msg},
+                    "pressure": {"status": "error", "error": error_msg}
+                }
+            )
 
     async def set_feeder_frequency(self, feeder_id: int, frequency: float) -> None:
         """Set feeder frequency.

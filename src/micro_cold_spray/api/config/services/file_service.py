@@ -182,25 +182,36 @@ class FileService:
             path_exists = os.path.exists(self.base_path)
             path_writable = os.access(self.base_path, os.W_OK)
             
-            return {
-                "status": "ok" if self.is_running else "error",
-                "is_running": self.is_running,
-                "uptime": (datetime.now() - self._start_time).total_seconds() if self._start_time else 0,
-                "details": {
-                    "base_path": self.base_path,
-                    "path_exists": path_exists,
-                    "path_writable": path_writable,
-                    "config_count": len(self.list_configs()) if self.is_running else 0
+            # Build component statuses
+            components = {
+                "storage": {
+                    "status": "ok" if path_exists and path_writable else "error",
+                    "error": None if path_exists and path_writable else "Path not accessible"
                 }
             }
             
+            # Overall status is error if any component is in error
+            overall_status = "error" if any(c["status"] == "error" for c in components.values()) else "ok"
+            
+            return {
+                "status": overall_status,
+                "service": "file",
+                "version": "1.0.0",
+                "is_running": self.is_running,
+                "error": None if overall_status == "ok" else "One or more components in error state",
+                "components": components
+            }
+            
         except Exception as e:
-            logger.error(f"Health check failed: {e}")
+            error_msg = f"Health check failed: {str(e)}"
+            logger.error(error_msg)
             return {
                 "status": "error",
+                "service": "file",
+                "version": "1.0.0",
                 "is_running": False,
-                "uptime": 0,
-                "details": {
-                    "error": str(e)
+                "error": error_msg,
+                "components": {
+                    "storage": {"status": "error", "error": error_msg}
                 }
             }

@@ -7,6 +7,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 from fastapi import HTTPException, status
+from loguru import logger
 
 from micro_cold_spray.api.data_collection.data_collection_storage import DataCollectionStorage
 from micro_cold_spray.api.data_collection.data_collection_models import SprayEvent
@@ -36,7 +37,7 @@ class DataCollectionService:
         try:
             config_path = os.path.join("config", "data_collection.yaml")
             if not os.path.exists(config_path):
-                logging.warning(f"Config file not found at {config_path}, using defaults")
+                logger.warning(f"Config file not found at {config_path}, using defaults")
                 return {
                     "service": {
                         "version": "1.0.0",
@@ -62,7 +63,7 @@ class DataCollectionService:
                 return yaml.safe_load(f)
 
         except Exception as e:
-            logging.error(f"Failed to load config: {e}")
+            logger.error(f"Failed to load config: {e}")
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=f"Failed to load configuration: {str(e)}"
@@ -99,10 +100,10 @@ class DataCollectionService:
                 
             self._is_running = True
             self._start_time = datetime.now()
-            logging.info("Data collection service initialized")
+            logger.info("Data collection service initialized")
             
         except Exception as e:
-            logging.error(f"Failed to initialize data collection service: {e}")
+            logger.error(f"Failed to initialize data collection service: {e}")
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=f"Failed to initialize data collection service: {str(e)}"
@@ -114,13 +115,68 @@ class DataCollectionService:
             self.collecting = False
             self.current_sequence = None
             self._is_running = False
-            logging.info("Data collection service stopped")
+            logger.info("Data collection service stopped")
         except Exception as e:
-            logging.error(f"Failed to stop data collection service: {e}")
+            logger.error(f"Failed to stop data collection service: {e}")
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=f"Failed to stop data collection service: {str(e)}"
             )
+
+    async def health(self) -> Dict[str, Any]:
+        """Get service health status.
+        
+        Returns:
+            Dict[str, Any]: Health status
+        """
+        try:
+            # Check storage health
+            storage_ok = self.storage is not None and await self.storage.is_connected()
+            
+            # Check collection status
+            collector_ok = self.is_running
+            collector_error = None if collector_ok else "Collector not running"
+            if collector_ok and self.collecting:
+                collector_error = f"Currently collecting for sequence {self.current_sequence}"
+            
+            # Build component statuses
+            components = {
+                "storage": {
+                    "status": "ok" if storage_ok else "error",
+                    "error": None if storage_ok else "Database connection failed"
+                },
+                "collector": {
+                    "status": "ok" if collector_ok else "error",
+                    "error": collector_error
+                }
+            }
+            
+            # Overall status is error if any component is in error
+            overall_status = "error" if any(c["status"] == "error" for c in components.values()) else "ok"
+            
+            return {
+                "status": overall_status,
+                "service": self._name,
+                "version": self._version,
+                "is_running": self.is_running,
+                "error": None if overall_status == "ok" else "One or more components in error state",
+                "components": components
+            }
+            
+        except Exception as e:
+            error_msg = f"Health check failed: {str(e)}"
+            logger.error(error_msg)
+            return {
+                "status": "error",
+                "service": self._name,
+                "version": self._version,
+                "is_running": False,
+                "error": error_msg,
+                "components": {
+                    "storage": {"status": "error", "error": error_msg},
+                    "collector": {"status": "error", "error": error_msg}
+                }
+            }
 
     async def start_collection(self, sequence_id: str) -> None:
         """Start data collection for a sequence."""
@@ -133,10 +189,10 @@ class DataCollectionService:
                 
             self.collecting = True
             self.current_sequence = sequence_id
-            logging.info(f"Started data collection for sequence {sequence_id}")
+            logger.info(f"Started data collection for sequence {sequence_id}")
             
         except Exception as e:
-            logging.error(f"Failed to start data collection: {e}")
+            logger.error(f"Failed to start data collection: {e}")
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 message=f"Failed to start data collection: {str(e)}"
@@ -153,10 +209,10 @@ class DataCollectionService:
                 
             self.collecting = False
             self.current_sequence = None
-            logging.info("Stopped data collection")
+            logger.info("Stopped data collection")
             
         except Exception as e:
-            logging.error(f"Failed to stop data collection: {e}")
+            logger.error(f"Failed to stop data collection: {e}")
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 message=f"Failed to stop data collection: {str(e)}"
@@ -184,10 +240,10 @@ class DataCollectionService:
                 )
                 
             await self.storage.save_spray_event(event)
-            logging.info(f"Recorded spray event for sequence {event.sequence_id}")
+            logger.info(f"Recorded spray event for sequence {event.sequence_id}")
             
         except Exception as e:
-            logging.error(f"Failed to record spray event: {e}")
+            logger.error(f"Failed to record spray event: {e}")
             if isinstance(e, HTTPException):
                 raise
             raise create_error(
@@ -205,11 +261,11 @@ class DataCollectionService:
                 )
                 
             events = await self.storage.get_spray_events(sequence_id)
-            logging.info(f"Retrieved {len(events)} events for sequence {sequence_id}")
+            logger.info(f"Retrieved {len(events)} events for sequence {sequence_id}")
             return events
             
         except Exception as e:
-            logging.error(f"Failed to get sequence events: {e}")
+            logger.error(f"Failed to get sequence events: {e}")
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 message=f"Failed to get sequence events: {str(e)}"

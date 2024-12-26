@@ -5,6 +5,7 @@ from fastapi import FastAPI, status
 from loguru import logger
 import uvicorn
 
+from micro_cold_spray.utils import ServiceHealth, get_uptime
 from micro_cold_spray.api.process.process_service import ProcessService
 from micro_cold_spray.api.process.endpoints.process_endpoints import process_router
 from micro_cold_spray.api.process.models.process_models import (
@@ -55,11 +56,7 @@ def create_app() -> FastAPI:
 
     @app.get("/")
     async def root():
-        """Get API information.
-        
-        Returns:
-            API information
-        """
+        """Get API information."""
         return {
             "name": "Process API",
             "version": "1.0.0",
@@ -75,14 +72,30 @@ def create_app() -> FastAPI:
             ]
         }
 
-    @app.get("/health")
+    @app.get("/health", response_model=ServiceHealth)
     async def health():
-        """Get API health status.
-        
-        Returns:
-            Health status
-        """
-        return await process_service.health()
+        """Get API health status."""
+        try:
+            health_data = await process_service.health()
+            health_data["uptime"] = get_uptime()
+            return ServiceHealth(**health_data)
+        except Exception as e:
+            error_msg = f"Health check failed: {str(e)}"
+            logger.error(error_msg)
+            return ServiceHealth(
+                status="error",
+                service="process",
+                version=process_service.version,
+                is_running=False,
+                uptime=0.0,
+                error=error_msg,
+                components={
+                    "action": {"status": "error", "error": error_msg},
+                    "parameter": {"status": "error", "error": error_msg},
+                    "pattern": {"status": "error", "error": error_msg},
+                    "sequence": {"status": "error", "error": error_msg}
+                }
+            )
 
     # Include process router
     app.include_router(process_router)

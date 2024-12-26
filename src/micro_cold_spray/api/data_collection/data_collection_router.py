@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Request, status
 from pydantic import BaseModel, Field
 
 from micro_cold_spray.utils.errors import create_error
-from micro_cold_spray.utils.monitoring import get_uptime
+from micro_cold_spray.utils.health import get_uptime
 from micro_cold_spray.api.data_collection.data_collection_service import DataCollectionService
 from micro_cold_spray.api.data_collection.data_collection_models import SprayEvent
 

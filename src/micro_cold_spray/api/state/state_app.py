@@ -5,21 +5,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from datetime import datetime
 from typing import Dict, Optional
-from pydantic import BaseModel, Field
 
 from micro_cold_spray.api.state.state_service import StateService
-from micro_cold_spray.utils.monitoring import get_uptime
-
-
-class HealthResponse(BaseModel):
-    """Health check response model."""
-    status: str = Field(..., description="Service status (ok or error)")
-    service_name: str = Field(..., description="Service name")
-    version: str = Field(..., description="Service version")
-    is_running: bool = Field(..., description="Whether service is running")
-    uptime: float = Field(..., description="Service uptime in seconds")
-    error: Optional[str] = Field(None, description="Error message if any")
-    timestamp: datetime = Field(default_factory=datetime.now, description="Response timestamp")
+from micro_cold_spray.utils.health import ServiceHealth, get_uptime
 
 
 def create_state_service() -> FastAPI:
@@ -44,30 +32,40 @@ def create_state_service() -> FastAPI:
     app.state.service = state_service
     
     # Health check endpoint
-    @app.get("/health", response_model=HealthResponse)
+    @app.get("/health", response_model=ServiceHealth)
     async def health():
         """Get service health."""
         try:
-            return HealthResponse(
+            return ServiceHealth(
                 status="ok" if state_service.is_running else "error",
-                service_name="state",
+                service="state",
                 version=state_service.version,
                 is_running=state_service.is_running,
                 uptime=get_uptime(),
                 error=None if state_service.is_running else "Service not running",
-                timestamp=datetime.now()
+                components={
+                    "state_machine": {
+                        "status": "ok" if state_service.is_running else "error",
+                        "error": None if state_service.is_running else "State machine not running"
+                    }
+                }
             )
         except Exception as e:
             error_msg = f"Health check failed: {str(e)}"
             logger.error(error_msg)
-            return HealthResponse(
+            return ServiceHealth(
                 status="error",
-                service_name="state",
+                service="state",
                 version=state_service.version,
                 is_running=False,
                 uptime=0.0,
                 error=error_msg,
-                timestamp=datetime.now()
+                components={
+                    "state_machine": {
+                        "status": "error",
+                        "error": error_msg
+                    }
+                }
             )
     
     # Start service endpoint

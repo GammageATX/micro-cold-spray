@@ -136,19 +136,61 @@ class ProcessService:
         Returns:
             Health status dictionary
         """
-        return {
-            "status": "ok" if self.is_running else "error",
-            "service": self._service_name,
-            "version": self._version,
-            "running": self.is_running,
-            "uptime": self.uptime,
-            "sub_services": {
-                "action": await self._action.health(),
-                "parameter": await self._parameter.health(),
-                "pattern": await self._pattern.health(),
-                "sequence": await self._sequence.health()
+        try:
+            # Get sub-service health statuses
+            action_health = await self._action.health()
+            parameter_health = await self._parameter.health()
+            pattern_health = await self._pattern.health()
+            sequence_health = await self._sequence.health()
+            
+            # Convert sub-service health to component format
+            components = {
+                "action": {
+                    "status": action_health["status"],
+                    "error": action_health.get("error")
+                },
+                "parameter": {
+                    "status": parameter_health["status"],
+                    "error": parameter_health.get("error")
+                },
+                "pattern": {
+                    "status": pattern_health["status"],
+                    "error": pattern_health.get("error")
+                },
+                "sequence": {
+                    "status": sequence_health["status"],
+                    "error": sequence_health.get("error")
+                }
             }
-        }
+            
+            # Overall status is error if any component is in error
+            overall_status = "error" if any(c["status"] == "error" for c in components.values()) else "ok"
+            
+            return {
+                "status": overall_status,
+                "service": self._service_name,
+                "version": self._version,
+                "is_running": self.is_running,
+                "error": None if overall_status == "ok" else "One or more components in error state",
+                "components": components
+            }
+            
+        except Exception as e:
+            error_msg = f"Health check failed: {str(e)}"
+            logger.error(error_msg)
+            return {
+                "status": "error",
+                "service": self._service_name,
+                "version": self._version,
+                "is_running": False,
+                "error": error_msg,
+                "components": {
+                    "action": {"status": "error", "error": error_msg},
+                    "parameter": {"status": "error", "error": error_msg},
+                    "pattern": {"status": "error", "error": error_msg},
+                    "sequence": {"status": "error", "error": error_msg}
+                }
+            }
 
     # Process management methods
     async def list_sequences(self) -> List[SequenceMetadata]:

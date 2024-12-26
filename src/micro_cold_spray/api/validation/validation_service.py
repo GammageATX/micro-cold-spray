@@ -18,6 +18,7 @@ class ValidationService:
 
     def __init__(self):
         """Initialize validation service."""
+        self.version = "1.0.0"
         self._validation_rules = self._load_validation_rules()
         self._hardware_validator = HardwareValidator(self._validation_rules)
         self._parameter_validator = ParameterValidator(self._validation_rules)
@@ -112,3 +113,54 @@ class ValidationService:
                 - warnings: List of warning messages
         """
         return await self._sequence_validator.validate(data)
+
+    async def health(self) -> Dict[str, Any]:
+        """Get service health status.
+        
+        Returns:
+            Dict[str, Any]: Health status
+        """
+        try:
+            # Check if validation rules are loaded
+            rules_loaded = len(self._validation_rules) > 0
+            
+            return {
+                "status": "ok" if rules_loaded else "error",
+                "service": "validation",
+                "version": self.version,
+                "is_running": True,
+                "error": None if rules_loaded else "No validation rules loaded",
+                "components": {
+                    "hardware_validator": {
+                        "status": "ok" if rules_loaded else "error",
+                        "error": None if rules_loaded else "No validation rules"
+                    },
+                    "parameter_validator": {
+                        "status": "ok" if rules_loaded else "error",
+                        "error": None if rules_loaded else "No validation rules"
+                    },
+                    "pattern_validator": {
+                        "status": "ok" if rules_loaded else "error",
+                        "error": None if rules_loaded else "No validation rules"
+                    },
+                    "sequence_validator": {
+                        "status": "ok" if rules_loaded else "error",
+                        "error": None if rules_loaded else "No validation rules"
+                    }
+                }
+            }
+        except Exception as e:
+            error_msg = f"Health check failed: {str(e)}"
+            return {
+                "status": "error",
+                "service": "validation",
+                "version": self.version,
+                "is_running": False,
+                "error": error_msg,
+                "components": {
+                    "hardware_validator": {"status": "error", "error": error_msg},
+                    "parameter_validator": {"status": "error", "error": error_msg},
+                    "pattern_validator": {"status": "error", "error": error_msg},
+                    "sequence_validator": {"status": "error", "error": error_msg}
+                }
+            }

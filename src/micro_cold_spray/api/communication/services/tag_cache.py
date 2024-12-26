@@ -12,8 +12,9 @@ from micro_cold_spray.api.communication.clients.plc import PLCClient
 from micro_cold_spray.api.communication.clients.ssh import SSHClient
 from micro_cold_spray.api.communication.services.tag_mapping import TagMappingService
 from micro_cold_spray.api.communication.models.equipment import (
-    GasState, VacuumState, FeederState, NozzleState, EquipmentState
+    GasState, VacuumState, FeederState, NozzleState, EquipmentState, DeagglomeratorState, PressureState
 )
+from micro_cold_spray.utils.health import get_uptime, ServiceHealth
 
 
 class TagCacheService:
@@ -112,6 +113,10 @@ class TagCacheService:
             if not self._initialized:
                 await self.initialize()
             
+            # Connect to PLC client
+            if isinstance(self._plc_client, MockPLCClient):
+                await self._plc_client.connect()
+            
             self._is_running = True
             self._start_time = datetime.now()
             self._polling_task = asyncio.create_task(self._poll_tags())
@@ -143,6 +148,10 @@ class TagCacheService:
                 except asyncio.CancelledError:
                     pass
                 self._polling_task = None
+            
+            # Disconnect from PLC client
+            if isinstance(self._plc_client, MockPLCClient):
+                await self._plc_client.disconnect()
             
             self._start_time = None
             self._cache.clear()
@@ -214,65 +223,88 @@ class TagCacheService:
         try:
             # Update gas state
             gas_state = GasState(
-                main_flow=self._cache.get("gas_control.main_flow.measured", 0),
-                feeder_flow=self._cache.get("gas_control.feeder_flow.measured", 0),
-                main_valve=self._cache.get("valve_control.main_gas", False),
-                feeder_valve=self._cache.get("valve_control.feeder_gas", False)
+                main_flow=self._cache.get("gas_control.main_flow.setpoint", 0),
+                main_flow_measured=self._cache.get("gas_control.main_flow.measured", 0),
+                feeder_flow=self._cache.get("gas_control.feeder_flow.setpoint", 0),
+                feeder_flow_measured=self._cache.get("gas_control.feeder_flow.measured", 0),
+                main_valve=self._cache.get("gas_control.main_valve.open", False),
+                feeder_valve=self._cache.get("gas_control.feeder_valve.open", False)
             )
             
             # Update vacuum state
             vacuum_state = VacuumState(
-                chamber_pressure=self._cache.get("pressure.chamber_pressure", 0),
-                gate_valve=self._cache.get("valve_control.gate_valve.open", False),
-                mech_pump=self._cache.get("vacuum_control.mechanical_pump.start", False),
-                booster_pump=self._cache.get("vacuum_control.booster_pump.start", False)
+                chamber_pressure=self._cache.get("vacuum.chamber_pressure", 0),
+                gate_valve=self._cache.get("vacuum.gate_valve.open", False),
+                mech_pump=self._cache.get("vacuum.mechanical_pump.start", False),
+                booster_pump=self._cache.get("vacuum.booster_pump.start", False),
+                vent_valve=self._cache.get("vacuum.vent_valve", False)
             )
             
             # Update feeder states
             feeder1_state = FeederState(
-                running=self._cache.get("ssh.P10", 0) == 1,
-                frequency=self._cache.get("gas_control.hardware_sets.set1.feeder.frequency", 0)
+                running=self._cache.get("feeders.feeder1.running", False),
+                frequency=self._cache.get("feeders.feeder1.frequency", 0)
             )
             
             feeder2_state = FeederState(
-                running=self._cache.get("ssh.P110", 0) == 1,
-                frequency=self._cache.get("gas_control.hardware_sets.set2.feeder.frequency", 0)
+                running=self._cache.get("feeders.feeder2.running", False),
+                frequency=self._cache.get("feeders.feeder2.frequency", 0)
             )
             
             # Update nozzle state
             nozzle_state = NozzleState(
-                active_nozzle=2 if self._cache.get("gas_control.hardware_sets.nozzle_select", False) else 1,
-                shutter_open=self._cache.get("relay_control.shutter", False),
-                pressure=self._cache.get("pressure.nozzle_pressure", 0)
+                active_nozzle=2 if self._cache.get("nozzle.select", False) else 1,
+                shutter_open=self._cache.get("nozzle.shutter.open", False),
+                pressure=self._cache.get("nozzle.pressure", 0)
             )
             
-            # Create complete equipment state
+            # Update pressure state
+            pressure_state = PressureState(
+                nozzle=self._cache.get("nozzle.pressure", 0),
+                chamber=self._cache.get("vacuum.chamber_pressure", 0),
+                feeder=self._cache.get("pressure.feeder_pressure", 0),
+                main_supply=self._cache.get("pressure.main_supply_pressure", 0),
+                regulator=self._cache.get("pressure.regulator_pressure", 0)
+            )
+            
+            # Update deagglomerator states
+            deagg1_state = DeagglomeratorState(
+                duty_cycle=self._cache.get("deagglomerators.deagg1.duty_cycle", 0),
+                frequency=self._cache.get("deagglomerators.deagg1.frequency", 0)
+            )
+            
+            deagg2_state = DeagglomeratorState(
+                duty_cycle=self._cache.get("deagglomerators.deagg2.duty_cycle", 0),
+                frequency=self._cache.get("deagglomerators.deagg2.frequency", 0)
+            )
+            
+            # Update equipment state
             equipment_state = EquipmentState(
                 gas=gas_state,
                 vacuum=vacuum_state,
                 feeder1=feeder1_state,
                 feeder2=feeder2_state,
-                nozzle=nozzle_state
+                nozzle=nozzle_state,
+                pressures=pressure_state,
+                deagg1=deagg1_state,
+                deagg2=deagg2_state
             )
             
-            # Update state cache and notify callbacks if changed
-            if equipment_state != self._state_cache["equipment"]:
-                self._state_cache.update({
-                    "equipment": equipment_state,
-                    "gas": gas_state,
-                    "vacuum": vacuum_state,
-                    "feeder1": feeder1_state,
-                    "feeder2": feeder2_state,
-                    "nozzle": nozzle_state
-                })
-                
-                # Notify state change callbacks
-                for callback in self._state_callbacks:
-                    try:
-                        callback("equipment", equipment_state)
-                    except Exception as e:
-                        logger.error(f"Error in state change callback: {str(e)}")
+            # Update state cache
+            self._state_cache["equipment"] = equipment_state
+            self._state_cache["gas"] = gas_state
+            self._state_cache["vacuum"] = vacuum_state
+            self._state_cache["feeder1"] = feeder1_state
+            self._state_cache["feeder2"] = feeder2_state
+            self._state_cache["nozzle"] = nozzle_state
             
+            # Notify state change callbacks
+            for callback in self._state_callbacks:
+                try:
+                    callback("equipment", equipment_state)
+                except Exception as e:
+                    logger.error(f"Error in state change callback: {str(e)}")
+                    
         except Exception as e:
             logger.error(f"Error updating equipment states: {str(e)}")
 
@@ -410,33 +442,48 @@ class TagCacheService:
             )
         return self._cache.copy()
 
-    async def health(self) -> Dict[str, Any]:
+    async def health(self) -> ServiceHealth:
         """Get service health status.
         
         Returns:
-            Dict[str, Any]: Health status dictionary
+            ServiceHealth: Health status
         """
         try:
-            return {
-                "status": "ok" if self.is_running else "error",
-                "service_name": self._service_name,
-                "version": self._version,
-                "is_running": self.is_running,
-                "uptime": self.uptime,
-                "error": None if self.is_running else "Service not running",
-                "tag_count": len(self._cache),
-                "timestamp": datetime.now().isoformat()
+            # Check cache status
+            cache_ok = self.is_running and isinstance(self._cache, dict)
+            
+            # Build component statuses
+            components = {
+                "cache": {
+                    "status": "ok" if cache_ok else "error",
+                    "error": None if cache_ok else "Cache not initialized"
+                }
             }
+            
+            # Overall status is error if any component is in error
+            overall_status = "error" if any(c["status"] == "error" for c in components.values()) else "ok"
+            
+            return ServiceHealth(
+                status=overall_status,
+                service="tag_cache",
+                version="1.0.0",
+                is_running=self.is_running,
+                uptime=get_uptime(),
+                error=None if overall_status == "ok" else "One or more components in error state",
+                components=components
+            )
+            
         except Exception as e:
-            error_msg = f"Failed to get health status: {str(e)}"
+            error_msg = f"Health check failed: {str(e)}"
             logger.error(error_msg)
-            return {
-                "status": "error",
-                "service_name": self._service_name,
-                "version": self._version,
-                "is_running": False,
-                "uptime": 0,
-                "error": error_msg,
-                "tag_count": 0,
-                "timestamp": datetime.now().isoformat()
-            }
+            return ServiceHealth(
+                status="error",
+                service="tag_cache",
+                version="1.0.0",
+                is_running=False,
+                uptime=0.0,
+                error=error_msg,
+                components={
+                    "cache": {"status": "error", "error": error_msg}
+                }
+            )

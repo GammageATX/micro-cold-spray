@@ -105,15 +105,44 @@ class SequenceService:
         Returns:
             Health status dictionary
         """
-        return {
-            "status": "ok" if self.is_running else "error",
-            "service": self._service_name,
-            "version": self._version,
-            "running": self.is_running,
-            "uptime": self.uptime,
-            "sequence_count": len(self._sequences),
-            "current_sequence": self._current_sequence
-        }
+        try:
+            return {
+                "status": "ok" if self.is_running else "error",
+                "service": self._service_name,
+                "version": self._version,
+                "is_running": self.is_running,
+                "error": None if self.is_running else "Service not running",
+                "components": {
+                    "sequence_store": {
+                        "status": "ok" if self.is_running else "error",
+                        "error": None if self.is_running else "Sequence store not running"
+                    },
+                    "sequence_executor": {
+                        "status": "ok" if self.is_running and not self._current_sequence else "error",
+                        "error": None if self.is_running and not self._current_sequence else "Sequence in progress"
+                    }
+                }
+            }
+        except Exception as e:
+            error_msg = f"Health check failed: {str(e)}"
+            logger.error(error_msg)
+            return {
+                "status": "error",
+                "service": self._service_name,
+                "version": self._version,
+                "is_running": False,
+                "error": error_msg,
+                "components": {
+                    "sequence_store": {
+                        "status": "error",
+                        "error": error_msg
+                    },
+                    "sequence_executor": {
+                        "status": "error",
+                        "error": error_msg
+                    }
+                }
+            }
 
     async def list_sequences(self) -> List[SequenceMetadata]:
         """List available sequences.

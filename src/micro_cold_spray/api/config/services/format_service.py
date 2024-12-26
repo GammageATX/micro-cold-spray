@@ -161,11 +161,39 @@ class FormatService:
         Returns:
             Dict[str, Any]: Health status
         """
-        return {
-            "status": "ok" if self.is_running else "error",
-            "is_running": self.is_running,
-            "uptime": (datetime.now() - self._start_time).total_seconds() if self._start_time else 0,
-            "details": {
-                "supported_formats": list(self.formatters.keys())
+        try:
+            # Check formatters
+            components = {
+                fmt: {
+                    "status": "ok" if all(fn for fn in funcs.values()) else "error",
+                    "error": None if all(fn for fn in funcs.values()) else "Missing formatter functions"
+                }
+                for fmt, funcs in self.formatters.items()
             }
-        }
+            
+            # Overall status is error if any component is in error
+            overall_status = "error" if any(c["status"] == "error" for c in components.values()) else "ok"
+            
+            return {
+                "status": overall_status,
+                "service": "format",
+                "version": "1.0.0",
+                "is_running": self.is_running,
+                "error": None if overall_status == "ok" else "One or more components in error state",
+                "components": components
+            }
+            
+        except Exception as e:
+            error_msg = f"Health check failed: {str(e)}"
+            logger.error(error_msg)
+            return {
+                "status": "error",
+                "service": "format",
+                "version": "1.0.0",
+                "is_running": False,
+                "error": error_msg,
+                "components": {
+                    fmt: {"status": "error", "error": error_msg}
+                    for fmt in self.formatters.keys()
+                }
+            }

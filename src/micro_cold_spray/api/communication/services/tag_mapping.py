@@ -8,6 +8,7 @@ from fastapi import status
 from loguru import logger
 
 from micro_cold_spray.utils.errors import create_error
+from micro_cold_spray.utils.health import get_uptime, ServiceHealth
 
 
 class TagMappingService:
@@ -263,30 +264,48 @@ class TagMappingService:
                 message=error_msg
             )
 
-    async def health(self) -> Dict[str, Any]:
+    async def health(self) -> ServiceHealth:
         """Get service health status.
         
         Returns:
-            Health status dictionary
+            ServiceHealth: Health status
         """
         try:
-            uptime = (datetime.now() - self._start_time).total_seconds() if self._start_time else 0
+            # Check mappings status
+            mappings_ok = self.is_running and isinstance(self._tag_map, dict)
             
-            return {
-                "status": "ok" if self.is_running else "error",
-                "service": self._service_name,
-                "version": self._version,
-                "running": self.is_running,
-                "uptime": uptime,
-                "tag_count": len(self._tag_map)
+            # Build component statuses
+            components = {
+                "mappings": {
+                    "status": "ok" if mappings_ok else "error",
+                    "error": None if mappings_ok else "Mappings not initialized"
+                }
             }
+            
+            # Overall status is error if any component is in error
+            overall_status = "error" if any(c["status"] == "error" for c in components.values()) else "ok"
+            
+            return ServiceHealth(
+                status=overall_status,
+                service="tag_mapping",
+                version="1.0.0",
+                is_running=self.is_running,
+                uptime=get_uptime(),
+                error=None if overall_status == "ok" else "One or more components in error state",
+                components=components
+            )
+            
         except Exception as e:
-            error_msg = "Failed to get health status"
-            logger.error(f"{error_msg}: {str(e)}")
-            return {
-                "status": "error",
-                "service": self._service_name,
-                "version": self._version,
-                "running": False,
-                "error": str(e)
-            }
+            error_msg = f"Health check failed: {str(e)}"
+            logger.error(error_msg)
+            return ServiceHealth(
+                status="error",
+                service="tag_mapping",
+                version="1.0.0",
+                is_running=False,
+                uptime=0.0,
+                error=error_msg,
+                components={
+                    "mappings": {"status": "error", "error": error_msg}
+                }
+            )

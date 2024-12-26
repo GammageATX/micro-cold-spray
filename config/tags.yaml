@@ -146,6 +146,12 @@ tag_groups:
         mapped: true
         plc_tag: Partial
         type: bool
+    vent_valve:
+      access: read/write
+      description: Vent valve control
+      mapped: true
+      plc_tag: VentSwitch
+      type: bool
     mechanical_pump:
       start:
         access: read/write
@@ -504,3 +510,50 @@ tag_groups:
         emergency_stop: bool
         interlocks_ok: bool
         limits_ok: bool
+
+  pressure:
+    feeder_pressure:
+      access: read
+      description: Powder feeder pressure
+      mapped: true
+      plc_tag: FeederPressure
+      range: [ 0.0, 1520.0 ]
+      scaling: 12bit_linear
+      type: float
+      unit: torr
+    main_supply_pressure:
+      access: read
+      description: Main gas supply pressure
+      mapped: true
+      plc_tag: MainGasPressure
+      range: [ 0.0, 1520.0 ]
+      scaling: 12bit_linear
+      type: float
+      unit: torr
+    regulator_pressure:
+      access: read
+      description: Regulator pressure
+      mapped: true
+      plc_tag: RegulatorPressure
+      range: [ 0.0, 1520.0 ]
+      scaling: 12bit_linear
+      type: float
+      unit: torr
+    nozzle_pressure:
+      access: read
+      description: Nozzle pressure
+      mapped: true
+      plc_tag: NozzlePressure
+      range: [ 0.0, 1520.0 ]
+      scaling: 12bit_linear
+      type: float
+      unit: torr
+    chamber_pressure:
+      access: read
+      description: Chamber vacuum pressure
+      mapped: true
+      plc_tag: ChamberPressure
+      range: [ 0.01, 1000.0 ]
+      scaling: 12bit_linear
+      type: float
+      unit: torr

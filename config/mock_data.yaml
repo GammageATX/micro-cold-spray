@@ -3,8 +3,10 @@ version: "1.0.0"
 # Mock PLC tag values
 plc_tags:
   # Gas Control
-  MainFlowRate: 50.0 # Main gas flow measured (0-100 SLPM)
-  FeederFlowRate: 5.0 # Feeder gas flow measured (0-10 SLPM)
+  "AOS32-0.1.2.1": 2048 # Main gas flow setpoint (0-4095 = 0-100 SLPM)
+  MainFlowRate: 49.8 # Main gas flow measured (0-100 SLPM)
+  "AOS32-0.1.2.2": 2048 # Feeder gas flow setpoint (0-4095 = 0-10 SLPM)
+  FeederFlowRate: 4.9 # Feeder gas flow measured (0-10 SLPM)
   MainSwitch: true # Main gas line valve
   FeederSwitch: true # Feeder gas line valve
   NozzleSelect: false # Active nozzle selection (false=1, true=2)
@@ -65,8 +67,6 @@ plc_tags:
   # Hardware Set 1
   "AOS32-0.1.6.1": 35 # Deagglomerator 1 PWM duty cycle (%)
   "AOS32-0.1.6.2": 500 # Deagglomerator 1 PWM frequency (Hz)
-  "AOS32-0.1.2.1": 2048 # Main gas flow setpoint (0-4095 = 0-100 SLPM)
-  "AOS32-0.1.2.2": 2048 # Feeder gas flow setpoint (0-4095 = 0-10 SLPM)
 
   # Hardware Set 2  
   "AOS32-0.1.6.3": 35 # Deagglomerator 2 PWM duty cycle (%)

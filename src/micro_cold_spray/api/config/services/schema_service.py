@@ -137,13 +137,45 @@ class SchemaService:
         return list(self._schemas.keys())
 
     async def health(self) -> Dict[str, Any]:
-        """Get service health status."""
-        return {
-            "status": "ok" if self.is_running else "error",
-            "is_running": self.is_running,
-            "uptime": (datetime.now() - self._start_time).total_seconds() if self._start_time else 0,
-            "details": {
-                "schema_count": len(self._schemas),
-                "schemas": list(self._schemas.keys())
+        """Get service health status.
+        
+        Returns:
+            Dict[str, Any]: Health status
+        """
+        try:
+            # Check schema registry
+            registry_ok = self.is_running
+            
+            # Build component statuses
+            components = {
+                "registry": {
+                    "status": "ok" if registry_ok else "error",
+                    "error": None if registry_ok else "Schema registry not running"
+                }
             }
-        }
+            
+            # Overall status is error if any component is in error
+            overall_status = "error" if any(c["status"] == "error" for c in components.values()) else "ok"
+            
+            return {
+                "status": overall_status,
+                "service": "schema",
+                "version": "1.0.0",
+                "is_running": self.is_running,
+                "error": None if overall_status == "ok" else "One or more components in error state",
+                "components": components
+            }
+            
+        except Exception as e:
+            error_msg = f"Health check failed: {str(e)}"
+            logger.error(error_msg)
+            return {
+                "status": "error",
+                "service": "schema",
+                "version": "1.0.0",
+                "is_running": False,
+                "error": error_msg,
+                "components": {
+                    "registry": {"status": "error", "error": error_msg}
+                }
+            }

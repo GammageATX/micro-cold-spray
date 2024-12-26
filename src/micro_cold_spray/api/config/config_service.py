@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from micro_cold_spray.utils.errors import create_error
-from micro_cold_spray.utils.monitoring import get_uptime
+from micro_cold_spray.utils.health import get_uptime, ServiceHealth
 from micro_cold_spray.api.config.services import (
     FileService,
     FormatService,
@@ -83,8 +83,8 @@ def create_config_service() -> FastAPI:
                 message=f"Failed to stop config service: {str(e)}"
             )
 
-    @app.get("/health")
-    async def health_check() -> Dict[str, Any]:
+    @app.get("/health", response_model=ServiceHealth)
+    async def health_check() -> ServiceHealth:
         """Get service health status."""
         try:
             # Get health status from all components
@@ -92,31 +92,53 @@ def create_config_service() -> FastAPI:
             format_health = await app.state.format.health()
             schema_health = await app.state.schema.health()
             
-            # Service is healthy if all components are healthy
-            is_healthy = all(h["status"] == "ok" for h in [file_health, format_health, schema_health])
+            # Convert component health to new format
+            components = {}
+            for name, health in [
+                ("file", file_health),
+                ("format", format_health),
+                ("schema", schema_health)
+            ]:
+                if "components" in health:
+                    # If component has sub-components, include them all
+                    for sub_name, sub_health in health["components"].items():
+                        components[f"{name}.{sub_name}"] = sub_health
+                else:
+                    # Otherwise include the component itself
+                    components[name] = {
+                        "status": health["status"],
+                        "error": health.get("error")
+                    }
             
-            return {
-                "status": "ok" if is_healthy else "error",
-                "service_name": "config",
-                "version": "1.0.0",
-                "is_running": is_healthy,
-                "uptime": get_uptime(),
-                "components": {
-                    "file": file_health,
-                    "format": format_health,
-                    "schema": schema_health
-                }
-            }
+            # Overall status is error if any component is in error
+            overall_status = "error" if any(c["status"] == "error" for c in components.values()) else "ok"
+            
+            return ServiceHealth(
+                status=overall_status,
+                service="config",
+                version="1.0.0",
+                is_running=all(h["is_running"] for h in [file_health, format_health, schema_health]),
+                uptime=get_uptime(),
+                error=None if overall_status == "ok" else "One or more components in error state",
+                components=components
+            )
+            
         except Exception as e:
-            logger.error(f"Health check failed: {e}")
-            return {
-                "status": "error",
-                "service_name": "config",
-                "version": "1.0.0",
-                "is_running": False,
-                "uptime": get_uptime(),
-                "error": str(e)
-            }
+            error_msg = f"Health check failed: {str(e)}"
+            logger.error(error_msg)
+            return ServiceHealth(
+                status="error",
+                service="config",
+                version="1.0.0",
+                is_running=False,
+                uptime=0.0,
+                error=error_msg,
+                components={
+                    "file": {"status": "error", "error": error_msg},
+                    "format": {"status": "error", "error": error_msg},
+                    "schema": {"status": "error", "error": error_msg}
+                }
+            )
     
     # Include config router
     app.include_router(get_config_router())

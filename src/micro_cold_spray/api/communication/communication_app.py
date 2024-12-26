@@ -11,7 +11,7 @@ import yaml
 import sys
 
 from micro_cold_spray.utils.errors import create_error
-from micro_cold_spray.utils.monitoring import get_uptime
+from micro_cold_spray.utils.health import get_uptime, ServiceHealth, ComponentHealth
 from micro_cold_spray.api.communication.endpoints import router as state_router
 from micro_cold_spray.api.communication.endpoints.equipment import router as equipment_router
 from micro_cold_spray.api.communication.endpoints.motion import router as motion_router
@@ -136,9 +136,8 @@ def create_communication_service(config: Optional[Dict[str, Any]] = None) -> Fas
 
     @app.on_event("startup")
     async def startup():
-        """Initialize and start service on startup."""
+        """Start service on startup."""
         try:
-            await service.initialize()
             await service.start()
             app.state.start_time = datetime.now()
             logger.info("Communication service started")
@@ -163,22 +162,33 @@ def create_communication_service(config: Optional[Dict[str, Any]] = None) -> Fas
             logger.error(error_msg)
             # Log but don't raise during shutdown
 
-    @app.get("/health")
-    async def health_check() -> Dict[str, Any]:
+    @app.get("/health", response_model=ServiceHealth)
+    async def health_check() -> ServiceHealth:
         """Get service health status."""
         try:
             service_health = await service.health()
             uptime = (datetime.now() - app.state.start_time).total_seconds() if app.state.start_time else 0
             
-            return {
-                "status": "ok" if service_health["status"] == "ok" else "error",
-                "service": config["service"]["name"],
-                "version": config["service"]["version"],
-                "is_running": service.is_running,
-                "uptime": uptime,
-                "mode": "mock" if config["communication"]["hardware"]["network"]["force_mock"] else "hardware",
-                "components": service_health
-            }
+            # Convert component health to new format
+            components = {}
+            if service_health and isinstance(service_health, dict):
+                for name, component_status in service_health.items():
+                    if isinstance(component_status, dict):
+                        components[name] = ComponentHealth(
+                            status="ok" if component_status.get("status") == "ok" else "error",
+                            error=component_status.get("error")
+                        )
+            
+            return ServiceHealth(
+                status="ok" if service.is_running else "error",
+                service=config["service"]["name"],
+                version=config["service"]["version"],
+                is_running=service.is_running,
+                uptime=uptime,
+                error=None if service.is_running else "Service not running",
+                mode="mock" if config["communication"]["hardware"]["network"]["force_mock"] else "hardware",
+                components=components
+            )
         except Exception as e:
             return {
                 "status": "error",

@@ -274,12 +274,15 @@ class StateService:
         """
         return {
             "status": "ok" if self.is_running else "error",
-            "service_name": "state",
+            "service": "state",
             "version": self.version,
+            "is_running": self.is_running,
             "uptime": (datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0,
-            "details": {
-                "current_state": self._current_state,
-                "state_count": len(self._state_machine),
-                "history_length": len(self._history)
+            "error": None if self.is_running else "Service not running",
+            "components": {
+                "state_machine": {
+                    "status": "ok" if self.is_running else "error",
+                    "error": None if self.is_running else "State machine not running"
+                }
             }
         }
