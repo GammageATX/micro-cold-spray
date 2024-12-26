@@ -35,8 +35,10 @@ wheels/
 htmlcov/
 .pytest_cache/
 
-# Logs
+# Logs - ignore all log files
 logs/
+*.log
+communication.log
 
 # Data directories - exclude all by default
 data/parameters/*
@@ -58,3 +60,4 @@ data/powders/*
 # UI
 ui/static/
 ui/templates/monitoring/services.html
+
