@@ -18,6 +18,7 @@ from micro_cold_spray.utils.health import get_uptime, ServiceHealth, ComponentHe
 
 class ApiUrls(BaseModel):
     """API URLs configuration model."""
+    ui: str = Field("http://localhost:8000", description="UI service URL")
     config: str = Field("http://localhost:8001", description="Config service URL")
     state: str = Field("http://localhost:8002", description="State service URL")
     communication: str = Field("http://localhost:8003", description="Communication service URL")
@@ -176,6 +177,7 @@ def create_app() -> FastAPI:
             
             try:
                 for service_name, url in {
+                    "ui": api_urls.ui,
                     "config": api_urls.config,
                     "state": api_urls.state,
                     "communication": api_urls.communication,
