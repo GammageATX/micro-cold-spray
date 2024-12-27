@@ -2,17 +2,29 @@
 
 import os
 import yaml
-import logging
 from typing import List, Optional, Dict, Any
 from datetime import datetime
-
-from fastapi import HTTPException, status
+from fastapi import status
 from loguru import logger
 
-from micro_cold_spray.api.data_collection.data_collection_storage import DataCollectionStorage
-from micro_cold_spray.api.data_collection.data_collection_models import SprayEvent
 from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
+from micro_cold_spray.api.data_collection.data_collection_storage import DataCollectionStorage
+from micro_cold_spray.api.data_collection.data_collection_models import SprayEvent
+
+
+def load_config() -> Dict[str, Any]:
+    """Load data collection configuration.
+    
+    Returns:
+        Dict[str, Any]: Configuration dictionary
+    """
+    config_path = os.path.join("config", "data_collection.yaml")
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+        
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
 
 
 class DataCollectionService:
@@ -24,10 +36,13 @@ class DataCollectionService:
         self._version = "1.0.0"  # Will be updated from config
         self._is_running = False
         self._start_time = None
-        self._config = {}
-        self.storage = storage
-        self.collecting = False
-        self.current_sequence = None
+        self._config = None
+        
+        # Initialize components to None
+        self._storage = storage
+        self._collecting = False
+        self._current_sequence = None
+        
         logger.info(f"{self._service_name} service initialized")
 
     @property
@@ -54,23 +69,24 @@ class DataCollectionService:
         """Initialize service."""
         try:
             # Load config first
-            self._config = await self._load_config()
+            self._config = load_config()
             self._version = self._config["service"]["version"]
             
             # Initialize storage if not provided
-            if not self.storage:
+            if not self._storage:
                 db_config = self._config["database"]
                 dsn = f"postgresql://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}"
-                self.storage = DataCollectionStorage(dsn=dsn, pool_config=db_config["pool"])
-                await self.storage.initialize()
+                self._storage = DataCollectionStorage(dsn=dsn, pool_config=db_config["pool"])
+                await self._storage.initialize()
                 
             logger.info(f"{self.service_name} service initialized")
             
         except Exception as e:
-            logger.error(f"Failed to initialize {self.service_name} service: {e}")
+            error_msg = f"Failed to initialize {self.service_name} service: {str(e)}"
+            logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"Failed to initialize {self.service_name} service: {str(e)}"
+                message=error_msg
             )
 
     async def start(self) -> None:
@@ -79,18 +95,27 @@ class DataCollectionService:
             if self.is_running:
                 raise create_error(
                     status_code=status.HTTP_409_CONFLICT,
-                    message="Service already running"
+                    message=f"{self.service_name} service already running"
+                )
+            
+            if not self._storage:
+                raise create_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message=f"{self.service_name} service not initialized"
                 )
 
-            self._start_time = datetime.now()
             self._is_running = True
+            self._start_time = datetime.now()
             logger.info(f"{self.service_name} service started")
 
         except Exception as e:
-            logger.error(f"Failed to start {self.service_name} service: {e}")
+            self._is_running = False
+            self._start_time = None
+            error_msg = f"Failed to start {self.service_name} service: {str(e)}"
+            logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"Failed to start {self.service_name} service: {str(e)}"
+                message=error_msg
             )
 
     async def stop(self) -> None:
@@ -99,50 +124,36 @@ class DataCollectionService:
             if not self.is_running:
                 raise create_error(
                     status_code=status.HTTP_409_CONFLICT,
-                    message="Service not running"
+                    message=f"{self.service_name} service not running"
                 )
 
-            self.collecting = False
-            self.current_sequence = None
             self._is_running = False
             self._start_time = None
             logger.info(f"{self.service_name} service stopped")
-
+            
         except Exception as e:
-            logger.error(f"Failed to stop {self.service_name} service: {e}")
+            error_msg = f"Failed to stop {self.service_name} service: {str(e)}"
+            logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"Failed to stop {self.service_name} service: {str(e)}"
+                message=error_msg
             )
 
     async def health(self) -> ServiceHealth:
-        """Get service health status.
-        
-        Returns:
-            ServiceHealth: Health status
-        """
+        """Get service health status."""
         try:
-            # Check storage health
-            storage_health = await self.storage.check_health() if self.storage else {
-                "status": "error",
-                "error": "Storage not initialized"
-            }
-            
-            # Check collection status
-            collector_status = "ok" if self.is_running else "error"
-            collector_error = None if self.is_running else "Collector not running"
-            if collector_status == "ok" and self.collecting:
-                collector_error = f"Currently collecting for sequence {self.current_sequence}"
+            # Get health from components
+            storage_health = await self._storage.health() if self._storage else None
             
             # Build component statuses
             components = {
                 "storage": ComponentHealth(
-                    status=storage_health["status"],
-                    error=storage_health.get("error")
+                    status="ok" if storage_health and storage_health.status == "ok" else "error",
+                    error=storage_health.error if storage_health else "Component not initialized"
                 ),
                 "collector": ComponentHealth(
-                    status=collector_status,
-                    error=collector_error
+                    status="ok" if self.is_running else "error",
+                    error=None if self.is_running else "Collector not running"
                 )
             }
             
@@ -167,144 +178,50 @@ class DataCollectionService:
                 service=self.service_name,
                 version=self.version,
                 is_running=False,
-                uptime=0.0,
+                uptime=self.uptime,
                 error=error_msg,
-                components={
-                    "storage": ComponentHealth(status="error", error=error_msg),
-                    "collector": ComponentHealth(status="error", error=error_msg)
-                }
-            )
-
-    async def _load_config(self) -> Dict[str, Any]:
-        """Load service configuration.
-        
-        Returns:
-            Dict[str, Any]: Configuration dictionary
-        """
-        try:
-            config_path = os.path.join("config", "data_collection.yaml")
-            if not os.path.exists(config_path):
-                logger.warning(f"Config file not found at {config_path}, using defaults")
-                return {
-                    "service": {
-                        "version": "1.0.0",
-                        "host": "0.0.0.0",
-                        "port": 8006,
-                        "history_retention_days": 30
-                    },
-                    "database": {
-                        "host": "localhost",
-                        "port": 5432,
-                        "user": "postgres",
-                        "password": "dbpassword",
-                        "database": "postgres",
-                        "pool": {
-                            "min_size": 2,
-                            "max_size": 10,
-                            "command_timeout": 60.0
-                        }
-                    }
-                }
-
-            with open(config_path, 'r') as f:
-                return yaml.safe_load(f)
-
-        except Exception as e:
-            logger.error(f"Failed to load config: {e}")
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"Failed to load configuration: {str(e)}"
+                components={name: ComponentHealth(status="error", error=error_msg)
+                            for name in ["storage", "collector"]}
             )
 
     async def start_collection(self, sequence_id: str) -> None:
         """Start data collection for a sequence."""
         try:
-            if not self._is_running:
+            if not self.is_running:
                 raise create_error(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
+                    message=f"{self.service_name} service not running"
                 )
                 
-            self.collecting = True
-            self.current_sequence = sequence_id
+            self._collecting = True
+            self._current_sequence = sequence_id
             logger.info(f"Started data collection for sequence {sequence_id}")
             
         except Exception as e:
-            logger.error(f"Failed to start data collection: {e}")
+            error_msg = f"Failed to start data collection: {str(e)}"
+            logger.error(error_msg)
             raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=f"Failed to start data collection: {str(e)}"
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
             )
 
     async def stop_collection(self) -> None:
         """Stop current data collection."""
         try:
-            if not self._is_running:
+            if not self.is_running:
                 raise create_error(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
+                    message=f"{self.service_name} service not running"
                 )
                 
-            self.collecting = False
-            self.current_sequence = None
+            self._collecting = False
+            self._current_sequence = None
             logger.info("Stopped data collection")
             
         except Exception as e:
-            logger.error(f"Failed to stop data collection: {e}")
+            error_msg = f"Failed to stop data collection: {str(e)}"
+            logger.error(error_msg)
             raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=f"Failed to stop data collection: {str(e)}"
-            )
-
-    async def record_spray_event(self, event: SprayEvent) -> None:
-        """Record a spray event."""
-        try:
-            if not self._is_running:
-                raise create_error(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
-                )
-                
-            if not self.collecting:
-                raise create_error(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    message="Not currently collecting data"
-                )
-                
-            if event.sequence_id != self.current_sequence:
-                raise create_error(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    message="Event sequence ID does not match current collection sequence"
-                )
-                
-            await self.storage.save_spray_event(event)
-            logger.info(f"Recorded spray event for sequence {event.sequence_id}")
-            
-        except Exception as e:
-            logger.error(f"Failed to record spray event: {e}")
-            if isinstance(e, HTTPException):
-                raise
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=f"Failed to record spray event: {str(e)}"
-            )
-
-    async def get_sequence_events(self, sequence_id: str) -> List[SprayEvent]:
-        """Get all events for a sequence."""
-        try:
-            if not self._is_running:
-                raise create_error(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
-                )
-                
-            events = await self.storage.get_spray_events(sequence_id)
-            logger.info(f"Retrieved {len(events)} events for sequence {sequence_id}")
-            return events
-            
-        except Exception as e:
-            logger.error(f"Failed to get sequence events: {e}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=f"Failed to get sequence events: {str(e)}"
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
             )

@@ -145,14 +145,22 @@ class ConfigService:
     async def stop(self) -> None:
         """Stop service."""
         try:
-            logger.info(f"Stopping {self.service_name} service...")
-            
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"{self.service_name} service not running"
+                )
+
             # Stop services in reverse order
-            await self._schema.stop()
-            await self._format.stop()
-            await self._file.stop()
-            
+            if self._schema:
+                await self._schema.stop()
+            if self._format:
+                await self._format.stop()
+            if self._file:
+                await self._file.stop()
+
             self._is_running = False
+            self._start_time = None
             logger.info(f"{self.service_name} service stopped")
             
         except Exception as e:

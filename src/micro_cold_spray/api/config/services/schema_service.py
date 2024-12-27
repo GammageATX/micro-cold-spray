@@ -1,7 +1,8 @@
 """Schema service implementation."""
 
 import os
-from typing import Dict, Any, Optional
+import json
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 from fastapi import status
 from loguru import logger
@@ -13,30 +14,33 @@ from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
 class SchemaService:
     """Schema service."""
 
-    def __init__(self, schema_path: str, version: str = "1.0.0"):
+    def __init__(self, schema_path: str = "config/schemas", version: str = "1.0.0"):
         """Initialize service.
         
         Args:
             schema_path: Path to schema directory
-            version: Service version from config
+            version: Service version
         """
         self._service_name = "schema"
         self._version = version
-        self._schema_path = schema_path
         self._is_running = False
         self._start_time = None
-        self._schemas = {}
-        logger.info(f"{self._service_name} service initialized")
-
-    @property
-    def service_name(self) -> str:
-        """Get service name."""
-        return self._service_name
+        
+        # Initialize components
+        self._schema_path = schema_path
+        self._schemas = None
+        
+        logger.info(f"{self.service_name} service initialized")
 
     @property
     def version(self) -> str:
         """Get service version."""
         return self._version
+
+    @property
+    def service_name(self) -> str:
+        """Get service name."""
+        return self._service_name
 
     @property
     def is_running(self) -> bool:
@@ -45,22 +49,29 @@ class SchemaService:
 
     @property
     def uptime(self) -> float:
-        """Get service uptime."""
+        """Get service uptime in seconds."""
         return (datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0
 
     async def initialize(self) -> None:
         """Initialize service."""
         try:
-            logger.info(f"Initializing {self.service_name} service...")
-            
             # Create schema directory if it doesn't exist
             os.makedirs(self._schema_path, exist_ok=True)
             logger.info(f"Using schema path: {self._schema_path}")
             
-            # Load existing schemas
-            self._schemas = {}  # TODO: Load schemas from files
+            # Load schemas from files
+            self._schemas = {}
+            for filename in os.listdir(self._schema_path):
+                if filename.endswith(('.json', '.yaml', '.yml')):
+                    schema_name = os.path.splitext(filename)[0]
+                    schema_path = os.path.join(self._schema_path, filename)
+                    try:
+                        with open(schema_path, 'r') as f:
+                            self._schemas[schema_name] = json.load(f)
+                    except Exception as e:
+                        logger.error(f"Failed to load schema {schema_name}: {e}")
             
-            logger.info(f"{self.service_name} service initialized")
+            logger.info(f"Loaded {len(self._schemas)} schemas")
             
         except Exception as e:
             error_msg = f"Failed to initialize {self.service_name} service: {str(e)}"
@@ -73,13 +84,25 @@ class SchemaService:
     async def start(self) -> None:
         """Start service."""
         try:
-            logger.info(f"Starting {self.service_name} service...")
+            if self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"{self.service_name} service already running"
+                )
+
+            if not self._schema_path or self._schemas is None:
+                raise create_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message=f"{self.service_name} service not initialized"
+                )
+            
             self._is_running = True
             self._start_time = datetime.now()
             logger.info(f"{self.service_name} service started")
             
         except Exception as e:
             self._is_running = False
+            self._start_time = None
             error_msg = f"Failed to start {self.service_name} service: {str(e)}"
             logger.error(error_msg)
             raise create_error(
@@ -90,8 +113,14 @@ class SchemaService:
     async def stop(self) -> None:
         """Stop service."""
         try:
-            logger.info(f"Stopping {self.service_name} service...")
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"{self.service_name} service not running"
+                )
+
             self._is_running = False
+            self._start_time = None
             logger.info(f"{self.service_name} service stopped")
             
         except Exception as e:
@@ -105,9 +134,10 @@ class SchemaService:
     async def health(self) -> ServiceHealth:
         """Get service health status."""
         try:
-            # Check if schema directory exists and is writable
-            path_exists = os.path.exists(self._schema_path)
+            # Check component health
+            path_exists = os.path.exists(self._schema_path) if self._schema_path else False
             path_writable = os.access(self._schema_path, os.W_OK) if path_exists else False
+            schemas_loaded = self._schemas is not None and len(self._schemas) > 0
             
             # Build component status
             components = {
@@ -116,8 +146,8 @@ class SchemaService:
                     error=None if path_exists and path_writable else "Schema directory not accessible"
                 ),
                 "schemas": ComponentHealth(
-                    status="ok" if self._schemas else "error",
-                    error=None if self._schemas else "No schemas loaded"
+                    status="ok" if schemas_loaded else "error",
+                    error=None if schemas_loaded else "No schemas loaded"
                 )
             }
             
@@ -144,14 +174,24 @@ class SchemaService:
                 is_running=False,
                 uptime=self.uptime,
                 error=error_msg,
-                components={
-                    "schema_dir": ComponentHealth(
-                        status="error",
-                        error=error_msg
-                    ),
-                    "schemas": ComponentHealth(
-                        status="error",
-                        error=error_msg
-                    )
-                }
+                components={"error": ComponentHealth(status="error", error=error_msg)}
             )
+
+    def get_schema(self, name: str) -> Optional[Dict[str, Any]]:
+        """Get schema by name.
+        
+        Args:
+            name: Schema name
+            
+        Returns:
+            Schema definition or None if not found
+        """
+        return self._schemas.get(name)
+
+    def get_schema_names(self) -> List[str]:
+        """Get list of available schema names.
+        
+        Returns:
+            List of schema names
+        """
+        return list(self._schemas.keys()) if self._schemas else []

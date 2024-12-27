@@ -1,16 +1,21 @@
-"""Base validation functions."""
+"""Base validation utilities."""
 
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Union, Optional
 from datetime import datetime
+from loguru import logger
 
 
-def check_required_fields(data: Dict[str, Any], required_fields: List[str], message: str) -> List[str]:
+def check_required_fields(
+    data: Dict[str, Any],
+    required_fields: List[str],
+    message: str = "Missing required field"
+) -> List[str]:
     """Check if required fields are present.
     
     Args:
         data: Data to check
         required_fields: List of required field names
-        message: Error message to use
+        message: Error message prefix
         
     Returns:
         List of error messages
@@ -18,17 +23,21 @@ def check_required_fields(data: Dict[str, Any], required_fields: List[str], mess
     errors = []
     for field in required_fields:
         if field not in data:
-            errors.append(f"{message} Missing required field: {field}")
+            errors.append(f"{message}: {field}")
     return errors
 
 
-def check_unknown_fields(data: Dict[str, Any], allowed_fields: List[str], message: str) -> List[str]:
+def check_unknown_fields(
+    data: Dict[str, Any],
+    allowed_fields: List[str],
+    message: str = "Unknown field"
+) -> List[str]:
     """Check for unknown fields.
     
     Args:
         data: Data to check
         allowed_fields: List of allowed field names
-        message: Warning message to use
+        message: Warning message prefix
         
     Returns:
         List of warning messages
@@ -36,14 +45,14 @@ def check_unknown_fields(data: Dict[str, Any], allowed_fields: List[str], messag
     warnings = []
     for field in data:
         if field not in allowed_fields:
-            warnings.append(f"{message} Unknown field: {field}")
+            warnings.append(f"{message}: {field}")
     return warnings
 
 
 def check_numeric_range(
     value: Union[int, float],
-    min_val: Union[int, float, None] = None,
-    max_val: Union[int, float, None] = None,
+    min_val: Optional[Union[int, float]] = None,
+    max_val: Optional[Union[int, float]] = None,
     field_name: str = ""
 ) -> str:
     """Check if numeric value is within range.
@@ -67,7 +76,11 @@ def check_numeric_range(
         return f"{field_name} must be a number"
 
 
-def check_enum_value(value: Any, allowed_values: List[Any], field_name: str = "") -> str:
+def check_enum_value(
+    value: Any,
+    allowed_values: List[Any],
+    field_name: str = ""
+) -> str:
     """Check if value is in allowed values.
     
     Args:
@@ -102,3 +115,19 @@ def check_timestamp(value: Any) -> str:
         return ""
     except Exception:
         return "Invalid timestamp format"
+
+
+def get_validation_rules(config: Dict[str, Any], *path: str) -> Dict[str, Any]:
+    """Get validation rules from config.
+    
+    Args:
+        config: Configuration dictionary
+        *path: Path to rules in config
+        
+    Returns:
+        Validation rules dictionary
+    """
+    rules = config.get("validation", {})
+    for key in path:
+        rules = rules.get(key, {})
+    return rules

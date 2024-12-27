@@ -1,4 +1,4 @@
-"""Pattern validator."""
+"""Pattern validator implementation."""
 
 from typing import Dict, Any, List
 from loguru import logger
@@ -9,7 +9,8 @@ from micro_cold_spray.api.validation.validators.base_validator import (
     check_required_fields,
     check_unknown_fields,
     check_numeric_range,
-    check_enum_value
+    check_enum_value,
+    get_validation_rules
 )
 
 
@@ -42,7 +43,7 @@ class PatternValidator:
             warnings = []
             
             # Get pattern rules
-            pattern_rules = self._rules.get("validation", {}).get("patterns", {}).get(pattern_type, {})
+            pattern_rules = get_validation_rules(self._rules, "patterns", pattern_type)
             if not pattern_rules:
                 logger.warning(f"No validation rules found for pattern type: {pattern_type}")
                 return {

@@ -13,19 +13,20 @@ class FormatService:
     """Format service."""
 
     def __init__(self, enabled_formats: List[str], version: str = "1.0.0"):
-        """Initialize service.
-        
-        Args:
-            enabled_formats: List of enabled format types
-            version: Service version from config
-        """
+        """Initialize service."""
         self._service_name = "format"
         self._version = version
-        self._enabled_formats = enabled_formats
         self._is_running = False
         self._start_time = None
-        self._formatters = {}
-        logger.info(f"{self._service_name} service initialized")
+        
+        # Initialize components to None
+        self._enabled_formats = None
+        self._formatters = None
+        
+        # Store constructor args for initialization
+        self._init_enabled_formats = enabled_formats
+        
+        logger.info(f"{self.service_name} service initialized")
 
     @property
     def service_name(self) -> str:
@@ -44,13 +45,20 @@ class FormatService:
 
     @property
     def uptime(self) -> float:
-        """Get service uptime."""
+        """Get service uptime in seconds."""
         return (datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0
 
     async def initialize(self) -> None:
         """Initialize service."""
         try:
-            logger.info(f"Initializing {self.service_name} service...")
+            if self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"{self.service_name} service already running"
+                )
+            
+            # Initialize enabled formats
+            self._enabled_formats = self._init_enabled_formats
             
             # Initialize formatters for enabled formats
             self._formatters = {fmt: {} for fmt in self._enabled_formats}
@@ -69,13 +77,25 @@ class FormatService:
     async def start(self) -> None:
         """Start service."""
         try:
-            logger.info(f"Starting {self.service_name} service...")
+            if self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"{self.service_name} service already running"
+                )
+
+            if not self._enabled_formats or not self._formatters:
+                raise create_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message=f"{self.service_name} service not initialized"
+                )
+            
             self._is_running = True
             self._start_time = datetime.now()
             logger.info(f"{self.service_name} service started")
             
         except Exception as e:
             self._is_running = False
+            self._start_time = None
             error_msg = f"Failed to start {self.service_name} service: {str(e)}"
             logger.error(error_msg)
             raise create_error(
@@ -86,8 +106,14 @@ class FormatService:
     async def stop(self) -> None:
         """Stop service."""
         try:
-            logger.info(f"Stopping {self.service_name} service...")
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"{self.service_name} service not running"
+                )
+
             self._is_running = False
+            self._start_time = None
             logger.info(f"{self.service_name} service stopped")
             
         except Exception as e:
@@ -101,9 +127,9 @@ class FormatService:
     async def health(self) -> ServiceHealth:
         """Get service health status."""
         try:
-            # Check if formatters are loaded for each enabled format
+            # Check component health
             components = {}
-            for fmt in self._enabled_formats:
+            for fmt in self._enabled_formats or []:
                 components[fmt] = ComponentHealth(
                     status="ok" if fmt in self._formatters else "error",
                     error=None if fmt in self._formatters else f"Formatter not loaded for {fmt}"
@@ -118,7 +144,7 @@ class FormatService:
                 version=self.version,
                 is_running=self.is_running,
                 uptime=self.uptime,
-                error=None if overall_status == "ok" else "One or more formatters not loaded",
+                error=None if overall_status == "ok" else "One or more components in error state",
                 components=components
             )
             
@@ -132,5 +158,6 @@ class FormatService:
                 is_running=False,
                 uptime=self.uptime,
                 error=error_msg,
-                components={}
+                components={name: ComponentHealth(status="error", error=error_msg)
+                            for name in self._enabled_formats or []}
             )

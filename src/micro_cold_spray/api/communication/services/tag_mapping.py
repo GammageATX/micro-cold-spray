@@ -1,14 +1,28 @@
-"""Service for mapping between internal tag names and PLC tags."""
+"""Tag mapping service implementation."""
 
-from pathlib import Path
+import os
+import yaml
 from typing import Dict, Any, Optional
 from datetime import datetime
-import yaml
 from fastapi import status
 from loguru import logger
 
 from micro_cold_spray.utils.errors import create_error
-from micro_cold_spray.utils.health import get_uptime, ServiceHealth
+from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
+
+
+def load_config() -> Dict[str, Any]:
+    """Load tag mapping configuration.
+    
+    Returns:
+        Dict[str, Any]: Configuration dictionary
+    """
+    config_path = os.path.join("config", "tags.yaml")
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+        
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
 
 
 class TagMappingService:
@@ -22,11 +36,17 @@ class TagMappingService:
         """
         self._service_name = "tag_mapping"
         self._version = config["communication"]["services"]["tag_mapping"]["version"]
-        self._config = config
-        self._tag_map: Dict[str, Dict[str, Any]] = {}
         self._is_running = False
         self._start_time = None
+        self._config = config
+        self._tag_map: Dict[str, Dict[str, Any]] = {}
+        
         logger.info(f"{self._service_name} service initialized")
+
+    @property
+    def service_name(self) -> str:
+        """Get service name."""
+        return self._service_name
 
     @property
     def version(self) -> str:
@@ -35,86 +55,77 @@ class TagMappingService:
 
     @property
     def is_running(self) -> bool:
-        """Check if service is running."""
+        """Get service running state."""
         return self._is_running
 
     @property
     def uptime(self) -> float:
         """Get service uptime in seconds."""
-        return get_uptime(self._start_time)
+        return (datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0
 
     def _load_config(self) -> None:
-        """Load tag configuration from YAML file."""
+        """Load tag mapping configuration."""
         try:
-            # Load and parse YAML file
-            config_path = Path(self._config["communication"]["services"]["tag_mapping"]["config_file"])
-            if not config_path.exists():
-                raise FileNotFoundError(f"Tag config not found: {config_path}")
-
-            logger.debug(f"Loading tag config from {config_path}")
-            with open(config_path) as f:
+            # Load tag configuration from YAML file
+            config_path = os.path.join("config", "tags.yaml")
+            if not os.path.exists(config_path):
+                raise FileNotFoundError(f"Tag configuration file not found: {config_path}")
+                
+            with open(config_path, "r") as f:
                 tag_config = yaml.safe_load(f)
-                if not isinstance(tag_config, dict):
-                    raise ValueError(f"Invalid tag config format - expected dict, got {type(tag_config)}")
-
-            # Process tag groups recursively
-            def process_group(group: Dict[str, Any], prefix: str = "") -> None:
-                for name, data in group.items():
-                    if isinstance(data, dict):
-                        full_path = f"{prefix}{name}" if prefix else name
-                        if "plc_tag" in data or data.get("internal", False):
-                            # This is a tag definition
-                            self._tag_map[full_path] = data
-                            logger.debug(f"Added tag definition: {full_path} -> {data}")
-                        else:
-                            # This is a nested group
-                            new_prefix = f"{full_path}." if full_path else f"{name}."
-                            logger.debug(f"Processing group: {new_prefix}")
-                            process_group(data, new_prefix)
-
-            # Start with top level groups
-            if "tag_groups" in tag_config:
-                logger.debug("Processing tag groups...")
-                process_group(tag_config["tag_groups"])
-            else:
-                # No groups - process top level directly
-                logger.debug("Processing top level tags...")
-                process_group(tag_config)
-
-            # Log loaded mappings for debugging
-            for internal_name, tag_info in self._tag_map.items():
-                if "plc_tag" in tag_info:
-                    logger.debug(f"Loaded tag mapping: {internal_name} -> {tag_info['plc_tag']}")
-
-            logger.info(f"Loaded {len(self._tag_map)} tag definitions")
-
+            
+            # Process tag mappings from hierarchical structure
+            self._tag_map.clear()
+            for group_name, group_tags in tag_config.get("tag_groups", {}).items():
+                self._process_tag_group(group_name, group_tags)
+                
+            logger.info(f"Loaded {len(self._tag_map)} tag mappings")
+            
         except Exception as e:
-            error_msg = f"Failed to load tag config: {str(e)}"
+            error_msg = f"Failed to load tag configuration: {str(e)}"
             logger.error(error_msg)
             raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg
             )
+            
+    def _process_tag_group(self, group_prefix: str, group_data: Dict[str, Any]) -> None:
+        """Process a group of tags recursively.
+        
+        Args:
+            group_prefix: Prefix for tag names in this group
+            group_data: Group configuration data
+        """
+        for tag_name, tag_data in group_data.items():
+            # If tag_data is a dict but doesn't have a type field, it's a subgroup
+            if isinstance(tag_data, dict) and "type" not in tag_data:
+                self._process_tag_group(f"{group_prefix}.{tag_name}", tag_data)
+            else:
+                # It's a tag definition
+                full_tag_name = f"{group_prefix}.{tag_name}"
+                self._tag_map[full_tag_name] = {
+                    "type": tag_data.get("type", "unknown"),
+                    "access": tag_data.get("access", "read"),
+                    "mapped": tag_data.get("mapped", False),
+                    "plc_tag": tag_data.get("plc_tag"),
+                    "description": tag_data.get("description", "")
+                }
 
     async def initialize(self) -> None:
-        """Initialize tag mapping service.
-        
-        Raises:
-            HTTPException: If initialization fails
-        """
+        """Initialize service."""
         try:
             if self.is_running:
                 raise create_error(
                     status_code=status.HTTP_409_CONFLICT,
-                    message="Service already running"
+                    message=f"{self.service_name} service already running"
                 )
 
             # Load tag configuration
             self._load_config()
-            logger.info(f"{self._service_name} service initialized")
+            logger.info(f"{self.service_name} service initialized")
 
         except Exception as e:
-            error_msg = f"Failed to initialize {self._service_name} service: {str(e)}"
+            error_msg = f"Failed to initialize {self.service_name} service: {str(e)}"
             logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -122,27 +133,28 @@ class TagMappingService:
             )
 
     async def start(self) -> None:
-        """Start tag mapping service.
-        
-        Raises:
-            HTTPException: If startup fails
-        """
+        """Start service."""
         try:
             if self.is_running:
                 raise create_error(
                     status_code=status.HTTP_409_CONFLICT,
-                    message="Service already running"
+                    message=f"{self.service_name} service already running"
                 )
 
             if not self._tag_map:
-                await self.initialize()
+                raise create_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message=f"{self.service_name} service not initialized"
+                )
 
             self._is_running = True
             self._start_time = datetime.now()
-            logger.info(f"{self._service_name} service started")
+            logger.info(f"{self.service_name} service started")
 
         except Exception as e:
-            error_msg = f"Failed to start {self._service_name} service: {str(e)}"
+            self._is_running = False
+            self._start_time = None
+            error_msg = f"Failed to start {self.service_name} service: {str(e)}"
             logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -150,33 +162,78 @@ class TagMappingService:
             )
 
     async def stop(self) -> None:
-        """Stop tag mapping service."""
+        """Stop service."""
         try:
             if not self.is_running:
-                return
-
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"{self.service_name} service not running"
+                )
+            
+            # 1. Clear tag mappings
             self._tag_map.clear()
+            
+            # 2. Reset service state
             self._is_running = False
             self._start_time = None
-            logger.info(f"{self._service_name} service stopped")
-
+            
+            logger.info(f"{self.service_name} service stopped")
+            
         except Exception as e:
-            error_msg = f"Failed to stop {self._service_name} service: {str(e)}"
+            error_msg = f"Failed to stop {self.service_name} service: {str(e)}"
             logger.error(error_msg)
-            # Don't raise during shutdown
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
+
+    async def health(self) -> ServiceHealth:
+        """Get service health status."""
+        try:
+            # Check tag mapping status
+            mapping_ok = len(self._tag_map) > 0
+            
+            # Build component statuses
+            components = {
+                "mapping": ComponentHealth(
+                    status="ok" if mapping_ok else "error",
+                    error=None if mapping_ok else "No tag mappings loaded"
+                )
+            }
+            
+            # Overall status is error if any component is in error
+            overall_status = "error" if any(c.status == "error" for c in components.values()) else "ok"
+            
+            return ServiceHealth(
+                status=overall_status,
+                service=self.service_name,
+                version=self.version,
+                is_running=self.is_running,
+                uptime=self.uptime,
+                error=None if overall_status == "ok" else "One or more components in error state",
+                components=components
+            )
+            
+        except Exception as e:
+            error_msg = f"Health check failed: {str(e)}"
+            logger.error(error_msg)
+            return ServiceHealth(
+                status="error",
+                service=self.service_name,
+                version=self.version,
+                is_running=False,
+                uptime=self.uptime,
+                error=error_msg,
+                components={"mapping": ComponentHealth(status="error", error=error_msg)}
+            )
 
     def get_plc_tag(self, internal_tag: str) -> Optional[str]:
-        """Get PLC tag name for internal tag.
-        
-        Args:
-            internal_tag: Internal tag name
-            
-        Returns:
-            PLC tag name if mapped, None if internal only
-        """
+        """Get PLC tag name for internal tag."""
         if not self.is_running:
-            logger.error("Tag mapping service not running")
-            return None
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=f"{self.service_name} service not running"
+            )
 
         logger.debug(f"Looking up PLC tag for {internal_tag}")
         if internal_tag not in self._tag_map:
@@ -197,17 +254,12 @@ class TagMappingService:
         return plc_tag
 
     def get_internal_tag(self, plc_tag: str) -> Optional[str]:
-        """Get internal tag name for PLC tag.
-        
-        Args:
-            plc_tag: PLC tag name
-            
-        Returns:
-            Internal tag name if mapped, None if not found
-        """
+        """Get internal tag name for PLC tag."""
         if not self.is_running:
-            logger.error("Tag mapping service not running")
-            return None
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=f"{self.service_name} service not running"
+            )
 
         # Search for PLC tag in mappings
         for internal_name, tag_info in self._tag_map.items():
@@ -218,50 +270,38 @@ class TagMappingService:
         return None
 
     def get_tag_type(self, internal_tag: str) -> Optional[str]:
-        """Get tag type.
-        
-        Args:
-            internal_tag: Internal tag name
-            
-        Returns:
-            Tag type if defined, None if not found
-        """
+        """Get tag type."""
+        if not self.is_running:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=f"{self.service_name} service not running"
+            )
+
         if internal_tag not in self._tag_map:
             return None
             
         return self._tag_map[internal_tag].get("type")
 
     def get_tag_access(self, internal_tag: str) -> Optional[str]:
-        """Get tag access mode.
-        
-        Args:
-            internal_tag: Internal tag name
-            
-        Returns:
-            Access mode if defined, None if not found
-        """
+        """Get tag access mode."""
+        if not self.is_running:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=f"{self.service_name} service not running"
+            )
+
         if internal_tag not in self._tag_map:
             return None
             
         return self._tag_map[internal_tag].get("access")
 
     def get_tag_info(self, internal_name: str) -> Dict[str, Any]:
-        """Get all tag information.
-        
-        Args:
-            internal_name: Internal tag name
-            
-        Returns:
-            Tag information dictionary
-            
-        Raises:
-            HTTPException: If tag not found
-        """
+        """Get all tag information."""
         try:
             if not self.is_running:
                 raise create_error(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
+                    message=f"{self.service_name} service not running"
                 )
 
             if internal_name not in self._tag_map:
@@ -273,55 +313,9 @@ class TagMappingService:
             return self._tag_map[internal_name]
 
         except Exception as e:
-            error_msg = f"Failed to get tag info for {internal_name}"
-            logger.error(f"{error_msg}: {str(e)}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg
-            )
-
-    async def health(self) -> ServiceHealth:
-        """Get service health status.
-        
-        Returns:
-            ServiceHealth: Health status
-        """
-        try:
-            # Check tag mapping status
-            mapping_ok = len(self._tag_map) > 0
-            
-            # Build component statuses
-            components = {
-                "mapping": {
-                    "status": "ok" if mapping_ok else "error",
-                    "error": None if mapping_ok else "No tag mappings loaded"
-                }
-            }
-            
-            # Overall status is error if any component is in error
-            overall_status = "error" if any(c["status"] == "error" for c in components.values()) else "ok"
-            
-            return ServiceHealth(
-                status=overall_status,
-                service=self._service_name,
-                version=self.version,
-                is_running=self.is_running,
-                uptime=self.uptime,
-                error=None if overall_status == "ok" else "One or more components in error state",
-                components=components
-            )
-            
-        except Exception as e:
-            error_msg = f"Health check failed: {str(e)}"
+            error_msg = f"Failed to get tag info for {internal_name}: {str(e)}"
             logger.error(error_msg)
-            return ServiceHealth(
-                status="error",
-                service=self._service_name,
-                version=self.version,
-                is_running=False,
-                uptime=0.0,
-                error=error_msg,
-                components={
-                    "mapping": {"status": "error", "error": error_msg}
-                }
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
             )

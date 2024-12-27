@@ -12,6 +12,35 @@ from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.utils.health import ServiceHealth
 from micro_cold_spray.api.process.process_service import ProcessService
 from micro_cold_spray.api.process.endpoints.process_endpoints import create_process_router
+from micro_cold_spray.api.process.models.process_models import (
+    ProcessPattern,
+    ParameterSet,
+    SequenceMetadata,
+    SequenceStep,
+    Sequence
+)
+
+
+async def load_real_data(service: ProcessService) -> None:
+    """Load real data from data directory.
+    
+    Args:
+        service: Process service instance
+    """
+    # Scan for available patterns
+    patterns_dir = os.path.join("data", "patterns")
+    pattern_files = [f for f in os.listdir(patterns_dir) if f.endswith(".yaml")]
+    logger.info(f"Found {len(pattern_files)} pattern files")
+
+    # Scan for available parameter sets
+    params_dir = os.path.join("data", "parameters")
+    param_files = [f for f in os.listdir(params_dir) if f.endswith(".yaml") and not os.path.isdir(os.path.join(params_dir, f))]
+    logger.info(f"Found {len(param_files)} parameter set files")
+
+    # Scan for available sequences
+    sequences_dir = os.path.join("data", "sequences")
+    sequence_files = [f for f in os.listdir(sequences_dir) if f.endswith(".yaml")]
+    logger.info(f"Found {len(sequence_files)} sequence files")
 
 
 def load_config() -> Dict[str, Any]:
@@ -68,6 +97,9 @@ def create_app() -> FastAPI:
             
             # Initialize service first
             await app.state.process_service.initialize()
+            
+            # Load real data from data directory
+            await load_real_data(app.state.process_service)
             
             # Then start the service
             await app.state.process_service.start()

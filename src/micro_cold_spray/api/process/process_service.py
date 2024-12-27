@@ -1,13 +1,14 @@
 """Process service implementation."""
 
 import os
-import time
 import yaml
 from typing import Dict, Any, List, Optional
+from datetime import datetime
+from fastapi import status
 from loguru import logger
 
 from micro_cold_spray.utils.errors import create_error
-from micro_cold_spray.utils.health import ServiceHealth
+from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
 from micro_cold_spray.api.process.models.process_models import (
     ExecutionStatus,
     ActionStatus,
@@ -40,30 +41,29 @@ class ProcessService:
 
     def __init__(self):
         """Initialize process service."""
-        # Load config
-        config = load_config()
-        process_config = config.get("process", {})
-        
-        self._start_time = time.time()
-        self._is_running = False
-        self._version = process_config.get("version", "1.0.0")
         self._service_name = "process"
-
-        # Initialize sub-services
-        self._action = ActionService()
-        self._parameter = ParameterService()
-        self._pattern = PatternService()
-        self._sequence = SequenceService()
-
-    @property
-    def version(self) -> str:
-        """Get service version."""
-        return self._version
+        self._version = "1.0.0"  # Will be updated from config
+        self._is_running = False
+        self._start_time = None
+        self._config = None
+        
+        # Initialize component services to None
+        self._action = None
+        self._parameter = None
+        self._pattern = None
+        self._sequence = None
+        
+        logger.info(f"{self._service_name} service initialized")
 
     @property
     def service_name(self) -> str:
         """Get service name."""
         return self._service_name
+
+    @property
+    def version(self) -> str:
+        """Get service version."""
+        return self._version
 
     @property
     def is_running(self) -> bool:
@@ -73,122 +73,147 @@ class ProcessService:
     @property
     def uptime(self) -> float:
         """Get service uptime in seconds."""
-        return time.time() - self._start_time
+        return (datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0
 
     async def initialize(self) -> None:
-        """Initialize service and sub-services.
-        
-        Raises:
-            Exception: If initialization fails
-        """
+        """Initialize service."""
         try:
-            logger.info("Initializing process service...")
+            # Load config
+            self._config = load_config()
+            self._version = self._config.get("process", {}).get("version", self._version)
             
-            # Initialize sub-services
-            await self._action.initialize()
+            # Create component services in dependency order
+            self._parameter = ParameterService()  # No dependencies
+            self._pattern = PatternService()      # No dependencies
+            self._action = ActionService()        # Depends on parameter and pattern
+            self._sequence = SequenceService()    # Depends on all others
+            
+            # Initialize component services in dependency order
             await self._parameter.initialize()
             await self._pattern.initialize()
+            await self._action.initialize()
             await self._sequence.initialize()
             
-            logger.info("Process service initialized")
+            logger.info(f"{self.service_name} service initialized")
             
         except Exception as e:
-            error_msg = f"Failed to initialize process service: {str(e)}"
+            error_msg = f"Failed to initialize {self.service_name} service: {str(e)}"
             logger.error(error_msg)
-            raise Exception(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
 
     async def start(self) -> None:
-        """Start service and sub-services.
-        
-        Raises:
-            Exception: If start fails
-        """
+        """Start service."""
         try:
-            logger.info("Starting process service...")
+            if self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"{self.service_name} service already running"
+                )
             
-            # Start sub-services
-            await self._action.start()
+            if not all([self._action, self._parameter, self._pattern, self._sequence]):
+                raise create_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message=f"{self.service_name} service not initialized"
+                )
+            
+            # Start component services in dependency order
             await self._parameter.start()
             await self._pattern.start()
+            await self._action.start()
             await self._sequence.start()
             
             self._is_running = True
-            logger.info("Process service started")
+            self._start_time = datetime.now()
+            logger.info(f"{self.service_name} service started")
             
         except Exception as e:
-            error_msg = f"Failed to start process service: {str(e)}"
+            self._is_running = False
+            self._start_time = None
+            error_msg = f"Failed to start {self.service_name} service: {str(e)}"
             logger.error(error_msg)
-            raise Exception(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
 
     async def stop(self) -> None:
-        """Stop service and sub-services.
-        
-        Raises:
-            Exception: If stop fails
-        """
+        """Stop service."""
         try:
-            logger.info("Stopping process service...")
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"{self.service_name} service not running"
+                )
             
-            # Stop sub-services
-            await self._action.stop()
-            await self._parameter.stop()
-            await self._pattern.stop()
+            # 1. Stop component services in reverse dependency order
             await self._sequence.stop()
+            await self._action.stop()
+            await self._pattern.stop()
+            await self._parameter.stop()
             
+            # 2. Clear service references
+            self._sequence = None
+            self._action = None
+            self._pattern = None
+            self._parameter = None
+            
+            # 3. Reset service state
             self._is_running = False
-            logger.info("Process service stopped")
+            self._start_time = None
+            
+            logger.info(f"{self.service_name} service stopped")
             
         except Exception as e:
-            error_msg = f"Failed to stop process service: {str(e)}"
+            error_msg = f"Failed to stop {self.service_name} service: {str(e)}"
             logger.error(error_msg)
-            raise Exception(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
 
     async def health(self) -> ServiceHealth:
-        """Get service health status.
-        
-        Returns:
-            ServiceHealth: Service health status
-        """
+        """Get service health status."""
         try:
-            # Get sub-service health
-            action_health = await self._action.health()
-            parameter_health = await self._parameter.health()
-            pattern_health = await self._pattern.health()
-            sequence_health = await self._sequence.health()
-
-            # Determine overall status
-            status = "healthy"
-            error = None
+            # Get health from components
+            parameter_health = await self._parameter.health() if self._parameter else None
+            pattern_health = await self._pattern.health() if self._pattern else None
+            action_health = await self._action.health() if self._action else None
+            sequence_health = await self._sequence.health() if self._sequence else None
             
-            if not all(h.status == "healthy" for h in [action_health, parameter_health, pattern_health, sequence_health]):
-                status = "degraded"
-                error = "One or more components are unhealthy"
-
+            # Build component statuses
+            components = {
+                "parameter": ComponentHealth(
+                    status="ok" if parameter_health and parameter_health.status == "ok" else "error",
+                    error=parameter_health.error if parameter_health else "Component not initialized"
+                ),
+                "pattern": ComponentHealth(
+                    status="ok" if pattern_health and pattern_health.status == "ok" else "error",
+                    error=pattern_health.error if pattern_health else "Component not initialized"
+                ),
+                "action": ComponentHealth(
+                    status="ok" if action_health and action_health.status == "ok" else "error",
+                    error=action_health.error if action_health else "Component not initialized"
+                ),
+                "sequence": ComponentHealth(
+                    status="ok" if sequence_health and sequence_health.status == "ok" else "error",
+                    error=sequence_health.error if sequence_health else "Component not initialized"
+                )
+            }
+            
+            # Overall status is error if any component is in error
+            overall_status = "error" if any(c.status == "error" for c in components.values()) else "ok"
+            
             return ServiceHealth(
-                status=status,
+                status=overall_status,
                 service=self.service_name,
                 version=self.version,
                 is_running=self.is_running,
                 uptime=self.uptime,
-                error=error,
-                components={
-                    "action": {
-                        "status": action_health.status,
-                        "error": action_health.error
-                    },
-                    "parameter": {
-                        "status": parameter_health.status,
-                        "error": parameter_health.error
-                    },
-                    "pattern": {
-                        "status": pattern_health.status,
-                        "error": pattern_health.error
-                    },
-                    "sequence": {
-                        "status": sequence_health.status,
-                        "error": sequence_health.error
-                    }
-                }
+                error=None if overall_status == "ok" else "One or more components in error state",
+                components=components
             )
             
         except Exception as e:
@@ -201,12 +226,8 @@ class ProcessService:
                 is_running=False,
                 uptime=self.uptime,
                 error=error_msg,
-                components={
-                    "action": {"status": "error", "error": error_msg},
-                    "parameter": {"status": "error", "error": error_msg},
-                    "pattern": {"status": "error", "error": error_msg},
-                    "sequence": {"status": "error", "error": error_msg}
-                }
+                components={name: ComponentHealth(status="error", error=error_msg)
+                            for name in ["parameter", "pattern", "action", "sequence"]}
             )
 
     async def list_sequences(self) -> List[SequenceMetadata]:

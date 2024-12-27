@@ -1,9 +1,7 @@
 """Validation router."""
 
-from datetime import datetime
-from typing import Dict, Any, Optional
-from fastapi import APIRouter, status
-from pydantic import BaseModel, Field
+from typing import Dict, Any
+from fastapi import APIRouter, Depends, status
 from loguru import logger
 
 from micro_cold_spray.utils.errors import create_error
@@ -15,15 +13,26 @@ router = APIRouter(
     tags=["validation"]
 )
 
-validation_service = ValidationService()
+
+async def get_service() -> ValidationService:
+    """Get validation service instance.
+    
+    Returns:
+        ValidationService: Validation service instance
+    """
+    return router.state.service
 
 
 @router.post("/hardware")
-async def validate_hardware(data: Dict[str, Any]) -> Dict[str, Any]:
+async def validate_hardware(
+    data: Dict[str, Any],
+    service: ValidationService = Depends(get_service)
+) -> Dict[str, Any]:
     """Validate hardware configuration.
     
     Args:
         data: Hardware configuration to validate
+        service: Validation service instance
         
     Returns:
         Dict containing:
@@ -32,7 +41,7 @@ async def validate_hardware(data: Dict[str, Any]) -> Dict[str, Any]:
             - warnings: List of warning messages
     """
     try:
-        return await validation_service.validate_hardware(data)
+        return await service.validate_hardware(data)
     except Exception as e:
         logger.error(f"Hardware validation failed: {e}")
         raise create_error(
@@ -42,12 +51,17 @@ async def validate_hardware(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @router.post("/parameter/{parameter_type}")
-async def validate_parameter(parameter_type: str, data: Dict[str, Any]) -> Dict[str, Any]:
+async def validate_parameter(
+    parameter_type: str,
+    data: Dict[str, Any],
+    service: ValidationService = Depends(get_service)
+) -> Dict[str, Any]:
     """Validate parameter configuration.
     
     Args:
         parameter_type: Type of parameter to validate
         data: Parameter configuration to validate
+        service: Validation service instance
         
     Returns:
         Dict containing:
@@ -56,7 +70,7 @@ async def validate_parameter(parameter_type: str, data: Dict[str, Any]) -> Dict[
             - warnings: List of warning messages
     """
     try:
-        return await validation_service.validate_parameter(parameter_type, data)
+        return await service.validate_parameter(parameter_type, data)
     except Exception as e:
         logger.error(f"Parameter validation failed: {e}")
         raise create_error(
@@ -66,12 +80,17 @@ async def validate_parameter(parameter_type: str, data: Dict[str, Any]) -> Dict[
 
 
 @router.post("/pattern/{pattern_type}")
-async def validate_pattern(pattern_type: str, data: Dict[str, Any]) -> Dict[str, Any]:
+async def validate_pattern(
+    pattern_type: str,
+    data: Dict[str, Any],
+    service: ValidationService = Depends(get_service)
+) -> Dict[str, Any]:
     """Validate pattern configuration.
     
     Args:
         pattern_type: Type of pattern to validate
         data: Pattern configuration to validate
+        service: Validation service instance
         
     Returns:
         Dict containing:
@@ -80,7 +99,7 @@ async def validate_pattern(pattern_type: str, data: Dict[str, Any]) -> Dict[str,
             - warnings: List of warning messages
     """
     try:
-        return await validation_service.validate_pattern(pattern_type, data)
+        return await service.validate_pattern(pattern_type, data)
     except Exception as e:
         logger.error(f"Pattern validation failed: {e}")
         raise create_error(
@@ -90,11 +109,15 @@ async def validate_pattern(pattern_type: str, data: Dict[str, Any]) -> Dict[str,
 
 
 @router.post("/sequence")
-async def validate_sequence(data: Dict[str, Any]) -> Dict[str, Any]:
+async def validate_sequence(
+    data: Dict[str, Any],
+    service: ValidationService = Depends(get_service)
+) -> Dict[str, Any]:
     """Validate sequence configuration.
     
     Args:
         data: Sequence configuration to validate
+        service: Validation service instance
         
     Returns:
         Dict containing:
@@ -103,7 +126,7 @@ async def validate_sequence(data: Dict[str, Any]) -> Dict[str, Any]:
             - warnings: List of warning messages
     """
     try:
-        return await validation_service.validate_sequence(data)
+        return await service.validate_sequence(data)
     except Exception as e:
         logger.error(f"Sequence validation failed: {e}")
         raise create_error(

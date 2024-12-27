@@ -1,34 +1,14 @@
-"""Database storage implementation for spray events."""
+"""PostgreSQL storage implementation."""
 
-from typing import List, Protocol, Dict, Any
-import json
-import asyncpg
-from loguru import logger
-from fastapi import status
+import asyncio
+from typing import Dict, Any, Optional, List
 from datetime import datetime
+from fastapi import status
+from loguru import logger
+import asyncpg
 
 from micro_cold_spray.utils.errors import create_error
-from micro_cold_spray.api.data_collection.data_collection_models import SprayEvent
-
-
-class DataStorage(Protocol):
-    """Protocol for data storage implementations."""
-    
-    async def initialize(self) -> None:
-        """Initialize storage (create tables etc)."""
-        ...
-    
-    async def save_spray_event(self, event: SprayEvent) -> None:
-        """Save a spray event."""
-        ...
-    
-    async def get_spray_events(self, sequence_id: str) -> List[SprayEvent]:
-        """Get all spray events for a sequence."""
-        ...
-        
-    async def check_health(self) -> Dict[str, Any]:
-        """Check storage health."""
-        ...
+from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
 
 
 class DataCollectionStorage:
@@ -40,6 +20,8 @@ class DataCollectionStorage:
         self._version = "1.0.0"
         self._is_running = False
         self._start_time = None
+        
+        # Initialize components to None
         self._dsn = dsn
         self._pool_config = pool_config or {
             "min_size": 2,
@@ -47,7 +29,8 @@ class DataCollectionStorage:
             "command_timeout": 60.0
         }
         self._pool = None
-        logger.info(f"{self._service_name} initialized")
+        
+        logger.info(f"{self.service_name} service initialized")
 
     @property
     def service_name(self) -> str:
@@ -70,77 +53,40 @@ class DataCollectionStorage:
         return (datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0
 
     async def initialize(self) -> None:
-        """Initialize database connection and schema."""
-        if self._pool and not self._pool.is_closing():
-            logger.debug("Reusing existing connection pool")
-            return
-        
+        """Initialize storage service."""
         try:
+            if self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"{self.service_name} service already running"
+                )
+
+            if not self._dsn:
+                raise create_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message=f"{self.service_name} DSN not configured"
+                )
+
             # Create connection pool
             self._pool = await asyncpg.create_pool(
-                self._dsn,
+                dsn=self._dsn,
                 min_size=self._pool_config["min_size"],
                 max_size=self._pool_config["max_size"],
                 command_timeout=self._pool_config["command_timeout"]
             )
-            
-            # Create tables if they don't exist
+
+            # Verify database connection and schema
             async with self._pool.acquire() as conn:
-                await conn.execute("""
-                    CREATE TABLE IF NOT EXISTS spray_runs (
-                        id SERIAL PRIMARY KEY,
-                        sequence_id TEXT NOT NULL,
-                        material_type TEXT NOT NULL,
-                        pattern_name TEXT NOT NULL,
-                        operator TEXT NOT NULL,
-                        start_time TIMESTAMP WITH TIME ZONE NOT NULL,
-                        end_time TIMESTAMP WITH TIME ZONE,
-                        powder_size TEXT NOT NULL,
-                        powder_lot TEXT NOT NULL,
-                        manufacturer TEXT NOT NULL,
-                        nozzle_type TEXT NOT NULL,
-                        UNIQUE(sequence_id)
-                    );
+                await conn.execute("SELECT 1")
 
-                    CREATE TABLE IF NOT EXISTS spray_events (
-                        id SERIAL PRIMARY KEY,
-                        run_id INTEGER REFERENCES spray_runs(id),
-                        spray_index INTEGER NOT NULL,
-                        start_time TIMESTAMP WITH TIME ZONE NOT NULL,
-                        end_time TIMESTAMP WITH TIME ZONE,
-                        chamber_pressure_start FLOAT NOT NULL CHECK (chamber_pressure_start >= 0),
-                        chamber_pressure_end FLOAT NOT NULL CHECK (chamber_pressure_end >= 0),
-                        nozzle_pressure_start FLOAT NOT NULL CHECK (nozzle_pressure_start >= 0),
-                        nozzle_pressure_end FLOAT NOT NULL CHECK (nozzle_pressure_end >= 0),
-                        main_flow FLOAT NOT NULL CHECK (main_flow >= 0),
-                        feeder_flow FLOAT NOT NULL CHECK (feeder_flow >= 0),
-                        feeder_frequency FLOAT NOT NULL CHECK (feeder_frequency >= 0),
-                        pattern_type TEXT NOT NULL,
-                        completed BOOLEAN NOT NULL,
-                        error TEXT,
-                        UNIQUE(run_id, spray_index)
-                    );
+            logger.info(f"{self.service_name} service initialized")
 
-                    -- Indexes for faster lookups
-                    CREATE INDEX IF NOT EXISTS idx_spray_runs_sequence_id
-                    ON spray_runs(sequence_id);
-                    
-                    CREATE INDEX IF NOT EXISTS idx_spray_events_run_id
-                    ON spray_events(run_id);
-                """)
-                
-            self._is_running = True
-            self._start_time = datetime.now()
-            logger.info(f"{self.service_name} initialized successfully")
-            
         except Exception as e:
-            if self._pool:
-                await self._pool.close()
-                self._pool = None
-            logger.error(f"Failed to initialize {self.service_name}: {e}")
+            error_msg = f"Failed to initialize {self.service_name} service: {str(e)}"
+            logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"Failed to initialize database: {str(e)}"
+                message=error_msg
             )
 
     async def start(self) -> None:
@@ -149,196 +95,154 @@ class DataCollectionStorage:
             if self.is_running:
                 raise create_error(
                     status_code=status.HTTP_409_CONFLICT,
-                    message="Storage already running"
+                    message=f"{self.service_name} service already running"
                 )
             
             if not self._pool:
-                await self.initialize()
+                raise create_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message=f"{self.service_name} service not initialized"
+                )
             
             self._is_running = True
             self._start_time = datetime.now()
-            logger.info(f"{self.service_name} started")
+            logger.info(f"{self.service_name} service started")
             
         except Exception as e:
-            logger.error(f"Failed to start {self.service_name}: {e}")
+            self._is_running = False
+            self._start_time = None
+            error_msg = f"Failed to start {self.service_name} service: {str(e)}"
+            logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"Failed to start storage: {str(e)}"
+                message=error_msg
             )
 
     async def stop(self) -> None:
-        """Stop storage service."""
+        """Stop service."""
         try:
             if not self.is_running:
                 raise create_error(
                     status_code=status.HTTP_409_CONFLICT,
-                    message="Storage not running"
+                    message=f"{self.service_name} service not running"
                 )
-            
-            if self._pool:
-                await self._pool.close()
-                self._pool = None
-            
+
             self._is_running = False
             self._start_time = None
-            logger.info(f"{self.service_name} stopped")
+            logger.info(f"{self.service_name} service stopped")
             
         except Exception as e:
-            logger.error(f"Failed to stop {self.service_name}: {e}")
+            error_msg = f"Failed to stop {self.service_name} service: {str(e)}"
+            logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"Failed to stop storage: {str(e)}"
+                message=error_msg
             )
 
-    async def check_health(self) -> Dict[str, Any]:
-        """Check storage health."""
+    async def health(self) -> ServiceHealth:
+        """Get service health status."""
         try:
-            if not self._pool:
-                return {
-                    "status": "error",
-                    "error": "Database not initialized"
-                }
-                
-            async with self._pool.acquire() as conn:
-                await conn.execute("SELECT 1")
-                return {
-                    "status": "ok",
-                    "message": "Database connection and schema verified"
-                }
-                
-        except Exception as e:
-            logger.error(f"Database health check failed: {e}")
-            return {
-                "status": "error",
-                "error": str(e)
-            }
-
-    async def save_spray_event(self, event: SprayEvent) -> None:
-        """Save spray event to database."""
-        if not self._pool:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Database not initialized"
-            )
-
-        try:
-            async with self._pool.acquire() as conn:
-                # Get or create run record
-                run_id = await conn.fetchval("""
-                    SELECT id FROM spray_runs
-                    WHERE sequence_id = $1
-                """, event.sequence_id)
-
-                if not run_id:
-                    run_params = (
-                        event.sequence_id, event.material_type, event.pattern_name,
-                        event.operator, event.start_time, event.end_time,
-                        event.powder_size, event.powder_lot, event.manufacturer,
-                        event.nozzle_type
-                    )
-                    run_id = await conn.fetchval("""
-                        INSERT INTO spray_runs (
-                            sequence_id, material_type, pattern_name, operator,
-                            start_time, end_time, powder_size, powder_lot,
-                            manufacturer, nozzle_type
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                        RETURNING id
-                    """, *run_params)
-
+            # Check component health
+            pool_ok = self._pool is not None
+            db_ok = False
+            
+            if pool_ok:
                 try:
-                    event_params = (
-                        run_id, event.spray_index, event.start_time, event.end_time,
-                        event.chamber_pressure_start, event.chamber_pressure_end,
-                        event.nozzle_pressure_start, event.nozzle_pressure_end,
-                        event.main_flow, event.feeder_flow, event.feeder_frequency,
-                        event.pattern_type, event.completed, event.error
-                    )
-                    await conn.execute("""
-                        INSERT INTO spray_events (
-                            run_id, spray_index, start_time, end_time,
-                            chamber_pressure_start, chamber_pressure_end,
-                            nozzle_pressure_start, nozzle_pressure_end,
-                            main_flow, feeder_flow, feeder_frequency,
-                            pattern_type, completed, error
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-                    """, *event_params)
-                    logger.debug(f"Saved spray event {event.spray_index} to database")
-                except asyncpg.exceptions.UniqueViolationError:
-                    logger.error(f"Duplicate spray event: {event.spray_index}")
-                    raise create_error(
-                        status_code=status.HTTP_409_CONFLICT,
-                        message="Duplicate spray event"
-                    )
-        except Exception as e:
-            if isinstance(e, asyncpg.exceptions.UniqueViolationError):
-                raise create_error(
-                    status_code=status.HTTP_409_CONFLICT,
-                    message="Duplicate spray event"
+                    async with self._pool.acquire() as conn:
+                        await conn.execute("SELECT 1")
+                        db_ok = True
+                except Exception as e:
+                    logger.error(f"Database health check failed: {e}")
+            
+            # Build component statuses
+            components = {
+                "pool": ComponentHealth(
+                    status="ok" if pool_ok else "error",
+                    error=None if pool_ok else "Connection pool not initialized"
+                ),
+                "database": ComponentHealth(
+                    status="ok" if db_ok else "error",
+                    error=None if db_ok else "Database connection failed"
                 )
-            logger.error(f"Failed to save spray event: {e}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=f"Failed to save spray event: {str(e)}"
+            }
+            
+            # Overall status is error if any component is in error
+            overall_status = "error" if any(c.status == "error" for c in components.values()) else "ok"
+            
+            return ServiceHealth(
+                status=overall_status,
+                service=self.service_name,
+                version=self.version,
+                is_running=self.is_running,
+                uptime=self.uptime,
+                error=None if overall_status == "ok" else "One or more components in error state",
+                components=components
             )
-
-    async def get_spray_events(self, sequence_id: str) -> List[SprayEvent]:
-        """Get all events for a sequence."""
-        if not self._pool:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="Database not initialized"
-            )
-
-        try:
-            async with self._pool.acquire() as conn:
-                # Get run info first
-                run = await conn.fetchrow("""
-                    SELECT * FROM spray_runs
-                    WHERE sequence_id = $1
-                """, sequence_id)
-                
-                if not run:
-                    return []
-
-                # Get all events for this run
-                rows = await conn.fetch("""
-                    SELECT * FROM spray_events
-                    WHERE run_id = $1
-                    ORDER BY spray_index
-                """, run['id'])
-                
-                events = []
-                for row in rows:
-                    events.append(SprayEvent(
-                        spray_index=row['spray_index'],
-                        sequence_id=sequence_id,
-                        material_type=run['material_type'],
-                        pattern_name=run['pattern_name'],
-                        operator=run['operator'],
-                        start_time=row['start_time'],
-                        end_time=row['end_time'],
-                        powder_size=run['powder_size'],
-                        powder_lot=run['powder_lot'],
-                        manufacturer=run['manufacturer'],
-                        nozzle_type=run['nozzle_type'],
-                        chamber_pressure_start=row['chamber_pressure_start'],
-                        chamber_pressure_end=row['chamber_pressure_end'],
-                        nozzle_pressure_start=row['nozzle_pressure_start'],
-                        nozzle_pressure_end=row['nozzle_pressure_end'],
-                        main_flow=row['main_flow'],
-                        feeder_flow=row['feeder_flow'],
-                        feeder_frequency=row['feeder_frequency'],
-                        pattern_type=row['pattern_type'],
-                        completed=row['completed'],
-                        error=row['error']
-                    ))
-                
-                logger.debug(f"Retrieved {len(events)} events for sequence {sequence_id}")
-                return events
-                
+            
         except Exception as e:
-            logger.error(f"Failed to get spray events: {e}")
+            error_msg = f"Health check failed: {str(e)}"
+            logger.error(error_msg)
+            return ServiceHealth(
+                status="error",
+                service=self.service_name,
+                version=self.version,
+                is_running=False,
+                uptime=self.uptime,
+                error=error_msg,
+                components={name: ComponentHealth(status="error", error=error_msg)
+                            for name in ["pool", "database"]}
+            )
+
+    async def execute(self, query: str, *args) -> None:
+        """Execute database query.
+        
+        Args:
+            query: SQL query string
+            *args: Query parameters
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message=f"{self.service_name} service not running"
+                )
+
+            async with self._pool.acquire() as conn:
+                await conn.execute(query, *args)
+
+        except Exception as e:
+            error_msg = f"Failed to execute query: {str(e)}"
+            logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=f"Failed to get spray events: {str(e)}"
+                message=error_msg
+            )
+
+    async def fetch(self, query: str, *args) -> List[Dict[str, Any]]:
+        """Execute database query and return results.
+        
+        Args:
+            query: SQL query string
+            *args: Query parameters
+            
+        Returns:
+            List of result rows as dictionaries
+        """
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message=f"{self.service_name} service not running"
+                )
+
+            async with self._pool.acquire() as conn:
+                results = await conn.fetch(query, *args)
+                return [dict(row) for row in results]
+
+        except Exception as e:
+            error_msg = f"Failed to execute query: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
             )

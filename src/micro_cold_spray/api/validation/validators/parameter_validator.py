@@ -1,4 +1,4 @@
-"""Parameter validator."""
+"""Parameter validator implementation."""
 
 from typing import Dict, Any, List
 from loguru import logger
@@ -9,7 +9,8 @@ from micro_cold_spray.api.validation.validators.base_validator import (
     check_required_fields,
     check_unknown_fields,
     check_numeric_range,
-    check_enum_value
+    check_enum_value,
+    get_validation_rules
 )
 
 
@@ -42,7 +43,7 @@ class ParameterValidator:
             warnings = []
             
             # Get parameter rules
-            parameter_rules = self._rules.get("validation", {}).get("parameters", {}).get(parameter_type, {})
+            parameter_rules = get_validation_rules(self._rules, "parameters", parameter_type)
             if not parameter_rules:
                 logger.warning(f"No validation rules found for parameter type: {parameter_type}")
                 return {

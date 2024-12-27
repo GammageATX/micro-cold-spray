@@ -1,4 +1,4 @@
-"""Hardware validator."""
+"""Hardware validator implementation."""
 
 from typing import Dict, Any, List
 from loguru import logger
@@ -9,7 +9,8 @@ from micro_cold_spray.api.validation.validators.base_validator import (
     check_required_fields,
     check_unknown_fields,
     check_numeric_range,
-    check_enum_value
+    check_enum_value,
+    get_validation_rules
 )
 
 
@@ -41,7 +42,7 @@ class HardwareValidator:
             warnings = []
             
             # Get hardware rules
-            hardware_rules = self._rules.get("validation", {}).get("hardware", {})
+            hardware_rules = get_validation_rules(self._rules, "hardware")
             if not hardware_rules:
                 logger.warning("No hardware validation rules found")
                 return {

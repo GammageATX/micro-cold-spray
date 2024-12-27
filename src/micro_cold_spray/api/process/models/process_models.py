@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Union
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -37,7 +37,8 @@ class ProcessPattern(BaseModel):
     id: str = Field(..., description="Pattern identifier")
     name: str = Field(..., description="Pattern name")
     description: str = Field(..., description="Pattern description")
-    parameters: Dict[str, Any] = Field(..., description="Pattern parameters")
+    type: str = Field(..., description="Pattern type (linear, serpentine, spiral, custom)")
+    params: Dict[str, Any] = Field(..., description="Pattern parameters")
     created_at: datetime = Field(default_factory=datetime.now, description="Creation timestamp")
     updated_at: datetime = Field(default_factory=datetime.now, description="Last update timestamp")
 
@@ -49,32 +50,58 @@ class ParameterSet(BaseModel):
     id: str = Field(..., description="Parameter set identifier")
     name: str = Field(..., description="Parameter set name")
     description: str = Field(..., description="Parameter set description")
-    parameters: Dict[str, Any] = Field(..., description="Parameter values")
+    nozzle: str = Field(..., description="Nozzle identifier")
+    main_gas: float = Field(..., description="Main gas flow rate")
+    feeder_gas: float = Field(..., description="Feeder gas flow rate")
+    frequency: int = Field(..., description="Feeder frequency")
+    deagglomerator_speed: int = Field(..., description="Deagglomerator speed")
     created_at: datetime = Field(default_factory=datetime.now, description="Creation timestamp")
     updated_at: datetime = Field(default_factory=datetime.now, description="Last update timestamp")
+
+
+class ActionGroup(BaseModel):
+    """Action group model."""
+    model_config = ConfigDict(strict=True)
+    
+    action_group: str = Field(..., description="Action group name")
+    parameters: Optional[Dict[str, Any]] = Field(None, description="Action group parameters")
+
+
+class Action(BaseModel):
+    """Action model."""
+    model_config = ConfigDict(strict=True)
+    
+    action_group: str = Field(..., description="Action group name")
+    parameters: Optional[Dict[str, Any]] = Field(None, description="Action parameters")
 
 
 class SequenceStep(BaseModel):
     """Sequence step model."""
     model_config = ConfigDict(strict=True)
     
-    id: str = Field(..., description="Step identifier")
     name: str = Field(..., description="Step name")
-    description: str = Field(..., description="Step description")
-    pattern_id: str = Field(..., description="Pattern identifier")
-    parameter_set_id: str = Field(..., description="Parameter set identifier")
-    order: int = Field(..., description="Step order")
-    created_at: datetime = Field(default_factory=datetime.now, description="Creation timestamp")
-    updated_at: datetime = Field(default_factory=datetime.now, description="Last update timestamp")
+    description: Optional[str] = Field(None, description="Step description")
+    action_group: Optional[str] = Field(None, description="Action group name")
+    actions: Optional[List[Action]] = Field(None, description="List of actions")
 
 
 class SequenceMetadata(BaseModel):
     """Sequence metadata model."""
     model_config = ConfigDict(strict=True)
     
-    id: str = Field(..., description="Sequence identifier")
     name: str = Field(..., description="Sequence name")
+    version: str = Field(..., description="Sequence version")
+    created: str = Field(..., description="Creation date")
+    author: str = Field(..., description="Sequence author")
     description: str = Field(..., description="Sequence description")
+
+
+class Sequence(BaseModel):
+    """Sequence model."""
+    model_config = ConfigDict(strict=True)
+    
+    id: str = Field(..., description="Sequence identifier")
+    metadata: SequenceMetadata = Field(..., description="Sequence metadata")
     steps: List[SequenceStep] = Field(..., description="Sequence steps")
     created_at: datetime = Field(default_factory=datetime.now, description="Creation timestamp")
     updated_at: datetime = Field(default_factory=datetime.now, description="Last update timestamp")
@@ -103,10 +130,10 @@ class ParameterSetListResponse(BaseResponse):
 
 class SequenceResponse(BaseResponse):
     """Sequence operation response."""
-    sequence: Optional[SequenceMetadata] = Field(None, description="Sequence metadata")
+    sequence: Optional[Sequence] = Field(None, description="Sequence")
     status: Optional[ExecutionStatus] = Field(None, description="Sequence execution status")
 
 
 class SequenceListResponse(BaseResponse):
     """Sequence list response."""
-    sequences: List[SequenceMetadata] = Field(default_factory=list, description="List of sequences")
+    sequences: List[Sequence] = Field(default_factory=list, description="List of sequences")

@@ -2,14 +2,11 @@
 
 from typing import Dict, Any, Optional
 from datetime import datetime
-from fastapi import FastAPI, status
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import status
 from loguru import logger
 
 from micro_cold_spray.utils.errors import create_error
-from micro_cold_spray.utils.health import get_uptime, ServiceHealth, ComponentHealth
-
-
+from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
 from micro_cold_spray.api.communication.services import (
     EquipmentService,
     MotionService,
@@ -32,107 +29,25 @@ class CommunicationService:
         Args:
             config: Service configuration
         """
+        self._service_name = "communication"
         self._config = config
         self._version = config.get("version", "1.0.0")
         self._is_running = False
         self._mode = config.get("mode", "mock")
         self._start_time = None
         
-        # Initialize services
-        self._tag_mapping = TagMappingService(config)
-        self._tag_cache = None  # Initialized in start()
-        self._equipment = EquipmentService(config)
-        self._motion = MotionService(config)
+        # Initialize services to None
+        self._tag_mapping = None
+        self._tag_cache = None
+        self._equipment = None
+        self._motion = None
         
-        logger.info("Communication service initialized")
+        logger.info(f"{self._service_name} service initialized")
 
-    async def initialize(self) -> None:
-        """Initialize service."""
-        try:
-            logger.info("Initializing communication service...")
-            
-            # Initialize tag mapping service
-            await self._tag_mapping.initialize()
-            
-            # Initialize equipment service
-            await self._equipment.initialize()
-            
-            # Initialize motion service
-            await self._motion.initialize()
-            
-            logger.info("Communication service initialized")
-            
-        except Exception as e:
-            error_msg = f"Failed to initialize communication service: {str(e)}"
-            logger.error(error_msg)
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=error_msg
-            )
-
-    async def start(self) -> None:
-        """Start service and all components."""
-        try:
-            logger.info("Starting communication service...")
-            
-            # Start tag mapping service
-            await self._tag_mapping.start()
-            
-            # Initialize clients based on mode
-            mode = self._config.get("mode", "mock")
-            if mode == "mock":
-                plc_client = MockPLCClient(self._config)
-                ssh_client = None
-            else:
-                plc_client = PLCClient(self._config)
-                ssh_client = SSHClient(self._config)
-            
-            # Initialize and start tag cache service
-            self._tag_cache = TagCacheService(plc_client, ssh_client, self._tag_mapping)
-            await self._tag_cache.initialize()
-            await self._tag_cache.start()
-            
-            # Set tag cache and start equipment service
-            self._equipment.set_tag_cache(self._tag_cache)
-            await self._equipment.start()
-            
-            # Set tag cache and start motion service
-            self._motion.set_tag_cache(self._tag_cache)
-            await self._motion.start()
-            
-            self._is_running = True
-            self._start_time = datetime.now()
-            logger.info("Communication service started successfully")
-            
-        except Exception as e:
-            self._is_running = False
-            error_msg = f"Failed to start communication service: {str(e)}"
-            logger.error(error_msg)
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=error_msg
-            )
-
-    async def stop(self) -> None:
-        """Stop service and all components."""
-        try:
-            # Stop services in reverse order
-            await self._motion.stop()
-            await self._equipment.stop()
-            if self._tag_cache:
-                await self._tag_cache.stop()
-            await self._tag_mapping.stop()
-            
-            self._is_running = False
-            logger.info("Communication service stopped")
-            
-        except Exception as e:
-            error_msg = f"Error during communication service shutdown: {str(e)}"
-            logger.error(error_msg)
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg
-            )
+    @property
+    def service_name(self) -> str:
+        """Get service name."""
+        return self._service_name
 
     @property
     def version(self) -> str:
@@ -149,54 +64,176 @@ class CommunicationService:
         """Get service uptime."""
         return (datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0
 
+    async def initialize(self) -> None:
+        """Initialize service."""
+        try:
+            logger.info(f"Initializing {self.service_name} service...")
+            
+            # Create services in dependency order
+            self._tag_mapping = TagMappingService(self._config)  # No dependencies
+            
+            # Initialize clients based on mode
+            mode = self._config.get("mode", "mock")
+            if mode == "mock":
+                plc_client = MockPLCClient(self._config)
+                ssh_client = None
+            else:
+                plc_client = PLCClient(self._config)
+                ssh_client = SSHClient(self._config)
+            
+            # Create remaining services in dependency order
+            self._tag_cache = TagCacheService(plc_client, ssh_client, self._tag_mapping)  # Depends on tag_mapping
+            self._equipment = EquipmentService(self._config)  # Depends on tag_cache
+            self._motion = MotionService(self._config)  # Depends on tag_cache
+            
+            # Initialize services in dependency order
+            await self._tag_mapping.initialize()
+            await self._tag_cache.initialize()
+            await self._equipment.initialize()
+            await self._motion.initialize()
+            
+            logger.info(f"{self.service_name} service initialized")
+            
+        except Exception as e:
+            error_msg = f"Failed to initialize {self.service_name} service: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
+
+    async def start(self) -> None:
+        """Start service and all components."""
+        try:
+            if self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"{self.service_name} service already running"
+                )
+            
+            if not all([self._tag_mapping, self._tag_cache, self._equipment, self._motion]):
+                raise create_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message=f"{self.service_name} service not initialized"
+                )
+            
+            logger.info(f"Starting {self.service_name} service...")
+            
+            # Start services in dependency order
+            await self._tag_mapping.start()
+            await self._tag_cache.start()
+            
+            # Set tag cache dependencies
+            self._equipment.set_tag_cache(self._tag_cache)
+            self._motion.set_tag_cache(self._tag_cache)
+            
+            # Start remaining services
+            await self._equipment.start()
+            await self._motion.start()
+            
+            self._is_running = True
+            self._start_time = datetime.now()
+            logger.info(f"{self.service_name} service started successfully")
+            
+        except Exception as e:
+            self._is_running = False
+            self._start_time = None
+            error_msg = f"Failed to start {self.service_name} service: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
+
+    async def stop(self) -> None:
+        """Stop service and all components."""
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"{self.service_name} service not running"
+                )
+            
+            # 1. Stop services in reverse dependency order
+            await self._motion.stop()
+            await self._equipment.stop()
+            await self._tag_cache.stop()
+            await self._tag_mapping.stop()
+            
+            # 2. Clear service references
+            self._motion = None
+            self._equipment = None
+            self._tag_cache = None
+            self._tag_mapping = None
+            
+            # 3. Reset service state
+            self._is_running = False
+            self._start_time = None
+            
+            logger.info(f"{self.service_name} service stopped")
+            
+        except Exception as e:
+            error_msg = f"Failed to stop {self.service_name} service: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
+
     async def health(self) -> ServiceHealth:
         """Get service health status."""
         try:
+            # Get health from components
+            tag_mapping_health = await self._tag_mapping.health() if self._tag_mapping else None
+            tag_cache_health = await self._tag_cache.health() if self._tag_cache else None
+            equipment_health = await self._equipment.health() if self._equipment else None
+            motion_health = await self._motion.health() if self._motion else None
+            
+            # Build component statuses
             components = {
                 "tag_mapping": ComponentHealth(
-                    status="ok" if self._tag_mapping.is_running else "error",
-                    error=None if self._tag_mapping.is_running else "Not running"
+                    status="ok" if tag_mapping_health and tag_mapping_health.status == "ok" else "error",
+                    error=tag_mapping_health.error if tag_mapping_health else "Component not initialized"
                 ),
                 "tag_cache": ComponentHealth(
-                    status="ok" if self._tag_cache and self._tag_cache.is_running else "error",
-                    error=None if self._tag_cache and self._tag_cache.is_running else "Not running"
+                    status="ok" if tag_cache_health and tag_cache_health.status == "ok" else "error",
+                    error=tag_cache_health.error if tag_cache_health else "Component not initialized"
                 ),
                 "equipment": ComponentHealth(
-                    status="ok" if self._equipment.is_running else "error",
-                    error=None if self._equipment.is_running else "Not running"
+                    status="ok" if equipment_health and equipment_health.status == "ok" else "error",
+                    error=equipment_health.error if equipment_health else "Component not initialized"
                 ),
                 "motion": ComponentHealth(
-                    status="ok" if self._motion.is_running else "error",
-                    error=None if self._motion.is_running else "Not running"
+                    status="ok" if motion_health and motion_health.status == "ok" else "error",
+                    error=motion_health.error if motion_health else "Component not initialized"
                 )
             }
             
+            # Overall status is error if any component is in error
+            overall_status = "error" if any(c.status == "error" for c in components.values()) else "ok"
+            
             return ServiceHealth(
-                status="ok" if self.is_running else "error",
-                service="communication",
+                status=overall_status,
+                service=self.service_name,
                 version=self.version,
                 is_running=self.is_running,
                 uptime=self.uptime,
-                error=None if self.is_running else "Service not running",
+                error=None if overall_status == "ok" else "One or more components in error state",
                 mode=self._mode,
                 components=components
             )
             
         except Exception as e:
-            error_msg = f"Failed to get communication service health: {str(e)}"
+            error_msg = f"Health check failed: {str(e)}"
             logger.error(error_msg)
             return ServiceHealth(
                 status="error",
-                service="communication",
+                service=self.service_name,
                 version=self.version,
                 is_running=False,
                 uptime=self.uptime,
                 error=error_msg,
                 mode=self._mode,
-                components={
-                    "tag_mapping": ComponentHealth(status="error", error=error_msg),
-                    "tag_cache": ComponentHealth(status="error", error=error_msg),
-                    "equipment": ComponentHealth(status="error", error=error_msg),
-                    "motion": ComponentHealth(status="error", error=error_msg)
-                }
+                components={name: ComponentHealth(status="error", error=error_msg)
+                            for name in ["tag_mapping", "tag_cache", "equipment", "motion"]}
             )

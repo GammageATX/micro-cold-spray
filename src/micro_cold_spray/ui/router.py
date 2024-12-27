@@ -8,6 +8,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from loguru import logger
 import aiohttp
@@ -66,26 +67,49 @@ async def check_service_health(url: str, service_name: str = None) -> ServiceHea
                     version="1.0.0",
                     is_running=False,
                     uptime=0.0,
-                    error=f"Service returned status {response.status}"
+                    error=f"Service returned status {response.status}",
+                    components={"main": ComponentHealth(status="error", error="Service unavailable")}
                 )
-    except Exception as e:
+    except aiohttp.ClientError as e:
+        logger.error(f"Failed to connect to {service_name} service: {e}")
         return ServiceHealth(
             status="error",
             service=service_name or "unknown",
             version="1.0.0",
             is_running=False,
             uptime=0.0,
-            error=str(e)
+            error=f"Connection error: {str(e)}",
+            components={"main": ComponentHealth(status="error", error="Connection failed")}
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error checking {service_name} health: {e}")
+        return ServiceHealth(
+            status="error",
+            service=service_name or "unknown",
+            version="1.0.0",
+            is_running=False,
+            uptime=0.0,
+            error=str(e),
+            components={"main": ComponentHealth(status="error", error="Unexpected error")}
         )
 
 
 def create_app() -> FastAPI:
-    """Create FastAPI application."""
+    """Create FastAPI application.
+    
+    Returns:
+        FastAPI application instance
+        
+    Raises:
+        HTTPException: If application creation fails
+    """
     try:
         app = FastAPI(
             title="MicroColdSpray Service Monitor",
             description="Service monitoring interface for MicroColdSpray system",
-            version="1.0.0"
+            version="1.0.0",
+            docs_url="/docs",
+            redoc_url="/redoc"
         )
 
         # Add CORS middleware
@@ -100,28 +124,53 @@ def create_app() -> FastAPI:
         # Add GZip middleware
         app.add_middleware(GZipMiddleware, minimum_size=1000)
 
-        # Setup templates and static files
-        templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+        # Setup templates
+        templates_dir = Path(__file__).parent / "templates"
+        if not templates_dir.exists():
+            raise FileNotFoundError(f"Templates directory not found: {templates_dir}")
+        templates = Jinja2Templates(directory=templates_dir)
+        templates.env.globals.update({
+            "now": datetime.now,
+            "version": app.version
+        })
+
+        # Setup static files
         static_dir = Path(__file__).parent / "static"
         if static_dir.exists():
-            from fastapi.staticfiles import StaticFiles
             app.mount("/static", StaticFiles(directory=static_dir), name="static")
+        else:
+            logger.warning(f"Static directory not found: {static_dir}")
+
+        # Store start time for uptime calculation
+        start_time = datetime.now()
 
         @app.get(
             "/",
             response_class=HTMLResponse,
             responses={
-                status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Internal server error"}
+                status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Internal server error"},
+                status.HTTP_404_NOT_FOUND: {"description": "Template not found"}
             }
         )
         async def index(request: Request) -> HTMLResponse:
-            """Render service monitor page."""
+            """Render service monitor page.
+            
+            Args:
+                request: FastAPI request object
+                
+            Returns:
+                HTML response with rendered template
+                
+            Raises:
+                HTTPException: If template rendering fails
+            """
             try:
                 return templates.TemplateResponse(
                     "monitoring/services.html",
                     {
                         "request": request,
-                        "api_urls": get_api_urls().dict()
+                        "api_urls": get_api_urls().dict(),
+                        "page_title": "Service Monitor"
                     }
                 )
             except Exception as e:
@@ -139,16 +188,20 @@ def create_app() -> FastAPI:
             }
         )
         async def health() -> ServiceHealth:
-            """Health check endpoint."""
+            """Health check endpoint.
+            
+            Returns:
+                ServiceHealth object with status details
+            """
             try:
                 return ServiceHealth(
                     status="ok",
                     service="ui",
                     version=app.version,
                     is_running=True,
-                    uptime=get_uptime(),
+                    uptime=get_uptime(start_time),
                     error=None,
-                    timestamp=datetime.now()
+                    components={"main": ComponentHealth(status="ok", error=None)}
                 )
             except Exception as e:
                 error_msg = f"Health check failed: {str(e)}"
@@ -160,7 +213,7 @@ def create_app() -> FastAPI:
                     is_running=False,
                     uptime=0.0,
                     error=error_msg,
-                    timestamp=datetime.now()
+                    components={"main": ComponentHealth(status="error", error=error_msg)}
                 )
 
         @app.get(
@@ -171,7 +224,14 @@ def create_app() -> FastAPI:
             }
         )
         async def get_services_status() -> Dict[str, ServiceStatus]:
-            """Get status of all services."""
+            """Get status of all services.
+            
+            Returns:
+                Dictionary mapping service names to their status
+                
+            Raises:
+                HTTPException: If status check fails
+            """
             services: Dict[str, ServiceStatus] = {}
             api_urls = get_api_urls()
             

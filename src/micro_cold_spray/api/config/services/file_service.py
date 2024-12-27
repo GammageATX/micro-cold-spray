@@ -14,18 +14,19 @@ class FileService:
     """File service."""
 
     def __init__(self, base_path: str, version: str = "1.0.0"):
-        """Initialize service.
-        
-        Args:
-            base_path: Base path for file operations
-            version: Service version from config
-        """
+        """Initialize service."""
         self._service_name = "file"
         self._version = version
-        self._base_path = base_path
         self._is_running = False
         self._start_time = None
-        logger.info(f"{self._service_name} service initialized")
+        
+        # Initialize components to None
+        self._base_path = None
+        
+        # Store constructor args for initialization
+        self._init_base_path = base_path
+        
+        logger.info(f"{self.service_name} service initialized")
 
     @property
     def service_name(self) -> str:
@@ -44,13 +45,20 @@ class FileService:
 
     @property
     def uptime(self) -> float:
-        """Get service uptime."""
+        """Get service uptime in seconds."""
         return (datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0
 
     async def initialize(self) -> None:
         """Initialize service."""
         try:
-            logger.info(f"Initializing {self.service_name} service...")
+            if self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"{self.service_name} service already running"
+                )
+            
+            # Initialize base path
+            self._base_path = self._init_base_path
             
             # Create base directory if it doesn't exist
             os.makedirs(self._base_path, exist_ok=True)
@@ -69,13 +77,25 @@ class FileService:
     async def start(self) -> None:
         """Start service."""
         try:
-            logger.info(f"Starting {self.service_name} service...")
+            if self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"{self.service_name} service already running"
+                )
+
+            if not self._base_path:
+                raise create_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message=f"{self.service_name} service not initialized"
+                )
+            
             self._is_running = True
             self._start_time = datetime.now()
             logger.info(f"{self.service_name} service started")
             
         except Exception as e:
             self._is_running = False
+            self._start_time = None
             error_msg = f"Failed to start {self.service_name} service: {str(e)}"
             logger.error(error_msg)
             raise create_error(
@@ -86,8 +106,14 @@ class FileService:
     async def stop(self) -> None:
         """Stop service."""
         try:
-            logger.info(f"Stopping {self.service_name} service...")
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"{self.service_name} service not running"
+                )
+
             self._is_running = False
+            self._start_time = None
             logger.info(f"{self.service_name} service stopped")
             
         except Exception as e:
@@ -101,8 +127,8 @@ class FileService:
     async def health(self) -> ServiceHealth:
         """Get service health status."""
         try:
-            # Check if base directory exists and is writable
-            base_exists = os.path.exists(self._base_path)
+            # Check component health
+            base_exists = os.path.exists(self._base_path) if self._base_path else False
             base_writable = os.access(self._base_path, os.W_OK) if base_exists else False
             
             # Build component status
@@ -136,10 +162,6 @@ class FileService:
                 is_running=False,
                 uptime=self.uptime,
                 error=error_msg,
-                components={
-                    "base_dir": ComponentHealth(
-                        status="error",
-                        error=error_msg
-                    )
-                }
+                components={name: ComponentHealth(status="error", error=error_msg)
+                            for name in ["base_dir"]}
             )

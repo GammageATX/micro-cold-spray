@@ -6,28 +6,35 @@ from fastapi import status as http_status
 from loguru import logger
 
 from micro_cold_spray.utils.errors import create_error
+from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
 from micro_cold_spray.api.communication.services.tag_cache import TagCacheService
 from micro_cold_spray.api.communication.models.motion import Position, SystemStatus, AxisStatus
-from micro_cold_spray.utils.health import get_uptime, ServiceHealth
 
 
 class MotionService:
     """Service for motion control."""
 
     def __init__(self, config: Dict[str, Any]):
-        """Initialize motion service.
-        
-        Args:
-            config: Service configuration
-        """
+        """Initialize service."""
         self._service_name = "motion"
-        self._version = config["communication"]["services"]["motion"]["version"]
-        self._config = config
-        self._tag_cache: Optional[TagCacheService] = None
+        self._version = "1.0.0"  # Will be updated from config
         self._is_running = False
         self._start_time = None
-        self._state_callbacks: List[Callable[[Dict[str, Any]], None]] = []
-        logger.info(f"{self._service_name} service initialized")
+        
+        # Initialize components to None
+        self._config = None
+        self._tag_cache = None
+        self._state_callbacks = []
+        
+        # Store constructor args for initialization
+        self._init_config = config
+        
+        logger.info(f"{self.service_name} service initialized")
+
+    @property
+    def service_name(self) -> str:
+        """Get service name."""
+        return self._service_name
 
     @property
     def version(self) -> str:
@@ -36,29 +43,21 @@ class MotionService:
 
     @property
     def is_running(self) -> bool:
-        """Check if service is running."""
+        """Get service running state."""
         return self._is_running
 
     @property
     def uptime(self) -> float:
         """Get service uptime in seconds."""
-        return get_uptime(self._start_time)
+        return (datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0
 
     def on_state_changed(self, callback: Callable[[Dict[str, Any]], None]) -> None:
-        """Register callback for state changes.
-        
-        Args:
-            callback: Function to call when state changes
-        """
+        """Register callback for state changes."""
         if callback not in self._state_callbacks:
             self._state_callbacks.append(callback)
 
     def remove_state_changed_callback(self, callback: Callable[[Dict[str, Any]], None]) -> None:
-        """Remove state change callback.
-        
-        Args:
-            callback: Callback to remove
-        """
+        """Remove state change callback."""
         if callback in self._state_callbacks:
             self._state_callbacks.remove(callback)
 
@@ -80,49 +79,41 @@ class MotionService:
             logger.error(f"Error notifying state change: {str(e)}")
 
     def set_tag_cache(self, tag_cache: TagCacheService) -> None:
-        """Set tag cache service.
-        
-        Args:
-            tag_cache: Tag cache service instance
-        """
+        """Set tag cache service."""
         self._tag_cache = tag_cache
-        logger.info(f"{self._service_name} tag cache service set")
+        logger.info(f"{self.service_name} tag cache service set")
 
     async def initialize(self) -> None:
-        """Initialize motion service.
-        
-        Raises:
-            HTTPException: If initialization fails
-        """
+        """Initialize service."""
         try:
             if self.is_running:
                 raise create_error(
                     status_code=http_status.HTTP_409_CONFLICT,
-                    message="Service already running"
+                    message=f"{self.service_name} service already running"
                 )
+
+            # Load config and version
+            self._config = self._init_config
+            self._version = self._config["communication"]["services"]["motion"]["version"]
 
             # Initialize tag cache
             if not self._tag_cache:
-                logger.error("Tag cache service not initialized")
                 raise create_error(
                     status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Tag cache service not initialized"
+                    message=f"{self.service_name} tag cache service not initialized"
                 )
 
             # Wait for tag cache service to be ready
             if not self._tag_cache.is_running:
-                logger.error("Tag cache service not running")
                 raise create_error(
                     status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Tag cache service not running"
+                    message=f"{self.service_name} tag cache service not running"
                 )
             
-            self._is_running = False
-            self._start_time = None
-            logger.info(f"{self._service_name} service initialized")
+            logger.info(f"{self.service_name} service initialized")
             
         except Exception as e:
-            error_msg = f"Failed to initialize {self._service_name} service: {str(e)}"
+            error_msg = f"Failed to initialize {self.service_name} service: {str(e)}"
             logger.error(error_msg)
             raise create_error(
                 status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -130,28 +121,28 @@ class MotionService:
             )
 
     async def start(self) -> None:
-        """Start motion service.
-        
-        Raises:
-            HTTPException: If startup fails
-        """
+        """Start service."""
         try:
             if self.is_running:
                 raise create_error(
                     status_code=http_status.HTTP_409_CONFLICT,
-                    message="Service already running"
+                    message=f"{self.service_name} service already running"
                 )
 
-            # Initialize if needed
             if not self._tag_cache or not self._tag_cache.is_running:
-                await self.initialize()
+                raise create_error(
+                    status_code=http_status.HTTP_400_BAD_REQUEST,
+                    message=f"{self.service_name} service not initialized"
+                )
             
             self._is_running = True
             self._start_time = datetime.now()
-            logger.info(f"{self._service_name} service started")
+            logger.info(f"{self.service_name} service started")
             
         except Exception as e:
-            error_msg = f"Failed to start {self._service_name} service: {str(e)}"
+            self._is_running = False
+            self._start_time = None
+            error_msg = f"Failed to start {self.service_name} service: {str(e)}"
             logger.error(error_msg)
             raise create_error(
                 status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -159,38 +150,84 @@ class MotionService:
             )
 
     async def stop(self) -> None:
-        """Stop motion service.
-        
-        Raises:
-            HTTPException: If shutdown fails
-        """
+        """Stop service."""
         try:
             if not self.is_running:
-                return
+                raise create_error(
+                    status_code=http_status.HTTP_409_CONFLICT,
+                    message=f"{self.service_name} service not running"
+                )
 
+            # Clear state callbacks
+            self._state_callbacks.clear()
+            
+            # Reset service state
             self._is_running = False
             self._start_time = None
-            logger.info(f"{self._service_name} service stopped")
+            
+            logger.info(f"{self.service_name} service stopped")
             
         except Exception as e:
-            error_msg = f"Failed to stop {self._service_name} service: {str(e)}"
+            error_msg = f"Failed to stop {self.service_name} service: {str(e)}"
             logger.error(error_msg)
-            # Don't raise during shutdown
+            raise create_error(
+                status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
+
+    async def health(self) -> ServiceHealth:
+        """Get service health status."""
+        try:
+            # Check component health
+            tag_cache_ok = self._tag_cache is not None and self._tag_cache.is_running
+            controller_ok = self.is_running
+            
+            # Build component statuses
+            components = {
+                "tag_cache": ComponentHealth(
+                    status="ok" if tag_cache_ok else "error",
+                    error=None if tag_cache_ok else "Tag cache not initialized or not running"
+                ),
+                "controller": ComponentHealth(
+                    status="ok" if controller_ok else "error",
+                    error=None if controller_ok else "Motion controller not initialized"
+                )
+            }
+            
+            # Overall status is error if any component is in error
+            overall_status = "error" if any(c.status == "error" for c in components.values()) else "ok"
+            
+            return ServiceHealth(
+                status=overall_status,
+                service=self.service_name,
+                version=self.version,
+                is_running=self.is_running,
+                uptime=self.uptime,
+                error=None if overall_status == "ok" else "One or more components in error state",
+                components=components
+            )
+            
+        except Exception as e:
+            error_msg = f"Health check failed: {str(e)}"
+            logger.error(error_msg)
+            return ServiceHealth(
+                status="error",
+                service=self.service_name,
+                version=self.version,
+                is_running=False,
+                uptime=self.uptime,
+                error=error_msg,
+                components={name: ComponentHealth(status="error", error=error_msg)
+                            for name in ["tag_cache", "controller"]}
+            )
 
     async def get_position(self) -> Position:
-        """Get current position.
-        
-        Returns:
-            Current position
-            
-        Raises:
-            HTTPException: If read fails
-        """
+        """Get current position."""
         try:
             if not self.is_running:
                 raise create_error(
                     status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
+                    message=f"{self.service_name} service not running"
                 )
 
             # Read current position from AMC controller
@@ -214,19 +251,12 @@ class MotionService:
             )
 
     async def get_status(self) -> SystemStatus:
-        """Get system status.
-        
-        Returns:
-            System status
-            
-        Raises:
-            HTTPException: If read fails
-        """
+        """Get system status."""
         try:
             if not self.is_running:
                 raise create_error(
                     status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
+                    message=f"{self.service_name} service not running"
                 )
 
             # Get axis statuses
@@ -255,22 +285,12 @@ class MotionService:
             )
 
     async def get_axis_status(self, axis: str) -> AxisStatus:
-        """Get axis status.
-        
-        Args:
-            axis: Axis name (x, y, z)
-            
-        Returns:
-            Axis status
-            
-        Raises:
-            HTTPException: If read fails
-        """
+        """Get axis status."""
         try:
             if not self.is_running:
                 raise create_error(
                     status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
+                    message=f"{self.service_name} service not running"
                 )
 
             # Validate axis
@@ -318,23 +338,12 @@ class MotionService:
             )
 
     async def move(self, x: float, y: float, z: float, velocity: float, wait_complete: bool = True) -> None:
-        """Move to position.
-        
-        Args:
-            x: X position
-            y: Y position
-            z: Z position
-            velocity: Move velocity
-            wait_complete: Wait for move to complete
-            
-        Raises:
-            HTTPException: If move fails
-        """
+        """Move to position."""
         try:
             if not self.is_running:
                 raise create_error(
                     status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
+                    message=f"{self.service_name} service not running"
                 )
 
             # Set XY move parameters
@@ -362,21 +371,12 @@ class MotionService:
             )
 
     async def jog_axis(self, axis: str, distance: float, velocity: float) -> None:
-        """Jog axis by distance.
-        
-        Args:
-            axis: Axis to jog (x, y, z)
-            distance: Jog distance
-            velocity: Jog velocity
-            
-        Raises:
-            HTTPException: If jog fails
-        """
+        """Jog axis by distance."""
         try:
             if not self.is_running:
                 raise create_error(
                     status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
+                    message=f"{self.service_name} service not running"
                 )
 
             # Validate axis
@@ -404,16 +404,12 @@ class MotionService:
             )
 
     async def set_home(self) -> None:
-        """Set current position as home.
-            
-        Raises:
-            HTTPException: If setting home fails
-        """
+        """Set current position as home."""
         try:
             if not self.is_running:
                 raise create_error(
                     status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
+                    message=f"{self.service_name} service not running"
                 )
 
             # Set current position as home
@@ -431,16 +427,12 @@ class MotionService:
             )
 
     async def move_to_home(self) -> None:
-        """Move to home position.
-            
-        Raises:
-            HTTPException: If move fails
-        """
+        """Move to home position."""
         try:
             if not self.is_running:
                 raise create_error(
                     status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
+                    message=f"{self.service_name} service not running"
                 )
 
             # Trigger move to home
@@ -455,50 +447,4 @@ class MotionService:
             raise create_error(
                 status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
                 message=error_msg
-            )
-
-    async def health(self) -> ServiceHealth:
-        """Get service health status.
-        
-        Returns:
-            ServiceHealth: Health status
-        """
-        try:
-            # Check motion controller status
-            controller_ok = self.is_running
-            
-            # Build component statuses
-            components = {
-                "controller": {
-                    "status": "ok" if controller_ok else "error",
-                    "error": None if controller_ok else "Motion controller not initialized"
-                }
-            }
-            
-            # Overall status is error if any component is in error
-            overall_status = "error" if any(c["status"] == "error" for c in components.values()) else "ok"
-            
-            return ServiceHealth(
-                status=overall_status,
-                service=self._service_name,
-                version=self.version,
-                is_running=self.is_running,
-                uptime=self.uptime,
-                error=None if overall_status == "ok" else "One or more components in error state",
-                components=components
-            )
-            
-        except Exception as e:
-            error_msg = f"Health check failed: {str(e)}"
-            logger.error(error_msg)
-            return ServiceHealth(
-                status="error",
-                service=self._service_name,
-                version=self.version,
-                is_running=False,
-                uptime=0.0,
-                error=error_msg,
-                components={
-                    "controller": {"status": "error", "error": error_msg}
-                }
             )

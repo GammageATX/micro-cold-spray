@@ -2,114 +2,186 @@
 
 ## 1. Service Class Structure
 
-- **Common Base Properties**
-  - `_version` - Service version from config
-  - `_is_running` - Running state flag
-  - `_start_time` - Service start timestamp
+### Initialization Pattern
 
-- **Standard Lifecycle Methods**
-  - `__init__()` - Basic initialization
-  - `initialize()` - Async setup
-  - `start()` - Start service
-  - `stop()` - Stop service
+- ****init****
+  - Set basic properties only: _service_name, _version,_is_running,_start_time,_config
+  - Initialize component services to None
+  - No config loading, no component creation
+  - End with logger.info(f"{self._service_name} service initialized")
+
+- **initialize()**
+  - Load config if needed
+  - Update version from config
+  - Create component services
+  - Initialize components in dependency order
+  - Proper error handling with create_error
+  - End with logger.info(f"{self.service_name} service initialized")
+
+- **start()**
+  - Check if already running (409 Conflict)
+  - Check if components initialized (400 Bad Request)
+  - Start components in dependency order
+  - Set _is_running = True and _start_time = datetime.now() at end
+  - End with logger.info(f"{self.service_name} service started")
+
+### Stop Method Pattern
+
+- **stop()**
+
+  ```python
+  async def stop(self) -> None:
+      """Stop service."""
+      try:
+          if not self.is_running:
+              raise create_error(
+                  status_code=status.HTTP_409_CONFLICT,
+                  message=f"{self.service_name} service not running"
+              )
+
+          # 1. Unregister from external services first
+          if self._tag_cache:
+              self._tag_cache.remove_state_callback(self._handle_state_change)
+
+          # 2. Clear internal callbacks and event handlers
+          self._state_callbacks.clear()
+
+          # 3. Reset service state
+          self._is_running = False
+          self._start_time = None
+
+          logger.info(f"{self.service_name} service stopped")
+
+      except Exception as e:
+          error_msg = f"Failed to stop {self.service_name} service: {str(e)}"
+          logger.error(error_msg)
+          raise create_error(
+              status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+              message=error_msg
+          )
+  ```
+
+  **Key Points:**
+  1. Check running state first (409 if not running)
+  2. Clean up in reverse dependency order:
+     - Unregister from external services first
+     - Clear internal callbacks/handlers
+     - Reset service state last
+  3. Log success
+  4. Proper error handling with 503 on failure
+  5. No state changes on error
+
+### Required Properties
+
+- **Base Properties**
+
+  ```python
+  self._service_name: str  # Service identifier
+  self._version: str = "1.0.0"  # Updated from config
+  self._is_running: bool = False
+  self._start_time: Optional[datetime] = None
+  self._config: Optional[Dict[str, Any]] = None
+  ```
 
 - **Standard Properties**
-  - `version` - Service version from config
-  - `is_running` - Service state
-  - `uptime` - Service uptime
 
-## 2. FastAPI Factory Pattern
+  ```python
+  @property
+  def service_name(self) -> str:
+      return self._service_name
 
-- **Factory Function**
-  - Each API must have `create_*_service()` factory
-  - Service instances stored in `app.state`
+  @property
+  def version(self) -> str:
+      return self._version
 
-- **Standard Setup**
-  - CORS middleware configuration
-  - Standard exception handlers
-  - Health check endpoint at `/health`
+  @property
+  def is_running(self) -> bool:
+      return self._is_running
 
-- **Event Handlers**
-  - `startup` - Initialize and start services in dependency order
-  - `shutdown` - Stop services in reverse order
+  @property
+  def uptime(self) -> float:
+      return (datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0
+  ```
 
-## 3. Configuration Management
+## 2. Health Check Implementation
 
-- **Config Files**
-  - Each service has its own YAML config file
-  - Standard location: `config/{service_name}.yaml`
-  - Version specified in config file
+### Health Method Pattern
 
-- **Config Structure**
-  - Service-level settings (host, port, etc)
-  - Component-specific settings
-  - Version information for service and components
+```python
+async def health(self) -> ServiceHealth:
+    try:
+        # Get health from components
+        component_healths = await gather_component_health()
+        
+        # Build component statuses
+        components = {
+            name: ComponentHealth(
+                status=health.status,
+                error=health.error
+            ) for name, health in component_healths.items()
+        }
+        
+        # Overall status is error if any component is in error
+        overall_status = "error" if any(c.status == "error" for c in components.values()) else "ok"
+        
+        return ServiceHealth(
+            status=overall_status,
+            service=self.service_name,
+            version=self.version,
+            is_running=self.is_running,
+            uptime=self.uptime,
+            error=None if overall_status == "ok" else "One or more components in error state",
+            components=components
+        )
+        
+    except Exception as e:
+        error_msg = f"Health check failed: {str(e)}"
+        logger.error(error_msg)
+        return ServiceHealth(
+            status="error",
+            service=self.service_name,
+            version=self.version,
+            is_running=False,
+            uptime=self.uptime,
+            error=error_msg,
+            components={name: ComponentHealth(status="error", error=error_msg) for name in self._component_names}
+        )
+```
 
-- **Config Loading**
-  - Load in factory function
-  - Pass to service constructors
-  - Support optional config override in factory
+## 3. Error Handling
 
-## 4. Health Check Implementation
+### Standard Error Pattern
 
-- **Standard Models**
-  - Use `ServiceHealth` from `utils.health`
-  - Use `ComponentHealth` for sub-components
-  - Consistent status values: "ok", "error"
+```python
+try:
+    # Operation code
+except Exception as e:
+    error_msg = f"Failed to {operation} {self.service_name} service: {str(e)}"
+    logger.error(error_msg)
+    raise create_error(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,  # Or appropriate code
+        message=error_msg
+    )
+```
 
-- **Health Method**
-  - Each service must implement `health()` method
-  - Return `ServiceHealth` with component status
-  - Include version, uptime, and running state
-  - Aggregate component health for overall status
+### Status Codes
 
-- **Health Endpoint**
-  - GET `/health` endpoint in each API
-  - Returns `ServiceHealth` model
-  - Aggregates health from all sub-services
-  - Uses shortest uptime as service uptime
+- 400 Bad Request: Service not initialized, invalid parameters
+- 409 Conflict: Service state conflicts (already running/not running)
+- 503 Service Unavailable: Operation failed, service unhealthy
 
-## 5. Error Handling
+## 4. Component Management
 
-- **Error Creation**
-  - Use `create_error` from `utils.errors`
-  - Include appropriate status code and message
-  - Add details when relevant
+### Component Initialization
 
-- **Standard Status Codes**
-  - 400 Bad Request - Invalid input
-  - 404 Not Found - Resource not found
-  - 409 Conflict - Resource state conflict
-  - 422 Unprocessable Entity - Validation error
-  - 500 Internal Server Error - Unexpected error
-  - 503 Service Unavailable - Service not ready
+- Components initialized to None in **init**
+- Created and initialized in initialize()
+- Started in dependency order
+- Stopped in reverse order
 
-- **Error Response Format**
-  - Use `ErrorResponse` model consistently
-  - Include status code and message
-  - Add error details when available
-  - Proper error logging before raising
+### Component Health
 
-## 6. Logging
-
-- **Logger Usage**
-  - Use `loguru` consistently
-  - Standard log levels
-  - Structured logging where appropriate
-
-- **Log Format**
-  - Standard message format
-  - Key lifecycle event logging
-  - Error context and stack traces
-
-## 7. State Management
-
-- **Service State**
-  - Clear state transitions
-  - Proper cleanup on stop
-  - State stored in service instances
-
-- **FastAPI State**
-  - Services stored in `app.state`
-  - Clear dependency order
-  - Proper async handling
+- Each component provides health status
+- Parent service aggregates component health
+- Use ComponentHealth model consistently
+- Status values: "ok" or "error" only

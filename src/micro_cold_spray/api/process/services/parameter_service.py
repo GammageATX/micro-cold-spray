@@ -4,23 +4,29 @@ import os
 import time
 import yaml
 from typing import Dict, Any, List, Optional
+from datetime import datetime
+from fastapi import status
 from loguru import logger
 
 from micro_cold_spray.utils.errors import create_error
-from micro_cold_spray.utils.health import ServiceHealth
+from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
 from micro_cold_spray.api.process.models.process_models import ParameterSet
 
 
 class ParameterService:
     """Service for managing process parameters."""
 
-    def __init__(self):
+    def __init__(self, version: str = "1.0.0"):
         """Initialize parameter service."""
-        self._start_time = time.time()
-        self._is_running = False
-        self._version = "1.0.0"
         self._service_name = "parameter"
-        self._parameter_sets: Dict[str, ParameterSet] = {}
+        self._version = version
+        self._is_running = False
+        self._start_time = None
+        
+        # Initialize components to None
+        self._parameter_sets = None
+        
+        logger.info(f"{self.service_name} service initialized")
 
     @property
     def version(self) -> str:
@@ -40,16 +46,19 @@ class ParameterService:
     @property
     def uptime(self) -> float:
         """Get service uptime in seconds."""
-        return time.time() - self._start_time
+        return (datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0
 
     async def initialize(self) -> None:
-        """Initialize service.
-        
-        Raises:
-            Exception: If initialization fails
-        """
+        """Initialize service."""
         try:
-            logger.info("Initializing parameter service...")
+            if self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"{self.service_name} service already running"
+                )
+            
+            # Initialize parameter sets
+            self._parameter_sets = {}
             
             # Load config
             config_path = os.path.join("config", "process.yaml")
@@ -69,67 +78,95 @@ class ParameterService:
                                 parameters=param_data.get("parameters", {})
                             )
             
-            logger.info("Parameter service initialized")
+            logger.info(f"{self.service_name} service initialized")
             
         except Exception as e:
-            error_msg = f"Failed to initialize parameter service: {str(e)}"
+            error_msg = f"Failed to initialize {self.service_name} service: {str(e)}"
             logger.error(error_msg)
-            raise Exception(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
 
     async def start(self) -> None:
-        """Start service.
-        
-        Raises:
-            Exception: If start fails
-        """
+        """Start service."""
         try:
-            logger.info("Starting parameter service...")
+            if self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"{self.service_name} service already running"
+                )
+            
+            if self._parameter_sets is None:
+                raise create_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message=f"{self.service_name} service not initialized"
+                )
+            
             self._is_running = True
-            logger.info("Parameter service started")
+            self._start_time = datetime.now()
+            logger.info(f"{self.service_name} service started")
             
         except Exception as e:
-            error_msg = f"Failed to start parameter service: {str(e)}"
+            self._is_running = False
+            self._start_time = None
+            error_msg = f"Failed to start {self.service_name} service: {str(e)}"
             logger.error(error_msg)
-            raise Exception(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
 
     async def stop(self) -> None:
-        """Stop service.
-        
-        Raises:
-            Exception: If stop fails
-        """
+        """Stop service."""
         try:
-            logger.info("Stopping parameter service...")
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"{self.service_name} service not running"
+                )
+            
+            # 1. Clear parameter data
+            self._parameter_sets.clear()
+            
+            # 2. Reset service state
             self._is_running = False
-            logger.info("Parameter service stopped")
+            self._start_time = None
+            
+            logger.info(f"{self.service_name} service stopped")
             
         except Exception as e:
-            error_msg = f"Failed to stop parameter service: {str(e)}"
+            error_msg = f"Failed to stop {self.service_name} service: {str(e)}"
             logger.error(error_msg)
-            raise Exception(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
 
     async def health(self) -> ServiceHealth:
-        """Get service health status.
-        
-        Returns:
-            ServiceHealth: Service health status
-        """
+        """Get service health status."""
         try:
-            status = "healthy"
-            error = None
+            # Check component health
+            components = {
+                "parameter_sets": ComponentHealth(
+                    status="ok" if self._parameter_sets is not None else "error",
+                    error=None if self._parameter_sets is not None else "Parameter sets not initialized"
+                )
+            }
             
+            # Overall status is error if any component is in error state
+            overall_status = "error" if any(c.status == "error" for c in components.values()) else "ok"
             if not self.is_running:
-                status = "error"
-                error = "Service not running"
-                
+                overall_status = "error"
+            
             return ServiceHealth(
-                status=status,
+                status=overall_status,
                 service=self.service_name,
                 version=self.version,
                 is_running=self.is_running,
                 uptime=self.uptime,
-                error=error,
-                components={}
+                error=None if overall_status == "ok" else "One or more components in error state",
+                components=components
             )
             
         except Exception as e:
@@ -142,73 +179,67 @@ class ParameterService:
                 is_running=False,
                 uptime=self.uptime,
                 error=error_msg,
-                components={}
+                components={"parameter_sets": ComponentHealth(status="error", error=error_msg)}
             )
 
     async def list_parameter_sets(self) -> List[ParameterSet]:
-        """List available parameter sets.
-        
-        Returns:
-            List[ParameterSet]: List of parameter sets
-            
-        Raises:
-            Exception: If listing fails
-        """
+        """List available parameter sets."""
         try:
             if not self.is_running:
-                raise Exception("Service not running")
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
                 
             return list(self._parameter_sets.values())
             
         except Exception as e:
             error_msg = "Failed to list parameter sets"
             logger.error(f"{error_msg}: {str(e)}")
-            raise Exception(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
 
     async def get_parameter_set(self, param_id: str) -> ParameterSet:
-        """Get parameter set by ID.
-        
-        Args:
-            param_id: Parameter set identifier
-            
-        Returns:
-            ParameterSet: Parameter set
-            
-        Raises:
-            Exception: If parameter set not found or retrieval fails
-        """
+        """Get parameter set by ID."""
         try:
             if not self.is_running:
-                raise Exception("Service not running")
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
                 
             if param_id not in self._parameter_sets:
-                raise Exception(f"Parameter set {param_id} not found")
+                raise create_error(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    message=f"Parameter set {param_id} not found"
+                )
                 
             return self._parameter_sets[param_id]
             
         except Exception as e:
             error_msg = f"Failed to get parameter set {param_id}"
             logger.error(f"{error_msg}: {str(e)}")
-            raise Exception(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
 
     async def create_parameter_set(self, parameter_set: ParameterSet) -> ParameterSet:
-        """Create new parameter set.
-        
-        Args:
-            parameter_set: Parameter set to create
-            
-        Returns:
-            ParameterSet: Created parameter set
-            
-        Raises:
-            Exception: If creation fails
-        """
+        """Create new parameter set."""
         try:
             if not self.is_running:
-                raise Exception("Service not running")
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
                 
             if parameter_set.id in self._parameter_sets:
-                raise Exception(f"Parameter set {parameter_set.id} already exists")
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"Parameter set {parameter_set.id} already exists"
+                )
                 
             self._parameter_sets[parameter_set.id] = parameter_set
             logger.info(f"Created parameter set {parameter_set.id}")
@@ -218,26 +249,25 @@ class ParameterService:
         except Exception as e:
             error_msg = f"Failed to create parameter set {parameter_set.id}"
             logger.error(f"{error_msg}: {str(e)}")
-            raise Exception(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
 
     async def update_parameter_set(self, parameter_set: ParameterSet) -> ParameterSet:
-        """Update existing parameter set.
-        
-        Args:
-            parameter_set: Parameter set to update
-            
-        Returns:
-            ParameterSet: Updated parameter set
-            
-        Raises:
-            Exception: If update fails
-        """
+        """Update existing parameter set."""
         try:
             if not self.is_running:
-                raise Exception("Service not running")
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
                 
             if parameter_set.id not in self._parameter_sets:
-                raise Exception(f"Parameter set {parameter_set.id} not found")
+                raise create_error(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    message=f"Parameter set {parameter_set.id} not found"
+                )
                 
             self._parameter_sets[parameter_set.id] = parameter_set
             logger.info(f"Updated parameter set {parameter_set.id}")
@@ -247,28 +277,7 @@ class ParameterService:
         except Exception as e:
             error_msg = f"Failed to update parameter set {parameter_set.id}"
             logger.error(f"{error_msg}: {str(e)}")
-            raise Exception(error_msg)
-
-    async def delete_parameter_set(self, param_id: str) -> None:
-        """Delete parameter set.
-        
-        Args:
-            param_id: Parameter set identifier
-            
-        Raises:
-            Exception: If deletion fails
-        """
-        try:
-            if not self.is_running:
-                raise Exception("Service not running")
-                
-            if param_id not in self._parameter_sets:
-                raise Exception(f"Parameter set {param_id} not found")
-                
-            del self._parameter_sets[param_id]
-            logger.info(f"Deleted parameter set {param_id}")
-            
-        except Exception as e:
-            error_msg = f"Failed to delete parameter set {param_id}"
-            logger.error(f"{error_msg}: {str(e)}")
-            raise Exception(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )

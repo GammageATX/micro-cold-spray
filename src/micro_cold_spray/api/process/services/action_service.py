@@ -4,24 +4,30 @@ import os
 import time
 import yaml
 from typing import Dict, Any, Optional
+from datetime import datetime
+from fastapi import status
 from loguru import logger
 
 from micro_cold_spray.utils.errors import create_error
-from micro_cold_spray.utils.health import ServiceHealth
+from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
 from micro_cold_spray.api.process.models.process_models import ActionStatus
 
 
 class ActionService:
     """Service for managing process actions."""
 
-    def __init__(self):
+    def __init__(self, version: str = "1.0.0"):
         """Initialize action service."""
-        self._start_time = time.time()
-        self._is_running = False
-        self._version = "1.0.0"
         self._service_name = "action"
+        self._version = version
+        self._is_running = False
+        self._start_time = None
+        
+        # Initialize components to None
         self._current_action = None
         self._action_status = ActionStatus.IDLE
+        
+        logger.info(f"{self.service_name} service initialized")
 
     @property
     def version(self) -> str:
@@ -41,16 +47,16 @@ class ActionService:
     @property
     def uptime(self) -> float:
         """Get service uptime in seconds."""
-        return time.time() - self._start_time
+        return (datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0
 
     async def initialize(self) -> None:
-        """Initialize service.
-        
-        Raises:
-            Exception: If initialization fails
-        """
+        """Initialize service."""
         try:
-            logger.info("Initializing action service...")
+            if self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"{self.service_name} service already running"
+                )
             
             # Load config
             config_path = os.path.join("config", "process.yaml")
@@ -60,78 +66,104 @@ class ActionService:
                     if "action" in config:
                         self._version = config["action"].get("version", self._version)
             
-            logger.info("Action service initialized")
+            logger.info(f"{self.service_name} service initialized")
             
         except Exception as e:
-            error_msg = f"Failed to initialize action service: {str(e)}"
+            error_msg = f"Failed to initialize {self.service_name} service: {str(e)}"
             logger.error(error_msg)
-            raise Exception(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
 
     async def start(self) -> None:
-        """Start service.
-        
-        Raises:
-            Exception: If start fails
-        """
+        """Start service."""
         try:
-            logger.info("Starting action service...")
+            if self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"{self.service_name} service already running"
+                )
+            
             self._is_running = True
-            logger.info("Action service started")
+            self._start_time = datetime.now()
+            logger.info(f"{self.service_name} service started")
             
         except Exception as e:
-            error_msg = f"Failed to start action service: {str(e)}"
+            self._is_running = False
+            self._start_time = None
+            error_msg = f"Failed to start {self.service_name} service: {str(e)}"
             logger.error(error_msg)
-            raise Exception(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
 
     async def stop(self) -> None:
-        """Stop service.
-        
-        Raises:
-            Exception: If stop fails
-        """
+        """Stop service."""
         try:
-            logger.info("Stopping action service...")
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"{self.service_name} service not running"
+                )
             
-            # Stop current action if any
+            # 1. Stop active actions
             if self._current_action:
                 await self.stop_action(self._current_action)
             
+            # 2. Clear action state
+            self._current_action = None
+            self._action_status = ActionStatus.IDLE
+            
+            # 3. Reset service state
             self._is_running = False
-            logger.info("Action service stopped")
+            self._start_time = None
+            
+            logger.info(f"{self.service_name} service stopped")
             
         except Exception as e:
-            error_msg = f"Failed to stop action service: {str(e)}"
+            error_msg = f"Failed to stop {self.service_name} service: {str(e)}"
             logger.error(error_msg)
-            raise Exception(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
 
     async def health(self) -> ServiceHealth:
-        """Get service health status.
-        
-        Returns:
-            ServiceHealth: Service health status
-        """
+        """Get service health status."""
         try:
-            status = "healthy"
-            error = None
+            # Check component health
+            action_status = "ok"
+            action_error = None
             
-            if not self.is_running:
-                status = "error"
-                error = "Service not running"
-            elif self._action_status == ActionStatus.ERROR:
-                status = "error"
-                error = "Action in error state"
+            if self._action_status == ActionStatus.ERROR:
+                action_status = "error"
+                action_error = "Action in error state"
             elif self._action_status == ActionStatus.RUNNING:
-                status = "degraded"
-                error = "Action in progress"
-                
+                action_status = "degraded"
+                action_error = "Action in progress"
+            
+            components = {
+                "action": ComponentHealth(
+                    status=action_status,
+                    error=action_error
+                )
+            }
+            
+            # Overall status is error if any component is in error state
+            overall_status = "error" if any(c.status == "error" for c in components.values()) else "ok"
+            if not self.is_running:
+                overall_status = "error"
+            
             return ServiceHealth(
-                status=status,
+                status=overall_status,
                 service=self.service_name,
                 version=self.version,
                 is_running=self.is_running,
                 uptime=self.uptime,
-                error=error,
-                components={}
+                error=None if overall_status == "ok" else "One or more components in error state",
+                components=components
             )
             
         except Exception as e:
@@ -144,27 +176,23 @@ class ActionService:
                 is_running=False,
                 uptime=self.uptime,
                 error=error_msg,
-                components={}
+                components={"action": ComponentHealth(status="error", error=error_msg)}
             )
 
     async def start_action(self, action_id: str) -> ActionStatus:
-        """Start action execution.
-        
-        Args:
-            action_id: Action identifier
-            
-        Returns:
-            ActionStatus: Action execution status
-            
-        Raises:
-            Exception: If start fails
-        """
+        """Start action execution."""
         try:
             if not self.is_running:
-                raise Exception("Service not running")
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
                 
             if self._current_action:
-                raise Exception(f"Action {self._current_action} already in progress")
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"Action {self._current_action} already in progress"
+                )
                 
             self._current_action = action_id
             self._action_status = ActionStatus.RUNNING
@@ -176,29 +204,31 @@ class ActionService:
             error_msg = f"Failed to start action {action_id}: {str(e)}"
             logger.error(error_msg)
             self._action_status = ActionStatus.ERROR
-            raise Exception(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
 
     async def stop_action(self, action_id: str) -> ActionStatus:
-        """Stop action execution.
-        
-        Args:
-            action_id: Action identifier
-            
-        Returns:
-            ActionStatus: Action execution status
-            
-        Raises:
-            Exception: If stop fails
-        """
+        """Stop action execution."""
         try:
             if not self.is_running:
-                raise Exception("Service not running")
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
                 
             if not self._current_action:
-                raise Exception("No action in progress")
+                raise create_error(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    message="No action in progress"
+                )
                 
             if action_id != self._current_action:
-                raise Exception(f"Action {action_id} not in progress")
+                raise create_error(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    message=f"Action {action_id} not in progress"
+                )
                 
             self._current_action = None
             self._action_status = ActionStatus.IDLE
@@ -210,33 +240,35 @@ class ActionService:
             error_msg = f"Failed to stop action {action_id}: {str(e)}"
             logger.error(error_msg)
             self._action_status = ActionStatus.ERROR
-            raise Exception(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
 
     async def get_action_status(self, action_id: str) -> ActionStatus:
-        """Get action execution status.
-        
-        Args:
-            action_id: Action identifier
-            
-        Returns:
-            ActionStatus: Action execution status
-            
-        Raises:
-            Exception: If status check fails
-        """
+        """Get action execution status."""
         try:
             if not self.is_running:
-                raise Exception("Service not running")
+                raise create_error(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Service not running"
+                )
                 
             if not self._current_action:
                 return ActionStatus.IDLE
                 
             if action_id != self._current_action:
-                raise Exception(f"Action {action_id} not found")
+                raise create_error(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    message=f"Action {action_id} not found"
+                )
                 
             return self._action_status
             
         except Exception as e:
             error_msg = f"Failed to get status for action {action_id}: {str(e)}"
             logger.error(error_msg)
-            raise Exception(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )

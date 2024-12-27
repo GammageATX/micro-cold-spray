@@ -1,4 +1,4 @@
-"""Sequence validator."""
+"""Sequence validator implementation."""
 
 from typing import Dict, Any, List
 from loguru import logger
@@ -10,7 +10,8 @@ from micro_cold_spray.api.validation.validators.base_validator import (
     check_unknown_fields,
     check_numeric_range,
     check_enum_value,
-    check_timestamp
+    check_timestamp,
+    get_validation_rules
 )
 
 
@@ -42,7 +43,7 @@ class SequenceValidator:
             warnings = []
             
             # Get sequence rules
-            sequence_rules = self._rules.get("validation", {}).get("sequences", {})
+            sequence_rules = get_validation_rules(self._rules, "sequences")
             if not sequence_rules:
                 logger.warning("No sequence validation rules found")
                 return {
@@ -106,7 +107,7 @@ class SequenceValidator:
         """
         errors = []
         try:
-            metadata_rules = self._rules.get("validation", {}).get("sequences", {}).get("metadata", {})
+            metadata_rules = get_validation_rules(self._rules, "sequences", "metadata")
             
             # Check required fields
             if "required_fields" in metadata_rules:
@@ -145,10 +146,10 @@ class SequenceValidator:
         """
         errors = []
         try:
-            step_rules = self._rules.get("validation", {}).get("sequences", {}).get("step_fields", {})
+            step_rules = get_validation_rules(self._rules, "sequences", "step_fields")
             
             # Check max steps
-            max_steps = self._rules.get("validation", {}).get("sequences", {}).get("max_steps")
+            max_steps = get_validation_rules(self._rules, "sequences").get("max_steps")
             if max_steps and len(steps) > max_steps:
                 errors.append(f"Sequence exceeds maximum steps ({max_steps})")
                 return errors
@@ -219,7 +220,7 @@ class SequenceValidator:
         """
         errors = []
         try:
-            move_rules = self._rules.get("validation", {}).get("sequences", {}).get("move", {})
+            move_rules = get_validation_rules(self._rules, "sequences", "move")
             
             # Check required parameters
             if "required_parameters" in move_rules:
@@ -257,7 +258,7 @@ class SequenceValidator:
         """
         errors = []
         try:
-            spray_rules = self._rules.get("validation", {}).get("sequences", {}).get("spray", {})
+            spray_rules = get_validation_rules(self._rules, "sequences", "spray")
             
             # Check required parameters
             if "required_parameters" in spray_rules:
@@ -295,7 +296,7 @@ class SequenceValidator:
         """
         errors = []
         try:
-            pattern_rules = self._rules.get("validation", {}).get("sequences", {}).get("patterns", {})
+            pattern_rules = get_validation_rules(self._rules, "sequences", "patterns")
             
             # Check pattern type
             if "type" not in parameters:
@@ -346,7 +347,7 @@ class SequenceValidator:
         errors = []
         try:
             sequence_type = data["type"]
-            type_rules = self._rules.get("validation", {}).get("sequences", {}).get("types", {}).get(sequence_type, {})
+            type_rules = get_validation_rules(self._rules, "sequences", "types", sequence_type)
             
             if not type_rules:
                 errors.append(f"Unknown sequence type: {sequence_type}")

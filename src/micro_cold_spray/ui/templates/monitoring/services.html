@@ -1,132 +1,150 @@
 {% extends "base.html" %}
 
+{% block title %}Service Monitor - MicroColdSpray{% endblock %}
+
+{% block nav_items %}
+<button id="refresh-btn" class="px-4 py-2 bg-primary text-white rounded hover:bg-blue-600 transition-colors flex items-center space-x-2">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+    </svg>
+    <span>Refresh</span>
+</button>
+{% endblock %}
+
 {% block content %}
-<div class="container mx-auto px-4 py-8">
+<div class="container mx-auto px-4">
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="services-grid">
         <!-- Service blocks will be dynamically added here -->
     </div>
 </div>
 
 <script>
-const serviceColors = {
-    ok: 'bg-green-100 border-green-500',
-    error: 'bg-red-100 border-red-500',
-    warning: 'bg-yellow-100 border-yellow-500'
-};
+// Service update interval in milliseconds
+const UPDATE_INTERVAL = 5000;
 
-const statusColors = {
-    ok: 'bg-green-500',
-    error: 'bg-red-500',
-    warning: 'bg-yellow-500'
-};
+// Track update timer
+let updateTimer = null;
 
-function formatUptime(seconds) {
-    if (!seconds || seconds < 0) return 'Not available';
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    return `${hours}h ${minutes}m`;
-}
-
-function formatServiceName(name) {
-    return name.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-}
-
-function formatTimestamp(timestamp) {
-    if (!timestamp) return '';
-    const date = new Date(timestamp);
-    return date.toLocaleString();
-}
-
-function formatComponents(components) {
-    if (!components) return '';
+/**
+ * Create service card element
+ * @param {string} name - Service name
+ * @param {Object} service - Service data
+ * @returns {HTMLElement} Card element
+ */
+function createServiceCard(name, service) {
+    const card = document.createElement('div');
+    card.className = `service-card p-6 rounded-lg border-2 ${mcsprayUI.STATUS_COLORS[service.status].border} ${mcsprayUI.STATUS_COLORS[service.status].bg}`;
     
-    return Object.entries(components).map(([name, health]) => `
-        <div class="flex items-center justify-between mt-2 text-sm">
-            <span class="font-medium">${formatServiceName(name)}:</span>
-            <span class="px-2 py-0.5 rounded text-xs text-white ${statusColors[health.status]}">
-                ${health.status.toUpperCase()}
+    card.innerHTML = `
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-semibold">${mcsprayUI.formatUtils.formatServiceName(name)}</h3>
+            <span class="px-2 py-1 rounded text-sm text-white bg-${service.status === 'ok' ? 'success' : service.status === 'warning' ? 'warning' : 'error'}">
+                ${service.status.toUpperCase()}
             </span>
         </div>
-        ${health.error ? `<p class="text-xs text-red-600 mt-1">${health.error}</p>` : ''}
-    `).join('');
-}
-
-function updateServices() {
-    fetch('/monitoring/services/status')
-        .then(response => response.json())
-        .then(services => {
-            const grid = document.getElementById('services-grid');
-            grid.innerHTML = '';
-
-            Object.entries(services).forEach(([name, service]) => {
-                const block = document.createElement('div');
-                block.className = `p-6 rounded-lg border-2 ${serviceColors[service.status]}`;
-                block.innerHTML = `
-                    <div class="flex justify-between items-center mb-4">
-                        <h3 class="text-lg font-semibold">${formatServiceName(name)}</h3>
-                        <span class="px-2 py-1 rounded text-sm text-white ${statusColors[service.status]}">
-                            ${service.status.toUpperCase()}
-                        </span>
-                    </div>
-                    <div class="space-y-2">
-                        <p class="text-sm">
-                            <span class="font-medium">Version:</span> ${service.version || 'Not available'}
-                        </p>
-                        ${service.port ? `
-                            <p class="text-sm">
-                                <span class="font-medium">Port:</span> ${service.port}
-                            </p>
-                        ` : ''}
-                        <p class="text-sm">
-                            <span class="font-medium">Status:</span> ${service.is_running ? 'Running' : 'Stopped'}
-                        </p>
-                        <p class="text-sm">
-                            <span class="font-medium">Uptime:</span> ${formatUptime(service.uptime)}
-                        </p>
-                        ${service.timestamp ? `
-                            <p class="text-sm">
-                                <span class="font-medium">Last Update:</span> ${formatTimestamp(service.timestamp)}
-                            </p>
-                        ` : ''}
-                        ${service.mode ? `
-                            <p class="text-sm">
-                                <span class="font-medium">Mode:</span> ${service.mode}
-                            </p>
-                        ` : ''}
-                        ${service.error ? `
-                            <p class="text-sm text-red-600 mt-2">
-                                <span class="font-medium">Error:</span> ${service.error}
-                            </p>
-                        ` : ''}
-                        ${service.components ? `
-                            <div class="mt-4 border-t pt-2">
-                                <p class="text-sm font-medium mb-2">Components:</p>
-                                ${formatComponents(service.components)}
-                            </div>
-                        ` : ''}
-                    </div>
-                `;
-                grid.appendChild(block);
-            });
-        })
-        .catch(error => {
-            console.error('Failed to fetch services status:', error);
-            const grid = document.getElementById('services-grid');
-            grid.innerHTML = `
-                <div class="col-span-full p-6 rounded-lg border-2 bg-red-100 border-red-500">
-                    <div class="flex items-center space-x-2">
-                        <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <p class="text-red-600">Failed to fetch services status. Please try refreshing the page.</p>
-                    </div>
+        <div class="space-y-2">
+            <p class="text-sm">
+                <span class="font-medium">Version:</span> ${service.version || 'Not available'}
+            </p>
+            ${service.port ? `
+                <p class="text-sm">
+                    <span class="font-medium">Port:</span> ${service.port}
+                </p>
+            ` : ''}
+            <p class="text-sm">
+                <span class="font-medium">Status:</span> ${service.is_running ? 'Running' : 'Stopped'}
+            </p>
+            <p class="text-sm">
+                <span class="font-medium">Uptime:</span> ${mcsprayUI.formatUtils.formatUptime(service.uptime)}
+            </p>
+            ${service.timestamp ? `
+                <p class="text-sm">
+                    <span class="font-medium">Last Update:</span> ${mcsprayUI.formatUtils.formatTimestamp(service.timestamp)}
+                </p>
+            ` : ''}
+            ${service.mode ? `
+                <p class="text-sm">
+                    <span class="font-medium">Mode:</span> ${service.mode}
+                </p>
+            ` : ''}
+            ${service.error ? `
+                <div class="error-message mt-2">
+                    <span class="font-medium">Error:</span> ${service.error}
                 </div>
-            `;
-        });
+            ` : ''}
+            ${service.components ? `
+                <div class="mt-4 border-t pt-2">
+                    <p class="text-sm font-medium mb-2">Components:</p>
+                    ${Object.entries(service.components).map(([name, health]) => `
+                        <div class="component-status flex items-center justify-between mt-2 text-sm">
+                            <span class="font-medium">${mcsprayUI.formatUtils.formatServiceName(name)}:</span>
+                            <span class="px-2 py-0.5 rounded text-xs text-white bg-${health.status === 'ok' ? 'success' : health.status === 'warning' ? 'warning' : 'error'}">
+                                ${health.status.toUpperCase()}
+                            </span>
+                        </div>
+                        ${health.error ? `<p class="text-xs text-red-600 mt-1">${health.error}</p>` : ''}
+                    `).join('')}
+                </div>
+            ` : ''}
+        </div>
+    `;
+    
+    return card;
 }
 
-// Update services status every 5 seconds
+/**
+ * Update services display
+ */
+async function updateServices() {
+    const grid = document.getElementById('services-grid');
+    
+    try {
+        // Show loading state
+        grid.innerHTML = '';
+        grid.appendChild(mcsprayUI.domUtils.createSpinner());
+        
+        // Fetch services status
+        const services = await mcsprayUI.apiUtils.fetchWithTimeout('/monitoring/services/status');
+        
+        // Update display
+        grid.innerHTML = '';
+        Object.entries(services).forEach(([name, service]) => {
+            grid.appendChild(createServiceCard(name, service));
+        });
+    } catch (error) {
+        const errorDetails = mcsprayUI.apiUtils.handleError(error, 'services-update');
+        grid.innerHTML = '';
+        grid.appendChild(mcsprayUI.domUtils.createErrorMessage(
+            'Failed to fetch services status. Please try refreshing the page.'
+        ));
+    }
+}
+
+// Setup refresh button
+document.getElementById('refresh-btn').addEventListener('click', () => {
+    // Clear existing timer
+    if (updateTimer) {
+        clearInterval(updateTimer);
+    }
+    
+    // Perform immediate update
+    updateServices();
+    
+    // Restart timer
+    updateTimer = setInterval(updateServices, UPDATE_INTERVAL);
+});
+
+// Initial update
 updateServices();
-setInterval(updateServices, 5000);
+
+// Start update timer
+updateTimer = setInterval(updateServices, UPDATE_INTERVAL);
+
+// Cleanup on page unload
+window.addEventListener('unload', () => {
+    if (updateTimer) {
+        clearInterval(updateTimer);
+    }
+});
 </script>
 {% endblock %} 
