@@ -3,23 +3,11 @@
 from typing import List, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, Request, status
-from pydantic import BaseModel, Field
 
 from micro_cold_spray.utils.errors import create_error
-from micro_cold_spray.utils.health import get_uptime
+from micro_cold_spray.utils.health import ServiceHealth
 from micro_cold_spray.api.data_collection.data_collection_service import DataCollectionService
 from micro_cold_spray.api.data_collection.data_collection_models import SprayEvent
-
-
-class HealthResponse(BaseModel):
-    """Health check response model."""
-    status: str = Field(..., description="Service status (ok or error)")
-    service_name: str = Field(..., description="Service name")
-    version: str = Field(..., description="Service version")
-    is_running: bool = Field(..., description="Whether service is running")
-    uptime: float = Field(..., description="Service uptime in seconds")
-    error: Optional[str] = Field(None, description="Error message if any")
-    timestamp: datetime = Field(default_factory=datetime.now, description="Response timestamp")
 
 
 router = APIRouter(prefix="/data_collection", tags=["data_collection"])
@@ -30,30 +18,10 @@ def get_service(request: Request) -> DataCollectionService:
     return request.app.service
 
 
-@router.get("/health", response_model=HealthResponse)
-async def health(service: DataCollectionService = Depends(get_service)) -> HealthResponse:
+@router.get("/health", response_model=ServiceHealth)
+async def health(service: DataCollectionService = Depends(get_service)) -> ServiceHealth:
     """Get service health."""
-    try:
-        health_info = await service.check_health()
-        return HealthResponse(
-            status=health_info["status"],
-            service_name=service.name,
-            version=service.version,
-            is_running=service.is_running,
-            uptime=health_info.get("uptime", 0),
-            error=health_info.get("error"),
-            timestamp=datetime.now()
-        )
-    except Exception as e:
-        return HealthResponse(
-            status="error",
-            service_name=service.name,
-            version=service.version,
-            is_running=False,
-            uptime=0,
-            error=str(e),
-            timestamp=datetime.now()
-        )
+    return await service.health()
 
 
 @router.post("/data/start/{sequence_id}", status_code=status.HTTP_200_OK)

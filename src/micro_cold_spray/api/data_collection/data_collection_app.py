@@ -12,6 +12,7 @@ from micro_cold_spray.api.data_collection.data_collection_router import router
 from micro_cold_spray.api.data_collection.data_collection_service import DataCollectionService
 from micro_cold_spray.api.data_collection.data_collection_storage import DataCollectionStorage
 from micro_cold_spray.utils.errors import create_error
+from micro_cold_spray.utils.health import ServiceHealth
 
 
 class DataCollectionApp(FastAPI):
@@ -19,11 +20,18 @@ class DataCollectionApp(FastAPI):
 
     def __init__(self):
         """Initialize application."""
-        super().__init__(
-            title="Data Collection API",
-            description="API for collecting spray data",
-            version="1.0.0"
-        )
+        # Initialize FastAPI first with minimal settings
+        super().__init__()
+        
+        # Store version internally
+        self._version = "1.0.0"
+        
+        # Update FastAPI properties after initialization
+        self.title = "Data Collection API"
+        self.description = "API for collecting spray data"
+        self.docs_url = "/docs"
+        self.redoc_url = "/redoc"
+        self.openapi_url = "/openapi.json"
         
         # Initialize components
         self.service: Optional[DataCollectionService] = None
@@ -48,26 +56,31 @@ class DataCollectionApp(FastAPI):
         async def health():
             """Health check endpoint."""
             try:
-                uptime = (datetime.now() - self._start_time).total_seconds() if self._start_time else 0
-                return {
-                    "status": "ok",
-                    "service": "data_collection",
-                    "version": self.version,
-                    "is_running": bool(self.service and self.storage),
-                    "uptime": uptime,
-                    "error": None,
-                    "timestamp": datetime.now()
-                }
+                if not self.service:
+                    return ServiceHealth(
+                        status="error",
+                        service="data_collection",
+                        version=self.version,
+                        is_running=False,
+                        uptime=self.uptime,
+                        error="Service not initialized",
+                        components={}
+                    )
+                    
+                return await self.service.health()
+                
             except Exception as e:
-                return {
-                    "status": "error",
-                    "service": "data_collection",
-                    "version": self.version,
-                    "is_running": False,
-                    "uptime": 0,
-                    "error": str(e),
-                    "timestamp": datetime.now()
-                }
+                error_msg = f"Health check failed: {str(e)}"
+                logging.error(error_msg)
+                return ServiceHealth(
+                    status="error",
+                    service="data_collection",
+                    version=self.version,
+                    is_running=False,
+                    uptime=self.uptime,
+                    error=error_msg,
+                    components={}
+                )
         
         # Add event handlers
         self.add_event_handler("startup", self.startup_event)
@@ -137,14 +150,15 @@ class DataCollectionApp(FastAPI):
             self.service = DataCollectionService(storage=self.storage)
             await self.service.initialize()
             
+            # Start the service
+            await self.service.start()
+            
             logging.info("Data collection service started")
             
         except Exception as e:
             logging.error(f"Failed to start data collection service: {e}")
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"Failed to start data collection service: {str(e)}"
-            )
+            # Don't raise here - let the service start in degraded mode
+            # The health check will show which components failed
 
     async def shutdown_event(self):
         """Cleanup on shutdown."""
@@ -155,3 +169,54 @@ class DataCollectionApp(FastAPI):
         except Exception as e:
             logging.error(f"Error during shutdown: {e}")
             # Don't raise here as we're shutting down
+
+    @property
+    def version(self) -> str:
+        """Get service version."""
+        return self._version
+
+    @property
+    def is_running(self) -> bool:
+        """Check if service is running."""
+        return bool(self.service and self.service.is_running)
+
+    @property
+    def uptime(self) -> float:
+        """Get service uptime."""
+        return (datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0
+
+    def add_routes(self):
+        """Add service routes."""
+        # Add routes
+        self.include_router(router)
+        
+        # Add health endpoint
+        @self.get("/health")
+        async def health():
+            """Health check endpoint."""
+            try:
+                if not self.service:
+                    return ServiceHealth(
+                        status="error",
+                        service="data_collection",
+                        version=self.version,
+                        is_running=False,
+                        uptime=self.uptime,
+                        error="Service not initialized",
+                        components={}
+                    )
+                    
+                return await self.service.health()
+                
+            except Exception as e:
+                error_msg = f"Health check failed: {str(e)}"
+                logging.error(error_msg)
+                return ServiceHealth(
+                    status="error",
+                    service="data_collection",
+                    version=self.version,
+                    is_running=False,
+                    uptime=self.uptime,
+                    error=error_msg,
+                    components={}
+                )

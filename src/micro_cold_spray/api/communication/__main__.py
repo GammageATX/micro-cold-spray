@@ -1,6 +1,5 @@
 """Communication service startup script."""
 
-import os
 import sys
 import uvicorn
 from loguru import logger
@@ -11,21 +10,18 @@ from micro_cold_spray.api.communication.communication_app import create_communic
 def main():
     """Run communication service."""
     try:
-        # Get config from environment or use defaults
-        host = os.getenv("COMMUNICATION_SERVICE_HOST", "0.0.0.0")
-        port = int(os.getenv("COMMUNICATION_SERVICE_PORT", "8003"))
-        reload = os.getenv("COMMUNICATION_SERVICE_RELOAD", "false").lower() == "true"
+        # Load config
+        config = load_config()
         
         # Create app instance with config
-        app = create_communication_service()
+        app = create_communication_service(config)
         
-        # Run service
+        # Run service using config values
         uvicorn.run(
             app,
-            host=host,
-            port=port,
-            reload=reload,
-            log_level="info"
+            host=config["service"]["host"],
+            port=config["service"]["port"],
+            log_level=config["service"]["log_level"].lower()
         )
 
     except Exception as e:

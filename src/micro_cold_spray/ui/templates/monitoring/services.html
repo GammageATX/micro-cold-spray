@@ -31,6 +31,12 @@ function formatServiceName(name) {
     return name.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 }
 
+function formatTimestamp(timestamp) {
+    if (!timestamp) return '';
+    const date = new Date(timestamp);
+    return date.toLocaleString();
+}
+
 function formatComponents(components) {
     if (!components) return '';
     
@@ -66,12 +72,22 @@ function updateServices() {
                         <p class="text-sm">
                             <span class="font-medium">Version:</span> ${service.version || 'Not available'}
                         </p>
+                        ${service.port ? `
+                            <p class="text-sm">
+                                <span class="font-medium">Port:</span> ${service.port}
+                            </p>
+                        ` : ''}
                         <p class="text-sm">
-                            <span class="font-medium">Port:</span> ${service.port}
+                            <span class="font-medium">Status:</span> ${service.is_running ? 'Running' : 'Stopped'}
                         </p>
                         <p class="text-sm">
                             <span class="font-medium">Uptime:</span> ${formatUptime(service.uptime)}
                         </p>
+                        ${service.timestamp ? `
+                            <p class="text-sm">
+                                <span class="font-medium">Last Update:</span> ${formatTimestamp(service.timestamp)}
+                            </p>
+                        ` : ''}
                         ${service.mode ? `
                             <p class="text-sm">
                                 <span class="font-medium">Mode:</span> ${service.mode}

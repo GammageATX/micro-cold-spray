@@ -1,217 +1,132 @@
-"""File service for managing configuration files."""
+"""File service implementation."""
 
 import os
-from typing import List, Dict, Any
+from typing import Dict, Any, Optional
 from datetime import datetime
+from fastapi import status
 from loguru import logger
 
 from micro_cold_spray.utils.errors import create_error
+from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
 
 
 class FileService:
-    """Service for managing configuration files."""
-    
-    def __init__(self, base_path: str = None):
-        """Initialize file service.
+    """File service."""
+
+    def __init__(self, base_path: str):
+        """Initialize service.
         
         Args:
-            base_path: Base path for configuration files
+            base_path: Base path for file operations
         """
-        self.base_path = base_path or os.getcwd()
-        self.is_running = False
+        self._base_path = base_path
+        self._is_running = False
         self._start_time = None
-        
-    async def start(self):
-        """Start file service."""
+        logger.info("File service initialized")
+
+    async def initialize(self) -> None:
+        """Initialize service."""
         try:
-            # Create base path if it doesn't exist
-            if not os.path.exists(self.base_path):
-                os.makedirs(self.base_path)
-                logger.info(f"Created config directory: {self.base_path}")
+            logger.info("Initializing file service...")
             
-            self.is_running = True
+            # Create base directory if it doesn't exist
+            os.makedirs(self._base_path, exist_ok=True)
+            logger.info(f"Using base path: {self._base_path}")
+            
+            logger.info("File service initialized")
+            
+        except Exception as e:
+            error_msg = f"Failed to initialize file service: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
+
+    async def start(self) -> None:
+        """Start service."""
+        try:
+            logger.info("Starting file service...")
+            self._is_running = True
             self._start_time = datetime.now()
             logger.info("File service started")
             
         except Exception as e:
-            logger.error(f"Failed to start file service: {e}")
+            self._is_running = False
+            error_msg = f"Failed to start file service: {str(e)}"
+            logger.error(error_msg)
             raise create_error(
-                status_code=503,
-                message=f"Failed to start file service: {str(e)}"
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
             )
-    
-    async def stop(self):
-        """Stop file service."""
-        self.is_running = False
-        self._start_time = None
-        logger.info("File service stopped")
-    
-    def list_configs(self) -> List[str]:
-        """List available configuration files.
-        
-        Returns:
-            List[str]: List of configuration filenames
-        """
-        if not self.is_running:
-            raise create_error(
-                status_code=503,
-                message="File service not running"
-            )
-        
+
+    async def stop(self) -> None:
+        """Stop service."""
         try:
-            # Get all YAML files in base path
-            files = []
-            for filename in os.listdir(self.base_path):
-                if filename.endswith(('.yaml', '.yml')):
-                    files.append(filename)
-            return files
+            logger.info("Stopping file service...")
+            self._is_running = False
+            logger.info("File service stopped")
             
         except Exception as e:
-            logger.error(f"Failed to list configs: {e}")
+            error_msg = f"Failed to stop file service: {str(e)}"
+            logger.error(error_msg)
             raise create_error(
-                status_code=500,
-                message=f"Failed to list configs: {str(e)}"
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
             )
-    
-    def read(self, filename: str) -> str:
-        """Read configuration file.
-        
-        Args:
-            filename: Name of file to read
-            
-        Returns:
-            str: File contents
-        """
-        if not self.is_running:
-            raise create_error(
-                status_code=503,
-                message="File service not running"
-            )
-        
+
+    @property
+    def is_running(self) -> bool:
+        """Get service running state."""
+        return self._is_running
+
+    @property
+    def uptime(self) -> float:
+        """Get service uptime."""
+        return (datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0
+
+    async def health(self) -> ServiceHealth:
+        """Get service health status."""
         try:
-            # Get full path
-            filepath = os.path.join(self.base_path, filename)
+            # Check if base directory exists and is writable
+            base_exists = os.path.exists(self._base_path)
+            base_writable = os.access(self._base_path, os.W_OK) if base_exists else False
             
-            # Check file exists
-            if not os.path.exists(filepath):
-                raise create_error(
-                    status_code=404,
-                    message=f"File not found: {filename}"
-                )
-            
-            # Read file
-            with open(filepath, 'r') as f:
-                return f.read()
-                
-        except Exception as e:
-            logger.error(f"Failed to read config {filename}: {e}")
-            raise create_error(
-                status_code=500,
-                message=f"Failed to read config {filename}: {str(e)}"
-            )
-    
-    def write(self, filename: str, data: str):
-        """Write configuration file.
-        
-        Args:
-            filename: Name of file to write
-            data: Configuration data to write
-        """
-        if not self.is_running:
-            raise create_error(
-                status_code=503,
-                message="File service not running"
-            )
-        
-        try:
-            # Get full path
-            filepath = os.path.join(self.base_path, filename)
-            
-            # Write file
-            with open(filepath, 'w') as f:
-                f.write(data)
-                
-        except Exception as e:
-            logger.error(f"Failed to write config {filename}: {e}")
-            raise create_error(
-                status_code=500,
-                message=f"Failed to write config {filename}: {str(e)}"
-            )
-    
-    def delete(self, filename: str):
-        """Delete configuration file.
-        
-        Args:
-            filename: Name of file to delete
-        """
-        if not self.is_running:
-            raise create_error(
-                status_code=503,
-                message="File service not running"
-            )
-        
-        try:
-            # Get full path
-            filepath = os.path.join(self.base_path, filename)
-            
-            # Check file exists
-            if not os.path.exists(filepath):
-                raise create_error(
-                    status_code=404,
-                    message=f"File not found: {filename}"
-                )
-            
-            # Delete file
-            os.remove(filepath)
-            
-        except Exception as e:
-            logger.error(f"Failed to delete config {filename}: {e}")
-            raise create_error(
-                status_code=500,
-                message=f"Failed to delete config {filename}: {str(e)}"
-            )
-    
-    async def health(self) -> Dict[str, Any]:
-        """Get service health status.
-        
-        Returns:
-            Dict[str, Any]: Health status
-        """
-        try:
-            # Check if base path exists and is writable
-            path_exists = os.path.exists(self.base_path)
-            path_writable = os.access(self.base_path, os.W_OK)
-            
-            # Build component statuses
+            # Build component status
             components = {
-                "storage": {
-                    "status": "ok" if path_exists and path_writable else "error",
-                    "error": None if path_exists and path_writable else "Path not accessible"
-                }
+                "base_dir": ComponentHealth(
+                    status="ok" if base_exists and base_writable else "error",
+                    error=None if base_exists and base_writable else "Base directory not accessible"
+                )
             }
             
             # Overall status is error if any component is in error
-            overall_status = "error" if any(c["status"] == "error" for c in components.values()) else "ok"
+            overall_status = "error" if any(c.status == "error" for c in components.values()) else "ok"
             
-            return {
-                "status": overall_status,
-                "service": "file",
-                "version": "1.0.0",
-                "is_running": self.is_running,
-                "error": None if overall_status == "ok" else "One or more components in error state",
-                "components": components
-            }
+            return ServiceHealth(
+                status=overall_status,
+                service="file",
+                version="1.0.0",  # TODO: Load from config
+                is_running=self.is_running,
+                uptime=self.uptime,
+                error=None if overall_status == "ok" else "One or more components in error state",
+                components=components
+            )
             
         except Exception as e:
             error_msg = f"Health check failed: {str(e)}"
             logger.error(error_msg)
-            return {
-                "status": "error",
-                "service": "file",
-                "version": "1.0.0",
-                "is_running": False,
-                "error": error_msg,
-                "components": {
-                    "storage": {"status": "error", "error": error_msg}
+            return ServiceHealth(
+                status="error",
+                service="file",
+                version="1.0.0",  # TODO: Load from config
+                is_running=False,
+                uptime=self.uptime,
+                error=error_msg,
+                components={
+                    "base_dir": ComponentHealth(
+                        status="error",
+                        error=error_msg
+                    )
                 }
-            }
+            )

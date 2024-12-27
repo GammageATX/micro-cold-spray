@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from micro_cold_spray.utils.errors import create_error
-from micro_cold_spray.utils.health import get_uptime, ServiceHealth
+from micro_cold_spray.utils.health import get_uptime, ServiceHealth, ComponentHealth
 
 
 from micro_cold_spray.api.communication.services import (
@@ -33,8 +33,10 @@ class CommunicationService:
             config: Service configuration
         """
         self._config = config
+        self._version = config.get("version", "1.0.0")
         self._is_running = False
         self._mode = config.get("mode", "mock")
+        self._start_time = None
         
         # Initialize services
         self._tag_mapping = TagMappingService(config)
@@ -43,6 +45,30 @@ class CommunicationService:
         self._motion = MotionService(config)
         
         logger.info("Communication service initialized")
+
+    async def initialize(self) -> None:
+        """Initialize service."""
+        try:
+            logger.info("Initializing communication service...")
+            
+            # Initialize tag mapping service
+            await self._tag_mapping.initialize()
+            
+            # Initialize equipment service
+            await self._equipment.initialize()
+            
+            # Initialize motion service
+            await self._motion.initialize()
+            
+            logger.info("Communication service initialized")
+            
+        except Exception as e:
+            error_msg = f"Failed to initialize communication service: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
 
     async def start(self) -> None:
         """Start service and all components."""
@@ -63,6 +89,7 @@ class CommunicationService:
             
             # Initialize and start tag cache service
             self._tag_cache = TagCacheService(plc_client, ssh_client, self._tag_mapping)
+            await self._tag_cache.initialize()
             await self._tag_cache.start()
             
             # Set tag cache and start equipment service
@@ -74,6 +101,7 @@ class CommunicationService:
             await self._motion.start()
             
             self._is_running = True
+            self._start_time = datetime.now()
             logger.info("Communication service started successfully")
             
         except Exception as e:
@@ -107,67 +135,40 @@ class CommunicationService:
             )
 
     @property
+    def version(self) -> str:
+        """Get service version."""
+        return self._version
+
+    @property
     def is_running(self) -> bool:
-        """Get service running state.
-        
-        Returns:
-            bool: Whether service is running
-        """
+        """Get service running state."""
         return self._is_running
 
     @property
-    def version(self) -> str:
-        """Get service version.
-        
-        Returns:
-            str: Service version
-        """
-        return "1.0.0"
-
-    @property
-    def equipment(self) -> EquipmentService:
-        """Get equipment service."""
-        return self._equipment
-
-    @property
-    def motion(self) -> MotionService:
-        """Get motion service."""
-        return self._motion
-
-    @property
-    def tag_cache(self) -> Optional[TagCacheService]:
-        """Get tag cache service."""
-        return self._tag_cache
-
-    @property
-    def tag_mapping(self) -> TagMappingService:
-        """Get tag mapping service."""
-        return self._tag_mapping
+    def uptime(self) -> float:
+        """Get service uptime."""
+        return (datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0
 
     async def health(self) -> ServiceHealth:
-        """Get service health status.
-        
-        Returns:
-            ServiceHealth: Service health information
-        """
+        """Get service health status."""
         try:
             components = {
-                "tag_mapping": {
-                    "status": "ok" if self._tag_mapping.is_running else "error",
-                    "error": None if self._tag_mapping.is_running else "Not running"
-                },
-                "tag_cache": {
-                    "status": "ok" if self._tag_cache and self._tag_cache.is_running else "error",
-                    "error": None if self._tag_cache and self._tag_cache.is_running else "Not running"
-                },
-                "equipment": {
-                    "status": "ok" if self._equipment.is_running else "error",
-                    "error": None if self._equipment.is_running else "Not running"
-                },
-                "motion": {
-                    "status": "ok" if self._motion.is_running else "error",
-                    "error": None if self._motion.is_running else "Not running"
-                }
+                "tag_mapping": ComponentHealth(
+                    status="ok" if self._tag_mapping.is_running else "error",
+                    error=None if self._tag_mapping.is_running else "Not running"
+                ),
+                "tag_cache": ComponentHealth(
+                    status="ok" if self._tag_cache and self._tag_cache.is_running else "error",
+                    error=None if self._tag_cache and self._tag_cache.is_running else "Not running"
+                ),
+                "equipment": ComponentHealth(
+                    status="ok" if self._equipment.is_running else "error",
+                    error=None if self._equipment.is_running else "Not running"
+                ),
+                "motion": ComponentHealth(
+                    status="ok" if self._motion.is_running else "error",
+                    error=None if self._motion.is_running else "Not running"
+                )
             }
             
             return ServiceHealth(
@@ -175,11 +176,10 @@ class CommunicationService:
                 service="communication",
                 version=self.version,
                 is_running=self.is_running,
-                uptime=get_uptime(),
+                uptime=self.uptime,
                 error=None if self.is_running else "Service not running",
                 mode=self._mode,
-                components=components,
-                timestamp=datetime.now()
+                components=components
             )
             
         except Exception as e:
@@ -190,8 +190,13 @@ class CommunicationService:
                 service="communication",
                 version=self.version,
                 is_running=False,
-                uptime=get_uptime(),
+                uptime=self.uptime,
                 error=error_msg,
                 mode=self._mode,
-                timestamp=datetime.now()
+                components={
+                    "tag_mapping": ComponentHealth(status="error", error=error_msg),
+                    "tag_cache": ComponentHealth(status="error", error=error_msg),
+                    "equipment": ComponentHealth(status="error", error=error_msg),
+                    "motion": ComponentHealth(status="error", error=error_msg)
+                }
             )

@@ -5,8 +5,10 @@ import yaml
 from typing import Dict, Any, List
 from loguru import logger
 from fastapi import status
+from datetime import datetime
 
 from micro_cold_spray.utils.errors import create_error
+from micro_cold_spray.utils.health import ServiceHealth
 from micro_cold_spray.api.validation.validators.hardware_validator import HardwareValidator
 from micro_cold_spray.api.validation.validators.parameter_validator import ParameterValidator
 from micro_cold_spray.api.validation.validators.pattern_validator import PatternValidator
@@ -114,53 +116,63 @@ class ValidationService:
         """
         return await self._sequence_validator.validate(data)
 
-    async def health(self) -> Dict[str, Any]:
+    async def health(self) -> ServiceHealth:
         """Get service health status.
         
         Returns:
-            Dict[str, Any]: Health status
+            ServiceHealth: Health status
         """
         try:
             # Check if validation rules are loaded
             rules_loaded = len(self._validation_rules) > 0
             
-            return {
-                "status": "ok" if rules_loaded else "error",
-                "service": "validation",
-                "version": self.version,
-                "is_running": True,
-                "error": None if rules_loaded else "No validation rules loaded",
-                "components": {
-                    "hardware_validator": {
-                        "status": "ok" if rules_loaded else "error",
-                        "error": None if rules_loaded else "No validation rules"
-                    },
-                    "parameter_validator": {
-                        "status": "ok" if rules_loaded else "error",
-                        "error": None if rules_loaded else "No validation rules"
-                    },
-                    "pattern_validator": {
-                        "status": "ok" if rules_loaded else "error",
-                        "error": None if rules_loaded else "No validation rules"
-                    },
-                    "sequence_validator": {
-                        "status": "ok" if rules_loaded else "error",
-                        "error": None if rules_loaded else "No validation rules"
-                    }
+            # Build component statuses
+            components = {
+                "hardware_validator": {
+                    "status": "ok" if rules_loaded else "error",
+                    "error": None if rules_loaded else "No validation rules"
+                },
+                "parameter_validator": {
+                    "status": "ok" if rules_loaded else "error",
+                    "error": None if rules_loaded else "No validation rules"
+                },
+                "pattern_validator": {
+                    "status": "ok" if rules_loaded else "error",
+                    "error": None if rules_loaded else "No validation rules"
+                },
+                "sequence_validator": {
+                    "status": "ok" if rules_loaded else "error",
+                    "error": None if rules_loaded else "No validation rules"
                 }
             }
+            
+            # Overall status is error if any component is in error
+            overall_status = "error" if any(c["status"] == "error" for c in components.values()) else "ok"
+            
+            return ServiceHealth(
+                status=overall_status,
+                service="validation",
+                version=self.version,
+                is_running=True,  # Service is always running once initialized
+                uptime=0.0,  # No start time tracking in this service
+                error=None if overall_status == "ok" else "One or more components in error state",
+                components=components
+            )
+            
         except Exception as e:
             error_msg = f"Health check failed: {str(e)}"
-            return {
-                "status": "error",
-                "service": "validation",
-                "version": self.version,
-                "is_running": False,
-                "error": error_msg,
-                "components": {
+            logger.error(error_msg)
+            return ServiceHealth(
+                status="error",
+                service="validation",
+                version=self.version,
+                is_running=False,
+                uptime=0.0,
+                error=error_msg,
+                components={
                     "hardware_validator": {"status": "error", "error": error_msg},
                     "parameter_validator": {"status": "error", "error": error_msg},
                     "pattern_validator": {"status": "error", "error": error_msg},
                     "sequence_validator": {"status": "error", "error": error_msg}
                 }
-            }
+            )

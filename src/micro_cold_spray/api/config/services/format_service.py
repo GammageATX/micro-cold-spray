@@ -1,199 +1,116 @@
-"""Configuration format service implementation."""
+"""Format service implementation."""
 
-import json
-import yaml
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from datetime import datetime
+from fastapi import status
 from loguru import logger
 
 from micro_cold_spray.utils.errors import create_error
+from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
 
 
 class FormatService:
-    """Configuration format service implementation."""
+    """Format service."""
 
     def __init__(self):
         """Initialize service."""
-        self.is_running = False
+        self._is_running = False
         self._start_time = None
-        self.formatters = {
-            "json": {
-                "parse": self._parse_json,
-                "format": self._format_json
-            },
-            "yaml": {
-                "parse": self._parse_yaml,
-                "format": self._format_yaml
-            }
-        }
+        self._formatters = {}
+        logger.info("Format service initialized")
+
+    async def initialize(self) -> None:
+        """Initialize service."""
+        try:
+            logger.info("Initializing format service...")
+            # Initialize formatters
+            self._formatters = {}  # TODO: Load formatters
+            logger.info("Format service initialized")
+            
+        except Exception as e:
+            error_msg = f"Failed to initialize format service: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
 
     async def start(self) -> None:
         """Start service."""
-        self.is_running = True
-        self._start_time = datetime.now()
-        logger.info("Format service started")
+        try:
+            logger.info("Starting format service...")
+            self._is_running = True
+            self._start_time = datetime.now()
+            logger.info("Format service started")
+            
+        except Exception as e:
+            self._is_running = False
+            error_msg = f"Failed to start format service: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
 
     async def stop(self) -> None:
         """Stop service."""
-        self.is_running = False
-        self._start_time = None
-        logger.info("Format service stopped")
-
-    def _parse_json(self, data: str) -> Dict[str, Any]:
-        """Parse JSON string.
-        
-        Args:
-            data: JSON string to parse
-            
-        Returns:
-            Dict[str, Any]: Parsed data
-        """
         try:
-            return json.loads(data)
-        except json.JSONDecodeError as e:
-            raise create_error(
-                status_code=400,
-                message=f"Invalid JSON: {str(e)}"
-            )
-
-    def _format_json(self, data: Dict[str, Any]) -> str:
-        """Format data as JSON.
-        
-        Args:
-            data: Data to format
+            logger.info("Stopping format service...")
+            self._is_running = False
+            logger.info("Format service stopped")
             
-        Returns:
-            str: Formatted JSON string
-        """
-        try:
-            return json.dumps(data, indent=2)
         except Exception as e:
+            error_msg = f"Failed to stop format service: {str(e)}"
+            logger.error(error_msg)
             raise create_error(
-                status_code=500,
-                message=f"Failed to format JSON: {str(e)}"
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
             )
 
-    def _parse_yaml(self, data: str) -> Dict[str, Any]:
-        """Parse YAML string.
-        
-        Args:
-            data: YAML string to parse
-            
-        Returns:
-            Dict[str, Any]: Parsed data
-        """
+    @property
+    def is_running(self) -> bool:
+        """Get service running state."""
+        return self._is_running
+
+    @property
+    def uptime(self) -> float:
+        """Get service uptime."""
+        return (datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0
+
+    async def health(self) -> ServiceHealth:
+        """Get service health status."""
         try:
-            return yaml.safe_load(data)
-        except yaml.YAMLError as e:
-            raise create_error(
-                status_code=400,
-                message=f"Invalid YAML: {str(e)}"
-            )
-
-    def _format_yaml(self, data: Dict[str, Any]) -> str:
-        """Format data as YAML.
-        
-        Args:
-            data: Data to format
+            # Check if formatters are loaded
+            components = {}
+            for name, formatter in self._formatters.items():
+                components[name] = ComponentHealth(
+                    status="ok",
+                    error=None
+                )
             
-        Returns:
-            str: Formatted YAML string
-        """
-        try:
-            return yaml.dump(data, default_flow_style=False)
-        except Exception as e:
-            raise create_error(
-                status_code=500,
-                message=f"Failed to format YAML: {str(e)}"
-            )
-
-    def parse(self, data: str, format_type: str) -> Dict[str, Any]:
-        """Parse formatted string.
-        
-        Args:
-            data: String to parse
-            format_type: Format type ("json" or "yaml")
+            # Overall status is ok if we have formatters loaded
+            overall_status = "ok" if self._formatters else "error"
+            error = None if overall_status == "ok" else "No formatters loaded"
             
-        Returns:
-            Dict[str, Any]: Parsed data
-        """
-        if not self.is_running:
-            raise create_error(
-                status_code=503,
-                message="Format service not running"
+            return ServiceHealth(
+                status=overall_status,
+                service="format",
+                version="1.0.0",  # TODO: Load from config
+                is_running=self.is_running,
+                uptime=self.uptime,
+                error=error,
+                components=components
             )
-        
-        if format_type not in self.formatters:
-            raise create_error(
-                status_code=400,
-                message=f"Unsupported format: {format_type}"
-            )
-        
-        return self.formatters[format_type]["parse"](data)
-
-    def format(self, data: Dict[str, Any], format_type: str) -> str:
-        """Format data as string.
-        
-        Args:
-            data: Data to format
-            format_type: Format type ("json" or "yaml")
-            
-        Returns:
-            str: Formatted string
-        """
-        if not self.is_running:
-            raise create_error(
-                status_code=503,
-                message="Format service not running"
-            )
-        
-        if format_type not in self.formatters:
-            raise create_error(
-                status_code=400,
-                message=f"Unsupported format: {format_type}"
-            )
-        
-        return self.formatters[format_type]["format"](data)
-
-    async def health(self) -> Dict[str, Any]:
-        """Get service health status.
-        
-        Returns:
-            Dict[str, Any]: Health status
-        """
-        try:
-            # Check formatters
-            components = {
-                fmt: {
-                    "status": "ok" if all(fn for fn in funcs.values()) else "error",
-                    "error": None if all(fn for fn in funcs.values()) else "Missing formatter functions"
-                }
-                for fmt, funcs in self.formatters.items()
-            }
-            
-            # Overall status is error if any component is in error
-            overall_status = "error" if any(c["status"] == "error" for c in components.values()) else "ok"
-            
-            return {
-                "status": overall_status,
-                "service": "format",
-                "version": "1.0.0",
-                "is_running": self.is_running,
-                "error": None if overall_status == "ok" else "One or more components in error state",
-                "components": components
-            }
             
         except Exception as e:
             error_msg = f"Health check failed: {str(e)}"
             logger.error(error_msg)
-            return {
-                "status": "error",
-                "service": "format",
-                "version": "1.0.0",
-                "is_running": False,
-                "error": error_msg,
-                "components": {
-                    fmt: {"status": "error", "error": error_msg}
-                    for fmt in self.formatters.keys()
-                }
-            }
+            return ServiceHealth(
+                status="error",
+                service="format",
+                version="1.0.0",  # TODO: Load from config
+                is_running=False,
+                uptime=self.uptime,
+                error=error_msg,
+                components={}
+            )

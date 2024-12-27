@@ -12,6 +12,7 @@ from loguru import logger
 from micro_cold_spray.api.data_collection.data_collection_storage import DataCollectionStorage
 from micro_cold_spray.api.data_collection.data_collection_models import SprayEvent
 from micro_cold_spray.utils.errors import create_error
+from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
 
 
 class DataCollectionService:
@@ -123,11 +124,11 @@ class DataCollectionService:
                 message=f"Failed to stop data collection service: {str(e)}"
             )
 
-    async def health(self) -> Dict[str, Any]:
+    async def health(self) -> ServiceHealth:
         """Get service health status.
         
         Returns:
-            Dict[str, Any]: Health status
+            ServiceHealth: Health status
         """
         try:
             # Check storage health
@@ -141,42 +142,44 @@ class DataCollectionService:
             
             # Build component statuses
             components = {
-                "storage": {
-                    "status": "ok" if storage_ok else "error",
-                    "error": None if storage_ok else "Database connection failed"
-                },
-                "collector": {
-                    "status": "ok" if collector_ok else "error",
-                    "error": collector_error
-                }
+                "storage": ComponentHealth(
+                    status="ok" if storage_ok else "error",
+                    error=None if storage_ok else "Database connection failed"
+                ),
+                "collector": ComponentHealth(
+                    status="ok" if collector_ok else "error",
+                    error=collector_error
+                )
             }
             
             # Overall status is error if any component is in error
-            overall_status = "error" if any(c["status"] == "error" for c in components.values()) else "ok"
+            overall_status = "error" if any(c.status == "error" for c in components.values()) else "ok"
             
-            return {
-                "status": overall_status,
-                "service": self._name,
-                "version": self._version,
-                "is_running": self.is_running,
-                "error": None if overall_status == "ok" else "One or more components in error state",
-                "components": components
-            }
+            return ServiceHealth(
+                status=overall_status,
+                service=self._name,
+                version=self._version,
+                is_running=self.is_running,
+                uptime=(datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0,
+                error=None if overall_status == "ok" else "One or more components in error state",
+                components=components
+            )
             
         except Exception as e:
             error_msg = f"Health check failed: {str(e)}"
             logger.error(error_msg)
-            return {
-                "status": "error",
-                "service": self._name,
-                "version": self._version,
-                "is_running": False,
-                "error": error_msg,
-                "components": {
-                    "storage": {"status": "error", "error": error_msg},
-                    "collector": {"status": "error", "error": error_msg}
+            return ServiceHealth(
+                status="error",
+                service=self._name,
+                version=self._version,
+                is_running=False,
+                uptime=0.0,
+                error=error_msg,
+                components={
+                    "storage": ComponentHealth(status="error", error=error_msg),
+                    "collector": ComponentHealth(status="error", error=error_msg)
                 }
-            }
+            )
 
     async def start_collection(self, sequence_id: str) -> None:
         """Start data collection for a sequence."""

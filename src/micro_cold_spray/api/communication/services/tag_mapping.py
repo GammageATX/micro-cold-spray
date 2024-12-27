@@ -21,17 +21,27 @@ class TagMappingService:
             config: Service configuration
         """
         self._service_name = "tag_mapping"
-        self._version = "1.0.0"
+        self._version = config["communication"]["services"]["tag_mapping"]["version"]
+        self._config = config
         self._tag_map: Dict[str, Dict[str, Any]] = {}
         self._is_running = False
         self._start_time = None
-        self._config = config
-        logger.info("TagMappingService initialized")
+        logger.info(f"{self._service_name} service initialized")
+
+    @property
+    def version(self) -> str:
+        """Get service version."""
+        return self._version
 
     @property
     def is_running(self) -> bool:
         """Check if service is running."""
         return self._is_running
+
+    @property
+    def uptime(self) -> float:
+        """Get service uptime in seconds."""
+        return get_uptime(self._start_time)
 
     def _load_config(self) -> None:
         """Load tag configuration from YAML file."""
@@ -101,11 +111,10 @@ class TagMappingService:
 
             # Load tag configuration
             self._load_config()
-            self._is_running = True
-            logger.info("Tag mapping service initialized")
+            logger.info(f"{self._service_name} service initialized")
 
         except Exception as e:
-            error_msg = f"Failed to initialize tag mapping service: {str(e)}"
+            error_msg = f"Failed to initialize {self._service_name} service: {str(e)}"
             logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -119,14 +128,21 @@ class TagMappingService:
             HTTPException: If startup fails
         """
         try:
-            if not self.is_running:
+            if self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message="Service already running"
+                )
+
+            if not self._tag_map:
                 await self.initialize()
 
+            self._is_running = True
             self._start_time = datetime.now()
-            logger.info("Tag mapping service started")
+            logger.info(f"{self._service_name} service started")
 
         except Exception as e:
-            error_msg = f"Failed to start tag mapping service: {str(e)}"
+            error_msg = f"Failed to start {self._service_name} service: {str(e)}"
             logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -142,10 +158,10 @@ class TagMappingService:
             self._tag_map.clear()
             self._is_running = False
             self._start_time = None
-            logger.info("Tag mapping service stopped")
+            logger.info(f"{self._service_name} service stopped")
 
         except Exception as e:
-            error_msg = f"Failed to stop tag mapping service: {str(e)}"
+            error_msg = f"Failed to stop {self._service_name} service: {str(e)}"
             logger.error(error_msg)
             # Don't raise during shutdown
 
@@ -271,14 +287,14 @@ class TagMappingService:
             ServiceHealth: Health status
         """
         try:
-            # Check mappings status
-            mappings_ok = self.is_running and isinstance(self._tag_map, dict)
+            # Check tag mapping status
+            mapping_ok = len(self._tag_map) > 0
             
             # Build component statuses
             components = {
-                "mappings": {
-                    "status": "ok" if mappings_ok else "error",
-                    "error": None if mappings_ok else "Mappings not initialized"
+                "mapping": {
+                    "status": "ok" if mapping_ok else "error",
+                    "error": None if mapping_ok else "No tag mappings loaded"
                 }
             }
             
@@ -287,10 +303,10 @@ class TagMappingService:
             
             return ServiceHealth(
                 status=overall_status,
-                service="tag_mapping",
-                version="1.0.0",
+                service=self._service_name,
+                version=self.version,
                 is_running=self.is_running,
-                uptime=get_uptime(),
+                uptime=self.uptime,
                 error=None if overall_status == "ok" else "One or more components in error state",
                 components=components
             )
@@ -300,12 +316,12 @@ class TagMappingService:
             logger.error(error_msg)
             return ServiceHealth(
                 status="error",
-                service="tag_mapping",
-                version="1.0.0",
+                service=self._service_name,
+                version=self.version,
                 is_running=False,
                 uptime=0.0,
                 error=error_msg,
                 components={
-                    "mappings": {"status": "error", "error": error_msg}
+                    "mapping": {"status": "error", "error": error_msg}
                 }
             )

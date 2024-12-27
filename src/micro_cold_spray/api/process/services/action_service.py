@@ -2,11 +2,12 @@
 
 from datetime import datetime
 import time
-from typing import Dict, Any
+from typing import Dict, List, Any
 from fastapi import status
 from loguru import logger
 
 from micro_cold_spray.utils.errors import create_error
+from micro_cold_spray.utils import ServiceHealth, get_uptime
 from micro_cold_spray.api.process.models.process_models import ActionStatus
 
 
@@ -47,7 +48,7 @@ class ActionService:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )
 
     async def start(self) -> None:
@@ -69,7 +70,7 @@ class ActionService:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )
 
     async def stop(self) -> None:
@@ -91,70 +92,60 @@ class ActionService:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )
 
-    async def health(self) -> Dict[str, Any]:
+    async def health(self) -> ServiceHealth:
         """Get service health status.
         
         Returns:
-            Health status dictionary
+            ServiceHealth: Health status
         """
         try:
-            return {
-                "status": "ok" if self.is_running else "error",
-                "service": self._service_name,
-                "version": self._version,
-                "is_running": self.is_running,
-                "error": None if self.is_running else "Service not running",
-                "components": {
-                    "action_executor": {
-                        "status": "ok" if self.is_running else "error",
-                        "error": None if self.is_running else "Action executor not running"
-                    }
-                }
-            }
+            return ServiceHealth(
+                status="ok",
+                service=self._service_name,
+                version=self.version,
+                is_running=self.is_running,
+                uptime=self.uptime,
+                error=None,
+                components={}
+            )
         except Exception as e:
             error_msg = f"Health check failed: {str(e)}"
             logger.error(error_msg)
-            return {
-                "status": "error",
-                "service": self._service_name,
-                "version": self._version,
-                "is_running": False,
-                "error": error_msg,
-                "components": {
-                    "action_executor": {
-                        "status": "error",
-                        "error": error_msg
-                    }
-                }
-            }
+            return ServiceHealth(
+                status="error",
+                service=self._service_name,
+                version=self.version,
+                is_running=False,
+                uptime=0.0,
+                error=error_msg,
+                components={}
+            )
 
     async def start_action(self, action_id: str) -> ActionStatus:
         """Start action execution.
         
         Args:
-            action_id: Action identifier
+            action_id: Action ID
             
         Returns:
             Action status
-            
-        Raises:
-            HTTPException: If start fails
         """
         try:
             if not self.is_running:
                 raise create_error(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
+                    message="Service not running",
+                    details={"action_id": action_id}
                 )
 
             if self._current_action:
                 raise create_error(
                     status_code=status.HTTP_409_CONFLICT,
-                    message="Another action is already running",
-                    context={"current_action": self._current_action}
+                    message="Action already in progress",
+                    details={"action_id": action_id, "current_action": self._current_action}
                 )
 
             self._current_action = action_id
@@ -162,47 +153,38 @@ class ActionService:
             return ActionStatus.RUNNING
 
         except Exception as e:
-            error_msg = f"Failed to start action {action_id}"
-            logger.error(f"{error_msg}: {str(e)}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg,
-                context={"error": str(e)}
-            )
+            logger.error(f"Failed to start action: {str(e)}")
+            raise
 
     async def stop_action(self, action_id: str) -> ActionStatus:
         """Stop action execution.
         
         Args:
-            action_id: Action identifier
+            action_id: Action ID
             
         Returns:
             Action status
-            
-        Raises:
-            HTTPException: If stop fails
         """
         try:
             if not self.is_running:
                 raise create_error(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
+                    message="Service not running",
+                    details={"action_id": action_id}
                 )
 
             if not self._current_action:
                 raise create_error(
-                    status_code=status.HTTP_409_CONFLICT,
-                    message="No action is running"
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message="No action in progress",
+                    details={"action_id": action_id}
                 )
 
             if self._current_action != action_id:
                 raise create_error(
-                    status_code=status.HTTP_409_CONFLICT,
-                    message=f"Action {action_id} is not running",
-                    context={
-                        "action_id": action_id,
-                        "current_action": self._current_action
-                    }
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    message="Action not in progress",
+                    details={"action_id": action_id, "current_action": self._current_action}
                 )
 
             self._current_action = None
@@ -210,31 +192,24 @@ class ActionService:
             return ActionStatus.COMPLETED
 
         except Exception as e:
-            error_msg = f"Failed to stop action {action_id}"
-            logger.error(f"{error_msg}: {str(e)}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg,
-                context={"error": str(e)}
-            )
+            logger.error(f"Failed to stop action: {str(e)}")
+            raise
 
     async def get_action_status(self, action_id: str) -> ActionStatus:
         """Get action execution status.
         
         Args:
-            action_id: Action identifier
+            action_id: Action ID
             
         Returns:
             Action status
-            
-        Raises:
-            HTTPException: If status check fails
         """
         try:
             if not self.is_running:
                 raise create_error(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
+                    message="Service not running",
+                    details={"action_id": action_id}
                 )
 
             if not self._current_action:
@@ -246,10 +221,5 @@ class ActionService:
             return ActionStatus.RUNNING
 
         except Exception as e:
-            error_msg = f"Failed to get status for action {action_id}"
-            logger.error(f"{error_msg}: {str(e)}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg,
-                context={"error": str(e)}
-            )
+            logger.error(f"Failed to get action status: {str(e)}")
+            raise

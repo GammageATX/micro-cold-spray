@@ -7,7 +7,7 @@ import uvicorn
 
 from micro_cold_spray.utils import ServiceHealth, get_uptime
 from micro_cold_spray.api.process.process_service import ProcessService
-from micro_cold_spray.api.process.endpoints.process_endpoints import process_router
+from micro_cold_spray.api.process.endpoints.process_endpoints import create_process_router
 from micro_cold_spray.api.process.models.process_models import (
     ExecutionStatus,
     ActionStatus,
@@ -32,23 +32,32 @@ def create_app() -> FastAPI:
 
     # Initialize service
     process_service = ProcessService()
+    app.state.process_service = process_service
 
     @app.on_event("startup")
     async def startup():
-        """Initialize and start service on startup."""
+        """Start process service."""
         try:
-            await process_service.initialize()
-            await process_service.start()
-            logger.info("Process API started")
+            logger.info("Starting process service...")
+            
+            # Initialize service first
+            await app.state.process_service.initialize()
+            
+            # Then start the service
+            await app.state.process_service.start()
+            
+            logger.info("Process service started successfully")
+            
         except Exception as e:
-            logger.error(f"Failed to start Process API: {str(e)}")
-            raise
+            logger.error(f"Process service startup failed: {e}")
+            # Don't raise here - let the service start in degraded mode
+            # The health check will show which components failed
 
     @app.on_event("shutdown")
     async def shutdown():
         """Stop service on shutdown."""
         try:
-            await process_service.stop()
+            await app.state.process_service.stop()
             logger.info("Process API stopped")
         except Exception as e:
             logger.error(f"Failed to stop Process API: {str(e)}")
@@ -76,16 +85,23 @@ def create_app() -> FastAPI:
     async def health():
         """Get API health status."""
         try:
-            health_data = await process_service.health()
-            health_data["uptime"] = get_uptime()
-            return ServiceHealth(**health_data)
+            service_health = await app.state.process_service.health()
+            return ServiceHealth(
+                status=service_health.status,
+                service=service_health.service,
+                version=service_health.version,
+                is_running=service_health.is_running,
+                uptime=get_uptime(),
+                error=service_health.error,
+                components=service_health.components
+            )
         except Exception as e:
             error_msg = f"Health check failed: {str(e)}"
             logger.error(error_msg)
             return ServiceHealth(
                 status="error",
                 service="process",
-                version=process_service.version,
+                version=app.state.process_service.version,
                 is_running=False,
                 uptime=0.0,
                 error=error_msg,
@@ -97,8 +113,8 @@ def create_app() -> FastAPI:
                 }
             )
 
-    # Include process router
-    app.include_router(process_router)
+    # Include process router with service instance
+    app.include_router(create_process_router(app.state.process_service))
 
     return app
 

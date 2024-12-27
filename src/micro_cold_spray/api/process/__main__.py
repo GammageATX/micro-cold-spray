@@ -101,37 +101,20 @@ async def create_test_data(service: ProcessService) -> None:
     logger.info("Created test sequence")
 
 
-async def init_service() -> ProcessService:
-    """Initialize process service with test data.
-    
-    Returns:
-        Initialized process service
-    """
-    service = ProcessService()
-    await service.initialize()
-    await service.start()
-    logger.info("Process service started")
-
-    await create_test_data(service)
-    logger.info("Test data created")
-
-    return service
-
-
-def create_test_app() -> FastAPI:
+async def create_test_app() -> FastAPI:
     """Create FastAPI application with test data.
     
     Returns:
         FastAPI application
     """
-    # Initialize service with test data
-    service = asyncio.run(init_service())
-
-    # Create FastAPI app
+    # Create FastAPI app first
     app = create_app()
-
-    # Store service in app state
-    app.state.process_service = service
+    
+    # Initialize service and create test data
+    await app.state.process_service.initialize()
+    await app.state.process_service.start()
+    await create_test_data(app.state.process_service)
+    logger.info("Test data created")
 
     return app
 
@@ -139,7 +122,7 @@ def create_test_app() -> FastAPI:
 def main():
     """Main function for testing process service."""
     # Create FastAPI app with test data
-    app = create_test_app()
+    app = asyncio.run(create_test_app())
 
     # Configure uvicorn
     uvicorn.run(

@@ -26,4 +26,11 @@ communication:
 
   services:
     tag_mapping:
+      version: "1.0.0"
       config_file: "config/tags.yaml"
+    tag_cache:
+      version: "1.0.0"
+    motion:
+      version: "1.0.0"
+    equipment:
+      version: "1.0.0"

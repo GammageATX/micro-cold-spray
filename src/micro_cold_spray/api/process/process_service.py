@@ -7,6 +7,7 @@ from fastapi import status
 from loguru import logger
 
 from micro_cold_spray.utils.errors import create_error
+from micro_cold_spray.utils import ServiceHealth, get_uptime
 from micro_cold_spray.api.process.models.process_models import (
     ExecutionStatus,
     ActionStatus,
@@ -71,7 +72,7 @@ class ProcessService:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )
 
     async def start(self) -> None:
@@ -99,7 +100,7 @@ class ProcessService:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )
 
     async def stop(self) -> None:
@@ -127,70 +128,72 @@ class ProcessService:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )
 
-    async def health(self) -> Dict[str, Any]:
+    async def health(self) -> ServiceHealth:
         """Get service health status.
         
         Returns:
-            Health status dictionary
+            ServiceHealth: Health status
         """
         try:
-            # Get sub-service health statuses
+            # Get health status from all components
             action_health = await self._action.health()
             parameter_health = await self._parameter.health()
             pattern_health = await self._pattern.health()
             sequence_health = await self._sequence.health()
             
-            # Convert sub-service health to component format
+            # Convert component health to new format
             components = {
                 "action": {
-                    "status": action_health["status"],
-                    "error": action_health.get("error")
+                    "status": action_health.status,
+                    "error": action_health.error
                 },
                 "parameter": {
-                    "status": parameter_health["status"],
-                    "error": parameter_health.get("error")
+                    "status": parameter_health.status,
+                    "error": parameter_health.error
                 },
                 "pattern": {
-                    "status": pattern_health["status"],
-                    "error": pattern_health.get("error")
+                    "status": pattern_health.status,
+                    "error": pattern_health.error
                 },
                 "sequence": {
-                    "status": sequence_health["status"],
-                    "error": sequence_health.get("error")
+                    "status": sequence_health.status,
+                    "error": sequence_health.error
                 }
             }
             
             # Overall status is error if any component is in error
             overall_status = "error" if any(c["status"] == "error" for c in components.values()) else "ok"
             
-            return {
-                "status": overall_status,
-                "service": self._service_name,
-                "version": self._version,
-                "is_running": self.is_running,
-                "error": None if overall_status == "ok" else "One or more components in error state",
-                "components": components
-            }
+            return ServiceHealth(
+                status=overall_status,
+                service="process",
+                version=self.version,
+                is_running=self.is_running,
+                uptime=(datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0,
+                error=None if overall_status == "ok" else "One or more components in error state",
+                components=components
+            )
             
         except Exception as e:
             error_msg = f"Health check failed: {str(e)}"
             logger.error(error_msg)
-            return {
-                "status": "error",
-                "service": self._service_name,
-                "version": self._version,
-                "is_running": False,
-                "error": error_msg,
-                "components": {
+            return ServiceHealth(
+                status="error",
+                service="process",
+                version=self.version,
+                is_running=False,
+                uptime=0.0,
+                error=error_msg,
+                components={
                     "action": {"status": "error", "error": error_msg},
                     "parameter": {"status": "error", "error": error_msg},
                     "pattern": {"status": "error", "error": error_msg},
                     "sequence": {"status": "error", "error": error_msg}
                 }
-            }
+            )
 
     # Process management methods
     async def list_sequences(self) -> List[SequenceMetadata]:
@@ -215,7 +218,7 @@ class ProcessService:
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )
 
     async def get_sequence(self, sequence_id: str) -> SequenceMetadata:
@@ -243,7 +246,7 @@ class ProcessService:
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )
 
     async def start_sequence(self, sequence_id: str) -> ExecutionStatus:
@@ -271,7 +274,7 @@ class ProcessService:
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )
 
     async def stop_sequence(self, sequence_id: str) -> ExecutionStatus:
@@ -299,7 +302,7 @@ class ProcessService:
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )
 
     async def get_sequence_status(self, sequence_id: str) -> ExecutionStatus:
@@ -327,5 +330,5 @@ class ProcessService:
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )

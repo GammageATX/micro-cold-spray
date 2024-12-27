@@ -7,6 +7,7 @@ from fastapi import status
 from loguru import logger
 
 from micro_cold_spray.utils.errors import create_error
+from micro_cold_spray.utils import ServiceHealth, get_uptime
 from micro_cold_spray.api.process.models.process_models import (
     ExecutionStatus,
     SequenceMetadata,
@@ -52,7 +53,7 @@ class SequenceService:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )
 
     async def start(self) -> None:
@@ -74,7 +75,7 @@ class SequenceService:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )
 
     async def stop(self) -> None:
@@ -96,23 +97,24 @@ class SequenceService:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )
 
-    async def health(self) -> Dict[str, Any]:
+    async def health(self) -> ServiceHealth:
         """Get service health status.
         
         Returns:
-            Health status dictionary
+            ServiceHealth: Health status
         """
         try:
-            return {
-                "status": "ok" if self.is_running else "error",
-                "service": self._service_name,
-                "version": self._version,
-                "is_running": self.is_running,
-                "error": None if self.is_running else "Service not running",
-                "components": {
+            return ServiceHealth(
+                status="ok" if self.is_running else "error",
+                service=self._service_name,
+                version=self._version,
+                is_running=self.is_running,
+                uptime=self.uptime,
+                error=None if self.is_running else "Service not running",
+                components={
                     "sequence_store": {
                         "status": "ok" if self.is_running else "error",
                         "error": None if self.is_running else "Sequence store not running"
@@ -122,17 +124,18 @@ class SequenceService:
                         "error": None if self.is_running and not self._current_sequence else "Sequence in progress"
                     }
                 }
-            }
+            )
         except Exception as e:
             error_msg = f"Health check failed: {str(e)}"
             logger.error(error_msg)
-            return {
-                "status": "error",
-                "service": self._service_name,
-                "version": self._version,
-                "is_running": False,
-                "error": error_msg,
-                "components": {
+            return ServiceHealth(
+                status="error",
+                service=self._service_name,
+                version=self._version,
+                is_running=False,
+                uptime=0.0,
+                error=error_msg,
+                components={
                     "sequence_store": {
                         "status": "error",
                         "error": error_msg
@@ -142,7 +145,7 @@ class SequenceService:
                         "error": error_msg
                     }
                 }
-            }
+            )
 
     async def list_sequences(self) -> List[SequenceMetadata]:
         """List available sequences.
@@ -166,7 +169,7 @@ class SequenceService:
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )
 
     async def get_sequence(self, sequence_id: str) -> SequenceMetadata:
@@ -201,7 +204,7 @@ class SequenceService:
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )
 
     async def start_sequence(self, sequence_id: str) -> ExecutionStatus:
@@ -233,7 +236,7 @@ class SequenceService:
                 raise create_error(
                     status_code=status.HTTP_409_CONFLICT,
                     message="Another sequence is already running",
-                    context={"current_sequence": self._current_sequence}
+                    details={"current_sequence": self._current_sequence}
                 )
 
             self._current_sequence = sequence_id
@@ -246,7 +249,7 @@ class SequenceService:
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )
 
     async def stop_sequence(self, sequence_id: str) -> ExecutionStatus:
@@ -284,7 +287,7 @@ class SequenceService:
                 raise create_error(
                     status_code=status.HTTP_409_CONFLICT,
                     message=f"Sequence {sequence_id} is not running",
-                    context={
+                    details={
                         "sequence_id": sequence_id,
                         "current_sequence": self._current_sequence
                     }
@@ -300,7 +303,7 @@ class SequenceService:
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )
 
     async def get_sequence_status(self, sequence_id: str) -> ExecutionStatus:
@@ -342,5 +345,5 @@ class SequenceService:
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )

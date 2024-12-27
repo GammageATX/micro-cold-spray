@@ -7,6 +7,7 @@ from fastapi import status
 from loguru import logger
 
 from micro_cold_spray.utils.errors import create_error
+from micro_cold_spray.utils.health import ServiceHealth
 from micro_cold_spray.api.process.models.process_models import ParameterSet
 
 
@@ -47,7 +48,7 @@ class ParameterService:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )
 
     async def start(self) -> None:
@@ -69,7 +70,7 @@ class ParameterService:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )
 
     async def stop(self) -> None:
@@ -91,45 +92,37 @@ class ParameterService:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )
 
-    async def health(self) -> Dict[str, Any]:
+    async def health(self) -> ServiceHealth:
         """Get service health status.
         
         Returns:
-            Health status dictionary
+            ServiceHealth: Health status
         """
         try:
-            return {
-                "status": "ok" if self.is_running else "error",
-                "service": self._service_name,
-                "version": self._version,
-                "is_running": self.is_running,
-                "error": None if self.is_running else "Service not running",
-                "components": {
-                    "parameter_store": {
-                        "status": "ok" if self.is_running else "error",
-                        "error": None if self.is_running else "Parameter store not running"
-                    }
-                }
-            }
+            return ServiceHealth(
+                status="ok",
+                service=self._service_name,
+                version=self.version,
+                is_running=self.is_running,
+                uptime=self.uptime,
+                error=None,
+                components={}
+            )
         except Exception as e:
             error_msg = f"Health check failed: {str(e)}"
             logger.error(error_msg)
-            return {
-                "status": "error",
-                "service": self._service_name,
-                "version": self._version,
-                "is_running": False,
-                "error": error_msg,
-                "components": {
-                    "parameter_store": {
-                        "status": "error",
-                        "error": error_msg
-                    }
-                }
-            }
+            return ServiceHealth(
+                status="error",
+                service=self._service_name,
+                version=self.version,
+                is_running=False,
+                uptime=0.0,
+                error=error_msg,
+                components={}
+            )
 
     async def list_parameter_sets(self) -> List[ParameterSet]:
         """List available parameter sets.
@@ -153,7 +146,7 @@ class ParameterService:
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )
 
     async def get_parameter_set(self, parameter_set_id: str) -> ParameterSet:
@@ -188,7 +181,7 @@ class ParameterService:
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )
 
     async def create_parameter_set(self, parameter_set: ParameterSet) -> None:
@@ -221,7 +214,7 @@ class ParameterService:
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )
 
     async def update_parameter_set(self, parameter_set: ParameterSet) -> None:
@@ -254,7 +247,7 @@ class ParameterService:
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )
 
     async def delete_parameter_set(self, parameter_set_id: str) -> None:
@@ -287,5 +280,5 @@ class ParameterService:
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 message=error_msg,
-                context={"error": str(e)}
+                details={"error": str(e)}
             )

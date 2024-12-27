@@ -40,16 +40,23 @@ def create_app() -> FastAPI:
     async def health_check() -> ServiceHealth:
         """Get service health status."""
         try:
-            health_data = await validation_service.health()
-            health_data["uptime"] = get_uptime()
-            return ServiceHealth(**health_data)
+            service_health = await app.state.service.health()
+            return ServiceHealth(
+                status=service_health.status,
+                service=service_health.service,
+                version=service_health.version,
+                is_running=service_health.is_running,
+                uptime=get_uptime(),
+                error=service_health.error,
+                components=service_health.components
+            )
         except Exception as e:
             error_msg = f"Health check failed: {str(e)}"
             logger.error(error_msg)
             return ServiceHealth(
                 status="error",
                 service="validation",
-                version=validation_service.version,
+                version="1.0.0",
                 is_running=False,
                 uptime=0.0,
                 error=error_msg,
@@ -64,4 +71,23 @@ def create_app() -> FastAPI:
     # Add validation endpoints
     app.include_router(router)
     
+    @app.on_event("startup")
+    async def startup():
+        """Start validation service."""
+        try:
+            logger.info("Starting validation service...")
+            
+            # Initialize service first
+            await app.state.service.initialize()
+            
+            # Then start the service
+            await app.state.service.start()
+            
+            logger.info("Validation service started successfully")
+            
+        except Exception as e:
+            logger.error(f"Validation service startup failed: {e}")
+            # Don't raise here - let the service start in degraded mode
+            # The health check will show which components failed
+
     return app

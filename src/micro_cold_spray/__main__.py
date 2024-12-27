@@ -4,9 +4,10 @@ import sys
 import asyncio
 import signal
 import aiohttp
+import uvicorn
 import multiprocessing as mp
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 from importlib import import_module
 from datetime import datetime, timedelta
 from loguru import logger
@@ -140,40 +141,15 @@ def import_app(module_path: str, test_mode: bool = False) -> Optional[object]:
         return None
 
 
-def run_service(name: str, module_path: str, port: int, test_mode: bool = False):
-    """Run service in subprocess.
+def run_uvicorn(app, port: int):
+    """Run uvicorn server.
     
     Args:
-        name: Service name
-        module_path: Module path to service
+        app: FastAPI application
         port: Port to run on
-        test_mode: Whether to run in test mode
     """
-    try:
-        # Import uvicorn here to avoid import before fork
-        import uvicorn
-        
-        # Set test mode environment variable
-        if test_mode:
-            os.environ["TEST_MODE"] = "true"
-        
-        # Import app
-        app = import_app(module_path, test_mode)
-        if not app:
-            logger.error(f"Failed to import app for {name}")
-            return
-            
-        # Run service
-        logger.info(f"Starting {name} service on port {port}")
-        uvicorn.run(
-            app,
-            host="0.0.0.0",
-            port=port,
-            log_level="info"
-        )
-        
-    except Exception as e:
-        logger.error(f"Error running {name} service: {e}")
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
 
 
 async def check_service_health(name: str, port: int) -> bool:
@@ -210,10 +186,17 @@ async def start_service(name: str, port: int, test_mode: bool = False) -> bool:
             logger.error(f"Unknown service: {name}")
             return False
             
-        # Create and start process
+        # Create and start process using factory function path
         process = mp.Process(
-            target=run_service,
-            args=(name, SERVICE_MODULES[name], port, test_mode),
+            target=uvicorn.run,
+            args=(SERVICE_MODULES[name],),
+            kwargs={
+                "host": "0.0.0.0",
+                "port": port,
+                "factory": True,
+                "log_level": "info",
+                "lifespan": "on"  # Ensure lifespan events (startup/shutdown) are triggered
+            },
             name=name
         )
         process.start()

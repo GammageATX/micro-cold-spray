@@ -20,14 +20,18 @@ from micro_cold_spray.utils.health import get_uptime, ServiceHealth
 class TagCacheService:
     """Service for caching PLC tag values."""
 
-    def __init__(self, plc_client: Any, ssh_client: Optional[SSHClient], tag_mapping: TagMappingService):
+    def __init__(self, config: Dict[str, Any], plc_client: Any, ssh_client: Optional[SSHClient], tag_mapping: TagMappingService):
         """Initialize tag cache service.
         
         Args:
+            config: Service configuration
             plc_client: PLC client (mock or real)
             ssh_client: SSH client (optional)
             tag_mapping: Tag mapping service
         """
+        self._service_name = "tag_cache"
+        self._version = config["communication"]["services"]["tag_cache"]["version"]
+        self._config = config
         self._plc_client = plc_client
         self._ssh_client = ssh_client
         self._tag_mapping = tag_mapping
@@ -36,22 +40,15 @@ class TagCacheService:
         self._polling_task: Optional[asyncio.Task] = None
         self._is_running = False
         self._start_time = None
-        self._service_name = "tag_cache"
-        self._version = "1.0.0"
         self._initialized = False
         
         # Get polling config from tag mapping service
-        self._polling = tag_mapping._config["communication"]["polling"]
+        self._polling = config["communication"]["polling"]
         
         # State change callbacks
         self._state_callbacks: List[Callable[[str, Any], None]] = []
         
-        logger.info("\n Tag cache service initialized")
-
-    @property
-    def is_running(self) -> bool:
-        """Check if service is running."""
-        return self._is_running
+        logger.info(f"{self._service_name} service initialized")
 
     @property
     def version(self) -> str:
@@ -59,9 +56,32 @@ class TagCacheService:
         return self._version
 
     @property
+    def is_running(self) -> bool:
+        """Check if service is running."""
+        return self._is_running
+
+    @property
     def uptime(self) -> float:
         """Get service uptime in seconds."""
-        return (datetime.now() - self._start_time).total_seconds() if self._start_time else 0
+        return get_uptime(self._start_time)
+
+    def add_state_callback(self, callback: Callable[[str, Any], None]) -> None:
+        """Register callback for state changes.
+        
+        Args:
+            callback: Function to call when state changes
+        """
+        if callback not in self._state_callbacks:
+            self._state_callbacks.append(callback)
+
+    def remove_state_callback(self, callback: Callable[[str, Any], None]) -> None:
+        """Remove state change callback.
+        
+        Args:
+            callback: Callback to remove
+        """
+        if callback in self._state_callbacks:
+            self._state_callbacks.remove(callback)
 
     async def initialize(self) -> None:
         """Initialize tag cache service.
@@ -70,9 +90,11 @@ class TagCacheService:
             HTTPException: If initialization fails
         """
         try:
-            if self._initialized:
-                logger.debug("Tag cache service already initialized")
-                return
+            if self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message="Service already running"
+                )
             
             # Initialize tag list from mapping service
             for tag in self._tag_mapping._tag_map.keys():
@@ -89,10 +111,10 @@ class TagCacheService:
             }
                 
             self._initialized = True
-            logger.info("Tag cache service initialized")
+            logger.info(f"{self._service_name} service initialized")
             
         except Exception as e:
-            error_msg = f"Failed to initialize tag cache service: {str(e)}"
+            error_msg = f"Failed to initialize {self._service_name} service: {str(e)}"
             logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -107,8 +129,10 @@ class TagCacheService:
         """
         try:
             if self.is_running:
-                logger.debug("Tag cache service already running")
-                return
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message="Service already running"
+                )
                 
             if not self._initialized:
                 await self.initialize()
@@ -120,10 +144,10 @@ class TagCacheService:
             self._is_running = True
             self._start_time = datetime.now()
             self._polling_task = asyncio.create_task(self._poll_tags())
-            logger.info("Tag cache service started")
+            logger.info(f"{self._service_name} service started")
             
         except Exception as e:
-            error_msg = f"Failed to start tag cache service: {str(e)}"
+            error_msg = f"Failed to start {self._service_name} service: {str(e)}"
             logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -157,15 +181,12 @@ class TagCacheService:
             self._cache.clear()
             self._state_cache.clear()
             self._initialized = False
-            logger.info("Tag cache service stopped")
+            logger.info(f"{self._service_name} service stopped")
             
         except Exception as e:
-            error_msg = f"Failed to stop tag cache service: {str(e)}"
+            error_msg = f"Failed to stop {self._service_name} service: {str(e)}"
             logger.error(error_msg)
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=error_msg
-            )
+            # Don't raise during shutdown
 
     async def _poll_tags(self) -> None:
         """Poll PLC tags and update cache."""
@@ -307,24 +328,6 @@ class TagCacheService:
                     
         except Exception as e:
             logger.error(f"Error updating equipment states: {str(e)}")
-
-    def add_state_callback(self, callback: Callable[[str, Any], None]) -> None:
-        """Add state change callback.
-        
-        Args:
-            callback: Function to call when state changes
-        """
-        if callback not in self._state_callbacks:
-            self._state_callbacks.append(callback)
-
-    def remove_state_callback(self, callback: Callable[[str, Any], None]) -> None:
-        """Remove state change callback.
-        
-        Args:
-            callback: Callback to remove
-        """
-        if callback in self._state_callbacks:
-            self._state_callbacks.remove(callback)
 
     async def get_tag(self, tag: str) -> Optional[Any]:
         """Get cached tag value.

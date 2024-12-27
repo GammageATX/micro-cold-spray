@@ -112,14 +112,22 @@ def create_state_service() -> FastAPI:
     # Add startup event to initialize service
     @app.on_event("startup")
     async def startup():
-        """Start service on startup."""
+        """Start state service."""
         try:
             logger.info("Starting state service...")
-            await state_service.start()
+            
+            # Initialize service first
+            await app.state.service.initialize()
+            
+            # Then start the service
+            await app.state.service.start()
+            
             logger.info("State service started successfully")
+            
         except Exception as e:
-            logger.error(f"Failed to start state service: {e}")
-            raise
+            logger.error(f"State service startup failed: {e}")
+            # Don't raise here - let the service start in degraded mode
+            # The health check will show which components failed
     
     # Add shutdown event to cleanup
     @app.on_event("shutdown")

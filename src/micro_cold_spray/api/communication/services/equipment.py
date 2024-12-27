@@ -23,18 +23,28 @@ class EquipmentService:
             config: Service configuration
         """
         self._service_name = "equipment"
-        self._version = "1.0.0"
+        self._version = config["communication"]["services"]["equipment"]["version"]
         self._config = config
         self._tag_cache: Optional[TagCacheService] = None
         self._is_running = False
         self._start_time = None
         self._state_callbacks: List[Callable[[EquipmentState], None]] = []
-        logger.info("\n EquipmentService initialized")
+        logger.info(f"{self._service_name} service initialized")
+
+    @property
+    def version(self) -> str:
+        """Get service version."""
+        return self._version
 
     @property
     def is_running(self) -> bool:
         """Check if service is running."""
         return self._is_running
+
+    @property
+    def uptime(self) -> float:
+        """Get service uptime in seconds."""
+        return get_uptime(self._start_time)
 
     async def initialize(self) -> None:
         """Initialize equipment service."""
@@ -64,10 +74,10 @@ class EquipmentService:
             # Register for state updates
             self._tag_cache.add_state_callback(self._handle_state_change)
 
-            logger.info("Equipment service initialized")
+            logger.info(f"{self._service_name} service initialized")
 
         except Exception as e:
-            error_msg = f"Failed to initialize equipment service: {str(e)}"
+            error_msg = f"Failed to initialize {self._service_name} service: {str(e)}"
             logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -89,10 +99,10 @@ class EquipmentService:
 
             self._start_time = datetime.now()
             self._is_running = True
-            logger.info("Equipment service started")
+            logger.info(f"{self._service_name} service started")
 
         except Exception as e:
-            error_msg = f"Failed to start equipment service: {str(e)}"
+            error_msg = f"Failed to start {self._service_name} service: {str(e)}"
             logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -111,10 +121,10 @@ class EquipmentService:
 
             self._is_running = False
             self._start_time = None
-            logger.info("Equipment service stopped")
+            logger.info(f"{self._service_name} service stopped")
 
         except Exception as e:
-            error_msg = f"Failed to stop equipment service: {str(e)}"
+            error_msg = f"Failed to stop {self._service_name} service: {str(e)}"
             logger.error(error_msg)
             # Don't raise during shutdown
 
@@ -427,10 +437,10 @@ class EquipmentService:
             
             return ServiceHealth(
                 status=overall_status,
-                service="equipment",
-                version="1.0.0",
+                service=self._service_name,
+                version=self.version,
                 is_running=self.is_running,
-                uptime=get_uptime(),
+                uptime=self.uptime,
                 error=None if overall_status == "ok" else "One or more components in error state",
                 components=components
             )
@@ -440,8 +450,8 @@ class EquipmentService:
             logger.error(error_msg)
             return ServiceHealth(
                 status="error",
-                service="equipment",
-                version="1.0.0",
+                service=self._service_name,
+                version=self.version,
                 is_running=False,
                 uptime=0.0,
                 error=error_msg,

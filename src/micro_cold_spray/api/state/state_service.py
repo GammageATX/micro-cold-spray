@@ -8,6 +8,7 @@ from loguru import logger
 from fastapi import status
 
 from micro_cold_spray.utils.errors import create_error
+from micro_cold_spray.utils.health import ServiceHealth
 
 
 class StateService:
@@ -23,26 +24,30 @@ class StateService:
         self._history_length = 1000  # Default history length
         self._start_time = None
 
-    async def start(self):
-        """Start state service."""
+    async def initialize(self) -> None:
+        """Initialize service."""
         try:
-            if self.is_running:
-                return
-            
-            # Load local state machine config
-            config = await self._load_local_config()
-            await self._apply_config(config)
-            
-            self.is_running = True
+            logger.info("Initializing state service...")
+            self._is_running = False
+            self._current_state = "stopped"
+            self._history = []
+            self._start_time = None
+            logger.info("State service initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize state service: {e}")
+            raise
+
+    async def start(self) -> None:
+        """Start service."""
+        try:
+            logger.info("Starting state service...")
+            self._is_running = True
             self._start_time = datetime.now()
-            logger.info(f"State service started with {len(self._state_machine)} states")
-            
+            self._current_state = "idle"
+            logger.info("State service started")
         except Exception as e:
             logger.error(f"Failed to start state service: {e}")
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"Failed to start state service: {str(e)}"
-            )
+            raise
 
     async def stop(self):
         """Stop state service."""
@@ -266,23 +271,48 @@ class StateService:
             "history": history
         }
     
-    async def health(self) -> Dict[str, Any]:
+    async def health(self) -> ServiceHealth:
         """Get service health status.
         
         Returns:
-            Dict[str, Any]: Health status
+            ServiceHealth: Health status
         """
-        return {
-            "status": "ok" if self.is_running else "error",
-            "service": "state",
-            "version": self.version,
-            "is_running": self.is_running,
-            "uptime": (datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0,
-            "error": None if self.is_running else "Service not running",
-            "components": {
+        try:
+            # Check state machine status
+            state_machine_ok = self.is_running
+            
+            # Build component statuses
+            components = {
                 "state_machine": {
-                    "status": "ok" if self.is_running else "error",
-                    "error": None if self.is_running else "State machine not running"
+                    "status": "ok" if state_machine_ok else "error",
+                    "error": None if state_machine_ok else "State machine not running"
                 }
             }
-        }
+            
+            # Overall status is error if any component is in error
+            overall_status = "error" if any(c["status"] == "error" for c in components.values()) else "ok"
+            
+            return ServiceHealth(
+                status=overall_status,
+                service="state",
+                version=self.version,
+                is_running=self.is_running,
+                uptime=(datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0,
+                error=None if overall_status == "ok" else "One or more components in error state",
+                components=components
+            )
+            
+        except Exception as e:
+            error_msg = f"Health check failed: {str(e)}"
+            logger.error(error_msg)
+            return ServiceHealth(
+                status="error",
+                service="state",
+                version=self.version,
+                is_running=False,
+                uptime=0.0,
+                error=error_msg,
+                components={
+                    "state_machine": {"status": "error", "error": error_msg}
+                }
+            )

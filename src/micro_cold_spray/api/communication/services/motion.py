@@ -21,13 +21,28 @@ class MotionService:
             config: Service configuration
         """
         self._service_name = "motion"
-        self._version = "1.0.0"
+        self._version = config["communication"]["services"]["motion"]["version"]
         self._config = config
         self._tag_cache: Optional[TagCacheService] = None
         self._is_running = False
         self._start_time = None
-        self._state_changed_callbacks: List[Callable[[Dict[str, Any]], None]] = []
-        logger.info("MotionService initialized")
+        self._state_callbacks: List[Callable[[Dict[str, Any]], None]] = []
+        logger.info(f"{self._service_name} service initialized")
+
+    @property
+    def version(self) -> str:
+        """Get service version."""
+        return self._version
+
+    @property
+    def is_running(self) -> bool:
+        """Check if service is running."""
+        return self._is_running
+
+    @property
+    def uptime(self) -> float:
+        """Get service uptime in seconds."""
+        return get_uptime(self._start_time)
 
     def on_state_changed(self, callback: Callable[[Dict[str, Any]], None]) -> None:
         """Register callback for state changes.
@@ -35,7 +50,8 @@ class MotionService:
         Args:
             callback: Function to call when state changes
         """
-        self._state_changed_callbacks.append(callback)
+        if callback not in self._state_callbacks:
+            self._state_callbacks.append(callback)
 
     def remove_state_changed_callback(self, callback: Callable[[Dict[str, Any]], None]) -> None:
         """Remove state change callback.
@@ -43,8 +59,8 @@ class MotionService:
         Args:
             callback: Callback to remove
         """
-        if callback in self._state_changed_callbacks:
-            self._state_changed_callbacks.remove(callback)
+        if callback in self._state_callbacks:
+            self._state_callbacks.remove(callback)
 
     async def _notify_state_changed(self) -> None:
         """Notify all registered callbacks of state change."""
@@ -55,7 +71,7 @@ class MotionService:
                 "position": position.dict(),
                 "status": status.dict()
             }
-            for callback in self._state_changed_callbacks:
+            for callback in self._state_callbacks:
                 try:
                     callback(state)
                 except Exception as e:
@@ -63,19 +79,14 @@ class MotionService:
         except Exception as e:
             logger.error(f"Error notifying state change: {str(e)}")
 
-    @property
-    def is_running(self) -> bool:
-        """Check if service is running."""
-        return self._is_running
-
     def set_tag_cache(self, tag_cache: TagCacheService) -> None:
         """Set tag cache service.
         
         Args:
-            tag_cache: Tag cache service
+            tag_cache: Tag cache service instance
         """
         self._tag_cache = tag_cache
-        logger.info("Tag cache service set")
+        logger.info(f"{self._service_name} tag cache service set")
 
     async def initialize(self) -> None:
         """Initialize motion service.
@@ -84,18 +95,34 @@ class MotionService:
             HTTPException: If initialization fails
         """
         try:
+            if self.is_running:
+                raise create_error(
+                    status_code=http_status.HTTP_409_CONFLICT,
+                    message="Service already running"
+                )
+
+            # Initialize tag cache
             if not self._tag_cache:
+                logger.error("Tag cache service not initialized")
                 raise create_error(
                     status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Tag cache service not set"
+                    message="Tag cache service not initialized"
+                )
+
+            # Wait for tag cache service to be ready
+            if not self._tag_cache.is_running:
+                logger.error("Tag cache service not running")
+                raise create_error(
+                    status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+                    message="Tag cache service not running"
                 )
             
             self._is_running = False
             self._start_time = None
-            logger.info("Motion service initialized")
+            logger.info(f"{self._service_name} service initialized")
             
         except Exception as e:
-            error_msg = f"Failed to initialize motion service: {str(e)}"
+            error_msg = f"Failed to initialize {self._service_name} service: {str(e)}"
             logger.error(error_msg)
             raise create_error(
                 status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -109,18 +136,22 @@ class MotionService:
             HTTPException: If startup fails
         """
         try:
-            if not self._tag_cache:
+            if self.is_running:
                 raise create_error(
-                    status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Tag cache service not set"
+                    status_code=http_status.HTTP_409_CONFLICT,
+                    message="Service already running"
                 )
+
+            # Initialize if needed
+            if not self._tag_cache or not self._tag_cache.is_running:
+                await self.initialize()
             
             self._is_running = True
             self._start_time = datetime.now()
-            logger.info("Motion service started")
+            logger.info(f"{self._service_name} service started")
             
         except Exception as e:
-            error_msg = f"Failed to start motion service: {str(e)}"
+            error_msg = f"Failed to start {self._service_name} service: {str(e)}"
             logger.error(error_msg)
             raise create_error(
                 status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -134,17 +165,17 @@ class MotionService:
             HTTPException: If shutdown fails
         """
         try:
+            if not self.is_running:
+                return
+
             self._is_running = False
             self._start_time = None
-            logger.info("Motion service stopped")
+            logger.info(f"{self._service_name} service stopped")
             
         except Exception as e:
-            error_msg = f"Failed to stop motion service: {str(e)}"
+            error_msg = f"Failed to stop {self._service_name} service: {str(e)}"
             logger.error(error_msg)
-            raise create_error(
-                status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=error_msg
-            )
+            # Don't raise during shutdown
 
     async def get_position(self) -> Position:
         """Get current position.
@@ -449,10 +480,10 @@ class MotionService:
             
             return ServiceHealth(
                 status=overall_status,
-                service="motion",
-                version="1.0.0",
+                service=self._service_name,
+                version=self.version,
                 is_running=self.is_running,
-                uptime=get_uptime(),
+                uptime=self.uptime,
                 error=None if overall_status == "ok" else "One or more components in error state",
                 components=components
             )
@@ -462,8 +493,8 @@ class MotionService:
             logger.error(error_msg)
             return ServiceHealth(
                 status="error",
-                service="motion",
-                version="1.0.0",
+                service=self._service_name,
+                version=self.version,
                 is_running=False,
                 uptime=0.0,
                 error=error_msg,
