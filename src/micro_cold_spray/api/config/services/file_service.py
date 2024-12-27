@@ -22,6 +22,7 @@ class FileService:
         
         # Initialize components to None
         self._base_path = None
+        self._failed_operations = {}  # Track failed file operations
         
         # Store constructor args for initialization
         self._init_base_path = base_path
@@ -61,9 +62,15 @@ class FileService:
             self._base_path = self._init_base_path
             
             # Create base directory if it doesn't exist
-            os.makedirs(self._base_path, exist_ok=True)
-            logger.info(f"Using base path: {self._base_path}")
+            try:
+                os.makedirs(self._base_path, exist_ok=True)
+                # If directory creation succeeds, remove from failed operations
+                self._failed_operations.pop("base_dir", None)
+            except Exception as e:
+                self._failed_operations["base_dir"] = str(e)
+                logger.error(f"Failed to create base directory: {e}")
             
+            logger.info(f"Using base path: {self._base_path}")
             logger.info(f"{self.service_name} service initialized")
             
         except Exception as e:
@@ -124,9 +131,22 @@ class FileService:
                 message=error_msg
             )
 
+    async def _attempt_recovery(self) -> None:
+        """Attempt to recover failed operations."""
+        if "base_dir" in self._failed_operations:
+            try:
+                os.makedirs(self._base_path, exist_ok=True)
+                self._failed_operations.pop("base_dir")
+                logger.info("Successfully recovered base directory")
+            except Exception as e:
+                logger.error(f"Failed to recover base directory: {e}")
+
     async def health(self) -> ServiceHealth:
         """Get service health status."""
         try:
+            # Attempt recovery of failed operations
+            await self._attempt_recovery()
+            
             # Check component health
             base_exists = os.path.exists(self._base_path) if self._base_path else False
             base_writable = os.access(self._base_path, os.W_OK) if base_exists else False
@@ -139,8 +159,16 @@ class FileService:
                 )
             }
             
-            # Overall status is error if any component is in error
-            overall_status = "error" if any(c.status == "error" for c in components.values()) else "ok"
+            # Add failed operations component if any exist
+            if self._failed_operations:
+                failed_list = ", ".join(self._failed_operations.keys())
+                components["failed_operations"] = ComponentHealth(
+                    status="error",
+                    error=f"Failed operations: {failed_list}"
+                )
+            
+            # Overall status is error only if base directory is completely inaccessible
+            overall_status = "error" if not base_exists else "ok"
             
             return ServiceHealth(
                 status=overall_status,

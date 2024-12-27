@@ -29,6 +29,7 @@ class SequenceService:
         
         # Initialize components to None
         self._sequences = None
+        self._failed_sequences = {}  # Track failed sequences
         self._active_sequence = None
         self._sequence_status = ExecutionStatus.IDLE
         
@@ -66,32 +67,8 @@ class SequenceService:
             # Initialize sequences
             self._sequences = {}
             
-            # Load config
-            config_path = os.path.join("config", "process.yaml")
-            if os.path.exists(config_path):
-                with open(config_path, "r") as f:
-                    config = yaml.safe_load(f)
-                    if "sequence" in config:
-                        self._version = config["sequence"].get("version", self._version)
-                        
-                        # Load sequences from config
-                        sequences = config["sequence"].get("sequences", {})
-                        for seq_id, seq_data in sequences.items():
-                            steps = []
-                            for step_data in seq_data.get("steps", []):
-                                steps.append(SequenceStep(
-                                    name=step_data.get("name", ""),
-                                    description=step_data.get("description", ""),
-                                    pattern_id=step_data.get("pattern_id", ""),
-                                    parameter_set_id=step_data.get("parameter_set_id", "")
-                                ))
-                                
-                            self._sequences[seq_id] = SequenceMetadata(
-                                id=seq_id,
-                                name=seq_data.get("name", ""),
-                                description=seq_data.get("description", ""),
-                                steps=steps
-                            )
+            # Load sequences from config
+            await self._load_sequences()
             
             logger.info(f"{self.service_name} service initialized")
             
@@ -102,6 +79,58 @@ class SequenceService:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg
             )
+
+    async def _load_sequences(self) -> None:
+        """Load sequences from config."""
+        config_path = os.path.join("config", "process.yaml")
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                config = yaml.safe_load(f)
+                if "sequence" in config:
+                    self._version = config["sequence"].get("version", self._version)
+                    
+                    # Load sequences from config
+                    sequences = config["sequence"].get("sequences", {})
+                    for seq_id, seq_data in sequences.items():
+                        try:
+                            steps = []
+                            for step_data in seq_data.get("steps", []):
+                                # Ensure required fields exist
+                                if not step_data.get("name"):
+                                    step_data["name"] = f"Step {len(steps) + 1}"
+                                if not step_data.get("description"):
+                                    step_data["description"] = ""
+                                
+                                steps.append(SequenceStep(
+                                    name=step_data.get("name", ""),
+                                    description=step_data.get("description", ""),
+                                    pattern_id=step_data.get("pattern_id", ""),
+                                    parameter_set_id=step_data.get("parameter_set_id", "")
+                                ))
+                                
+                            # Ensure required fields exist
+                            if not seq_data.get("name"):
+                                seq_data["name"] = seq_id
+                            if not seq_data.get("description"):
+                                seq_data["description"] = ""
+                                
+                            self._sequences[seq_id] = SequenceMetadata(
+                                id=seq_id,
+                                name=seq_data.get("name", ""),
+                                description=seq_data.get("description", ""),
+                                steps=steps
+                            )
+                            # If sequence was previously failed, remove from failed list
+                            self._failed_sequences.pop(seq_id, None)
+                        except Exception as e:
+                            logger.error(f"Failed to load sequence {seq_id}: {e}")
+                            self._failed_sequences[seq_id] = str(e)
+
+    async def _attempt_recovery(self) -> None:
+        """Attempt to recover failed sequences."""
+        if self._failed_sequences:
+            logger.info(f"Attempting to recover {len(self._failed_sequences)} failed sequences...")
+            await self._load_sequences()
 
     async def start(self) -> None:
         """Start service."""
@@ -167,6 +196,9 @@ class SequenceService:
     async def health(self) -> ServiceHealth:
         """Get service health status."""
         try:
+            # Attempt recovery of failed sequences
+            await self._attempt_recovery()
+            
             # Check component health
             sequence_status = "ok"
             sequence_error = None
@@ -184,13 +216,21 @@ class SequenceService:
                     error=sequence_error
                 ),
                 "sequences": ComponentHealth(
-                    status="ok" if self._sequences is not None else "error",
-                    error=None if self._sequences is not None else "Sequences not initialized"
+                    status="ok" if self._sequences is not None and len(self._sequences) > 0 else "error",
+                    error=None if self._sequences is not None and len(self._sequences) > 0 else "No sequences loaded"
                 )
             }
             
-            # Overall status is error if any component is in error state
-            overall_status = "error" if any(c.status == "error" for c in components.values()) else "ok"
+            # Add failed sequences component if any exist
+            if self._failed_sequences:
+                failed_list = ", ".join(self._failed_sequences.keys())
+                components["failed_sequences"] = ComponentHealth(
+                    status="error",
+                    error=f"Failed sequences: {failed_list}"
+                )
+            
+            # Overall status is error only if no sequences loaded
+            overall_status = "error" if not self._sequences or len(self._sequences) == 0 else "ok"
             if not self.is_running:
                 overall_status = "error"
             

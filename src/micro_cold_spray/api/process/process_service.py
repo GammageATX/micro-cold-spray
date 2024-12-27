@@ -53,6 +53,7 @@ class ProcessService:
         self._parameter = None
         self._pattern = None
         self._sequence = None
+        self._failed_components = {}  # Track failed components
         
         logger.info(f"{self._service_name} service initialized")
 
@@ -85,16 +86,37 @@ class ProcessService:
             self._mode = self._config.get("process", {}).get("mode", self._mode)  # Get mode from config
             
             # Create component services in dependency order
-            self._parameter = ParameterService()  # No dependencies
-            self._pattern = PatternService()      # No dependencies
-            self._action = ActionService()        # Depends on parameter and pattern
-            self._sequence = SequenceService()    # Depends on all others
+            try:
+                self._parameter = ParameterService()  # No dependencies
+                await self._parameter.initialize()
+                self._failed_components.pop("parameter", None)
+            except Exception as e:
+                self._failed_components["parameter"] = str(e)
+                logger.error(f"Failed to initialize parameter service: {e}")
             
-            # Initialize component services in dependency order
-            await self._parameter.initialize()
-            await self._pattern.initialize()
-            await self._action.initialize()
-            await self._sequence.initialize()
+            try:
+                self._pattern = PatternService()      # No dependencies
+                await self._pattern.initialize()
+                self._failed_components.pop("pattern", None)
+            except Exception as e:
+                self._failed_components["pattern"] = str(e)
+                logger.error(f"Failed to initialize pattern service: {e}")
+            
+            try:
+                self._action = ActionService()        # Depends on parameter and pattern
+                await self._action.initialize()
+                self._failed_components.pop("action", None)
+            except Exception as e:
+                self._failed_components["action"] = str(e)
+                logger.error(f"Failed to initialize action service: {e}")
+            
+            try:
+                self._sequence = SequenceService()    # Depends on all others
+                await self._sequence.initialize()
+                self._failed_components.pop("sequence", None)
+            except Exception as e:
+                self._failed_components["sequence"] = str(e)
+                logger.error(f"Failed to initialize sequence service: {e}")
             
             logger.info(f"{self.service_name} service initialized")
             
@@ -105,6 +127,43 @@ class ProcessService:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg
             )
+
+    async def _attempt_recovery(self) -> None:
+        """Attempt to recover failed components."""
+        if self._failed_components:
+            logger.info(f"Attempting to recover {len(self._failed_components)} failed components...")
+            
+            if "parameter" in self._failed_components and not self._parameter:
+                try:
+                    self._parameter = ParameterService()
+                    await self._parameter.initialize()
+                    self._failed_components.pop("parameter", None)
+                except Exception as e:
+                    logger.error(f"Failed to recover parameter service: {e}")
+            
+            if "pattern" in self._failed_components and not self._pattern:
+                try:
+                    self._pattern = PatternService()
+                    await self._pattern.initialize()
+                    self._failed_components.pop("pattern", None)
+                except Exception as e:
+                    logger.error(f"Failed to recover pattern service: {e}")
+            
+            if "action" in self._failed_components and not self._action:
+                try:
+                    self._action = ActionService()
+                    await self._action.initialize()
+                    self._failed_components.pop("action", None)
+                except Exception as e:
+                    logger.error(f"Failed to recover action service: {e}")
+            
+            if "sequence" in self._failed_components and not self._sequence:
+                try:
+                    self._sequence = SequenceService()
+                    await self._sequence.initialize()
+                    self._failed_components.pop("sequence", None)
+                except Exception as e:
+                    logger.error(f"Failed to recover sequence service: {e}")
 
     async def start(self) -> None:
         """Start service."""
@@ -179,6 +238,9 @@ class ProcessService:
     async def health(self) -> ServiceHealth:
         """Get service health status."""
         try:
+            # Attempt recovery of failed components
+            await self._attempt_recovery()
+            
             # Get health from components
             parameter_health = await self._parameter.health() if self._parameter else None
             pattern_health = await self._pattern.health() if self._pattern else None
@@ -205,8 +267,16 @@ class ProcessService:
                 )
             }
             
-            # Overall status is error if any component is in error
-            overall_status = "error" if any(c.status == "error" for c in components.values()) else "ok"
+            # Add failed components component if any exist
+            if self._failed_components:
+                failed_list = ", ".join(self._failed_components.keys())
+                components["failed_components"] = ComponentHealth(
+                    status="error",
+                    error=f"Failed components: {failed_list}"
+                )
+            
+            # Overall status is error only if all components failed
+            overall_status = "error" if not any([self._parameter, self._pattern, self._action, self._sequence]) else "ok"
             
             return ServiceHealth(
                 status=overall_status,

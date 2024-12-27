@@ -59,26 +59,20 @@ class PatternService:
             
             # Initialize patterns
             self._patterns = {}
+            self._failed_patterns = {}  # Track patterns that failed to load
             
-            # Load config
+            # Load config for version
             config_path = os.path.join("config", "process.yaml")
             if os.path.exists(config_path):
                 with open(config_path, "r") as f:
                     config = yaml.safe_load(f)
                     if "pattern" in config:
                         self._version = config["pattern"].get("version", self._version)
-                        
-                        # Load patterns from config
-                        patterns = config["pattern"].get("patterns", {})
-                        for pattern_id, pattern_data in patterns.items():
-                            self._patterns[pattern_id] = ProcessPattern(
-                                id=pattern_id,
-                                name=pattern_data.get("name", ""),
-                                description=pattern_data.get("description", ""),
-                                parameters=pattern_data.get("parameters", {})
-                            )
             
-            logger.info(f"{self.service_name} service initialized")
+            # Load patterns from data directory
+            await self._load_patterns()
+            
+            logger.info(f"{self.service_name} service initialized with {len(self._patterns)} patterns")
             
         except Exception as e:
             error_msg = f"Failed to initialize {self.service_name} service: {str(e)}"
@@ -87,6 +81,39 @@ class PatternService:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg
             )
+
+    async def _load_patterns(self) -> None:
+        """Load patterns from data directory."""
+        patterns_dir = os.path.join("data", "patterns")
+        if os.path.exists(patterns_dir):
+            for filename in os.listdir(patterns_dir):
+                if filename.endswith(".yaml"):
+                    pattern_id = os.path.splitext(filename)[0]
+                    pattern_path = os.path.join(patterns_dir, filename)
+                    try:
+                        with open(pattern_path, "r") as f:
+                            pattern_data = yaml.safe_load(f)
+                            # Ensure required fields exist
+                            if not pattern_data.get("id"):
+                                pattern_data["id"] = pattern_id
+                            if not pattern_data.get("name"):
+                                pattern_data["name"] = pattern_id
+                            if not pattern_data.get("description"):
+                                pattern_data["description"] = ""
+                            
+                            self._patterns[pattern_id] = ProcessPattern(**pattern_data)
+                            # If pattern was previously failed, remove from failed list
+                            self._failed_patterns.pop(pattern_id, None)
+                            
+                    except Exception as e:
+                        logger.error(f"Failed to load pattern {pattern_id}: {str(e)}")
+                        self._failed_patterns[pattern_id] = str(e)
+
+    async def _attempt_recovery(self) -> None:
+        """Attempt to recover by reloading failed patterns."""
+        if self._failed_patterns:
+            logger.info(f"Attempting to recover {len(self._failed_patterns)} failed patterns...")
+            await self._load_patterns()
 
     async def start(self) -> None:
         """Start service."""
@@ -146,6 +173,10 @@ class PatternService:
     async def health(self) -> ServiceHealth:
         """Get service health status."""
         try:
+            # Attempt recovery if there are failed patterns
+            if self._failed_patterns:
+                await self._attempt_recovery()
+            
             # Check component health
             components = {
                 "patterns": ComponentHealth(
@@ -154,8 +185,16 @@ class PatternService:
                 )
             }
             
-            # Overall status is error if any component is in error state
-            overall_status = "error" if any(c.status == "error" for c in components.values()) else "ok"
+            # Add failed patterns component if any exist
+            if self._failed_patterns:
+                failed_list = ", ".join(self._failed_patterns.keys())
+                components["failed_patterns"] = ComponentHealth(
+                    status="error",
+                    error=f"Failed to load patterns: {failed_list}"
+                )
+            
+            # Overall status is error only if no patterns loaded
+            overall_status = "error" if not self._patterns else "ok"
             if not self.is_running:
                 overall_status = "error"
             

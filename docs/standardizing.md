@@ -185,3 +185,51 @@ except Exception as e:
 - Parent service aggregates component health
 - Use ComponentHealth model consistently
 - Status values: "ok" or "error" only
+
+### Self-Healing Behavior
+
+Components should implement self-healing behavior to maintain stability:
+
+1. Error Tracking
+   - Track failed components separately (e.g. self._failed_components)
+   - Keep detailed error information for each failure
+   - Continue running with partial functionality when possible
+
+2. Recovery Process
+   - Attempt recovery during health checks
+   - Reload failed components without impacting working ones
+   - Log recovery attempts and results
+   - Remove from failed tracking if recovery succeeds
+
+3. Health Reporting
+   - Report partial functionality over complete failure
+   - Include failed component details in health status
+   - Overall status "ok" if core functionality works
+   - List specific failed components and their errors
+
+4. Implementation Example:
+
+   ```python
+   # Track failures
+   self._failed_components = {}
+   
+   # Recovery attempt
+   async def _attempt_recovery(self):
+       if self._failed_components:
+           logger.info(f"Attempting recovery of {len(self._failed_components)} components...")
+           # Try reloading each failed component
+           
+   # Health check
+   async def health(self):
+       # Try recovery first
+       await self._attempt_recovery()
+       
+       # Report working and failed components
+       components = {
+           "working": ComponentHealth(...),
+           "failed": ComponentHealth(
+               status="error",
+               error=f"Failed components: {list(self._failed_components.keys())}"
+           )
+       }
+   ```

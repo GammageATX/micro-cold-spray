@@ -25,6 +25,7 @@ class ParameterService:
         
         # Initialize components to None
         self._parameter_sets = None
+        self._failed_parameters = {}  # Track failed parameter sets
         
         logger.info(f"{self.service_name} service initialized")
 
@@ -60,23 +61,8 @@ class ParameterService:
             # Initialize parameter sets
             self._parameter_sets = {}
             
-            # Load config
-            config_path = os.path.join("config", "process.yaml")
-            if os.path.exists(config_path):
-                with open(config_path, "r") as f:
-                    config = yaml.safe_load(f)
-                    if "parameter" in config:
-                        self._version = config["parameter"].get("version", self._version)
-                        
-                        # Load parameter sets from config
-                        parameter_sets = config["parameter"].get("parameter_sets", {})
-                        for param_id, param_data in parameter_sets.items():
-                            self._parameter_sets[param_id] = ParameterSet(
-                                id=param_id,
-                                name=param_data.get("name", ""),
-                                description=param_data.get("description", ""),
-                                parameters=param_data.get("parameters", {})
-                            )
+            # Load config and parameter sets
+            await self._load_parameters()
             
             logger.info(f"{self.service_name} service initialized")
             
@@ -87,6 +73,45 @@ class ParameterService:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg
             )
+
+    async def _load_parameters(self) -> None:
+        """Load parameter sets from config."""
+        config_path = os.path.join("config", "process.yaml")
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                config = yaml.safe_load(f)
+                if "parameter" in config:
+                    self._version = config["parameter"].get("version", self._version)
+                    
+                    # Load parameter sets from config
+                    parameter_sets = config["parameter"].get("parameter_sets", {})
+                    for param_id, param_data in parameter_sets.items():
+                        try:
+                            # Ensure required fields exist
+                            if not param_data.get("name"):
+                                param_data["name"] = param_id
+                            if not param_data.get("description"):
+                                param_data["description"] = ""
+                            if not param_data.get("parameters"):
+                                param_data["parameters"] = {}
+                                
+                            self._parameter_sets[param_id] = ParameterSet(
+                                id=param_id,
+                                name=param_data.get("name", ""),
+                                description=param_data.get("description", ""),
+                                parameters=param_data.get("parameters", {})
+                            )
+                            # If parameter set was previously failed, remove from failed list
+                            self._failed_parameters.pop(param_id, None)
+                        except Exception as e:
+                            logger.error(f"Failed to load parameter set {param_id}: {e}")
+                            self._failed_parameters[param_id] = str(e)
+
+    async def _attempt_recovery(self) -> None:
+        """Attempt to recover failed parameter sets."""
+        if self._failed_parameters:
+            logger.info(f"Attempting to recover {len(self._failed_parameters)} failed parameter sets...")
+            await self._load_parameters()
 
     async def start(self) -> None:
         """Start service."""
@@ -146,16 +171,27 @@ class ParameterService:
     async def health(self) -> ServiceHealth:
         """Get service health status."""
         try:
+            # Attempt recovery of failed parameter sets
+            await self._attempt_recovery()
+            
             # Check component health
             components = {
                 "parameter_sets": ComponentHealth(
-                    status="ok" if self._parameter_sets is not None else "error",
-                    error=None if self._parameter_sets is not None else "Parameter sets not initialized"
+                    status="ok" if self._parameter_sets is not None and len(self._parameter_sets) > 0 else "error",
+                    error=None if self._parameter_sets is not None and len(self._parameter_sets) > 0 else "No parameter sets loaded"
                 )
             }
             
-            # Overall status is error if any component is in error state
-            overall_status = "error" if any(c.status == "error" for c in components.values()) else "ok"
+            # Add failed parameter sets component if any exist
+            if self._failed_parameters:
+                failed_list = ", ".join(self._failed_parameters.keys())
+                components["failed_parameters"] = ComponentHealth(
+                    status="error",
+                    error=f"Failed parameter sets: {failed_list}"
+                )
+            
+            # Overall status is error only if no parameter sets loaded
+            overall_status = "error" if not self._parameter_sets or len(self._parameter_sets) == 0 else "ok"
             if not self.is_running:
                 overall_status = "error"
             

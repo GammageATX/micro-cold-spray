@@ -42,6 +42,7 @@ class ValidationService:
         
         # Initialize validators to None
         self._validation_rules = {}
+        self._failed_rules = {}  # Track failed validation rules
         self._hardware_validator = None
         self._parameter_validator = None
         self._pattern_validator = None
@@ -74,20 +75,37 @@ class ValidationService:
         try:
             logger.info(f"Initializing {self.service_name} service...")
             
-            # Load config
-            self._config = load_config()
-            self._version = self._config.get("version", self._version)
+            # Load config and validation rules
+            await self._load_validation_rules()
             
-            # Load validation rules
-            self._validation_rules = self._config.get("validation", {})
-            if not self._validation_rules:
-                raise ValueError("No validation rules defined in config")
-                
             # Initialize validators
-            self._hardware_validator = HardwareValidator(self._validation_rules)
-            self._parameter_validator = ParameterValidator(self._validation_rules)
-            self._pattern_validator = PatternValidator(self._validation_rules)
-            self._sequence_validator = SequenceValidator(self._validation_rules)
+            try:
+                self._hardware_validator = HardwareValidator(self._validation_rules)
+                self._failed_rules.pop("hardware", None)
+            except Exception as e:
+                self._failed_rules["hardware"] = str(e)
+                logger.error(f"Failed to initialize hardware validator: {e}")
+            
+            try:
+                self._parameter_validator = ParameterValidator(self._validation_rules)
+                self._failed_rules.pop("parameter", None)
+            except Exception as e:
+                self._failed_rules["parameter"] = str(e)
+                logger.error(f"Failed to initialize parameter validator: {e}")
+            
+            try:
+                self._pattern_validator = PatternValidator(self._validation_rules)
+                self._failed_rules.pop("pattern", None)
+            except Exception as e:
+                self._failed_rules["pattern"] = str(e)
+                logger.error(f"Failed to initialize pattern validator: {e}")
+            
+            try:
+                self._sequence_validator = SequenceValidator(self._validation_rules)
+                self._failed_rules.pop("sequence", None)
+            except Exception as e:
+                self._failed_rules["sequence"] = str(e)
+                logger.error(f"Failed to initialize sequence validator: {e}")
             
             logger.info(f"{self.service_name} service initialized")
             
@@ -98,6 +116,65 @@ class ValidationService:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg
             )
+
+    async def _load_validation_rules(self) -> None:
+        """Load validation rules from config."""
+        try:
+            # Load config
+            self._config = load_config()
+            self._version = self._config.get("version", self._version)
+            
+            # Load validation rules
+            self._validation_rules = self._config.get("validation", {})
+            if not self._validation_rules:
+                raise ValueError("No validation rules defined in config")
+                
+            # Clear any failed rules for loaded validators
+            for rule_type in ["hardware", "parameter", "pattern", "sequence"]:
+                if rule_type in self._validation_rules:
+                    self._failed_rules.pop(rule_type, None)
+                    
+        except Exception as e:
+            logger.error(f"Failed to load validation rules: {e}")
+            self._failed_rules["rules"] = str(e)
+
+    async def _attempt_recovery(self) -> None:
+        """Attempt to recover failed validation rules."""
+        if self._failed_rules:
+            logger.info(f"Attempting to recover {len(self._failed_rules)} failed validation rules...")
+            
+            # Try to reload rules
+            if "rules" in self._failed_rules:
+                await self._load_validation_rules()
+            
+            # Try to reinitialize failed validators
+            if "hardware" in self._failed_rules and not self._hardware_validator:
+                try:
+                    self._hardware_validator = HardwareValidator(self._validation_rules)
+                    self._failed_rules.pop("hardware", None)
+                except Exception as e:
+                    logger.error(f"Failed to recover hardware validator: {e}")
+            
+            if "parameter" in self._failed_rules and not self._parameter_validator:
+                try:
+                    self._parameter_validator = ParameterValidator(self._validation_rules)
+                    self._failed_rules.pop("parameter", None)
+                except Exception as e:
+                    logger.error(f"Failed to recover parameter validator: {e}")
+            
+            if "pattern" in self._failed_rules and not self._pattern_validator:
+                try:
+                    self._pattern_validator = PatternValidator(self._validation_rules)
+                    self._failed_rules.pop("pattern", None)
+                except Exception as e:
+                    logger.error(f"Failed to recover pattern validator: {e}")
+            
+            if "sequence" in self._failed_rules and not self._sequence_validator:
+                try:
+                    self._sequence_validator = SequenceValidator(self._validation_rules)
+                    self._failed_rules.pop("sequence", None)
+                except Exception as e:
+                    logger.error(f"Failed to recover sequence validator: {e}")
 
     async def start(self) -> None:
         """Start service."""
@@ -169,6 +246,9 @@ class ValidationService:
     async def health(self) -> ServiceHealth:
         """Get service health status."""
         try:
+            # Attempt recovery of failed rules
+            await self._attempt_recovery()
+            
             # Get health from components
             components = {
                 "hardware_validator": ComponentHealth(
@@ -189,8 +269,21 @@ class ValidationService:
                 )
             }
             
-            # Overall status is error if any component is in error
-            overall_status = "error" if any(c.status == "error" for c in components.values()) else "ok"
+            # Add failed rules component if any exist
+            if self._failed_rules:
+                failed_list = ", ".join(self._failed_rules.keys())
+                components["failed_rules"] = ComponentHealth(
+                    status="error",
+                    error=f"Failed validation rules: {failed_list}"
+                )
+            
+            # Overall status is error only if all validators failed
+            overall_status = "error" if not any([
+                self._hardware_validator,
+                self._parameter_validator,
+                self._pattern_validator,
+                self._sequence_validator
+            ]) else "ok"
             
             return ServiceHealth(
                 status=overall_status,

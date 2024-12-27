@@ -29,6 +29,7 @@ class SchemaService:
         # Initialize components
         self._schema_path = schema_path
         self._schemas = None
+        self._failed_schemas = {}  # Track failed schema loads
         
         logger.info(f"{self.service_name} service initialized")
 
@@ -61,15 +62,7 @@ class SchemaService:
             
             # Load schemas from files
             self._schemas = {}
-            for filename in os.listdir(self._schema_path):
-                if filename.endswith(('.json', '.yaml', '.yml')):
-                    schema_name = os.path.splitext(filename)[0]
-                    schema_path = os.path.join(self._schema_path, filename)
-                    try:
-                        with open(schema_path, 'r') as f:
-                            self._schemas[schema_name] = json.load(f)
-                    except Exception as e:
-                        logger.error(f"Failed to load schema {schema_name}: {e}")
+            await self._load_schemas()
             
             logger.info(f"Loaded {len(self._schemas)} schemas")
             
@@ -80,6 +73,27 @@ class SchemaService:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg
             )
+
+    async def _load_schemas(self) -> None:
+        """Load schemas from files."""
+        for filename in os.listdir(self._schema_path):
+            if filename.endswith(('.json', '.yaml', '.yml')):
+                schema_name = os.path.splitext(filename)[0]
+                schema_path = os.path.join(self._schema_path, filename)
+                try:
+                    with open(schema_path, 'r') as f:
+                        self._schemas[schema_name] = json.load(f)
+                    # If schema was previously failed, remove from failed list
+                    self._failed_schemas.pop(schema_name, None)
+                except Exception as e:
+                    logger.error(f"Failed to load schema {schema_name}: {e}")
+                    self._failed_schemas[schema_name] = str(e)
+
+    async def _attempt_recovery(self) -> None:
+        """Attempt to recover failed schemas."""
+        if self._failed_schemas:
+            logger.info(f"Attempting to recover {len(self._failed_schemas)} failed schemas...")
+            await self._load_schemas()
 
     async def start(self) -> None:
         """Start service."""
@@ -134,6 +148,9 @@ class SchemaService:
     async def health(self) -> ServiceHealth:
         """Get service health status."""
         try:
+            # Attempt recovery of failed schemas
+            await self._attempt_recovery()
+            
             # Check component health
             path_exists = os.path.exists(self._schema_path) if self._schema_path else False
             path_writable = os.access(self._schema_path, os.W_OK) if path_exists else False
@@ -151,8 +168,16 @@ class SchemaService:
                 )
             }
             
-            # Overall status is error if any component is in error
-            overall_status = "error" if any(c.status == "error" for c in components.values()) else "ok"
+            # Add failed schemas component if any exist
+            if self._failed_schemas:
+                failed_list = ", ".join(self._failed_schemas.keys())
+                components["failed_schemas"] = ComponentHealth(
+                    status="error",
+                    error=f"Failed to load schemas: {failed_list}"
+                )
+            
+            # Overall status is error only if no schemas loaded
+            overall_status = "error" if not schemas_loaded else "ok"
             
             return ServiceHealth(
                 status=overall_status,

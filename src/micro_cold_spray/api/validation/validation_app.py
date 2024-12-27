@@ -87,6 +87,12 @@ def create_app() -> FastAPI:
         """Start validation service."""
         try:
             logger.info("Starting validation service...")
+            
+            # Initialize and start service
+            service = app.state.service
+            await service.initialize()
+            await service.start()
+            
             logger.info("Validation service started successfully")
             
         except Exception as e:
@@ -99,6 +105,12 @@ def create_app() -> FastAPI:
         """Stop validation service."""
         try:
             logger.info("Stopping validation service...")
+            
+            # Stop service if running
+            service = app.state.service
+            if service.is_running:
+                await service.stop()
+            
             logger.info("Validation service stopped successfully")
         except Exception as e:
             logger.error(f"Failed to stop validation service: {e}")

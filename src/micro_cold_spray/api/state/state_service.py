@@ -40,6 +40,7 @@ class StateService:
         self._current_state = None
         self._state_machine = {}
         self._history = []
+        self._failed_transitions = {}  # Track failed transitions
         
         logger.info(f"{self.service_name} service initialized")
         
@@ -77,6 +78,22 @@ class StateService:
                     message=f"{self.service_name} service already running"
                 )
             
+            # Load config and state machine
+            await self._load_state_machine()
+            
+            logger.info(f"{self.service_name} service initialized")
+            
+        except Exception as e:
+            error_msg = f"Failed to initialize {self.service_name} service: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
+
+    async def _load_state_machine(self) -> None:
+        """Load state machine configuration."""
+        try:
             # Load config
             self._config = load_config()
             self._version = self._config.get("version", self._version)
@@ -105,15 +122,19 @@ class StateService:
             self._current_state = initial_state
             self._history = []
             
-            logger.info(f"{self.service_name} service initialized")
-            
+            # Clear any failed transitions for loaded states
+            for state in self._state_machine:
+                self._failed_transitions.pop(state, None)
+                
         except Exception as e:
-            error_msg = f"Failed to initialize {self.service_name} service: {str(e)}"
-            logger.error(error_msg)
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=error_msg
-            )
+            logger.error(f"Failed to load state machine: {e}")
+            self._failed_transitions["state_machine"] = str(e)
+
+    async def _attempt_recovery(self) -> None:
+        """Attempt to recover failed transitions."""
+        if self._failed_transitions:
+            logger.info(f"Attempting to recover {len(self._failed_transitions)} failed transitions...")
+            await self._load_state_machine()
 
     async def start(self) -> None:
         """Start service."""
@@ -183,6 +204,9 @@ class StateService:
     async def health(self) -> ServiceHealth:
         """Get service health status."""
         try:
+            # Attempt recovery of failed transitions
+            await self._attempt_recovery()
+            
             # Check component health
             config_ok = self._config is not None
             state_machine_ok = bool(self._state_machine)
@@ -204,8 +228,16 @@ class StateService:
                 )
             }
             
-            # Overall status is error if any component is in error
-            overall_status = "error" if any(c.status == "error" for c in components.values()) else "ok"
+            # Add failed transitions component if any exist
+            if self._failed_transitions:
+                failed_list = ", ".join(self._failed_transitions.keys())
+                components["failed_transitions"] = ComponentHealth(
+                    status="error",
+                    error=f"Failed transitions: {failed_list}"
+                )
+            
+            # Overall status is error only if state machine is completely invalid
+            overall_status = "error" if not state_machine_ok else "ok"
             
             return ServiceHealth(
                 status=overall_status,
@@ -279,9 +311,11 @@ class StateService:
             # Check if transition is valid
             valid_transitions = await self.get_valid_transitions()
             if new_state not in valid_transitions:
+                error_msg = f"Invalid transition from {self._current_state} to {new_state}"
+                self._failed_transitions[f"{self._current_state}->{new_state}"] = error_msg
                 raise create_error(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    message=f"Invalid transition from {self._current_state} to {new_state}"
+                    message=error_msg
                 )
                 
             # Update state
@@ -294,6 +328,9 @@ class StateService:
                 "timestamp": datetime.now().isoformat(),
                 "transition": f"{old_state} -> {new_state}"
             })
+            
+            # Clear failed transition if it exists
+            self._failed_transitions.pop(f"{old_state}->{new_state}", None)
             
             logger.info(f"Transitioned from {old_state} to {new_state}")
             return {

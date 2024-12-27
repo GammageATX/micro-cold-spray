@@ -22,6 +22,7 @@ class FormatService:
         # Initialize components to None
         self._enabled_formats = None
         self._formatters = None
+        self._failed_formatters = {}  # Track failed formatters
         
         # Store constructor args for initialization
         self._init_enabled_formats = enabled_formats
@@ -60,10 +61,11 @@ class FormatService:
             # Initialize enabled formats
             self._enabled_formats = self._init_enabled_formats
             
-            # Initialize formatters for enabled formats
-            self._formatters = {fmt: {} for fmt in self._enabled_formats}
-            logger.info(f"Enabled formats: {', '.join(self._enabled_formats)}")
+            # Initialize formatters
+            self._formatters = {}
+            await self._load_formatters()
             
+            logger.info(f"Enabled formats: {', '.join(self._enabled_formats)}")
             logger.info(f"{self.service_name} service initialized")
             
         except Exception as e:
@@ -73,6 +75,23 @@ class FormatService:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg
             )
+
+    async def _load_formatters(self) -> None:
+        """Load formatters for enabled formats."""
+        for fmt in self._enabled_formats:
+            try:
+                self._formatters[fmt] = {}  # Initialize formatter
+                # If formatter was previously failed, remove from failed list
+                self._failed_formatters.pop(fmt, None)
+            except Exception as e:
+                logger.error(f"Failed to load formatter {fmt}: {e}")
+                self._failed_formatters[fmt] = str(e)
+
+    async def _attempt_recovery(self) -> None:
+        """Attempt to recover failed formatters."""
+        if self._failed_formatters:
+            logger.info(f"Attempting to recover {len(self._failed_formatters)} failed formatters...")
+            await self._load_formatters()
 
     async def start(self) -> None:
         """Start service."""
@@ -127,16 +146,31 @@ class FormatService:
     async def health(self) -> ServiceHealth:
         """Get service health status."""
         try:
+            # Attempt recovery of failed formatters
+            await self._attempt_recovery()
+            
             # Check component health
             components = {}
+            formatters_loaded = False
+            
             for fmt in self._enabled_formats or []:
+                is_loaded = fmt in self._formatters
+                formatters_loaded = formatters_loaded or is_loaded
                 components[fmt] = ComponentHealth(
-                    status="ok" if fmt in self._formatters else "error",
-                    error=None if fmt in self._formatters else f"Formatter not loaded for {fmt}"
+                    status="ok" if is_loaded else "error",
+                    error=None if is_loaded else f"Formatter not loaded for {fmt}"
                 )
             
-            # Overall status is error if any component is in error
-            overall_status = "error" if any(c.status == "error" for c in components.values()) else "ok"
+            # Add failed formatters component if any exist
+            if self._failed_formatters:
+                failed_list = ", ".join(self._failed_formatters.keys())
+                components["failed_formatters"] = ComponentHealth(
+                    status="error",
+                    error=f"Failed formatters: {failed_list}"
+                )
+            
+            # Overall status is error only if no formatters loaded
+            overall_status = "error" if not formatters_loaded else "ok"
             
             return ServiceHealth(
                 status=overall_status,
