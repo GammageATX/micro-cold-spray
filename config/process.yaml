@@ -1,5 +1,14 @@
 version: "1.0.0"
 process:
+  version: "1.0.0"
+  action:
+    version: "1.0.0"
+  parameter:
+    version: "1.0.0"
+  pattern:
+    version: "1.0.0"
+  sequence:
+    version: "1.0.0"
   action_groups:
     apply_parameters:
       description: Apply parameter set to system
@@ -508,7 +517,7 @@ process:
         fields:
         - offset_x
         - notes
-    
+
     parameters:
       material:
         required_fields:
@@ -552,7 +561,7 @@ process:
       gas_pressure:
         message: Main gas pressure too low
         rule: main_pressure >= regulator_pressure + min_margin
-    
+
     patterns:
       limits:
         position:
@@ -586,7 +595,7 @@ process:
           message: Unknown spiral pattern field
           fields:
           - acceleration
-    
+
     sequences:
       required_fields:
         message: Missing required sequence fields
@@ -620,7 +629,7 @@ process:
           - move
           step_order:
           - move
-    
+
     states:
       chamber_vacuum:
         checks:
@@ -667,7 +676,7 @@ process:
           warning: Z position near minimum safe height
         description: Verify safe position
         type: sequence
-    
+
     time_delays:
       powder_stabilize:
         delay: 5.0

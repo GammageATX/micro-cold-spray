@@ -1,21 +1,30 @@
 # src/micro_cold_spray/api/process/process_app.py
 """Process API application."""
 
+import os
+import yaml
+from typing import Dict, Any
 from fastapi import FastAPI, status
+from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
-import uvicorn
 
-from micro_cold_spray.utils import ServiceHealth, get_uptime
+from micro_cold_spray.utils.errors import create_error
+from micro_cold_spray.utils.health import ServiceHealth
 from micro_cold_spray.api.process.process_service import ProcessService
 from micro_cold_spray.api.process.endpoints.process_endpoints import create_process_router
-from micro_cold_spray.api.process.models.process_models import (
-    ExecutionStatus,
-    ActionStatus,
-    ProcessPattern,
-    ParameterSet,
-    SequenceMetadata,
-    SequenceStep
-)
+
+
+def load_config() -> Dict[str, Any]:
+    """Load process configuration.
+    
+    Returns:
+        Dict[str, Any]: Configuration data
+    """
+    config_path = os.path.join("config", "process.yaml")
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            return yaml.safe_load(f)
+    return {"version": "1.0.0"}
 
 
 def create_app() -> FastAPI:
@@ -24,15 +33,32 @@ def create_app() -> FastAPI:
     Returns:
         FastAPI application
     """
+    # Load config
+    config = load_config()
+    version = config.get("version", "1.0.0")
+    
     app = FastAPI(
         title="Process API",
         description="API for managing process execution",
-        version="1.0.0"
+        version=version,
+        docs_url="/docs",
+        redoc_url="/redoc",
+        openapi_url="/openapi.json"
+    )
+
+    # Add CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
     # Initialize service
     process_service = ProcessService()
     app.state.process_service = process_service
+    app.state.config = config
 
     @app.on_event("startup")
     async def startup():
@@ -58,50 +84,23 @@ def create_app() -> FastAPI:
         """Stop service on shutdown."""
         try:
             await app.state.process_service.stop()
-            logger.info("Process API stopped")
+            logger.info("Process service stopped")
         except Exception as e:
-            logger.error(f"Failed to stop Process API: {str(e)}")
-            raise
-
-    @app.get("/")
-    async def root():
-        """Get API information."""
-        return {
-            "name": "Process API",
-            "version": "1.0.0",
-            "description": "API for managing process execution",
-            "endpoints": [
-                "/",
-                "/health",
-                "/sequences",
-                "/sequences/{sequence_id}",
-                "/sequences/{sequence_id}/start",
-                "/sequences/{sequence_id}/stop",
-                "/sequences/{sequence_id}/status"
-            ]
-        }
+            logger.error(f"Failed to stop process service: {str(e)}")
+            # Don't raise during shutdown
 
     @app.get("/health", response_model=ServiceHealth)
-    async def health():
+    async def health() -> ServiceHealth:
         """Get API health status."""
         try:
-            service_health = await app.state.process_service.health()
-            return ServiceHealth(
-                status=service_health.status,
-                service=service_health.service,
-                version=service_health.version,
-                is_running=service_health.is_running,
-                uptime=get_uptime(),
-                error=service_health.error,
-                components=service_health.components
-            )
+            return await app.state.process_service.health()
         except Exception as e:
             error_msg = f"Health check failed: {str(e)}"
             logger.error(error_msg)
             return ServiceHealth(
                 status="error",
                 service="process",
-                version=app.state.process_service.version,
+                version=version,
                 is_running=False,
                 uptime=0.0,
                 error=error_msg,
@@ -117,14 +116,3 @@ def create_app() -> FastAPI:
     app.include_router(create_process_router(app.state.process_service))
 
     return app
-
-
-if __name__ == "__main__":
-    # Run server
-    uvicorn.run(
-        "micro_cold_spray.api.process.process_app:create_app",
-        host="0.0.0.0",
-        port=8004,
-        factory=True,
-        reload=True
-    )

@@ -3,7 +3,14 @@
 from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Optional, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class BaseResponse(BaseModel):
+    """Base response model."""
+    model_config = ConfigDict(strict=True)
+    
+    message: str = Field(..., description="Response message")
 
 
 class ExecutionStatus(str, Enum):
@@ -25,6 +32,8 @@ class ActionStatus(str, Enum):
 
 class ProcessPattern(BaseModel):
     """Process pattern model."""
+    model_config = ConfigDict(strict=True)
+    
     id: str = Field(..., description="Pattern identifier")
     name: str = Field(..., description="Pattern name")
     description: str = Field(..., description="Pattern description")
@@ -35,6 +44,8 @@ class ProcessPattern(BaseModel):
 
 class ParameterSet(BaseModel):
     """Parameter set model."""
+    model_config = ConfigDict(strict=True)
+    
     id: str = Field(..., description="Parameter set identifier")
     name: str = Field(..., description="Parameter set name")
     description: str = Field(..., description="Parameter set description")
@@ -45,6 +56,8 @@ class ParameterSet(BaseModel):
 
 class SequenceStep(BaseModel):
     """Sequence step model."""
+    model_config = ConfigDict(strict=True)
+    
     id: str = Field(..., description="Step identifier")
     name: str = Field(..., description="Step name")
     description: str = Field(..., description="Step description")
@@ -57,6 +70,8 @@ class SequenceStep(BaseModel):
 
 class SequenceMetadata(BaseModel):
     """Sequence metadata model."""
+    model_config = ConfigDict(strict=True)
+    
     id: str = Field(..., description="Sequence identifier")
     name: str = Field(..., description="Sequence name")
     description: str = Field(..., description="Sequence description")
@@ -65,13 +80,33 @@ class SequenceMetadata(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.now, description="Last update timestamp")
 
 
-class HealthResponse(BaseModel):
-    """Health check response model."""
-    status: str = Field(..., description="Service status (ok or error)")
-    service: str = Field(..., description="Service name")
-    version: str = Field(..., description="Service version")
-    running: bool = Field(..., description="Whether service is running")
-    uptime: float = Field(..., description="Service uptime in seconds")
-    sub_services: Dict[str, Any] = Field(..., description="Sub-service health status")
-    error: Optional[str] = Field(None, description="Error message if any")
-    timestamp: datetime = Field(default_factory=datetime.now, description="Response timestamp")
+# Response Models
+class PatternResponse(BaseResponse):
+    """Pattern operation response."""
+    pattern: Optional[ProcessPattern] = Field(None, description="Process pattern")
+
+
+class PatternListResponse(BaseResponse):
+    """Pattern list response."""
+    patterns: List[ProcessPattern] = Field(default_factory=list, description="List of patterns")
+
+
+class ParameterSetResponse(BaseResponse):
+    """Parameter set operation response."""
+    parameter_set: Optional[ParameterSet] = Field(None, description="Parameter set")
+
+
+class ParameterSetListResponse(BaseResponse):
+    """Parameter set list response."""
+    parameter_sets: List[ParameterSet] = Field(default_factory=list, description="List of parameter sets")
+
+
+class SequenceResponse(BaseResponse):
+    """Sequence operation response."""
+    sequence: Optional[SequenceMetadata] = Field(None, description="Sequence metadata")
+    status: Optional[ExecutionStatus] = Field(None, description="Sequence execution status")
+
+
+class SequenceListResponse(BaseResponse):
+    """Sequence list response."""
+    sequences: List[SequenceMetadata] = Field(default_factory=list, description="List of sequences")

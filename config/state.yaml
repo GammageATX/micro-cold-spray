@@ -1,51 +1,64 @@
 version: "1.0.0"
-state:
-  initial_state: INITIALIZING
-  transitions:
-    ERROR:
-      description: System has encountered an error
-      next_states:
-      - READY
-      - SHUTDOWN
-    INITIALIZING:
-      description: System is starting up and initializing
-      conditions:
-      - hardware.connected
-      - config.loaded
-      next_states:
-      - READY
-      - ERROR
-    IDLE:
-      description: System is idle and ready for initialization
-      conditions:
-      - hardware.connected
-      - config.loaded
-      next_states:
-      - READY
-      - ERROR
-    READY:
-      description: System is initialized and operational
-      conditions:
-      - hardware.connected
-      - hardware.enabled
-      next_states:
-      - RUNNING
-      - SHUTDOWN
-      - IDLE
-      - ERROR
-    RUNNING:
-      description: System is executing operations
-      conditions:
-      - hardware.connected
-      - hardware.enabled
-      - sequence.active
-      next_states:
-      - READY
-      - ERROR
-    SHUTDOWN:
-      description: System is shutting down safely
-      conditions:
-      - hardware.safe
-      next_states:
-      - INITIALIZING
-      - ERROR
+initial_state: INITIALIZING
+states:
+  ERROR:
+    description: "System has encountered an error"
+    transitions:
+      READY:
+        description: "Recover to ready state"
+      SHUTDOWN:
+        description: "Shutdown after error"
+  INITIALIZING:
+    description: "System is starting up and initializing"
+    conditions:
+    - hardware.connected
+    - config.loaded
+    transitions:
+      READY:
+        description: "Initialization complete"
+      ERROR:
+        description: "Initialization failed"
+  IDLE:
+    description: "System is idle and ready for initialization"
+    conditions:
+    - hardware.connected
+    - config.loaded
+    transitions:
+      READY:
+        description: "Begin initialization"
+      ERROR:
+        description: "Initialization failed"
+  READY:
+    description: "System is initialized and operational"
+    conditions:
+    - hardware.connected
+    - hardware.enabled
+    transitions:
+      RUNNING:
+        description: "Start operations"
+      SHUTDOWN:
+        description: "Begin shutdown"
+      IDLE:
+        description: "Return to idle"
+      ERROR:
+        description: "System error detected"
+  RUNNING:
+    description: "System is executing operations"
+    conditions:
+    - hardware.connected
+    - hardware.enabled
+    - sequence.active
+    transitions:
+      READY:
+        description: "Stop operations"
+      ERROR:
+        description: "Operation error"
+  SHUTDOWN:
+    description: "System is shutting down safely"
+    conditions:
+    - hardware.safe
+    transitions:
+      INITIALIZING:
+        description: "Restart system"
+      ERROR:
+        description: "Shutdown error"

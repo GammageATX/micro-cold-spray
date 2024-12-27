@@ -1,13 +1,13 @@
-"""Pattern service for process execution."""
+"""Pattern service implementation."""
 
-from datetime import datetime
+import os
 import time
-from typing import Dict, List, Any
-from fastapi import status
+import yaml
+from typing import Dict, Any, List, Optional
 from loguru import logger
 
 from micro_cold_spray.utils.errors import create_error
-from micro_cold_spray.utils import ServiceHealth, get_uptime
+from micro_cold_spray.utils.health import ServiceHealth
 from micro_cold_spray.api.process.models.process_models import ProcessPattern
 
 
@@ -16,17 +16,11 @@ class PatternService:
 
     def __init__(self):
         """Initialize pattern service."""
-        self._service_name = "pattern"
-        self._version = "1.0.0"
-        self._start_time = None
+        self._start_time = time.time()
         self._is_running = False
+        self._version = "1.0.0"
+        self._service_name = "pattern"
         self._patterns: Dict[str, ProcessPattern] = {}
-        logger.info("PatternService initialized")
-
-    @property
-    def is_running(self) -> bool:
-        """Check if service is running."""
-        return self._is_running
 
     @property
     def version(self) -> str:
@@ -34,130 +28,142 @@ class PatternService:
         return self._version
 
     @property
+    def service_name(self) -> str:
+        """Get service name."""
+        return self._service_name
+
+    @property
+    def is_running(self) -> bool:
+        """Get service running state."""
+        return self._is_running
+
+    @property
     def uptime(self) -> float:
         """Get service uptime in seconds."""
-        return time.time() - self._start_time.timestamp() if self._start_time else 0
+        return time.time() - self._start_time
 
     async def initialize(self) -> None:
-        """Initialize service."""
+        """Initialize service.
+        
+        Raises:
+            Exception: If initialization fails
+        """
         try:
+            logger.info("Initializing pattern service...")
+            
+            # Load config
+            config_path = os.path.join("config", "process.yaml")
+            if os.path.exists(config_path):
+                with open(config_path, "r") as f:
+                    config = yaml.safe_load(f)
+                    if "pattern" in config:
+                        self._version = config["pattern"].get("version", self._version)
+                        
+                        # Load patterns from config
+                        patterns = config["pattern"].get("patterns", {})
+                        for pattern_id, pattern_data in patterns.items():
+                            self._patterns[pattern_id] = ProcessPattern(
+                                id=pattern_id,
+                                name=pattern_data.get("name", ""),
+                                description=pattern_data.get("description", ""),
+                                parameters=pattern_data.get("parameters", {})
+                            )
+            
             logger.info("Pattern service initialized")
+            
         except Exception as e:
             error_msg = f"Failed to initialize pattern service: {str(e)}"
             logger.error(error_msg)
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=error_msg,
-                details={"error": str(e)}
-            )
+            raise Exception(error_msg)
 
     async def start(self) -> None:
-        """Start service."""
+        """Start service.
+        
+        Raises:
+            Exception: If start fails
+        """
         try:
-            if self.is_running:
-                raise create_error(
-                    status_code=status.HTTP_409_CONFLICT,
-                    message="Service already running"
-                )
-
-            self._start_time = datetime.now()
+            logger.info("Starting pattern service...")
             self._is_running = True
             logger.info("Pattern service started")
-
+            
         except Exception as e:
             error_msg = f"Failed to start pattern service: {str(e)}"
             logger.error(error_msg)
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=error_msg,
-                details={"error": str(e)}
-            )
+            raise Exception(error_msg)
 
     async def stop(self) -> None:
-        """Stop service."""
+        """Stop service.
+        
+        Raises:
+            Exception: If stop fails
+        """
         try:
-            if not self.is_running:
-                raise create_error(
-                    status_code=status.HTTP_409_CONFLICT,
-                    message="Service not running"
-                )
-
+            logger.info("Stopping pattern service...")
             self._is_running = False
-            self._start_time = None
             logger.info("Pattern service stopped")
-
+            
         except Exception as e:
             error_msg = f"Failed to stop pattern service: {str(e)}"
             logger.error(error_msg)
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=error_msg,
-                details={"error": str(e)}
-            )
+            raise Exception(error_msg)
 
     async def health(self) -> ServiceHealth:
         """Get service health status.
         
         Returns:
-            ServiceHealth: Health status
+            ServiceHealth: Service health status
         """
         try:
+            status = "healthy"
+            error = None
+            
+            if not self.is_running:
+                status = "error"
+                error = "Service not running"
+                
             return ServiceHealth(
-                status="ok" if self.is_running else "error",
-                service=self._service_name,
-                version=self._version,
+                status=status,
+                service=self.service_name,
+                version=self.version,
                 is_running=self.is_running,
                 uptime=self.uptime,
-                error=None if self.is_running else "Service not running",
-                components={
-                    "pattern_store": {
-                        "status": "ok" if self.is_running else "error",
-                        "error": None if self.is_running else "Pattern store not running"
-                    }
-                }
+                error=error,
+                components={}
             )
+            
         except Exception as e:
             error_msg = f"Health check failed: {str(e)}"
             logger.error(error_msg)
             return ServiceHealth(
                 status="error",
-                service=self._service_name,
-                version=self._version,
+                service=self.service_name,
+                version=self.version,
                 is_running=False,
-                uptime=0.0,
+                uptime=self.uptime,
                 error=error_msg,
-                components={
-                    "pattern_store": {
-                        "status": "error",
-                        "error": error_msg
-                    }
-                }
+                components={}
             )
 
     async def list_patterns(self) -> List[ProcessPattern]:
         """List available patterns.
         
         Returns:
-            List of patterns
+            List[ProcessPattern]: List of patterns
             
         Raises:
-            HTTPException: If listing fails
+            Exception: If listing fails
         """
         try:
             if not self.is_running:
-                raise create_error(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
-                )
+                raise Exception("Service not running")
+                
             return list(self._patterns.values())
+            
         except Exception as e:
             error_msg = "Failed to list patterns"
             logger.error(f"{error_msg}: {str(e)}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg,
-                details={"error": str(e)}
-            )
+            raise Exception(error_msg)
 
     async def get_pattern(self, pattern_id: str) -> ProcessPattern:
         """Get pattern by ID.
@@ -166,99 +172,82 @@ class PatternService:
             pattern_id: Pattern identifier
             
         Returns:
-            Pattern
+            ProcessPattern: Pattern
             
         Raises:
-            HTTPException: If pattern not found or retrieval fails
+            Exception: If pattern not found or retrieval fails
         """
         try:
             if not self.is_running:
-                raise create_error(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
-                )
-
+                raise Exception("Service not running")
+                
             if pattern_id not in self._patterns:
-                raise create_error(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    message=f"Pattern {pattern_id} not found"
-                )
-
+                raise Exception(f"Pattern {pattern_id} not found")
+                
             return self._patterns[pattern_id]
+            
         except Exception as e:
             error_msg = f"Failed to get pattern {pattern_id}"
             logger.error(f"{error_msg}: {str(e)}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg,
-                details={"error": str(e)}
-            )
+            raise Exception(error_msg)
 
-    async def create_pattern(self, pattern: ProcessPattern) -> None:
-        """Create pattern.
+    async def create_pattern(self, pattern: ProcessPattern) -> ProcessPattern:
+        """Create new pattern.
         
         Args:
             pattern: Pattern to create
             
+        Returns:
+            ProcessPattern: Created pattern
+            
         Raises:
-            HTTPException: If pattern already exists or creation fails
+            Exception: If creation fails
         """
         try:
             if not self.is_running:
-                raise create_error(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
-                )
-
+                raise Exception("Service not running")
+                
             if pattern.id in self._patterns:
-                raise create_error(
-                    status_code=status.HTTP_409_CONFLICT,
-                    message=f"Pattern {pattern.id} already exists"
-                )
-
+                raise Exception(f"Pattern {pattern.id} already exists")
+                
             self._patterns[pattern.id] = pattern
-            logger.info(f"Created pattern: {pattern.id}")
+            logger.info(f"Created pattern {pattern.id}")
+            
+            return pattern
+            
         except Exception as e:
             error_msg = f"Failed to create pattern {pattern.id}"
             logger.error(f"{error_msg}: {str(e)}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg,
-                details={"error": str(e)}
-            )
+            raise Exception(error_msg)
 
-    async def update_pattern(self, pattern: ProcessPattern) -> None:
-        """Update pattern.
+    async def update_pattern(self, pattern: ProcessPattern) -> ProcessPattern:
+        """Update existing pattern.
         
         Args:
             pattern: Pattern to update
             
+        Returns:
+            ProcessPattern: Updated pattern
+            
         Raises:
-            HTTPException: If pattern not found or update fails
+            Exception: If update fails
         """
         try:
             if not self.is_running:
-                raise create_error(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
-                )
-
+                raise Exception("Service not running")
+                
             if pattern.id not in self._patterns:
-                raise create_error(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    message=f"Pattern {pattern.id} not found"
-                )
-
+                raise Exception(f"Pattern {pattern.id} not found")
+                
             self._patterns[pattern.id] = pattern
-            logger.info(f"Updated pattern: {pattern.id}")
+            logger.info(f"Updated pattern {pattern.id}")
+            
+            return pattern
+            
         except Exception as e:
             error_msg = f"Failed to update pattern {pattern.id}"
             logger.error(f"{error_msg}: {str(e)}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg,
-                details={"error": str(e)}
-            )
+            raise Exception(error_msg)
 
     async def delete_pattern(self, pattern_id: str) -> None:
         """Delete pattern.
@@ -267,28 +256,19 @@ class PatternService:
             pattern_id: Pattern identifier
             
         Raises:
-            HTTPException: If pattern not found or deletion fails
+            Exception: If deletion fails
         """
         try:
             if not self.is_running:
-                raise create_error(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    message="Service not running"
-                )
-
+                raise Exception("Service not running")
+                
             if pattern_id not in self._patterns:
-                raise create_error(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    message=f"Pattern {pattern_id} not found"
-                )
-
+                raise Exception(f"Pattern {pattern_id} not found")
+                
             del self._patterns[pattern_id]
-            logger.info(f"Deleted pattern: {pattern_id}")
+            logger.info(f"Deleted pattern {pattern_id}")
+            
         except Exception as e:
             error_msg = f"Failed to delete pattern {pattern_id}"
             logger.error(f"{error_msg}: {str(e)}")
-            raise create_error(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                message=error_msg,
-                details={"error": str(e)}
-            )
+            raise Exception(error_msg)

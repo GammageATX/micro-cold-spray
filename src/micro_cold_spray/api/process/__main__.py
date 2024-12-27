@@ -1,12 +1,14 @@
 """Process API main script for testing."""
 
-import asyncio
+import os
+import yaml
 import uvicorn
+from typing import Dict, Any
 from datetime import datetime
 from loguru import logger
 from fastapi import FastAPI
 
-from micro_cold_spray.api.process.process_app import create_app
+from micro_cold_spray.api.process.process_app import create_app, load_config
 from micro_cold_spray.api.process.models.process_models import (
     ProcessPattern,
     ParameterSet,
@@ -101,34 +103,18 @@ async def create_test_data(service: ProcessService) -> None:
     logger.info("Created test sequence")
 
 
-async def create_test_app() -> FastAPI:
-    """Create FastAPI application with test data.
-    
-    Returns:
-        FastAPI application
-    """
-    # Create FastAPI app first
-    app = create_app()
-    
-    # Initialize service and create test data
-    await app.state.process_service.initialize()
-    await app.state.process_service.start()
-    await create_test_data(app.state.process_service)
-    logger.info("Test data created")
-
-    return app
-
-
 def main():
     """Main function for testing process service."""
-    # Create FastAPI app with test data
-    app = asyncio.run(create_test_app())
-
+    # Load config to verify it exists
+    load_config()
+    
     # Configure uvicorn
     uvicorn.run(
-        app,
+        "micro_cold_spray.api.process.process_app:create_app",
         host="0.0.0.0",
         port=8004,
+        factory=True,
+        reload=True,
         log_level="info"
     )
 

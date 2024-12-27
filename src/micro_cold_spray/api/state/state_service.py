@@ -1,276 +1,160 @@
-"""State management service."""
+"""State service implementation."""
 
-from typing import Dict, Any, Optional
-from datetime import datetime
 import os
 import yaml
+from datetime import datetime
+from typing import Dict, List, Optional, Any
 from loguru import logger
-from fastapi import status
 
 from micro_cold_spray.utils.errors import create_error
-from micro_cold_spray.utils.health import ServiceHealth
+from micro_cold_spray.utils.health import ServiceHealth, get_uptime
+
+
+def load_config() -> Dict[str, Any]:
+    """Load state service configuration.
+    
+    Returns:
+        Dict[str, Any]: Configuration dictionary
+    """
+    config_path = os.path.join("config", "state.yaml")
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+        
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
 
 
 class StateService:
-    """Service for managing system state."""
+    """State service implementation."""
     
     def __init__(self):
         """Initialize state service."""
-        self.version = "1.0.0"
-        self.is_running = False
-        self._current_state = "INITIALIZING"
+        self._config = None
+        self._version = "1.0.0"
+        self._is_running = False
+        self._start_time = None
+        self._current_state = None
         self._state_machine = {}
         self._history = []
-        self._history_length = 1000  # Default history length
-        self._start_time = None
-
-    async def initialize(self) -> None:
-        """Initialize service."""
-        try:
-            logger.info("Initializing state service...")
-            self._is_running = False
-            self._current_state = "stopped"
-            self._history = []
-            self._start_time = None
-            logger.info("State service initialized")
-        except Exception as e:
-            logger.error(f"Failed to initialize state service: {e}")
-            raise
-
-    async def start(self) -> None:
-        """Start service."""
-        try:
-            logger.info("Starting state service...")
-            self._is_running = True
-            self._start_time = datetime.now()
-            self._current_state = "idle"
-            logger.info("State service started")
-        except Exception as e:
-            logger.error(f"Failed to start state service: {e}")
-            raise
-
-    async def stop(self):
-        """Stop state service."""
-        try:
-            if not self.is_running:
-                return
-                
-            self._add_history_entry("System shutdown")
-            self.is_running = False
-            logger.info("State service stopped")
-            
-        except Exception as e:
-            logger.error(f"Failed to stop state service: {e}")
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"Failed to stop state service: {str(e)}"
-            )
-
-    async def _load_local_config(self) -> Dict[str, Any]:
-        """Load local state configuration.
+        
+    @property
+    def version(self) -> str:
+        """Get service version.
         
         Returns:
-            Dict[str, Any]: State configuration
-            
-        Raises:
-            HTTPException: If configuration loading fails
+            str: Service version
         """
-        try:
-            # Get config path
-            config_path = os.path.join(os.getcwd(), "config", "state.yaml")
-            if not os.path.exists(config_path):
-                raise FileNotFoundError(f"State config file not found at {config_path}")
-            
-            # Read state config file
-            with open(config_path, "r") as f:
-                config_data = f.read()
-            
-            # Parse YAML content
-            config = yaml.safe_load(config_data)
-            
-            # Validate config structure
-            if not isinstance(config, dict):
-                raise create_error(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    message="Invalid state configuration: not a dict"
-                )
-            
-            if "state" not in config:
-                raise create_error(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    message="Invalid state configuration: missing state section"
-                )
-                
-            state_config = config["state"]
-            if "initial_state" not in state_config or "transitions" not in state_config:
-                raise create_error(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    message="Invalid state configuration: missing required keys in state section"
-                )
-            
-            return config
-            
-        except FileNotFoundError as e:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=str(e)
-            )
-        except Exception as e:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"Failed to load state configuration: {str(e)}"
-            )
-
-    async def _apply_config(self, config: Dict[str, Any]):
-        """Apply configuration to state machine.
+        return self._version
         
-        Args:
-            config: Configuration dict to apply
-        """
-        # Build state machine from transitions
-        self._state_machine = {
-            name: {
-                "name": name,
-                "valid_transitions": state_data["next_states"],
-                "conditions": state_data.get("conditions", []),
-                "description": state_data.get("description")
-            }
-            for name, state_data in config["state"]["transitions"].items()
-        }
-        
-        # Set initial state if we're just starting
-        if self._current_state == "INITIALIZING":
-            self._current_state = config["state"].get("initial_state", "INITIALIZING")
-            self._add_history_entry("System initialized")
-    
-    def _add_history_entry(self, message: str):
-        """Add entry to state history.
-        
-        Args:
-            message: History entry message
-        """
-        entry = {
-            "timestamp": datetime.now().isoformat(),
-            "state": self._current_state,
-            "message": message
-        }
-        
-        self._history.append(entry)
-        
-        # Trim history if needed
-        if len(self._history) > self._history_length:
-            self._history = self._history[-self._history_length:]
-    
     @property
-    def current_state(self) -> str:
+    def is_running(self) -> bool:
+        """Get service running state.
+        
+        Returns:
+            bool: True if service is running
+        """
+        return self._is_running
+        
+    @property
+    def uptime(self) -> float:
+        """Get service uptime in seconds.
+        
+        Returns:
+            float: Uptime in seconds
+        """
+        if not self._start_time:
+            return 0.0
+        return (datetime.now() - self._start_time).total_seconds()
+        
+    @property
+    def current_state(self) -> Optional[str]:
         """Get current state.
         
         Returns:
-            str: Current state name
-            
-        Raises:
-            HTTPException: If service not running (503)
+            Optional[str]: Current state name
         """
-        if not self.is_running:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="State service not running"
-            )
         return self._current_state
-    
-    async def get_valid_transitions(self) -> Dict[str, Any]:
-        """Get valid state transitions.
         
-        Returns:
-            Dict[str, Any]: Valid transitions for current state
+    async def initialize(self):
+        """Initialize service."""
+        try:
+            logger.info("Initializing state service...")
             
-        Raises:
-            HTTPException: If service not running (503)
-        """
+            # Load config
+            self._config = load_config()
+            self._version = self._config.get("version", self._version)
+            
+            # Load state machine
+            self._state_machine = self._config.get("states", {})
+            if not self._state_machine:
+                raise ValueError("No states defined in config")
+                
+            # Set initial state
+            initial_state = self._config.get("initial_state")
+            if not initial_state:
+                raise ValueError("No initial state defined in config")
+            if initial_state not in self._state_machine:
+                raise ValueError(f"Invalid initial state: {initial_state}")
+                
+            self._current_state = initial_state
+            self._history = []
+            
+            logger.info("State service initialized successfully")
+            
+        except Exception as e:
+            error_msg = f"Failed to initialize state service: {str(e)}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
+            
+    async def start(self):
+        """Start service."""
+        if self.is_running:
+            logger.warning("State service already running")
+            return
+            
+        try:
+            logger.info("Starting state service...")
+            
+            # Initialize if not already initialized
+            if not self._config:
+                await self.initialize()
+                
+            self._is_running = True
+            self._start_time = datetime.now()
+            
+            # Add initial state to history
+            self._history.append({
+                "state": self._current_state,
+                "timestamp": self._start_time.isoformat(),
+                "transition": "initial"
+            })
+            
+            logger.info("State service started successfully")
+            
+        except Exception as e:
+            error_msg = f"Failed to start state service: {str(e)}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
+            
+    async def stop(self):
+        """Stop service."""
         if not self.is_running:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="State service not running"
-            )
-        
-        current = self._state_machine.get(self._current_state)
-        if not current:
-            return {"valid_transitions": []}
+            logger.warning("State service already stopped")
+            return
             
-        return {
-            "current_state": self._current_state,
-            "valid_transitions": current["valid_transitions"]
-        }
-    
-    async def transition_to(self, new_state: str) -> Dict[str, Any]:
-        """Transition to new state.
-        
-        Args:
-            new_state: Target state name
+        try:
+            logger.info("Stopping state service...")
             
-        Returns:
-            Dict[str, Any]: New state info
+            self._is_running = False
+            self._start_time = None
             
-        Raises:
-            HTTPException: If transition invalid (400) or service not running (503)
-        """
-        if not self.is_running:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="State service not running"
-            )
-        
-        current = self._state_machine.get(self._current_state)
-        if not current:
-            raise create_error(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                message=f"Invalid current state: {self._current_state}"
-            )
-        
-        if new_state not in current["valid_transitions"]:
-            raise create_error(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                message=f"Invalid transition from {self._current_state} to {new_state}"
-            )
+            logger.info("State service stopped successfully")
             
-        # Update state and history
-        old_state = self._current_state
-        self._current_state = new_state
-        self._add_history_entry(f"Transitioned from {old_state} to {new_state}")
-        
-        return {
-            "old_state": old_state,
-            "new_state": new_state,
-            "valid_transitions": self._state_machine[new_state]["valid_transitions"]
-        }
-    
-    async def get_history(self, limit: Optional[int] = None) -> Dict[str, Any]:
-        """Get state transition history.
-        
-        Args:
-            limit: Maximum number of entries to return
+        except Exception as e:
+            error_msg = f"Failed to stop state service: {str(e)}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
             
-        Returns:
-            Dict[str, Any]: State history
-            
-        Raises:
-            HTTPException: If service not running (503)
-        """
-        if not self.is_running:
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message="State service not running"
-            )
-            
-        history = self._history
-        if limit:
-            history = history[-limit:]
-            
-        return {
-            "current_state": self._current_state,
-            "history": history
-        }
-    
     async def health(self) -> ServiceHealth:
         """Get service health status.
         
@@ -278,28 +162,21 @@ class StateService:
             ServiceHealth: Health status
         """
         try:
-            # Check state machine status
-            state_machine_ok = self.is_running
-            
-            # Build component statuses
-            components = {
-                "state_machine": {
-                    "status": "ok" if state_machine_ok else "error",
-                    "error": None if state_machine_ok else "State machine not running"
-                }
-            }
-            
-            # Overall status is error if any component is in error
-            overall_status = "error" if any(c["status"] == "error" for c in components.values()) else "ok"
+            is_healthy = self.is_running and self._config is not None
             
             return ServiceHealth(
-                status=overall_status,
+                status="ok" if is_healthy else "error",
                 service="state",
                 version=self.version,
                 is_running=self.is_running,
-                uptime=(datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0,
-                error=None if overall_status == "ok" else "One or more components in error state",
-                components=components
+                uptime=self.uptime,
+                error=None if is_healthy else "Service not healthy",
+                components={
+                    "state_machine": {
+                        "status": "ok" if is_healthy else "error",
+                        "error": None if is_healthy else "State machine not healthy"
+                    }
+                }
             )
             
         except Exception as e:
@@ -313,6 +190,82 @@ class StateService:
                 uptime=0.0,
                 error=error_msg,
                 components={
-                    "state_machine": {"status": "error", "error": error_msg}
+                    "state_machine": {
+                        "status": "error",
+                        "error": error_msg
+                    }
                 }
             )
+            
+    async def get_valid_transitions(self) -> List[str]:
+        """Get valid state transitions from current state.
+        
+        Returns:
+            List[str]: List of valid transition states
+        """
+        if not self.is_running:
+            raise RuntimeError("Service not running")
+            
+        if not self._current_state:
+            return []
+            
+        current_state_def = self._state_machine.get(self._current_state, {})
+        return list(current_state_def.get("transitions", {}).keys())
+        
+    async def transition_to(self, new_state: str) -> Dict[str, Any]:
+        """Transition to new state.
+        
+        Args:
+            new_state (str): New state name
+            
+        Returns:
+            Dict[str, Any]: Transition result
+        """
+        if not self.is_running:
+            raise RuntimeError("Service not running")
+            
+        if not self._current_state:
+            raise RuntimeError("No current state")
+            
+        if new_state not in self._state_machine:
+            raise ValueError(f"Invalid state: {new_state}")
+            
+        current_state_def = self._state_machine.get(self._current_state, {})
+        transitions = current_state_def.get("transitions", {})
+        
+        if new_state not in transitions:
+            raise ValueError(f"Invalid transition from {self._current_state} to {new_state}")
+            
+        # Record transition
+        timestamp = datetime.now()
+        self._history.append({
+            "state": new_state,
+            "timestamp": timestamp.isoformat(),
+            "transition": f"{self._current_state} -> {new_state}"
+        })
+        
+        # Update state
+        self._current_state = new_state
+        
+        return {
+            "previous_state": self._current_state,
+            "new_state": new_state,
+            "timestamp": timestamp.isoformat()
+        }
+        
+    async def get_history(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Get state transition history.
+        
+        Args:
+            limit (Optional[int]): Maximum number of history entries to return
+            
+        Returns:
+            List[Dict[str, Any]]: State transition history
+        """
+        if not self.is_running:
+            raise RuntimeError("Service not running")
+            
+        if limit is not None and limit > 0:
+            return self._history[-limit:]
+            
+        return self._history

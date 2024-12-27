@@ -10,8 +10,12 @@ from micro_cold_spray.utils.errors import create_error
 
 
 def setup_logging():
-    """Setup logging configuration."""
-    log_dir = "logs"
+    """Setup logging configuration.
+    
+    Creates log directory if it doesn't exist and configures console and file handlers.
+    Console handler uses colored output while file handler includes rotation.
+    """
+    log_dir = os.path.join("logs", "state")
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
 
@@ -25,7 +29,7 @@ def setup_logging():
         "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
         "<level>{message}</level>"
     )
-    logger.add(sys.stderr, format=log_format, level="INFO")
+    logger.add(sys.stderr, format=log_format, level="INFO", enqueue=True)
     
     # Add file handler with rotation
     file_format = (
@@ -39,12 +43,22 @@ def setup_logging():
         rotation="1 day",
         retention="30 days",
         format=file_format,
-        level="DEBUG"
+        level="DEBUG",
+        enqueue=True,
+        compression="zip"
     )
 
 
 def main():
-    """Run state service."""
+    """Run state service.
+    
+    Configures logging, creates the FastAPI application, and starts the uvicorn server.
+    Environment variables:
+        STATE_SERVICE_HOST: Host to bind to (default: 0.0.0.0)
+        STATE_SERVICE_PORT: Port to listen on (default: 8004)
+        STATE_SERVICE_RELOAD: Enable auto-reload (default: false)
+        STATE_SERVICE_LOG_LEVEL: Logging level (default: info)
+    """
     try:
         # Setup logging
         setup_logging()
@@ -55,13 +69,23 @@ def main():
         
         # Get config from environment or use defaults
         host = os.getenv("STATE_SERVICE_HOST", "0.0.0.0")
-        port = int(os.getenv("STATE_SERVICE_PORT", "8004"))  # Default port for state service
+        port = int(os.getenv("STATE_SERVICE_PORT", "8004"))
         reload = os.getenv("STATE_SERVICE_RELOAD", "false").lower() == "true"
+        log_level = os.getenv("STATE_SERVICE_LOG_LEVEL", "info").lower()
+        
+        # Validate configuration
+        if port < 1 or port > 65535:
+            raise ValueError(f"Invalid port number: {port}")
+            
+        if log_level not in ["debug", "info", "warning", "error", "critical"]:
+            raise ValueError(f"Invalid log level: {log_level}")
         
         # Log startup configuration
-        logger.info(f"Host: {host}")
-        logger.info(f"Port: {port}")
-        logger.info(f"Reload: {reload}")
+        logger.info("State service configuration:")
+        logger.info(f"  Host: {host}")
+        logger.info(f"  Port: {port}")
+        logger.info(f"  Reload: {reload}")
+        logger.info(f"  Log level: {log_level}")
         
         # Run service
         uvicorn.run(
@@ -69,11 +93,12 @@ def main():
             host=host,
             port=port,
             reload=reload,
-            log_level="info"
+            log_level=log_level,
+            access_log=True
         )
 
-    except Exception as e:
-        logger.exception(f"Failed to start state service: {e}")
+    except Exception:
+        logger.exception("Failed to start state service")
         sys.exit(1)
 
 
