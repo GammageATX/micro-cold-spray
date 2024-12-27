@@ -1,16 +1,16 @@
 """Configuration service endpoints."""
 
 from typing import Dict, Optional, Any
-from datetime import datetime
-from fastapi import APIRouter, Depends, Request, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Request, status
 from loguru import logger
 
 from micro_cold_spray.api.config.models.config_models import (
     ConfigRequest,
     ConfigResponse,
+    ConfigListResponse,
     SchemaRequest,
     SchemaResponse,
+    SchemaListResponse,
     MessageResponse
 )
 from micro_cold_spray.utils.errors import create_error
@@ -24,20 +24,29 @@ def get_config_router() -> APIRouter:
     """
     router = APIRouter(prefix="/config", tags=["config"])
     
+    @router.get("/list", response_model=ConfigListResponse)
+    async def list_configs(request: Request) -> ConfigListResponse:
+        """List available configurations."""
+        try:
+            configs = await request.app.state.service.list_configs()
+            return ConfigListResponse(configs=configs)
+            
+        except Exception as e:
+            logger.error(f"Failed to list configs: {e}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=f"Failed to list configs: {str(e)}"
+            )
+    
     @router.get("/{name}", response_model=ConfigResponse)
     async def get_config(name: str, request: Request) -> ConfigResponse:
         """Get configuration by name."""
         try:
-            # Read from file
-            raw_data = request.app.state.file.read(f"{name}.yaml")
-            
-            # Parse YAML content
-            config_data = request.app.state.format.parse(raw_data, "yaml")
-            
+            config_data = await request.app.state.service.get_config(name)
             return ConfigResponse(
                 name=name,
-                data=config_data,
-                format="yaml"
+                format="yaml",  # Default format
+                data=config_data
             )
             
         except Exception as e:
@@ -52,15 +61,10 @@ def get_config_router() -> APIRouter:
         """Update configuration."""
         try:
             # Validate against schema if exists
-            schema = request.app.state.schema.get_schema(name)
-            if schema:
-                request.app.state.schema.validate_config(name, config.data)
+            await request.app.state.service.validate_config(name, config.data)
             
-            # Format data
-            formatted_data = request.app.state.format.format(config.data, config.format)
-            
-            # Write to file
-            request.app.state.file.write(f"{name}.yaml", formatted_data)
+            # Update config
+            await request.app.state.service.update_config(name, config.data, config.format)
             
             return MessageResponse(message=f"Configuration {name} updated successfully")
             
@@ -75,14 +79,8 @@ def get_config_router() -> APIRouter:
     async def validate_config(name: str, config: ConfigRequest, request: Request) -> MessageResponse:
         """Validate configuration against schema."""
         try:
-            # Get schema
-            schema = request.app.state.schema.get_schema(name)
-            if not schema:
-                return MessageResponse(message=f"No schema found for {name}, skipping validation")
-            
             # Validate config
-            request.app.state.schema.validate_config(name, config.data)
-            
+            await request.app.state.service.validate_config(name, config.data)
             return MessageResponse(message=f"Configuration {name} is valid")
             
         except Exception as e:
@@ -92,11 +90,25 @@ def get_config_router() -> APIRouter:
                 message=f"Validation failed: {str(e)}"
             )
     
+    @router.get("/schema/list", response_model=SchemaListResponse)
+    async def list_schemas(request: Request) -> SchemaListResponse:
+        """List available schemas."""
+        try:
+            schemas = await request.app.state.service.list_schemas()
+            return SchemaListResponse(schemas=schemas)
+            
+        except Exception as e:
+            logger.error(f"Failed to list schemas: {e}")
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=f"Failed to list schemas: {str(e)}"
+            )
+    
     @router.get("/schema/{name}", response_model=SchemaResponse)
     async def get_schema(name: str, request: Request) -> SchemaResponse:
         """Get schema by name."""
         try:
-            schema = request.app.state.schema.get_schema(name)
+            schema = await request.app.state.service.get_schema(name)
             if not schema:
                 raise create_error(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -119,9 +131,8 @@ def get_config_router() -> APIRouter:
     async def update_schema(name: str, schema: SchemaRequest, request: Request) -> MessageResponse:
         """Update schema."""
         try:
-            # Register schema
-            request.app.state.schema.register_schema(name, schema.schema_definition)
-            
+            # Update schema
+            await request.app.state.service.update_schema(name, schema.schema_definition)
             return MessageResponse(message=f"Schema {name} updated successfully")
             
         except Exception as e:

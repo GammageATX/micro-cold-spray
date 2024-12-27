@@ -1,0 +1,25 @@
+# Configuration Service Config
+
+# Service information
+version: "1.0.0"
+
+# Service settings
+service:
+  name: "config"
+  host: "0.0.0.0"
+  port: 8001
+  log_level: "INFO"
+
+# Component settings
+components:
+  file:
+    version: "1.0.0"
+    base_path: "config"
+  format:
+    version: "1.0.0"
+    enabled_formats:
+    - "yaml"
+    - "json"
+  schema:
+    version: "1.0.0"
+    schema_path: "config/schemas"

@@ -13,67 +13,29 @@ from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
 class FileService:
     """File service."""
 
-    def __init__(self, base_path: str):
+    def __init__(self, base_path: str, version: str = "1.0.0"):
         """Initialize service.
         
         Args:
             base_path: Base path for file operations
+            version: Service version from config
         """
+        self._service_name = "file"
+        self._version = version
         self._base_path = base_path
         self._is_running = False
         self._start_time = None
-        logger.info("File service initialized")
+        logger.info(f"{self._service_name} service initialized")
 
-    async def initialize(self) -> None:
-        """Initialize service."""
-        try:
-            logger.info("Initializing file service...")
-            
-            # Create base directory if it doesn't exist
-            os.makedirs(self._base_path, exist_ok=True)
-            logger.info(f"Using base path: {self._base_path}")
-            
-            logger.info("File service initialized")
-            
-        except Exception as e:
-            error_msg = f"Failed to initialize file service: {str(e)}"
-            logger.error(error_msg)
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=error_msg
-            )
+    @property
+    def service_name(self) -> str:
+        """Get service name."""
+        return self._service_name
 
-    async def start(self) -> None:
-        """Start service."""
-        try:
-            logger.info("Starting file service...")
-            self._is_running = True
-            self._start_time = datetime.now()
-            logger.info("File service started")
-            
-        except Exception as e:
-            self._is_running = False
-            error_msg = f"Failed to start file service: {str(e)}"
-            logger.error(error_msg)
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=error_msg
-            )
-
-    async def stop(self) -> None:
-        """Stop service."""
-        try:
-            logger.info("Stopping file service...")
-            self._is_running = False
-            logger.info("File service stopped")
-            
-        except Exception as e:
-            error_msg = f"Failed to stop file service: {str(e)}"
-            logger.error(error_msg)
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=error_msg
-            )
+    @property
+    def version(self) -> str:
+        """Get service version."""
+        return self._version
 
     @property
     def is_running(self) -> bool:
@@ -84,6 +46,57 @@ class FileService:
     def uptime(self) -> float:
         """Get service uptime."""
         return (datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0
+
+    async def initialize(self) -> None:
+        """Initialize service."""
+        try:
+            logger.info(f"Initializing {self.service_name} service...")
+            
+            # Create base directory if it doesn't exist
+            os.makedirs(self._base_path, exist_ok=True)
+            logger.info(f"Using base path: {self._base_path}")
+            
+            logger.info(f"{self.service_name} service initialized")
+            
+        except Exception as e:
+            error_msg = f"Failed to initialize {self.service_name} service: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
+
+    async def start(self) -> None:
+        """Start service."""
+        try:
+            logger.info(f"Starting {self.service_name} service...")
+            self._is_running = True
+            self._start_time = datetime.now()
+            logger.info(f"{self.service_name} service started")
+            
+        except Exception as e:
+            self._is_running = False
+            error_msg = f"Failed to start {self.service_name} service: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
+
+    async def stop(self) -> None:
+        """Stop service."""
+        try:
+            logger.info(f"Stopping {self.service_name} service...")
+            self._is_running = False
+            logger.info(f"{self.service_name} service stopped")
+            
+        except Exception as e:
+            error_msg = f"Failed to stop {self.service_name} service: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
 
     async def health(self) -> ServiceHealth:
         """Get service health status."""
@@ -105,8 +118,8 @@ class FileService:
             
             return ServiceHealth(
                 status=overall_status,
-                service="file",
-                version="1.0.0",  # TODO: Load from config
+                service=self.service_name,
+                version=self.version,
                 is_running=self.is_running,
                 uptime=self.uptime,
                 error=None if overall_status == "ok" else "One or more components in error state",
@@ -118,8 +131,8 @@ class FileService:
             logger.error(error_msg)
             return ServiceHealth(
                 status="error",
-                service="file",
-                version="1.0.0",  # TODO: Load from config
+                service=self.service_name,
+                version=self.version,
                 is_running=False,
                 uptime=self.uptime,
                 error=error_msg,

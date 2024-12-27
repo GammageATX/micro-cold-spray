@@ -6,6 +6,7 @@ from datetime import datetime
 from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
+import yaml
 
 from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
@@ -25,91 +26,23 @@ DEFAULT_SCHEMA_PATH = os.path.join(DEFAULT_CONFIG_PATH, "schemas")
 class ConfigService:
     """Configuration service."""
 
-    def __init__(self, config: Dict[str, Any]):
-        """Initialize service.
-        
-        Args:
-            config: Service configuration
-        """
-        self._config = config
-        self._version = config.get("version", "1.0.0")
+    def __init__(self):
+        """Initialize service."""
+        self._service_name = "config"
+        self._version = "1.0.0"  # Will be updated in initialize()
         self._is_running = False
         self._start_time = None
+        self._config = None
+        self._file = None
+        self._format = None
+        self._schema = None
         
-        # Get config path from environment or use default
-        self._config_path = os.getenv("CONFIG_SERVICE_PATH", DEFAULT_CONFIG_PATH)
-        logger.info(f"Using config path: {self._config_path}")
-        
-        # Initialize services
-        self._file = FileService(base_path=self._config_path)
-        self._format = FormatService()
-        self._schema = SchemaService()
-        
-        logger.info("Config service initialized")
+        logger.info(f"{self._service_name} service initialized")
 
-    async def initialize(self) -> None:
-        """Initialize service."""
-        try:
-            logger.info("Initializing config service...")
-            
-            # Initialize services in order
-            await self._file.initialize()
-            await self._format.initialize()
-            await self._schema.initialize()
-            
-            logger.info("Config service initialized")
-            
-        except Exception as e:
-            error_msg = f"Failed to initialize config service: {str(e)}"
-            logger.error(error_msg)
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=error_msg
-            )
-
-    async def start(self) -> None:
-        """Start service."""
-        try:
-            logger.info("Starting config service...")
-            
-            # Start services in order
-            await self._file.start()
-            await self._format.start()
-            await self._schema.start()
-            
-            self._is_running = True
-            self._start_time = datetime.now()
-            logger.info("Config service started successfully")
-            
-        except Exception as e:
-            self._is_running = False
-            error_msg = f"Failed to start config service: {str(e)}"
-            logger.error(error_msg)
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=error_msg
-            )
-
-    async def stop(self) -> None:
-        """Stop service."""
-        try:
-            logger.info("Stopping config service...")
-            
-            # Stop services in reverse order
-            await self._schema.stop()
-            await self._format.stop()
-            await self._file.stop()
-            
-            self._is_running = False
-            logger.info("Config service stopped")
-            
-        except Exception as e:
-            error_msg = f"Failed to stop config service: {str(e)}"
-            logger.error(error_msg)
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=error_msg
-            )
+    @property
+    def service_name(self) -> str:
+        """Get service name."""
+        return self._service_name
 
     @property
     def version(self) -> str:
@@ -126,6 +59,110 @@ class ConfigService:
         """Get service uptime."""
         return (datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0
 
+    async def initialize(self) -> None:
+        """Initialize service."""
+        try:
+            logger.info(f"Initializing {self.service_name} service...")
+            
+            # Load config
+            try:
+                with open("config/config.yaml", "r") as f:
+                    self._config = yaml.safe_load(f)
+                self._version = self._config["version"]
+                logger.info(f"Loaded config version {self._version}")
+            except Exception as e:
+                logger.error(f"Failed to load config: {e}")
+                self._config = {
+                    "version": self._version,
+                    "components": {
+                        "file": {
+                            "version": "1.0.0",
+                            "base_path": DEFAULT_CONFIG_PATH
+                        },
+                        "format": {
+                            "version": "1.0.0",
+                            "enabled_formats": ["yaml", "json"]
+                        },
+                        "schema": {
+                            "version": "1.0.0",
+                            "schema_path": DEFAULT_SCHEMA_PATH
+                        }
+                    }
+                }
+            
+            # Initialize services with config
+            self._file = FileService(
+                base_path=self._config["components"]["file"]["base_path"],
+                version=self._config["components"]["file"]["version"]
+            )
+            self._format = FormatService(
+                enabled_formats=self._config["components"]["format"]["enabled_formats"],
+                version=self._config["components"]["format"]["version"]
+            )
+            self._schema = SchemaService(
+                schema_path=self._config["components"]["schema"]["schema_path"],
+                version=self._config["components"]["schema"]["version"]
+            )
+            
+            # Initialize services in order
+            await self._file.initialize()
+            await self._format.initialize()
+            await self._schema.initialize()
+            
+            logger.info(f"{self.service_name} service initialized")
+            
+        except Exception as e:
+            error_msg = f"Failed to initialize {self.service_name} service: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
+
+    async def start(self) -> None:
+        """Start service."""
+        try:
+            logger.info(f"Starting {self.service_name} service...")
+            
+            # Start services in order
+            await self._file.start()
+            await self._format.start()
+            await self._schema.start()
+            
+            self._is_running = True
+            self._start_time = datetime.now()
+            logger.info(f"{self.service_name} service started successfully")
+            
+        except Exception as e:
+            self._is_running = False
+            error_msg = f"Failed to start {self.service_name} service: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
+
+    async def stop(self) -> None:
+        """Stop service."""
+        try:
+            logger.info(f"Stopping {self.service_name} service...")
+            
+            # Stop services in reverse order
+            await self._schema.stop()
+            await self._format.stop()
+            await self._file.stop()
+            
+            self._is_running = False
+            logger.info(f"{self.service_name} service stopped")
+            
+        except Exception as e:
+            error_msg = f"Failed to stop {self.service_name} service: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
+
     async def health(self) -> ServiceHealth:
         """Get service health status."""
         try:
@@ -135,29 +172,27 @@ class ConfigService:
             schema_health = await self._schema.health()
             
             # Build component statuses
-            components = {}
-            for name, health in [
-                ("file", file_health),
-                ("format", format_health),
-                ("schema", schema_health)
-            ]:
-                if health.components:
-                    # If component has sub-components, include them all
-                    for comp_name, comp_health in health.components.items():
-                        components[f"{name}.{comp_name}"] = comp_health
-                else:
-                    # Otherwise include the component itself
-                    components[name] = ComponentHealth(
-                        status=health.status,
-                        error=health.error
-                    )
+            components = {
+                "file": ComponentHealth(
+                    status=file_health.status,
+                    error=file_health.error
+                ),
+                "format": ComponentHealth(
+                    status=format_health.status,
+                    error=format_health.error
+                ),
+                "schema": ComponentHealth(
+                    status=schema_health.status,
+                    error=schema_health.error
+                )
+            }
             
             # Overall status is error if any component is in error
             overall_status = "error" if any(c.status == "error" for c in components.values()) else "ok"
             
             return ServiceHealth(
                 status=overall_status,
-                service="config",
+                service=self.service_name,
                 version=self.version,
                 is_running=self.is_running,
                 uptime=self.uptime,
@@ -170,16 +205,12 @@ class ConfigService:
             logger.error(error_msg)
             return ServiceHealth(
                 status="error",
-                service="config",
+                service=self.service_name,
                 version=self.version,
                 is_running=False,
                 uptime=self.uptime,
                 error=error_msg,
-                components={
-                    "file": ComponentHealth(status="error", error=error_msg),
-                    "format": ComponentHealth(status="error", error=error_msg),
-                    "schema": ComponentHealth(status="error", error=error_msg)
-                }
+                components={}
             )
 
 
@@ -201,8 +232,7 @@ def create_config_service() -> FastAPI:
     )
     
     # Initialize service
-    config = {"version": "1.0.0"}  # TODO: Load from config file
-    service = ConfigService(config)
+    service = ConfigService()
     app.state.service = service
     
     @app.on_event("startup")

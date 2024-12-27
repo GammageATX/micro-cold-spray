@@ -5,7 +5,6 @@ from micro_cold_spray.api.config.models.config_models import (
     ConfigResponse,
     SchemaRequest,
     SchemaResponse,
-    HealthResponse,
     MessageResponse
 )
 
@@ -14,6 +13,5 @@ __all__ = [
     "ConfigResponse",
     "SchemaRequest",
     "SchemaResponse",
-    "HealthResponse",
     "MessageResponse"
 ]
