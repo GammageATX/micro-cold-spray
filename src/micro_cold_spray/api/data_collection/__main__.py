@@ -6,7 +6,7 @@ import yaml
 import uvicorn
 from loguru import logger
 
-from micro_cold_spray.api.data_collection.data_collection_app import DataCollectionApp
+from micro_cold_spray.api.data_collection.data_collection_app import create_data_collection_app
 from micro_cold_spray.utils.errors import create_error
 
 
@@ -93,7 +93,7 @@ def main():
         
         # Run service
         uvicorn.run(
-            "micro_cold_spray.api.data_collection.data_collection_app:DataCollectionApp",
+            "micro_cold_spray.api.data_collection.data_collection_app:create_data_collection_app",
             host=host,
             port=port,
             reload=reload,

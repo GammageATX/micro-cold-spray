@@ -20,14 +20,160 @@ class DataCollectionService:
 
     def __init__(self, storage: Optional[DataCollectionStorage] = None):
         """Initialize service."""
+        self._service_name = "data_collection"
+        self._version = "1.0.0"  # Will be updated from config
+        self._is_running = False
+        self._start_time = None
+        self._config = {}
         self.storage = storage
         self.collecting = False
         self.current_sequence = None
-        self._config = {}
-        self._name = "data_collection"
-        self._version = "1.0.0"
-        self._is_running = False
-        self._start_time = None
+        logger.info(f"{self._service_name} service initialized")
+
+    @property
+    def service_name(self) -> str:
+        """Get service name."""
+        return self._service_name
+
+    @property
+    def version(self) -> str:
+        """Get service version."""
+        return self._version
+
+    @property
+    def is_running(self) -> bool:
+        """Get service running state."""
+        return self._is_running
+
+    @property
+    def uptime(self) -> float:
+        """Get service uptime in seconds."""
+        return (datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0
+
+    async def initialize(self) -> None:
+        """Initialize service."""
+        try:
+            # Load config first
+            self._config = await self._load_config()
+            self._version = self._config["service"]["version"]
+            
+            # Initialize storage if not provided
+            if not self.storage:
+                db_config = self._config["database"]
+                dsn = f"postgresql://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}"
+                self.storage = DataCollectionStorage(dsn=dsn, pool_config=db_config["pool"])
+                await self.storage.initialize()
+                
+            logger.info(f"{self.service_name} service initialized")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize {self.service_name} service: {e}")
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=f"Failed to initialize {self.service_name} service: {str(e)}"
+            )
+
+    async def start(self) -> None:
+        """Start service."""
+        try:
+            if self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message="Service already running"
+                )
+
+            self._start_time = datetime.now()
+            self._is_running = True
+            logger.info(f"{self.service_name} service started")
+
+        except Exception as e:
+            logger.error(f"Failed to start {self.service_name} service: {e}")
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=f"Failed to start {self.service_name} service: {str(e)}"
+            )
+
+    async def stop(self) -> None:
+        """Stop service."""
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message="Service not running"
+                )
+
+            self.collecting = False
+            self.current_sequence = None
+            self._is_running = False
+            self._start_time = None
+            logger.info(f"{self.service_name} service stopped")
+
+        except Exception as e:
+            logger.error(f"Failed to stop {self.service_name} service: {e}")
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=f"Failed to stop {self.service_name} service: {str(e)}"
+            )
+
+    async def health(self) -> ServiceHealth:
+        """Get service health status.
+        
+        Returns:
+            ServiceHealth: Health status
+        """
+        try:
+            # Check storage health
+            storage_health = await self.storage.check_health() if self.storage else {
+                "status": "error",
+                "error": "Storage not initialized"
+            }
+            
+            # Check collection status
+            collector_status = "ok" if self.is_running else "error"
+            collector_error = None if self.is_running else "Collector not running"
+            if collector_status == "ok" and self.collecting:
+                collector_error = f"Currently collecting for sequence {self.current_sequence}"
+            
+            # Build component statuses
+            components = {
+                "storage": ComponentHealth(
+                    status=storage_health["status"],
+                    error=storage_health.get("error")
+                ),
+                "collector": ComponentHealth(
+                    status=collector_status,
+                    error=collector_error
+                )
+            }
+            
+            # Overall status is error if any component is in error
+            overall_status = "error" if any(c.status == "error" for c in components.values()) else "ok"
+            
+            return ServiceHealth(
+                status=overall_status,
+                service=self.service_name,
+                version=self.version,
+                is_running=self.is_running,
+                uptime=self.uptime,
+                error=None if overall_status == "ok" else "One or more components in error state",
+                components=components
+            )
+            
+        except Exception as e:
+            error_msg = f"Health check failed: {str(e)}"
+            logger.error(error_msg)
+            return ServiceHealth(
+                status="error",
+                service=self.service_name,
+                version=self.version,
+                is_running=False,
+                uptime=0.0,
+                error=error_msg,
+                components={
+                    "storage": ComponentHealth(status="error", error=error_msg),
+                    "collector": ComponentHealth(status="error", error=error_msg)
+                }
+            )
 
     async def _load_config(self) -> Dict[str, Any]:
         """Load service configuration.
@@ -68,117 +214,6 @@ class DataCollectionService:
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=f"Failed to load configuration: {str(e)}"
-            )
-
-    @property
-    def name(self) -> str:
-        """Get service name."""
-        return self._name
-
-    @property
-    def version(self) -> str:
-        """Get service version."""
-        return self._version
-
-    @property
-    def is_running(self) -> bool:
-        """Get service running state."""
-        return self._is_running
-
-    async def initialize(self) -> None:
-        """Initialize service."""
-        try:
-            # Load config first
-            self._config = await self._load_config()
-            self._version = self._config["service"]["version"]
-            
-            # Initialize storage if not provided
-            if not self.storage:
-                db_config = self._config["database"]
-                dsn = f"postgresql://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}"
-                self.storage = DataCollectionStorage(dsn=dsn, pool_config=db_config["pool"])
-                await self.storage.initialize()
-                
-            self._is_running = True
-            self._start_time = datetime.now()
-            logger.info("Data collection service initialized")
-            
-        except Exception as e:
-            logger.error(f"Failed to initialize data collection service: {e}")
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"Failed to initialize data collection service: {str(e)}"
-            )
-
-    async def stop(self) -> None:
-        """Stop service."""
-        try:
-            self.collecting = False
-            self.current_sequence = None
-            self._is_running = False
-            logger.info("Data collection service stopped")
-        except Exception as e:
-            logger.error(f"Failed to stop data collection service: {e}")
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=f"Failed to stop data collection service: {str(e)}"
-            )
-
-    async def health(self) -> ServiceHealth:
-        """Get service health status.
-        
-        Returns:
-            ServiceHealth: Health status
-        """
-        try:
-            # Check storage health
-            storage_ok = self.storage is not None and await self.storage.is_connected()
-            
-            # Check collection status
-            collector_ok = self.is_running
-            collector_error = None if collector_ok else "Collector not running"
-            if collector_ok and self.collecting:
-                collector_error = f"Currently collecting for sequence {self.current_sequence}"
-            
-            # Build component statuses
-            components = {
-                "storage": ComponentHealth(
-                    status="ok" if storage_ok else "error",
-                    error=None if storage_ok else "Database connection failed"
-                ),
-                "collector": ComponentHealth(
-                    status="ok" if collector_ok else "error",
-                    error=collector_error
-                )
-            }
-            
-            # Overall status is error if any component is in error
-            overall_status = "error" if any(c.status == "error" for c in components.values()) else "ok"
-            
-            return ServiceHealth(
-                status=overall_status,
-                service=self._name,
-                version=self._version,
-                is_running=self.is_running,
-                uptime=(datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0,
-                error=None if overall_status == "ok" else "One or more components in error state",
-                components=components
-            )
-            
-        except Exception as e:
-            error_msg = f"Health check failed: {str(e)}"
-            logger.error(error_msg)
-            return ServiceHealth(
-                status="error",
-                service=self._name,
-                version=self._version,
-                is_running=False,
-                uptime=0.0,
-                error=error_msg,
-                components={
-                    "storage": ComponentHealth(status="error", error=error_msg),
-                    "collector": ComponentHealth(status="error", error=error_msg)
-                }
             )
 
     async def start_collection(self, sequence_id: str) -> None:

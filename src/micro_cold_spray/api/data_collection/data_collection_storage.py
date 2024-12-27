@@ -5,6 +5,7 @@ import json
 import asyncpg
 from loguru import logger
 from fastapi import status
+from datetime import datetime
 
 from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.api.data_collection.data_collection_models import SprayEvent
@@ -35,6 +36,10 @@ class DataCollectionStorage:
     
     def __init__(self, dsn: str = None, pool_config: Dict[str, Any] = None):
         """Initialize with database connection string and pool configuration."""
+        self._service_name = "data_storage"
+        self._version = "1.0.0"
+        self._is_running = False
+        self._start_time = None
         self._dsn = dsn
         self._pool_config = pool_config or {
             "min_size": 2,
@@ -42,6 +47,27 @@ class DataCollectionStorage:
             "command_timeout": 60.0
         }
         self._pool = None
+        logger.info(f"{self._service_name} initialized")
+
+    @property
+    def service_name(self) -> str:
+        """Get service name."""
+        return self._service_name
+
+    @property
+    def version(self) -> str:
+        """Get service version."""
+        return self._version
+
+    @property
+    def is_running(self) -> bool:
+        """Get service running state."""
+        return self._is_running
+
+    @property
+    def uptime(self) -> float:
+        """Get service uptime in seconds."""
+        return (datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0
 
     async def initialize(self) -> None:
         """Initialize database connection and schema."""
@@ -103,17 +129,89 @@ class DataCollectionStorage:
                     ON spray_events(run_id);
                 """)
                 
-            logger.info("Database initialized successfully")
+            self._is_running = True
+            self._start_time = datetime.now()
+            logger.info(f"{self.service_name} initialized successfully")
             
         except Exception as e:
             if self._pool:
                 await self._pool.close()
                 self._pool = None
-            logger.error(f"Failed to initialize database: {e}")
+            logger.error(f"Failed to initialize {self.service_name}: {e}")
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=f"Failed to initialize database: {str(e)}"
             )
+
+    async def start(self) -> None:
+        """Start storage service."""
+        try:
+            if self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message="Storage already running"
+                )
+            
+            if not self._pool:
+                await self.initialize()
+            
+            self._is_running = True
+            self._start_time = datetime.now()
+            logger.info(f"{self.service_name} started")
+            
+        except Exception as e:
+            logger.error(f"Failed to start {self.service_name}: {e}")
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=f"Failed to start storage: {str(e)}"
+            )
+
+    async def stop(self) -> None:
+        """Stop storage service."""
+        try:
+            if not self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message="Storage not running"
+                )
+            
+            if self._pool:
+                await self._pool.close()
+                self._pool = None
+            
+            self._is_running = False
+            self._start_time = None
+            logger.info(f"{self.service_name} stopped")
+            
+        except Exception as e:
+            logger.error(f"Failed to stop {self.service_name}: {e}")
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=f"Failed to stop storage: {str(e)}"
+            )
+
+    async def check_health(self) -> Dict[str, Any]:
+        """Check storage health."""
+        try:
+            if not self._pool:
+                return {
+                    "status": "error",
+                    "error": "Database not initialized"
+                }
+                
+            async with self._pool.acquire() as conn:
+                await conn.execute("SELECT 1")
+                return {
+                    "status": "ok",
+                    "message": "Database connection and schema verified"
+                }
+                
+        except Exception as e:
+            logger.error(f"Database health check failed: {e}")
+            return {
+                "status": "error",
+                "error": str(e)
+            }
 
     async def save_spray_event(self, event: SprayEvent) -> None:
         """Save spray event to database."""
@@ -244,26 +342,3 @@ class DataCollectionStorage:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 message=f"Failed to get spray events: {str(e)}"
             )
-
-    async def check_health(self) -> Dict[str, Any]:
-        """Check storage health."""
-        try:
-            if not self._pool:
-                return {
-                    "status": "error",
-                    "error": "Database not initialized"
-                }
-                
-            async with self._pool.acquire() as conn:
-                await conn.execute("SELECT 1")
-                return {
-                    "status": "ok",
-                    "message": "Database connection and schema verified"
-                }
-                
-        except Exception as e:
-            logger.error(f"Database health check failed: {e}")
-            return {
-                "status": "error",
-                "error": str(e)
-            }

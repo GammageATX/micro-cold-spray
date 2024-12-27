@@ -1,18 +1,25 @@
 """Data models for data collection."""
 
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 import re
+
+
+class BaseResponse(BaseModel):
+    """Base response model."""
+    model_config = ConfigDict(strict=True)
+    
+    message: str = Field(..., description="Response message")
 
 
 class CollectionSession(BaseModel):
     """Active data collection session info."""
     model_config = ConfigDict(strict=True)
     
-    sequence_id: str
-    start_time: datetime
-    collection_params: Dict[str, Any]
+    sequence_id: str = Field(..., description="Sequence identifier")
+    start_time: datetime = Field(..., description="Session start time")
+    collection_params: Dict[str, Any] = Field(..., description="Collection parameters")
     
     def __str__(self) -> str:
         """Return string representation."""
@@ -25,6 +32,7 @@ class CollectionSession(BaseModel):
 
 class SprayEvent(BaseModel):
     """Model for spray event data."""
+    model_config = ConfigDict(strict=True)
     
     spray_index: int = Field(..., description="Index of this event in the sequence")
     sequence_id: str = Field(..., description="ID of sequence this event belongs to")
@@ -65,3 +73,18 @@ class SprayEvent(BaseModel):
             f"pattern='{self.pattern_name}', "
             f"completed={self.completed})"
         )
+
+
+class CollectionResponse(BaseResponse):
+    """Collection operation response."""
+    pass
+
+
+class SprayEventResponse(BaseResponse):
+    """Spray event operation response."""
+    event: Optional[SprayEvent] = Field(None, description="Recorded spray event")
+
+
+class SprayEventListResponse(BaseResponse):
+    """Spray event list response."""
+    events: List[SprayEvent] = Field(default_factory=list, description="List of spray events")

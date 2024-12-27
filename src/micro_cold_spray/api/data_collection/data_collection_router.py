@@ -1,13 +1,18 @@
 """Data collection API router."""
 
-from typing import List, Optional
+from typing import List
 from datetime import datetime
 from fastapi import APIRouter, Depends, Request, status
 
 from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.utils.health import ServiceHealth
 from micro_cold_spray.api.data_collection.data_collection_service import DataCollectionService
-from micro_cold_spray.api.data_collection.data_collection_models import SprayEvent
+from micro_cold_spray.api.data_collection.data_collection_models import (
+    SprayEvent,
+    CollectionResponse,
+    SprayEventResponse,
+    SprayEventListResponse
+)
 
 
 router = APIRouter(prefix="/data_collection", tags=["data_collection"])
@@ -20,19 +25,34 @@ def get_service(request: Request) -> DataCollectionService:
 
 @router.get("/health", response_model=ServiceHealth)
 async def health(service: DataCollectionService = Depends(get_service)) -> ServiceHealth:
-    """Get service health."""
+    """Get service health status.
+    
+    Returns:
+        ServiceHealth: Health status
+    """
     return await service.health()
 
 
-@router.post("/data/start/{sequence_id}", status_code=status.HTTP_200_OK)
+@router.post("/data/start/{sequence_id}", response_model=CollectionResponse)
 async def start_collection(
     sequence_id: str,
     service: DataCollectionService = Depends(get_service)
-) -> dict:
-    """Start data collection for a sequence."""
+) -> CollectionResponse:
+    """Start data collection for a sequence.
+    
+    Args:
+        sequence_id: Sequence identifier
+        service: Data collection service
+        
+    Returns:
+        CollectionResponse: Operation response
+        
+    Raises:
+        HTTPException: If operation fails
+    """
     try:
         await service.start_collection(sequence_id)
-        return {"message": "Data collection started"}
+        return CollectionResponse(message="Data collection started")
     except Exception as e:
         raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -40,14 +60,24 @@ async def start_collection(
         )
 
 
-@router.post("/data/stop", status_code=status.HTTP_200_OK)
+@router.post("/data/stop", response_model=CollectionResponse)
 async def stop_collection(
     service: DataCollectionService = Depends(get_service)
-) -> dict:
-    """Stop current data collection."""
+) -> CollectionResponse:
+    """Stop current data collection.
+    
+    Args:
+        service: Data collection service
+        
+    Returns:
+        CollectionResponse: Operation response
+        
+    Raises:
+        HTTPException: If operation fails
+    """
     try:
         await service.stop_collection()
-        return {"message": "Data collection stopped"}
+        return CollectionResponse(message="Data collection stopped")
     except Exception as e:
         raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -55,15 +85,29 @@ async def stop_collection(
         )
 
 
-@router.post("/data/record", status_code=status.HTTP_200_OK)
+@router.post("/data/record", response_model=SprayEventResponse)
 async def record_event(
     event: SprayEvent,
     service: DataCollectionService = Depends(get_service)
-) -> dict:
-    """Record a spray event."""
+) -> SprayEventResponse:
+    """Record a spray event.
+    
+    Args:
+        event: Spray event to record
+        service: Data collection service
+        
+    Returns:
+        SprayEventResponse: Operation response with recorded event
+        
+    Raises:
+        HTTPException: If operation fails
+    """
     try:
         await service.record_spray_event(event)
-        return {"message": "Event recorded"}
+        return SprayEventResponse(
+            message="Event recorded successfully",
+            event=event
+        )
     except Exception as e:
         raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -71,14 +115,29 @@ async def record_event(
         )
 
 
-@router.get("/data/{sequence_id}", response_model=List[SprayEvent])
+@router.get("/data/{sequence_id}", response_model=SprayEventListResponse)
 async def get_sequence_events(
     sequence_id: str,
     service: DataCollectionService = Depends(get_service)
-) -> List[SprayEvent]:
-    """Get all events for a sequence."""
+) -> SprayEventListResponse:
+    """Get all events for a sequence.
+    
+    Args:
+        sequence_id: Sequence identifier
+        service: Data collection service
+        
+    Returns:
+        SprayEventListResponse: List of spray events
+        
+    Raises:
+        HTTPException: If operation fails
+    """
     try:
-        return await service.get_sequence_events(sequence_id)
+        events = await service.get_sequence_events(sequence_id)
+        return SprayEventListResponse(
+            message=f"Retrieved {len(events)} events",
+            events=events
+        )
     except Exception as e:
         raise create_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
