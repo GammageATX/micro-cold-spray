@@ -37,6 +37,7 @@ class DataCollectionService:
         self._is_running = False
         self._start_time = None
         self._config = None
+        self._mode = "normal"  # Default to normal mode
         
         # Initialize components to None
         self._storage = storage
@@ -71,6 +72,7 @@ class DataCollectionService:
             # Load config first
             self._config = load_config()
             self._version = self._config["service"]["version"]
+            self._mode = self._config.get("service", {}).get("mode", self._mode)  # Get mode from config
             
             # Initialize storage if not provided
             if not self._storage:
@@ -167,6 +169,7 @@ class DataCollectionService:
                 is_running=self.is_running,
                 uptime=self.uptime,
                 error=None if overall_status == "ok" else "One or more components in error state",
+                mode=self._mode,
                 components=components
             )
             
@@ -180,6 +183,7 @@ class DataCollectionService:
                 is_running=False,
                 uptime=self.uptime,
                 error=error_msg,
+                mode=self._mode,
                 components={name: ComponentHealth(status="error", error=error_msg)
                             for name in ["storage", "collector"]}
             )

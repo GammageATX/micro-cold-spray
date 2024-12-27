@@ -46,6 +46,7 @@ class ProcessService:
         self._is_running = False
         self._start_time = None
         self._config = None
+        self._mode = "normal"  # Default to normal mode
         
         # Initialize component services to None
         self._action = None
@@ -81,6 +82,7 @@ class ProcessService:
             # Load config
             self._config = load_config()
             self._version = self._config.get("process", {}).get("version", self._version)
+            self._mode = self._config.get("process", {}).get("mode", self._mode)  # Get mode from config
             
             # Create component services in dependency order
             self._parameter = ParameterService()  # No dependencies
@@ -213,6 +215,7 @@ class ProcessService:
                 is_running=self.is_running,
                 uptime=self.uptime,
                 error=None if overall_status == "ok" else "One or more components in error state",
+                mode=self._mode,
                 components=components
             )
             
@@ -226,6 +229,7 @@ class ProcessService:
                 is_running=False,
                 uptime=self.uptime,
                 error=error_msg,
+                mode=self._mode,
                 components={name: ComponentHealth(status="error", error=error_msg)
                             for name in ["parameter", "pattern", "action", "sequence"]}
             )

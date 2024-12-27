@@ -34,5 +34,6 @@ class ServiceHealth(BaseModel):
     version: str
     is_running: bool
     uptime: float
+    mode: str = "normal"  # normal, mock, or simulation
     error: Optional[str] = None
     components: Dict[str, ComponentHealth]
