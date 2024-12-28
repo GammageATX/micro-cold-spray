@@ -1,0 +1,861 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["version", "validation"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Validation rules version"
+    },
+    "validation": {
+      "type": "object",
+      "required": ["hardware", "parameters", "patterns", "sequences"],
+      "properties": {
+        "hardware": {
+          "type": "object",
+          "required": ["required_fields", "optional_fields", "components"],
+          "properties": {
+            "required_fields": {
+              "type": "object",
+              "required": ["message", "fields"],
+              "properties": {
+                "message": {
+                  "type": "string"
+                },
+                "fields": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "optional_fields": {
+              "type": "object",
+              "required": ["message", "fields"],
+              "properties": {
+                "message": {
+                  "type": "string"
+                },
+                "fields": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "components": {
+              "type": "object",
+              "required": ["nozzle", "chamber"],
+              "properties": {
+                "nozzle": {
+                  "type": "object",
+                  "required": ["required_fields", "parameter_limits", "enum_values"],
+                  "properties": {
+                    "required_fields": {
+                      "type": "object",
+                      "required": ["message", "fields"],
+                      "properties": {
+                        "message": {
+                          "type": "string"
+                        },
+                        "fields": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "parameter_limits": {
+                      "type": "object",
+                      "required": ["diameter"],
+                      "properties": {
+                        "diameter": {
+                          "type": "object",
+                          "required": ["min", "max"],
+                          "properties": {
+                            "min": {
+                              "type": "number"
+                            },
+                            "max": {
+                              "type": "number"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "enum_values": {
+                      "type": "object",
+                      "required": ["type"],
+                      "properties": {
+                        "type": {
+                          "type": "object",
+                          "required": ["values"],
+                          "properties": {
+                            "values": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "chamber": {
+                  "type": "object",
+                  "required": ["required_fields", "parameter_limits"],
+                  "properties": {
+                    "required_fields": {
+                      "type": "object",
+                      "required": ["message", "fields"],
+                      "properties": {
+                        "message": {
+                          "type": "string"
+                        },
+                        "fields": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "parameter_limits": {
+                      "type": "object",
+                      "required": ["pressure", "temperature"],
+                      "properties": {
+                        "pressure": {
+                          "type": "object",
+                          "required": ["min", "max"],
+                          "properties": {
+                            "min": {
+                              "type": "number"
+                            },
+                            "max": {
+                              "type": "number"
+                            }
+                          }
+                        },
+                        "temperature": {
+                          "type": "object",
+                          "required": ["min", "max"],
+                          "properties": {
+                            "min": {
+                              "type": "number"
+                            },
+                            "max": {
+                              "type": "number"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": {
+          "type": "object",
+          "required": ["material", "process"],
+          "properties": {
+            "material": {
+              "type": "object",
+              "required": ["required_fields", "optional_fields", "parameter_limits", "enum_values"],
+              "properties": {
+                "required_fields": {
+                  "type": "object",
+                  "required": ["message", "fields"],
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "optional_fields": {
+                  "type": "object",
+                  "required": ["message", "fields"],
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "parameter_limits": {
+                  "type": "object",
+                  "required": ["size"],
+                  "properties": {
+                    "size": {
+                      "type": "object",
+                      "required": ["min", "max"],
+                      "properties": {
+                        "min": {
+                          "type": "number"
+                        },
+                        "max": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  }
+                },
+                "enum_values": {
+                  "type": "object",
+                  "required": ["type"],
+                  "properties": {
+                    "type": {
+                      "type": "object",
+                      "required": ["values"],
+                      "properties": {
+                        "values": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "process": {
+              "type": "object",
+              "required": ["required_fields", "optional_fields", "parameter_limits"],
+              "properties": {
+                "required_fields": {
+                  "type": "object",
+                  "required": ["message", "fields"],
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "optional_fields": {
+                  "type": "object",
+                  "required": ["message", "fields"],
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "parameter_limits": {
+                  "type": "object",
+                  "required": ["gas_flows", "powder_feed"],
+                  "properties": {
+                    "gas_flows": {
+                      "type": "object",
+                      "required": ["main_flow", "feeder_flow"],
+                      "properties": {
+                        "main_flow": {
+                          "type": "object",
+                          "required": ["min", "max"],
+                          "properties": {
+                            "min": {
+                              "type": "number"
+                            },
+                            "max": {
+                              "type": "number"
+                            }
+                          }
+                        },
+                        "feeder_flow": {
+                          "type": "object",
+                          "required": ["min", "max"],
+                          "properties": {
+                            "min": {
+                              "type": "number"
+                            },
+                            "max": {
+                              "type": "number"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "powder_feed": {
+                      "type": "object",
+                      "required": ["min", "max"],
+                      "properties": {
+                        "min": {
+                          "type": "number"
+                        },
+                        "max": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "patterns": {
+          "type": "object",
+          "required": ["serpentine", "spiral"],
+          "properties": {
+            "serpentine": {
+              "type": "object",
+              "required": ["required_fields", "optional_fields", "dimensions", "parameters"],
+              "properties": {
+                "required_fields": {
+                  "type": "object",
+                  "required": ["message", "fields"],
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "optional_fields": {
+                  "type": "object",
+                  "required": ["message", "fields"],
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "dimensions": {
+                  "type": "object",
+                  "required": ["required_fields", "limits"],
+                  "properties": {
+                    "required_fields": {
+                      "type": "object",
+                      "required": ["message", "fields"],
+                      "properties": {
+                        "message": {
+                          "type": "string"
+                        },
+                        "fields": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "limits": {
+                      "type": "object",
+                      "required": ["length", "spacing"],
+                      "properties": {
+                        "length": {
+                          "type": "object",
+                          "required": ["min", "max"],
+                          "properties": {
+                            "min": {
+                              "type": "number"
+                            },
+                            "max": {
+                              "type": "number"
+                            }
+                          }
+                        },
+                        "spacing": {
+                          "type": "object",
+                          "required": ["min", "max"],
+                          "properties": {
+                            "min": {
+                              "type": "number"
+                            },
+                            "max": {
+                              "type": "number"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "parameters": {
+                  "type": "object",
+                  "required": ["required_fields", "limits"],
+                  "properties": {
+                    "required_fields": {
+                      "type": "object",
+                      "required": ["message", "fields"],
+                      "properties": {
+                        "message": {
+                          "type": "string"
+                        },
+                        "fields": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "limits": {
+                      "type": "object",
+                      "required": ["speed", "acceleration"],
+                      "properties": {
+                        "speed": {
+                          "type": "object",
+                          "required": ["min", "max"],
+                          "properties": {
+                            "min": {
+                              "type": "number"
+                            },
+                            "max": {
+                              "type": "number"
+                            }
+                          }
+                        },
+                        "acceleration": {
+                          "type": "object",
+                          "required": ["min", "max"],
+                          "properties": {
+                            "min": {
+                              "type": "number"
+                            },
+                            "max": {
+                              "type": "number"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "spiral": {
+              "type": "object",
+              "required": ["required_fields", "optional_fields", "dimensions", "parameters"],
+              "properties": {
+                "required_fields": {
+                  "type": "object",
+                  "required": ["message", "fields"],
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "optional_fields": {
+                  "type": "object",
+                  "required": ["message", "fields"],
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "dimensions": {
+                  "type": "object",
+                  "required": ["required_fields", "limits"],
+                  "properties": {
+                    "required_fields": {
+                      "type": "object",
+                      "required": ["message", "fields"],
+                      "properties": {
+                        "message": {
+                          "type": "string"
+                        },
+                        "fields": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "limits": {
+                      "type": "object",
+                      "required": ["diameter", "pitch"],
+                      "properties": {
+                        "diameter": {
+                          "type": "object",
+                          "required": ["min", "max"],
+                          "properties": {
+                            "min": {
+                              "type": "number"
+                            },
+                            "max": {
+                              "type": "number"
+                            }
+                          }
+                        },
+                        "pitch": {
+                          "type": "object",
+                          "required": ["min", "max"],
+                          "properties": {
+                            "min": {
+                              "type": "number"
+                            },
+                            "max": {
+                              "type": "number"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "parameters": {
+                  "type": "object",
+                  "required": ["required_fields", "limits"],
+                  "properties": {
+                    "required_fields": {
+                      "type": "object",
+                      "required": ["message", "fields"],
+                      "properties": {
+                        "message": {
+                          "type": "string"
+                        },
+                        "fields": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "limits": {
+                      "type": "object",
+                      "required": ["speed", "acceleration"],
+                      "properties": {
+                        "speed": {
+                          "type": "object",
+                          "required": ["min", "max"],
+                          "properties": {
+                            "min": {
+                              "type": "number"
+                            },
+                            "max": {
+                              "type": "number"
+                            }
+                          }
+                        },
+                        "acceleration": {
+                          "type": "object",
+                          "required": ["min", "max"],
+                          "properties": {
+                            "min": {
+                              "type": "number"
+                            },
+                            "max": {
+                              "type": "number"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "sequences": {
+          "type": "object",
+          "required": ["required_fields", "optional_fields", "metadata", "step_fields", "move", "spray", "patterns"],
+          "properties": {
+            "required_fields": {
+              "type": "object",
+              "required": ["message", "fields"],
+              "properties": {
+                "message": {
+                  "type": "string"
+                },
+                "fields": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "optional_fields": {
+              "type": "object",
+              "required": ["message", "fields"],
+              "properties": {
+                "message": {
+                  "type": "string"
+                },
+                "fields": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "metadata": {
+              "type": "object",
+              "required": ["required_fields", "optional_fields"],
+              "properties": {
+                "required_fields": {
+                  "type": "object",
+                  "required": ["message", "fields"],
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "optional_fields": {
+                  "type": "object",
+                  "required": ["message", "fields"],
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "step_fields": {
+              "type": "object",
+              "required": ["required_fields", "optional_fields"],
+              "properties": {
+                "required_fields": {
+                  "type": "object",
+                  "required": ["message", "fields"],
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "optional_fields": {
+                  "type": "object",
+                  "required": ["message", "fields"],
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "move": {
+              "type": "object",
+              "required": ["required_parameters", "position_limits"],
+              "properties": {
+                "required_parameters": {
+                  "type": "object",
+                  "required": ["message", "fields"],
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "position_limits": {
+                  "type": "object",
+                  "required": ["x", "y", "z"],
+                  "properties": {
+                    "x": {
+                      "type": "object",
+                      "required": ["min", "max"],
+                      "properties": {
+                        "min": {
+                          "type": "number"
+                        },
+                        "max": {
+                          "type": "number"
+                        }
+                      }
+                    },
+                    "y": {
+                      "type": "object",
+                      "required": ["min", "max"],
+                      "properties": {
+                        "min": {
+                          "type": "number"
+                        },
+                        "max": {
+                          "type": "number"
+                        }
+                      }
+                    },
+                    "z": {
+                      "type": "object",
+                      "required": ["min", "max"],
+                      "properties": {
+                        "min": {
+                          "type": "number"
+                        },
+                        "max": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "spray": {
+              "type": "object",
+              "required": ["required_parameters", "parameter_limits"],
+              "properties": {
+                "required_parameters": {
+                  "type": "object",
+                  "required": ["message", "fields"],
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "parameter_limits": {
+                  "type": "object",
+                  "required": ["duration", "flow_rate"],
+                  "properties": {
+                    "duration": {
+                      "type": "object",
+                      "required": ["min", "max"],
+                      "properties": {
+                        "min": {
+                          "type": "number"
+                        },
+                        "max": {
+                          "type": "number"
+                        }
+                      }
+                    },
+                    "flow_rate": {
+                      "type": "object",
+                      "required": ["min", "max"],
+                      "properties": {
+                        "min": {
+                          "type": "number"
+                        },
+                        "max": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "patterns": {
+              "type": "object",
+              "required": ["serpentine"],
+              "properties": {
+                "serpentine": {
+                  "type": "object",
+                  "required": ["required_parameters"],
+                  "properties": {
+                    "required_parameters": {
+                      "type": "object",
+                      "required": ["message", "fields"],
+                      "properties": {
+                        "message": {
+                          "type": "string"
+                        },
+                        "fields": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+} 

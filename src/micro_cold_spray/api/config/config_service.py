@@ -1,21 +1,19 @@
-"""Configuration service implementation."""
+"""Configuration service."""
 
 import os
-from typing import Dict, Any, Optional
-from datetime import datetime
-from fastapi import FastAPI, status
-from fastapi.middleware.cors import CORSMiddleware
-from loguru import logger
+import json
 import yaml
+from datetime import datetime
+from typing import Dict, List, Optional, Any, Union
+from loguru import logger
 
+from fastapi import status, HTTPException
 from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
-from micro_cold_spray.api.config.services import (
-    FileService,
-    FormatService,
-    SchemaService
-)
-from micro_cold_spray.api.config.endpoints import get_config_router
+from micro_cold_spray.api.config.services.file_service import FileService
+from micro_cold_spray.api.config.services.format_service import FormatService
+from micro_cold_spray.api.config.services.schema_service import SchemaService
+import jsonschema
 
 
 # Default paths
@@ -26,19 +24,23 @@ DEFAULT_SCHEMA_PATH = os.path.join(DEFAULT_CONFIG_PATH, "schemas")
 class ConfigService:
     """Configuration service."""
 
-    def __init__(self):
+    def __init__(self, version: str = "1.0.0"):
         """Initialize service."""
         self._service_name = "config"
-        self._version = "1.0.0"  # Will be updated in initialize()
+        self._version = version
         self._is_running = False
         self._start_time = None
+        
+        # Initialize components to None
         self._config = None
         self._file = None
         self._format = None
         self._schema = None
-        self._failed_configs = {}  # Track failed config loads
         
-        logger.info(f"{self._service_name} service initialized")
+        # Track failed configurations
+        self._failed_configs = {}
+        
+        logger.info(f"{self.service_name} service initialized")
 
     @property
     def service_name(self) -> str:
@@ -194,10 +196,16 @@ class ConfigService:
         try:
             logger.info(f"Starting {self.service_name} service...")
             
+            # Initialize first
+            await self.initialize()
+            
             # Start services in order
-            await self._file.start()
-            await self._format.start()
-            await self._schema.start()
+            if self._file:
+                await self._file.start()
+            if self._format:
+                await self._format.start()
+            if self._schema:
+                await self._schema.start()
             
             self._is_running = True
             self._start_time = datetime.now()
@@ -302,57 +310,236 @@ class ConfigService:
                 components={}
             )
 
+    async def list_configs(self) -> list:
+        """List available configurations."""
+        if not self._file or not self._format:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="File or format service not initialized"
+            )
+        
+        try:
+            # Get list of files in base directory
+            files = os.listdir(self._file._base_path)
+            configs = []
+            
+            # Filter for supported formats
+            for file in files:
+                name, ext = os.path.splitext(file)
+                if ext[1:] in self._format._enabled_formats:
+                    configs.append(name)
+            
+            return configs
+            
+        except Exception as e:
+            error_msg = f"Failed to list configurations: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
 
-def create_config_service() -> FastAPI:
-    """Create configuration service.
-    
-    Returns:
-        FastAPI: Application instance
-    """
-    app = FastAPI(title="Configuration Service")
-    
-    # Add CORS middleware
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"],
-        allow_headers=["*"],
-    )
-    
-    # Initialize service
-    service = ConfigService()
-    app.state.service = service
-    
-    @app.on_event("startup")
-    async def startup():
-        """Start service."""
+    async def get_config(self, name: str) -> Dict[str, Any]:
+        """Get configuration by name."""
+        if not self._file or not self._format:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="File or format service not initialized"
+            )
+        
         try:
-            # Initialize and start service
-            await app.state.service.initialize()
-            await app.state.service.start()
+            # Find file with supported format
+            for fmt in self._format._enabled_formats:
+                file_path = os.path.join(self._file._base_path, f"{name}.{fmt}")
+                if os.path.exists(file_path):
+                    with open(file_path, 'r') as f:
+                        if fmt == 'json':
+                            return json.loads(f.read())
+                        elif fmt == 'yaml':
+                            return yaml.safe_load(f)
+            
+            raise create_error(
+                status_code=status.HTTP_404_NOT_FOUND,
+                message=f"Configuration {name} not found"
+            )
             
         except Exception as e:
-            logger.error(f"Config service startup failed: {e}")
-            # Don't raise here - let the service start in degraded mode
-            # The health check will show which components failed
-    
-    @app.on_event("shutdown")
-    async def shutdown():
-        """Stop service."""
+            error_msg = f"Failed to get configuration {name}: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
+
+    async def list_schemas(self) -> list:
+        """List available schemas."""
+        if not self._schema:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Schema service not initialized"
+            )
+        
         try:
-            await app.state.service.stop()
+            # Get list of files in schema directory
+            files = os.listdir(self._schema._schema_path)
+            schemas = []
+            
+            # Filter for supported formats
+            for file in files:
+                name, ext = os.path.splitext(file)
+                if ext[1:] in ['json', 'yaml']:
+                    schemas.append(name)
+            
+            return schemas
             
         except Exception as e:
-            logger.error(f"Config service shutdown failed: {e}")
-            # Don't raise during shutdown
-    
-    @app.get("/health", response_model=ServiceHealth)
-    async def health_check() -> ServiceHealth:
-        """Get service health status."""
-        return await app.state.service.health()
-    
-    # Include config router
-    app.include_router(get_config_router())
-    
-    return app
+            error_msg = f"Failed to list schemas: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
+
+    async def get_schema(self, name: str) -> Dict[str, Any]:
+        """Get schema by name."""
+        if not self._schema:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Schema service not initialized"
+            )
+        
+        try:
+            # Find schema file with supported format
+            for fmt in ['json', 'yaml']:
+                file_path = os.path.join(self._schema._schema_path, f"{name}.{fmt}")
+                if os.path.exists(file_path):
+                    with open(file_path, 'r') as f:
+                        if fmt == 'json':
+                            return json.loads(f.read())
+                        elif fmt == 'yaml':
+                            return yaml.safe_load(f)
+            
+            raise create_error(
+                status_code=status.HTTP_404_NOT_FOUND,
+                message=f"Schema {name} not found"
+            )
+            
+        except Exception as e:
+            error_msg = f"Failed to get schema {name}: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
+
+    async def validate_config(self, name: str, data: Dict[str, Any]) -> None:
+        """Validate configuration against schema."""
+        if not self._schema:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Schema service not initialized"
+            )
+            
+        try:
+            # Get schema for config
+            schema = self._schema.get_schema(name)
+            if not schema:
+                raise create_error(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    message=f"Schema not found for {name}"
+                )
+                
+            # Validate data against schema
+            try:
+                validator = jsonschema.validators.Draft7Validator(schema)
+                validator.validate(data)
+            except jsonschema.exceptions.ValidationError as e:
+                raise create_error(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    message=f"Validation failed: {str(e)}"
+                )
+                
+        except Exception as e:
+            if isinstance(e, create_error):
+                raise e
+            error_msg = f"Failed to validate config {name}: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
+
+    async def update_config(self, name: str, data: Dict[str, Any], format: str = "yaml") -> None:
+        """Update configuration by name."""
+        if not self._file or not self._format:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="File or format service not initialized"
+            )
+        
+        if format not in self._format._enabled_formats:
+            raise create_error(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                message=f"Unsupported format: {format}"
+            )
+        
+        try:
+            # Write config to file
+            file_path = os.path.join(self._file._base_path, f"{name}.{format}")
+            with open(file_path, 'w') as f:
+                if format == 'json':
+                    json.dump(data, f, indent=2)
+                elif format == 'yaml':
+                    yaml.safe_dump(data, f, default_flow_style=False)
+            
+        except Exception as e:
+            error_msg = f"Failed to update config {name}: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )
+
+    async def update_schema(self, name: str, schema_definition: Dict[str, Any]) -> None:
+        """Update schema by name.
+        
+        Args:
+            name: Name of schema to update
+            schema_definition: Schema definition to save
+        """
+        if not self._schema:
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message="Schema service not initialized"
+            )
+            
+        try:
+            # Validate schema definition is valid JSON Schema
+            try:
+                jsonschema.Draft7Validator.check_schema(schema_definition)
+            except jsonschema.exceptions.SchemaError as e:
+                raise create_error(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    message=f"Invalid schema definition: {str(e)}"
+                )
+            
+            # Write schema to file
+            file_path = os.path.join(self._schema._schema_path, f"{name}.json")
+            try:
+                with open(file_path, 'w') as f:
+                    json.dump(schema_definition, f, indent=2)
+            except Exception as e:
+                raise create_error(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    message=f"Failed to write schema: {str(e)}"
+                )
+                
+        except Exception as e:
+            if isinstance(e, create_error):
+                raise e
+            error_msg = f"Failed to update schema {name}: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=error_msg
+            )

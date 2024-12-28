@@ -49,6 +49,11 @@ class FileService:
         """Get service uptime in seconds."""
         return (datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0
 
+    @property
+    def base_path(self) -> str:
+        """Get base path."""
+        return self._base_path
+
     async def initialize(self) -> None:
         """Initialize service."""
         try:

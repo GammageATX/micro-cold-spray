@@ -1,95 +1,154 @@
 {
-    "type": "object",
-    "title": "Process Configuration",
-    "required": ["action_groups", "validation", "version"],
-    "properties": {
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["version", "process"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "process": {
+      "type": "object",
+      "required": [
+        "version",
+        "action",
+        "parameter",
+        "pattern",
+        "sequence",
+        "action_groups",
+        "atomic_actions",
+        "parameters",
+        "validation"
+      ],
+      "properties": {
         "version": {
-            "type": "string",
-            "pattern": "^\\d+\\.\\d+\\.\\d+$",
-            "description": "Configuration version"
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$"
+        },
+        "action": {
+          "type": "object",
+          "required": ["version"],
+          "properties": {
+            "version": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+\\.\\d+$"
+            }
+          }
+        },
+        "parameter": {
+          "type": "object",
+          "required": ["version"],
+          "properties": {
+            "version": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+\\.\\d+$"
+            }
+          }
+        },
+        "pattern": {
+          "type": "object",
+          "required": ["version"],
+          "properties": {
+            "version": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+\\.\\d+$"
+            }
+          }
+        },
+        "sequence": {
+          "type": "object",
+          "required": ["version"],
+          "properties": {
+            "version": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+\\.\\d+$"
+            }
+          }
         },
         "action_groups": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["description", "steps"],
+            "properties": {
+              "description": {
+                "type": "string"
+              },
+              "requires": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              },
+              "steps": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        },
+        "atomic_actions": {
+          "type": "object",
+          "additionalProperties": {
             "type": "object",
             "additionalProperties": {
-                "type": "object",
-                "required": ["steps"],
-                "properties": {
-                    "description": {
-                        "type": "string"
-                    },
-                    "requires": {
+              "type": "object",
+              "required": ["description", "messages"],
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "messages": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["data", "topic"],
+                    "properties": {
+                      "data": {
                         "type": "array",
                         "items": {
-                            "type": "object",
-                            "required": ["name", "type"],
-                            "properties": {
-                                "name": {
-                                    "type": "string"
-                                },
-                                "type": {
-                                    "type": "string",
-                                    "enum": ["parameter", "pattern", "sequence"]
-                                }
-                            }
+                          "type": "object",
+                          "additionalProperties": true
                         }
-                    },
-                    "steps": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "required": ["action"],
-                            "properties": {
-                                "action": {
-                                    "type": "string",
-                                    "format": "action_reference"
-                                },
-                                "validation": {
-                                    "type": "string",
-                                    "format": "validation_reference"
-                                },
-                                "parameters": {
-                                    "type": "object"
-                                }
-                            }
-                        },
-                        "minItems": 1
+                      },
+                      "topic": {
+                        "type": "string"
+                      }
                     }
+                  }
+                },
+                "validation": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
                 }
+              }
             }
+          }
+        },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": true
+          }
         },
         "validation": {
+          "type": "object",
+          "additionalProperties": {
             "type": "object",
-            "properties": {
-                "states": {
-                    "type": "object",
-                    "properties": {
-                        "checks": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "required": ["condition", "tag", "value"],
-                                "properties": {
-                                    "condition": {
-                                        "type": "string",
-                                        "enum": ["less_than", "greater_than", "equals"]
-                                    },
-                                    "tag": {
-                                        "type": "string",
-                                        "format": "tag_path"
-                                    },
-                                    "value": {
-                                        "type": "number"
-                                    },
-                                    "timeout": {
-                                        "type": "number",
-                                        "minimum": 0
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            "additionalProperties": true
+          }
         }
+      }
     }
+  }
 } 

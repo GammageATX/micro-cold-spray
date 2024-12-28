@@ -6,6 +6,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 from fastapi import status
 from loguru import logger
+import jsonschema
 
 from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
@@ -82,7 +83,10 @@ class SchemaService:
                 schema_path = os.path.join(self._schema_path, filename)
                 try:
                     with open(schema_path, 'r') as f:
-                        self._schemas[schema_name] = json.load(f)
+                        schema_data = json.load(f)
+                        # Ensure schema is a valid JSON Schema
+                        jsonschema.validators.Draft7Validator.check_schema(schema_data)
+                        self._schemas[schema_name] = schema_data
                     # If schema was previously failed, remove from failed list
                     self._failed_schemas.pop(schema_name, None)
                 except Exception as e:

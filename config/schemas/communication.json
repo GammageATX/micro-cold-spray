@@ -1,0 +1,146 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["version", "service", "communication"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "service": {
+      "type": "object",
+      "required": ["host", "port", "log_level"],
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "log_level": {
+          "type": "string",
+          "enum": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+        }
+      }
+    },
+    "communication": {
+      "type": "object",
+      "required": ["hardware", "polling", "services"],
+      "properties": {
+        "hardware": {
+          "type": "object",
+          "required": ["network"],
+          "properties": {
+            "network": {
+              "type": "object",
+              "required": ["force_mock", "plc", "ssh"],
+              "properties": {
+                "force_mock": {
+                  "type": "boolean"
+                },
+                "plc": {
+                  "type": "object",
+                  "required": ["ip", "tag_file"],
+                  "properties": {
+                    "ip": {
+                      "type": "string",
+                      "format": "ipv4"
+                    },
+                    "tag_file": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "ssh": {
+                  "type": "object",
+                  "required": ["host", "port", "username", "password"],
+                  "properties": {
+                    "host": {
+                      "type": "string"
+                    },
+                    "port": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 65535
+                    },
+                    "username": {
+                      "type": "string"
+                    },
+                    "password": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "polling": {
+          "type": "object",
+          "required": ["interval", "batch_size"],
+          "properties": {
+            "interval": {
+              "type": "number",
+              "minimum": 0
+            },
+            "batch_size": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "services": {
+          "type": "object",
+          "required": ["tag_mapping", "tag_cache", "motion", "equipment"],
+          "properties": {
+            "tag_mapping": {
+              "type": "object",
+              "required": ["version", "config_file"],
+              "properties": {
+                "version": {
+                  "type": "string",
+                  "pattern": "^\\d+\\.\\d+\\.\\d+$"
+                },
+                "config_file": {
+                  "type": "string"
+                }
+              }
+            },
+            "tag_cache": {
+              "type": "object",
+              "required": ["version"],
+              "properties": {
+                "version": {
+                  "type": "string",
+                  "pattern": "^\\d+\\.\\d+\\.\\d+$"
+                }
+              }
+            },
+            "motion": {
+              "type": "object",
+              "required": ["version"],
+              "properties": {
+                "version": {
+                  "type": "string",
+                  "pattern": "^\\d+\\.\\d+\\.\\d+$"
+                }
+              }
+            },
+            "equipment": {
+              "type": "object",
+              "required": ["version"],
+              "properties": {
+                "version": {
+                  "type": "string",
+                  "pattern": "^\\d+\\.\\d+\\.\\d+$"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+} 

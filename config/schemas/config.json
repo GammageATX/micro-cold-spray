@@ -1,0 +1,93 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["version", "service", "components"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Service version"
+    },
+    "service": {
+      "type": "object",
+      "required": ["name", "host", "port", "log_level"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Service name"
+        },
+        "host": {
+          "type": "string",
+          "description": "Service host"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Service port"
+        },
+        "log_level": {
+          "type": "string",
+          "enum": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+          "description": "Service log level"
+        }
+      }
+    },
+    "components": {
+      "type": "object",
+      "required": ["file", "format", "schema"],
+      "properties": {
+        "file": {
+          "type": "object",
+          "required": ["version", "base_path"],
+          "properties": {
+            "version": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+\\.\\d+$",
+              "description": "File service version"
+            },
+            "base_path": {
+              "type": "string",
+              "description": "Base path for configuration files"
+            }
+          }
+        },
+        "format": {
+          "type": "object",
+          "required": ["version", "enabled_formats"],
+          "properties": {
+            "version": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+\\.\\d+$",
+              "description": "Format service version"
+            },
+            "enabled_formats": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["yaml", "json"]
+              },
+              "minItems": 1,
+              "description": "List of enabled configuration formats"
+            }
+          }
+        },
+        "schema": {
+          "type": "object",
+          "required": ["version", "schema_path"],
+          "properties": {
+            "version": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+\\.\\d+$",
+              "description": "Schema service version"
+            },
+            "schema_path": {
+              "type": "string",
+              "description": "Path to schema directory"
+            }
+          }
+        }
+      }
+    }
+  }
+} 

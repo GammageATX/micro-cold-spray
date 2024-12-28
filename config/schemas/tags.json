@@ -1,126 +1,111 @@
 {
-    "type": "object",
-    "title": "Tags Configuration",
-    "required": ["plc", "feeder", "version"],
-    "properties": {
-        "version": {
-            "type": "string",
-            "pattern": "^\\d+\\.\\d+\\.\\d+$",
-            "description": "Configuration version"
-        },
-        "plc": {
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["version", "tag_groups"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "tag_groups": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": {
             "type": "object",
-            "additionalProperties": {
-                "type": "object",
-                "required": ["address", "data_type"],
-                "properties": {
-                    "address": {
-                        "type": "string",
-                        "pattern": "^[A-Z]\\d+(\\.\\d+)?$"
-                    },
-                    "data_type": {
-                        "type": "string",
-                        "enum": ["BOOL", "INT", "REAL", "STRING"]
-                    },
-                    "description": {
-                        "type": "string"
-                    },
-                    "read_only": {
-                        "type": "boolean",
-                        "default": false
-                    },
-                    "scaling": {
-                        "type": "object",
-                        "required": ["factor", "offset"],
-                        "properties": {
-                            "factor": {
-                                "type": "number"
-                            },
-                            "offset": {
-                                "type": "number"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "feeder": {
-            "type": "object",
-            "additionalProperties": {
-                "type": "object",
-                "required": ["address", "data_type"],
-                "properties": {
-                    "address": {
-                        "type": "string",
-                        "pattern": "^[A-Z]\\d+(\\.\\d+)?$"
-                    },
-                    "data_type": {
-                        "type": "string",
-                        "enum": ["BOOL", "INT", "REAL", "STRING"]
-                    },
-                    "description": {
-                        "type": "string"
-                    },
-                    "read_only": {
-                        "type": "boolean",
-                        "default": false
-                    },
-                    "scaling": {
-                        "type": "object",
-                        "required": ["factor", "offset"],
-                        "properties": {
-                            "factor": {
-                                "type": "number"
-                            },
-                            "offset": {
-                                "type": "number"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "system_state": {
-            "type": "object",
+            "required": ["access"],
             "properties": {
-                "state": {
-                    "type": "object",
-                    "required": ["access", "description", "internal", "mapped", "options"],
-                    "properties": {
-                        "access": {
-                            "type": "string",
-                            "enum": ["read", "read/write"]
-                        },
-                        "description": {
-                            "type": "string"
-                        },
-                        "internal": {
-                            "type": "boolean"
-                        },
-                        "mapped": {
-                            "type": "boolean"
-                        },
-                        "options": {
-                            "type": "array",
-                            "items": {
-                                "type": "string",
-                                "enum": [
-                                    "INITIALIZING",
-                                    "IDLE", 
-                                    "READY",
-                                    "RUNNING",
-                                    "ERROR",
-                                    "SHUTDOWN"
-                                ]
-                            }
-                        },
-                        "type": {
-                            "type": "string",
-                            "enum": ["string"]
-                        }
-                    }
+              "access": {
+                "type": "string",
+                "enum": ["read", "write", "read/write"]
+              },
+              "description": {
+                "type": "string"
+              },
+              "mapped": {
+                "type": "boolean"
+              },
+              "plc_tag": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["bool", "float", "integer", "string", "dict"]
+              },
+              "range": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": {
+                  "type": "number"
                 }
+              },
+              "scaling": {
+                "type": "string"
+              },
+              "unit": {
+                "type": "string"
+              },
+              "min_value": {
+                "type": "number"
+              },
+              "max_value": {
+                "type": "number"
+              },
+              "speeds": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number"
+                }
+              },
+              "default": {
+                "type": ["number", "string", "boolean"]
+              },
+              "states": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": ["boolean", "string", "number"]
+                }
+              },
+              "internal": {
+                "type": "boolean"
+              },
+              "components": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "parameters": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "conditions": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
             }
+          }
         }
+      },
+      "required": [
+        "gas_control",
+        "feeders",
+        "deagglomerators",
+        "vacuum",
+        "nozzle",
+        "motion",
+        "interlocks",
+        "safety",
+        "status",
+        "pressure"
+      ]
     }
+  }
 } 
