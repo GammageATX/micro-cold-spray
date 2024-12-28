@@ -13,7 +13,9 @@ from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
 from micro_cold_spray.api.process.models.process_models import (
     ExecutionStatus,
     SequenceMetadata,
-    SequenceStep
+    SequenceStep,
+    Action,
+    Sequence
 )
 
 
@@ -81,50 +83,78 @@ class SequenceService:
             )
 
     async def _load_sequences(self) -> None:
-        """Load sequences from config."""
-        config_path = os.path.join("config", "process.yaml")
-        if os.path.exists(config_path):
-            with open(config_path, "r") as f:
-                config = yaml.safe_load(f)
-                if "sequence" in config:
-                    self._version = config["sequence"].get("version", self._version)
+        """Load sequences from data directory."""
+        try:
+            # Load sequences from data directory
+            sequence_dir = os.path.join("data", "sequences")
+            if not os.path.exists(sequence_dir):
+                logger.warning(f"Sequence directory not found: {sequence_dir}")
+                return
+
+            # Load all .yaml files in the sequences directory
+            for filename in os.listdir(sequence_dir):
+                if filename.endswith(".yaml"):
+                    sequence_path = os.path.join(sequence_dir, filename)
+                    sequence_id = os.path.splitext(filename)[0]
                     
-                    # Load sequences from config
-                    sequences = config["sequence"].get("sequences", {})
-                    for seq_id, seq_data in sequences.items():
-                        try:
+                    try:
+                        with open(sequence_path, "r") as f:
+                            sequence_data = yaml.safe_load(f)
+                            
+                        if "sequence" in sequence_data:
+                            sequence = sequence_data["sequence"]
+                            metadata = sequence.get("metadata", {})
+                            
+                            # Create sequence steps from YAML data
                             steps = []
-                            for step_data in seq_data.get("steps", []):
-                                # Ensure required fields exist
-                                if not step_data.get("name"):
-                                    step_data["name"] = f"Step {len(steps) + 1}"
-                                if not step_data.get("description"):
-                                    step_data["description"] = ""
+                            for step_data in sequence.get("steps", []):
+                                # Create step with required name field
+                                step = SequenceStep(name=step_data["name"])
                                 
-                                steps.append(SequenceStep(
-                                    name=step_data.get("name", ""),
-                                    description=step_data.get("description", ""),
-                                    pattern_id=step_data.get("pattern_id", ""),
-                                    parameter_set_id=step_data.get("parameter_set_id", "")
-                                ))
+                                # Add optional description if present
+                                if "description" in step_data:
+                                    step.description = step_data["description"]
                                 
-                            # Ensure required fields exist
-                            if not seq_data.get("name"):
-                                seq_data["name"] = seq_id
-                            if not seq_data.get("description"):
-                                seq_data["description"] = ""
+                                # Add action_group if present
+                                if "action_group" in step_data:
+                                    step.action_group = step_data["action_group"]
                                 
-                            self._sequences[seq_id] = SequenceMetadata(
-                                id=seq_id,
-                                name=seq_data.get("name", ""),
-                                description=seq_data.get("description", ""),
+                                # Add actions if present
+                                if "actions" in step_data:
+                                    step.actions = [Action(**action) for action in step_data["actions"]]
+                                
+                                steps.append(step)
+                            
+                            # Create sequence metadata
+                            sequence_metadata = SequenceMetadata(
+                                name=metadata.get("name", sequence_id),
+                                version=metadata.get("version", "1.0.0"),
+                                created=metadata.get("created", ""),
+                                author=metadata.get("author", ""),
+                                description=metadata.get("description", "")
+                            )
+                            
+                            # Create sequence
+                            self._sequences[sequence_id] = Sequence(
+                                id=sequence_id,
+                                metadata=sequence_metadata,
                                 steps=steps
                             )
+                            
                             # If sequence was previously failed, remove from failed list
-                            self._failed_sequences.pop(seq_id, None)
-                        except Exception as e:
-                            logger.error(f"Failed to load sequence {seq_id}: {e}")
-                            self._failed_sequences[seq_id] = str(e)
+                            self._failed_sequences.pop(sequence_id, None)
+                            logger.info(f"Loaded sequence: {sequence_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to load sequence {sequence_id}: {e}")
+                        self._failed_sequences[sequence_id] = str(e)
+                            
+        except Exception as e:
+            error_msg = f"Failed to load sequences: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
 
     async def _attempt_recovery(self) -> None:
         """Attempt to recover failed sequences."""
@@ -141,14 +171,10 @@ class SequenceService:
                     message=f"{self.service_name} service already running"
                 )
             
-            if self._sequences is None:
-                raise create_error(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    message=f"{self.service_name} service not initialized"
-                )
-            
+            # Set service as running
             self._is_running = True
             self._start_time = datetime.now()
+            
             logger.info(f"{self.service_name} service started")
             
         except Exception as e:
@@ -258,16 +284,25 @@ class SequenceService:
                             for name in ["sequence", "sequences"]}
             )
 
-    async def list_sequences(self) -> List[SequenceMetadata]:
-        """List available sequences."""
+    async def list_sequences(self) -> List[Sequence]:
+        """List available sequences.
+        
+        Returns:
+            List[Sequence]: List of sequences
+            
+        Raises:
+            HTTPException: If service not running or listing fails
+        """
         try:
             if not self.is_running:
                 raise create_error(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     message="Service not running"
                 )
-                
-            return list(self._sequences.values())
+            
+            sequences = list(self._sequences.values())
+            logger.info(f"Retrieved {len(sequences)} sequences")
+            return sequences
             
         except Exception as e:
             error_msg = "Failed to list sequences"
@@ -277,8 +312,18 @@ class SequenceService:
                 message=error_msg
             )
 
-    async def get_sequence(self, sequence_id: str) -> SequenceMetadata:
-        """Get sequence by ID."""
+    async def get_sequence(self, sequence_id: str) -> Sequence:
+        """Get sequence by ID.
+        
+        Args:
+            sequence_id: Sequence identifier
+            
+        Returns:
+            Sequence: Sequence if found
+            
+        Raises:
+            HTTPException: If service not running or sequence not found
+        """
         try:
             if not self.is_running:
                 raise create_error(

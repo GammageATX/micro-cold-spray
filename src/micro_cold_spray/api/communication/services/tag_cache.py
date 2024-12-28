@@ -13,7 +13,12 @@ from micro_cold_spray.api.communication.clients.plc import PLCClient
 from micro_cold_spray.api.communication.clients.ssh import SSHClient
 from micro_cold_spray.api.communication.services.tag_mapping import TagMappingService
 from micro_cold_spray.api.communication.models.equipment import (
-    GasState, VacuumState, FeederState, NozzleState, EquipmentState, DeagglomeratorState, PressureState
+    GasState, VacuumState, FeederState, NozzleState, EquipmentState,
+    DeagglomeratorState, PressureState, MotionState, HardwareState,
+    ProcessState, SafetyState
+)
+from micro_cold_spray.api.communication.models.motion import (
+    Position, AxisStatus, SystemStatus
 )
 
 
@@ -94,9 +99,14 @@ class TagCacheService:
                 "equipment": None,
                 "gas": None,
                 "vacuum": None,
-                "feeder1": None,
-                "feeder2": None,
-                "nozzle": None
+                "feeder": None,
+                "deagglomerator": None,
+                "nozzle": None,
+                "pressure": None,
+                "motion": None,
+                "hardware": None,
+                "process": None,
+                "safety": None
             }
                 
             logger.info(f"{self.service_name} service initialized")
@@ -395,63 +405,123 @@ class TagCacheService:
                 vent_valve=self._cache.get("vacuum.vent_valve", False)
             )
             
-            # Update feeder states
-            feeder1_state = FeederState(
+            # Update feeder state (using feeder1 as primary)
+            feeder_state = FeederState(
                 running=self._cache.get("feeders.feeder1.running", False),
                 frequency=self._cache.get("feeders.feeder1.frequency", 0)
             )
-
-            feeder2_state = FeederState(
-                running=self._cache.get("feeders.feeder2.running", False),
-                frequency=self._cache.get("feeders.feeder2.frequency", 0)
+            
+            # Update deagglomerator state (using deagg1 as primary)
+            deagglomerator_state = DeagglomeratorState(
+                duty_cycle=self._cache.get("deagglomerators.deagg1.duty_cycle", 0)
             )
             
             # Update nozzle state
             nozzle_state = NozzleState(
                 active_nozzle=2 if self._cache.get("nozzle.select", False) else 1,
-                shutter_open=self._cache.get("nozzle.shutter.open", False),
-                pressure=self._cache.get("nozzle.pressure", 0)
+                shutter_open=self._cache.get("nozzle.shutter.open", False)
             )
             
             # Update pressure state
             pressure_state = PressureState(
-                nozzle=self._cache.get("nozzle.pressure", 0),
                 chamber=self._cache.get("vacuum.chamber_pressure", 0),
                 feeder=self._cache.get("pressure.feeder_pressure", 0),
                 main_supply=self._cache.get("pressure.main_supply_pressure", 0),
+                nozzle=self._cache.get("nozzle.pressure", 0),
                 regulator=self._cache.get("pressure.regulator_pressure", 0)
             )
             
-            # Update deagglomerator states
-            deagg1_state = DeagglomeratorState(
-                duty_cycle=self._cache.get("deagglomerators.deagg1.duty_cycle", 0),
-                frequency=self._cache.get("deagglomerators.deagg1.frequency", 0)
+            # Update motion state
+            position = Position(
+                x=self._cache.get("motion.motion_control.coordinated_move.xy_move.parameters.x_position", 0),
+                y=self._cache.get("motion.motion_control.coordinated_move.xy_move.parameters.y_position", 0),
+                z=self._cache.get("motion.motion_control.relative_move.z_move.parameters.position", 0)
             )
             
-            deagg2_state = DeagglomeratorState(
-                duty_cycle=self._cache.get("deagglomerators.deagg2.duty_cycle", 0),
-                frequency=self._cache.get("deagglomerators.deagg2.frequency", 0)
+            # Get axis statuses
+            x_status = AxisStatus(
+                position=position.x,
+                in_position=bool(self._cache.get("motion.motion_control.coordinated_move.xy_move.parameters.status", False)),
+                moving=bool(self._cache.get("motion.motion_control.coordinated_move.xy_move.parameters.in_progress", False)),
+                error=not bool(self._cache.get("interlocks.motion_ready", True)),
+                homed=bool(self._cache.get("motion.motion_control.coordinated_move.xy_move.parameters.status", False))
+            )
+            
+            y_status = AxisStatus(
+                position=position.y,
+                in_position=bool(self._cache.get("motion.motion_control.coordinated_move.xy_move.parameters.status", False)),
+                moving=bool(self._cache.get("motion.motion_control.coordinated_move.xy_move.parameters.in_progress", False)),
+                error=not bool(self._cache.get("interlocks.motion_ready", True)),
+                homed=bool(self._cache.get("motion.motion_control.coordinated_move.xy_move.parameters.status", False))
+            )
+            
+            z_status = AxisStatus(
+                position=position.z,
+                in_position=bool(self._cache.get("motion.motion_control.relative_move.z_move.parameters.status", False)),
+                moving=bool(self._cache.get("motion.motion_control.relative_move.z_move.parameters.in_progress", False)),
+                error=not bool(self._cache.get("interlocks.motion_ready", True)),
+                homed=bool(self._cache.get("motion.motion_control.relative_move.z_move.parameters.status", False))
+            )
+            
+            system_status = SystemStatus(
+                x_axis=x_status,
+                y_axis=y_status,
+                z_axis=z_status,
+                module_ready=bool(self._cache.get("interlocks.motion_ready", True))
+            )
+            
+            motion_state = MotionState(
+                position=position,
+                status=system_status
+            )
+            
+            # Update hardware state
+            hardware_state = HardwareState(
+                motion_enabled=bool(self._cache.get("interlocks.motion_ready", True)),
+                plc_connected=bool(self._cache.get("system.plc_connected", True)),
+                position_valid=bool(self._cache.get("motion.position_valid", True))
+            )
+            
+            # Update process state
+            process_state = ProcessState(
+                gas_flow_stable=bool(self._cache.get("process.gas_flow_stable", True)),
+                powder_feed_active=bool(self._cache.get("process.powder_feed_active", False)),
+                process_ready=bool(self._cache.get("process.ready", True))
+            )
+            
+            # Update safety state
+            safety_state = SafetyState(
+                emergency_stop=bool(self._cache.get("safety.emergency_stop", False)),
+                interlocks_ok=bool(self._cache.get("safety.interlocks_ok", True)),
+                limits_ok=bool(self._cache.get("safety.limits_ok", True))
             )
 
             # Update equipment state
             equipment_state = EquipmentState(
                 gas=gas_state,
                 vacuum=vacuum_state,
-                feeder1=feeder1_state,
-                feeder2=feeder2_state,
+                feeder=feeder_state,
+                deagglomerator=deagglomerator_state,
                 nozzle=nozzle_state,
-                pressures=pressure_state,
-                deagg1=deagg1_state,
-                deagg2=deagg2_state
+                pressure=pressure_state,
+                motion=motion_state,
+                hardware=hardware_state,
+                process=process_state,
+                safety=safety_state
             )
             
             # Update state cache
             self._state_cache["equipment"] = equipment_state
             self._state_cache["gas"] = gas_state
             self._state_cache["vacuum"] = vacuum_state
-            self._state_cache["feeder1"] = feeder1_state
-            self._state_cache["feeder2"] = feeder2_state
+            self._state_cache["feeder"] = feeder_state
+            self._state_cache["deagglomerator"] = deagglomerator_state
             self._state_cache["nozzle"] = nozzle_state
+            self._state_cache["pressure"] = pressure_state
+            self._state_cache["motion"] = motion_state
+            self._state_cache["hardware"] = hardware_state
+            self._state_cache["process"] = process_state
+            self._state_cache["safety"] = safety_state
             
             # Notify state change callbacks
             for callback in self._state_callbacks:

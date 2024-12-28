@@ -52,39 +52,35 @@ async def lifespan(app: FastAPI):
     try:
         logger.info("Starting process service...")
         
-        # Create and initialize service
-        process_service = ProcessService()
+        # Get service from app state
+        process_service = app.state.process_service
+        
+        # Initialize and start service
         await process_service.initialize()
-        
-        # Load real data from data directory
-        await load_real_data(process_service)
-        
-        # Start the service
         await process_service.start()
-        
-        # Store in app state and create router
-        app.state.process_service = process_service
-        app.include_router(create_process_router(process_service))
         
         logger.info("Process service started successfully")
         
         yield  # Server is running
         
         # Shutdown
-        await process_service.stop()
-        logger.info("Process service stopped")
+        if process_service.is_running:
+            await process_service.stop()
+            logger.info("Process service stopped")
         
     except Exception as e:
         logger.error(f"Process service startup failed: {e}")
         # Don't raise here - let the service start in degraded mode
         # The health check will show which components failed
         yield
-        # Still try to stop service if it exists
+        # Still try to stop service if it exists and is running
         if hasattr(app.state, "process_service"):
-            try:
-                await app.state.process_service.stop()
-            except Exception as stop_error:
-                logger.error(f"Failed to stop process service: {stop_error}")
+            process_service = app.state.process_service
+            if process_service.is_running:
+                try:
+                    await process_service.stop()
+                except Exception as stop_error:
+                    logger.error(f"Failed to stop process service: {stop_error}")
 
 
 def load_config() -> Dict[str, Any]:
@@ -93,30 +89,49 @@ def load_config() -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: Configuration dictionary
     """
-    # TODO: Implement config loading
-    return {"version": "1.0.0"}
+    try:
+        config_path = os.path.join("config", "process.yaml")
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                return yaml.safe_load(f)
+    except Exception as e:
+        logger.warning(f"Failed to load config: {e}")
+    
+    # Return default config if loading fails
+    return {
+        "version": "1.0.0",
+        "mode": "normal",
+        "components": {
+            "parameter": {
+                "version": "1.0.0"
+            },
+            "pattern": {
+                "version": "1.0.0"
+            },
+            "action": {
+                "version": "1.0.0"
+            },
+            "sequence": {
+                "version": "1.0.0"
+            }
+        }
+    }
 
 
 def create_app() -> FastAPI:
     """Create FastAPI application.
     
     Returns:
-        FastAPI application
+        FastAPI: Application instance
     """
-    # Load config
-    config = load_config()
-    version = config.get("version", "1.0.0")
-    
+    # Create FastAPI app
     app = FastAPI(
         title="Process API",
         description="API for managing process execution",
-        version=version,
-        docs_url="/docs",
-        redoc_url="/redoc",
-        openapi_url="/openapi.json",
+        version="1.0.0",
         lifespan=lifespan
     )
-
+    
     # Add CORS middleware
     app.add_middleware(
         CORSMiddleware,
@@ -125,7 +140,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-
+    
     # Add error handlers
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
@@ -134,7 +149,17 @@ def create_app() -> FastAPI:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={"detail": exc.errors()},
         )
-
+    
+    # Load config and create service
+    config = load_config()
+    process_service = ProcessService(config)
+    
+    # Create router and mount it
+    app.include_router(create_process_router(process_service))
+    
+    # Store service in app state
+    app.state.process_service = process_service
+    
     @app.get("/health", response_model=ServiceHealth)
     async def health() -> ServiceHealth:
         """Get API health status."""
@@ -146,16 +171,17 @@ def create_app() -> FastAPI:
             return ServiceHealth(
                 status="error",
                 service="process",
-                version=version,
+                version=config["version"],
                 is_running=False,
                 uptime=0.0,
                 error=error_msg,
+                mode=config.get("mode", "normal"),
                 components={
-                    "action": {"status": "error", "error": error_msg},
                     "parameter": {"status": "error", "error": error_msg},
                     "pattern": {"status": "error", "error": error_msg},
+                    "action": {"status": "error", "error": error_msg},
                     "sequence": {"status": "error", "error": error_msg}
                 }
             )
-
+    
     return app

@@ -192,8 +192,8 @@ class EquipmentService:
             if equipment_state and equipment_state.gas:
                 gas = equipment_state.gas
                 # Check if measured flows match setpoints within tolerance
-                main_flow_error = abs(gas.main_flow - gas.main_flow_measured) > 5.0
-                feeder_flow_error = abs(gas.feeder_flow - gas.feeder_flow_measured) > 2.0
+                main_flow_error = abs(gas.main_flow - gas.main_flow_measured) > 10.0
+                feeder_flow_error = abs(gas.feeder_flow - gas.feeder_flow_measured) > 5.0
                 if main_flow_error or feeder_flow_error:
                     gas_ok = False
                     gas_error = "Flow rates out of tolerance"
@@ -207,7 +207,7 @@ class EquipmentService:
             if equipment_state and equipment_state.vacuum:
                 vacuum = equipment_state.vacuum
                 # Check vacuum system state
-                if vacuum.chamber_pressure > 100:  # Example threshold
+                if vacuum.chamber_pressure > 1000:
                     vacuum_ok = False
                     vacuum_error = "Chamber pressure too high"
             else:
@@ -217,7 +217,12 @@ class EquipmentService:
             # Motion system health based on actual state
             motion_ok = True
             motion_error = None
-            if not self._tag_cache or not await self._tag_cache.get_state("motion"):
+            if equipment_state and equipment_state.motion:
+                motion = equipment_state.motion
+                if not motion.enabled or motion.error:
+                    motion_ok = False
+                    motion_error = "Motion system error or disabled"
+            else:
                 motion_ok = False
                 motion_error = "Motion state not available"
                 
@@ -230,7 +235,7 @@ class EquipmentService:
                 if pressures.main_supply < 50 or pressures.main_supply > 150:
                     pressure_ok = False
                     pressure_error = "Main supply pressure out of range"
-                elif pressures.nozzle > 50:
+                elif pressures.nozzle > 1000:
                     pressure_ok = False
                     pressure_error = "Nozzle pressure too high"
             else:

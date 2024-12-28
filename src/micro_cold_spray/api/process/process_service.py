@@ -23,30 +23,21 @@ from micro_cold_spray.api.process.services.pattern_service import PatternService
 from micro_cold_spray.api.process.services.sequence_service import SequenceService
 
 
-def load_config() -> Dict[str, Any]:
-    """Load process configuration.
-    
-    Returns:
-        Dict[str, Any]: Configuration data
-    """
-    config_path = os.path.join("config", "process.yaml")
-    if os.path.exists(config_path):
-        with open(config_path, "r") as f:
-            return yaml.safe_load(f)
-    return {"version": "1.0.0"}
-
-
 class ProcessService:
     """Process service for managing process execution."""
 
-    def __init__(self):
-        """Initialize process service."""
+    def __init__(self, config: Dict[str, Any]):
+        """Initialize process service.
+        
+        Args:
+            config: Service configuration
+        """
         self._service_name = "process"
-        self._version = "1.0.0"  # Will be updated from config
+        self._config = config
+        self._version = config.get("version", "1.0.0")
         self._is_running = False
+        self._mode = config.get("mode", "normal")
         self._start_time = None
-        self._config = None
-        self._mode = "normal"  # Default to normal mode
         
         # Initialize component services to None
         self._action = None
@@ -80,43 +71,46 @@ class ProcessService:
     async def initialize(self) -> None:
         """Initialize service."""
         try:
-            # Load config
-            self._config = load_config()
-            self._version = self._config.get("process", {}).get("version", self._version)
-            self._mode = self._config.get("process", {}).get("mode", self._mode)  # Get mode from config
+            if self.is_running:
+                raise create_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    message=f"{self.service_name} service already running"
+                )
             
-            # Create component services in dependency order
+            logger.info(f"Initializing {self.service_name} service...")
+            
+            # Initialize components in dependency order
             try:
-                self._parameter = ParameterService()  # No dependencies
+                self._parameter = ParameterService()
                 await self._parameter.initialize()
                 self._failed_components.pop("parameter", None)
             except Exception as e:
                 self._failed_components["parameter"] = str(e)
-                logger.error(f"Failed to initialize parameter service: {e}")
+                logger.warning(f"Failed to initialize parameter service: {e}")
             
             try:
-                self._pattern = PatternService()      # No dependencies
+                self._pattern = PatternService()
                 await self._pattern.initialize()
                 self._failed_components.pop("pattern", None)
             except Exception as e:
                 self._failed_components["pattern"] = str(e)
-                logger.error(f"Failed to initialize pattern service: {e}")
+                logger.warning(f"Failed to initialize pattern service: {e}")
             
             try:
-                self._action = ActionService()        # Depends on parameter and pattern
+                self._action = ActionService()
                 await self._action.initialize()
                 self._failed_components.pop("action", None)
             except Exception as e:
                 self._failed_components["action"] = str(e)
-                logger.error(f"Failed to initialize action service: {e}")
+                logger.warning(f"Failed to initialize action service: {e}")
             
             try:
-                self._sequence = SequenceService()    # Depends on all others
+                self._sequence = SequenceService()
                 await self._sequence.initialize()
                 self._failed_components.pop("sequence", None)
             except Exception as e:
                 self._failed_components["sequence"] = str(e)
-                logger.error(f"Failed to initialize sequence service: {e}")
+                logger.warning(f"Failed to initialize sequence service: {e}")
             
             logger.info(f"{self.service_name} service initialized")
             
@@ -128,43 +122,6 @@ class ProcessService:
                 message=error_msg
             )
 
-    async def _attempt_recovery(self) -> None:
-        """Attempt to recover failed components."""
-        if self._failed_components:
-            logger.info(f"Attempting to recover {len(self._failed_components)} failed components...")
-            
-            if "parameter" in self._failed_components and not self._parameter:
-                try:
-                    self._parameter = ParameterService()
-                    await self._parameter.initialize()
-                    self._failed_components.pop("parameter", None)
-                except Exception as e:
-                    logger.error(f"Failed to recover parameter service: {e}")
-            
-            if "pattern" in self._failed_components and not self._pattern:
-                try:
-                    self._pattern = PatternService()
-                    await self._pattern.initialize()
-                    self._failed_components.pop("pattern", None)
-                except Exception as e:
-                    logger.error(f"Failed to recover pattern service: {e}")
-            
-            if "action" in self._failed_components and not self._action:
-                try:
-                    self._action = ActionService()
-                    await self._action.initialize()
-                    self._failed_components.pop("action", None)
-                except Exception as e:
-                    logger.error(f"Failed to recover action service: {e}")
-            
-            if "sequence" in self._failed_components and not self._sequence:
-                try:
-                    self._sequence = SequenceService()
-                    await self._sequence.initialize()
-                    self._failed_components.pop("sequence", None)
-                except Exception as e:
-                    logger.error(f"Failed to recover sequence service: {e}")
-
     async def start(self) -> None:
         """Start service."""
         try:
@@ -174,13 +131,15 @@ class ProcessService:
                     message=f"{self.service_name} service already running"
                 )
             
-            if not all([self._action, self._parameter, self._pattern, self._sequence]):
+            if not all([self._parameter, self._pattern, self._action, self._sequence]):
                 raise create_error(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     message=f"{self.service_name} service not initialized"
                 )
             
-            # Start component services in dependency order
+            logger.info(f"Starting {self.service_name} service...")
+            
+            # Start services in dependency order
             await self._parameter.start()
             await self._pattern.start()
             await self._action.start()
@@ -188,7 +147,7 @@ class ProcessService:
             
             self._is_running = True
             self._start_time = datetime.now()
-            logger.info(f"{self.service_name} service started")
+            logger.info(f"{self.service_name} service started successfully")
             
         except Exception as e:
             self._is_running = False
@@ -209,22 +168,20 @@ class ProcessService:
                     message=f"{self.service_name} service not running"
                 )
             
-            # 1. Stop component services in reverse dependency order
+            # Stop services in reverse dependency order
             await self._sequence.stop()
             await self._action.stop()
             await self._pattern.stop()
             await self._parameter.stop()
             
-            # 2. Clear service references
+            # Clear service references
             self._sequence = None
             self._action = None
             self._pattern = None
             self._parameter = None
             
-            # 3. Reset service state
             self._is_running = False
             self._start_time = None
-            
             logger.info(f"{self.service_name} service stopped")
             
         except Exception as e:
@@ -238,9 +195,6 @@ class ProcessService:
     async def health(self) -> ServiceHealth:
         """Get service health status."""
         try:
-            # Attempt recovery of failed components
-            await self._attempt_recovery()
-            
             # Get health from components
             parameter_health = await self._parameter.health() if self._parameter else None
             pattern_health = await self._pattern.health() if self._pattern else None
@@ -250,33 +204,25 @@ class ProcessService:
             # Build component statuses
             components = {
                 "parameter": ComponentHealth(
-                    status="ok" if parameter_health and parameter_health.status == "ok" else "error",
+                    status="ok" if parameter_health and parameter_health.status == "ok" else "warning",
                     error=parameter_health.error if parameter_health else "Component not initialized"
                 ),
                 "pattern": ComponentHealth(
-                    status="ok" if pattern_health and pattern_health.status == "ok" else "error",
+                    status="ok" if pattern_health and pattern_health.status == "ok" else "warning",
                     error=pattern_health.error if pattern_health else "Component not initialized"
                 ),
                 "action": ComponentHealth(
-                    status="ok" if action_health and action_health.status == "ok" else "error",
+                    status="ok" if action_health and action_health.status == "ok" else "warning",
                     error=action_health.error if action_health else "Component not initialized"
                 ),
                 "sequence": ComponentHealth(
-                    status="ok" if sequence_health and sequence_health.status == "ok" else "error",
+                    status="ok" if sequence_health and sequence_health.status == "ok" else "warning",
                     error=sequence_health.error if sequence_health else "Component not initialized"
                 )
             }
             
-            # Add failed components component if any exist
-            if self._failed_components:
-                failed_list = ", ".join(self._failed_components.keys())
-                components["failed_components"] = ComponentHealth(
-                    status="error",
-                    error=f"Failed components: {failed_list}"
-                )
-            
-            # Overall status is error only if all components failed
-            overall_status = "error" if not any([self._parameter, self._pattern, self._action, self._sequence]) else "ok"
+            # Overall status is ok if at least one component is ok
+            overall_status = "ok" if any(c.status == "ok" for c in components.values()) else "error"
             
             return ServiceHealth(
                 status=overall_status,
@@ -284,7 +230,7 @@ class ProcessService:
                 version=self.version,
                 is_running=self.is_running,
                 uptime=self.uptime,
-                error=None if overall_status == "ok" else "One or more components in error state",
+                error=None if overall_status == "ok" else "One or more components in warning state",
                 mode=self._mode,
                 components=components
             )

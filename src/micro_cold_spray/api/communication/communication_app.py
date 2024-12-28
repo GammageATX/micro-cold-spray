@@ -14,7 +14,7 @@ import yaml
 import sys
 
 from micro_cold_spray.utils.errors import create_error
-from micro_cold_spray.utils.health import ServiceHealth
+from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
 from micro_cold_spray.api.communication.endpoints import router as state_router
 from micro_cold_spray.api.communication.endpoints.equipment import router as equipment_router
 from micro_cold_spray.api.communication.endpoints.motion import router as motion_router
@@ -232,28 +232,40 @@ def create_communication_service(config: Optional[Dict[str, Any]] = None) -> Fas
             # Check health of all services
             tag_mapping_health = await app.state.tag_mapping_service.health()
             tag_cache_health = await app.state.tag_cache_service.health()
-            motion_health = await app.state.motion_service.health()
             equipment_health = await app.state.equipment_service.health()
             
-            # Overall status is error if any service is in error
-            overall_status = "error" if any(
-                h.status == "error" for h in [
-                    tag_mapping_health,
-                    tag_cache_health,
-                    motion_health,
-                    equipment_health
-                ]
-            ) else "ok"
+            # Organize components by category
+            components = {
+                # Core components - these affect service health
+                "tag_mapping": tag_mapping_health.components.get("mapping", ComponentHealth(status="error", error="Not available")),
+                "tag_cache": tag_cache_health.components.get("cache", ComponentHealth(status="error", error="Not available")),
+                
+                # Equipment state components - these are warnings only
+                "gas_control": equipment_health.components.get("gas_control", ComponentHealth(status="error", error="Not available")),
+                "vacuum": equipment_health.components.get("vacuum", ComponentHealth(status="error", error="Not available")),
+                "motion": equipment_health.components.get("motion", ComponentHealth(status="error", error="Not available")),
+                "pressure": equipment_health.components.get("pressure", ComponentHealth(status="error", error="Not available"))
+            }
+            
+            # Service is healthy if core components are working
+            # Equipment state issues are warnings only
+            core_components = {"tag_mapping", "tag_cache"}
+            has_core_components = all(
+                components[comp].status == "ok"
+                for comp in core_components
+            )
             
             return ServiceHealth(
-                status=overall_status,
+                status="ok" if has_core_components else "error",
                 service="communication",
                 version=config["version"],
                 is_running=True,
                 uptime=0.0,  # TODO: Implement uptime tracking
-                error=None if overall_status == "ok" else "One or more services in error state",
-                components=tag_mapping_health.components | tag_cache_health.components | motion_health.components | equipment_health.components
+                error=None if has_core_components else "Core components unavailable",
+                mode="normal",
+                components=components
             )
+            
         except Exception as e:
             error_msg = f"Health check failed: {str(e)}"
             logger.error(error_msg)
@@ -264,11 +276,10 @@ def create_communication_service(config: Optional[Dict[str, Any]] = None) -> Fas
                 is_running=False,
                 uptime=0.0,
                 error=error_msg,
+                mode="normal",
                 components={
-                    "tag_mapping": {"status": "error", "error": error_msg},
-                    "tag_cache": {"status": "error", "error": error_msg},
-                    "motion": {"status": "error", "error": error_msg},
-                    "equipment": {"status": "error", "error": error_msg}
+                    "tag_mapping": ComponentHealth(status="error", error=error_msg),
+                    "tag_cache": ComponentHealth(status="error", error=error_msg)
                 }
             )
 

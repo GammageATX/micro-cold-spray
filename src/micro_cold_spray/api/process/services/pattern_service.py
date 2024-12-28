@@ -84,30 +84,45 @@ class PatternService:
 
     async def _load_patterns(self) -> None:
         """Load patterns from data directory."""
-        patterns_dir = os.path.join("data", "patterns")
-        if os.path.exists(patterns_dir):
-            for filename in os.listdir(patterns_dir):
+        try:
+            # Load patterns from data directory
+            pattern_dir = os.path.join("data", "patterns")
+            if not os.path.exists(pattern_dir):
+                logger.warning(f"Pattern directory not found: {pattern_dir}")
+                return
+
+            # Load all .yaml files in the patterns directory
+            for filename in os.listdir(pattern_dir):
                 if filename.endswith(".yaml"):
+                    pattern_path = os.path.join(pattern_dir, filename)
                     pattern_id = os.path.splitext(filename)[0]
-                    pattern_path = os.path.join(patterns_dir, filename)
+                    
                     try:
                         with open(pattern_path, "r") as f:
                             pattern_data = yaml.safe_load(f)
-                            # Ensure required fields exist
-                            if not pattern_data.get("id"):
-                                pattern_data["id"] = pattern_id
-                            if not pattern_data.get("name"):
-                                pattern_data["name"] = pattern_id
-                            if not pattern_data.get("description"):
-                                pattern_data["description"] = ""
                             
-                            self._patterns[pattern_id] = ProcessPattern(**pattern_data)
+                        if pattern_data:
+                            self._patterns[pattern_id] = ProcessPattern(
+                                id=pattern_data.get("id", pattern_id),
+                                name=pattern_data.get("name", pattern_id),
+                                description=pattern_data.get("description", ""),
+                                type=pattern_data.get("type", ""),
+                                params=pattern_data.get("params", {})
+                            )
                             # If pattern was previously failed, remove from failed list
                             self._failed_patterns.pop(pattern_id, None)
-                            
+                            logger.info(f"Loaded pattern: {pattern_id}")
                     except Exception as e:
-                        logger.error(f"Failed to load pattern {pattern_id}: {str(e)}")
+                        logger.error(f"Failed to load pattern {pattern_id}: {e}")
                         self._failed_patterns[pattern_id] = str(e)
+                            
+        except Exception as e:
+            error_msg = f"Failed to load patterns: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
 
     async def _attempt_recovery(self) -> None:
         """Attempt to recover by reloading failed patterns."""

@@ -75,37 +75,85 @@ class ParameterService:
             )
 
     async def _load_parameters(self) -> None:
-        """Load parameter sets from config."""
-        config_path = os.path.join("config", "process.yaml")
-        if os.path.exists(config_path):
-            with open(config_path, "r") as f:
-                config = yaml.safe_load(f)
-                if "parameter" in config:
-                    self._version = config["parameter"].get("version", self._version)
+        """Load parameter sets from data directory."""
+        try:
+            # Load parameters from data directory
+            param_dir = os.path.join("data", "parameters")
+            if not os.path.exists(param_dir):
+                logger.warning(f"Parameter directory not found: {param_dir}")
+                return
+
+            # Load all .yaml files in the parameters directory
+            for filename in os.listdir(param_dir):
+                if filename.endswith(".yaml"):
+                    param_path = os.path.join(param_dir, filename)
+                    param_id = os.path.splitext(filename)[0]
                     
-                    # Load parameter sets from config
-                    parameter_sets = config["parameter"].get("parameter_sets", {})
-                    for param_id, param_data in parameter_sets.items():
-                        try:
-                            # Ensure required fields exist
-                            if not param_data.get("name"):
-                                param_data["name"] = param_id
-                            if not param_data.get("description"):
-                                param_data["description"] = ""
-                            if not param_data.get("parameters"):
-                                param_data["parameters"] = {}
-                                
-                            self._parameter_sets[param_id] = ParameterSet(
-                                id=param_id,
-                                name=param_data.get("name", ""),
-                                description=param_data.get("description", ""),
-                                parameters=param_data.get("parameters", {})
-                            )
+                    try:
+                        with open(param_path, "r") as f:
+                            param_data = yaml.safe_load(f)
+                            
+                        if "process" in param_data:
+                            process = param_data["process"]
+                            # Map process fields to parameter set fields
+                            param_set = {
+                                "id": param_id,
+                                "name": process.get("name", param_id),
+                                "description": process.get("description", ""),
+                                "nozzle": process.get("nozzle", ""),
+                                "main_gas": process.get("main_gas", 0.0),
+                                "feeder_gas": process.get("feeder_gas", 0.0),
+                                "frequency": process.get("frequency", 0),
+                                "deagglomerator_speed": process.get("deagglomerator_speed", 0)
+                            }
+                            self._parameter_sets[param_id] = ParameterSet(**param_set)
                             # If parameter set was previously failed, remove from failed list
                             self._failed_parameters.pop(param_id, None)
+                            logger.info(f"Loaded parameter set: {param_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to load parameter set {param_id}: {e}")
+                        self._failed_parameters[param_id] = str(e)
+
+            # Also check nozzles subdirectory
+            nozzle_dir = os.path.join(param_dir, "nozzles")
+            if os.path.exists(nozzle_dir):
+                for filename in os.listdir(nozzle_dir):
+                    if filename.endswith(".yaml"):
+                        nozzle_path = os.path.join(nozzle_dir, filename)
+                        nozzle_id = os.path.splitext(filename)[0]
+                        
+                        try:
+                            with open(nozzle_path, "r") as f:
+                                nozzle_data = yaml.safe_load(f)
+                                
+                            if "nozzle" in nozzle_data:
+                                nozzle = nozzle_data["nozzle"]
+                                # Map nozzle fields to parameter set fields
+                                param_set = {
+                                    "id": nozzle_id,
+                                    "name": nozzle.get("name", nozzle_id),
+                                    "description": nozzle.get("description", ""),
+                                    "nozzle": nozzle.get("name", ""),  # Use nozzle name as nozzle field
+                                    "main_gas": 0.0,  # Default values for required fields
+                                    "feeder_gas": 0.0,
+                                    "frequency": 0,
+                                    "deagglomerator_speed": 0
+                                }
+                                self._parameter_sets[nozzle_id] = ParameterSet(**param_set)
+                                # If parameter set was previously failed, remove from failed list
+                                self._failed_parameters.pop(nozzle_id, None)
+                                logger.info(f"Loaded nozzle parameter set: {nozzle_id}")
                         except Exception as e:
-                            logger.error(f"Failed to load parameter set {param_id}: {e}")
-                            self._failed_parameters[param_id] = str(e)
+                            logger.error(f"Failed to load nozzle parameter set {nozzle_id}: {e}")
+                            self._failed_parameters[nozzle_id] = str(e)
+                            
+        except Exception as e:
+            error_msg = f"Failed to load parameters: {str(e)}"
+            logger.error(error_msg)
+            raise create_error(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=error_msg
+            )
 
     async def _attempt_recovery(self) -> None:
         """Attempt to recover failed parameter sets."""

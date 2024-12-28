@@ -3,6 +3,8 @@
 from typing import Literal
 from pydantic import BaseModel, Field
 
+from micro_cold_spray.api.communication.models.motion import Position, SystemStatus
+
 
 class GasState(BaseModel):
     """Gas system state."""
@@ -49,34 +51,10 @@ class PressureState(BaseModel):
     regulator: float = Field(..., description="Regulator pressure")
 
 
-class AxisState(BaseModel):
-    """Motion axis state."""
-    position: float = Field(..., description="Axis position")
-    in_position: bool = Field(..., description="Axis at target position")
-    moving: bool = Field(..., description="Axis in motion")
-    error: bool = Field(..., description="Axis error state")
-    homed: bool = Field(..., description="Axis homed state")
-
-
-class MotionPositionState(BaseModel):
-    """Motion position state."""
-    x: float = Field(..., description="X axis position")
-    y: float = Field(..., description="Y axis position")
-    z: float = Field(..., description="Z axis position")
-
-
-class MotionStatusState(BaseModel):
-    """Motion status state."""
-    x_axis: AxisState = Field(..., description="X axis status")
-    y_axis: AxisState = Field(..., description="Y axis status")
-    z_axis: AxisState = Field(..., description="Z axis status")
-    module_ready: bool = Field(..., description="Motion module ready status")
-
-
 class MotionState(BaseModel):
     """Motion system state."""
-    position: MotionPositionState = Field(..., description="Current position")
-    status: MotionStatusState = Field(..., description="Axis status information")
+    position: Position = Field(..., description="Current position")
+    status: SystemStatus = Field(..., description="Motion system status")
 
 
 class HardwareState(BaseModel):
@@ -101,15 +79,17 @@ class SafetyState(BaseModel):
 
 
 class EquipmentState(BaseModel):
-    """Overall equipment state."""
+    """Equipment state."""
     gas: GasState = Field(..., description="Gas system state")
     vacuum: VacuumState = Field(..., description="Vacuum system state")
-    feeder1: FeederState = Field(..., description="Feeder 1 state")
-    feeder2: FeederState = Field(..., description="Feeder 2 state")
-    deagg1: DeagglomeratorState = Field(..., description="Deagglomerator 1 state")
-    deagg2: DeagglomeratorState = Field(..., description="Deagglomerator 2 state")
-    nozzle: NozzleState = Field(..., description="Nozzle state")
-    pressures: PressureState = Field(..., description="System pressures")
+    feeder: FeederState = Field(..., description="Powder feeder state")
+    deagglomerator: DeagglomeratorState = Field(..., description="Deagglomerator state")
+    nozzle: NozzleState = Field(..., description="Nozzle control state")
+    pressure: PressureState = Field(..., description="System pressure readings")
+    motion: MotionState = Field(..., description="Motion system state")
+    hardware: HardwareState = Field(..., description="Hardware status")
+    process: ProcessState = Field(..., description="Process status")
+    safety: SafetyState = Field(..., description="Safety system state")
 
 
 class SystemState(BaseModel):
