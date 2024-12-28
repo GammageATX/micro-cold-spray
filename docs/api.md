@@ -150,34 +150,82 @@ Real-time system state updates.
     "equipment": {
       "gas": {
         "main_flow": 0.0,
+        "main_flow_measured": 0.0,
         "feeder_flow": 0.0,
-        "main_pressure": 0.0,
-        "feeder_pressure": 0.0,
-        "nozzle_pressure": 0.0,
-        "regulator_pressure": 0.0,
+        "feeder_flow_measured": 0.0,
         "main_valve": false,
         "feeder_valve": false
       },
       "vacuum": {
         "chamber_pressure": 0.0,
-        "mech_pump_running": false,
-        "booster_pump_running": false,
-        "vent_valve_open": false,
-        "gate_valve_position": "closed"
-      }
-    },
-    "motion": {
-      "position": {
-        "x": 0.0,
-        "y": 0.0,
-        "z": 0.0
+        "gate_valve": false,
+        "mech_pump": false,
+        "booster_pump": false,
+        "vent_valve": false
       },
-      "status": {
-        "enabled": true,
-        "homed": true,
-        "error": false,
-        "busy": false,
-        "error_message": null
+      "feeder": {
+        "running": false,
+        "frequency": 0.0
+      },
+      "deagglomerator": {
+        "duty_cycle": 35.0
+      },
+      "nozzle": {
+        "active_nozzle": 1,
+        "shutter_open": false
+      },
+      "pressure": {
+        "chamber": 0.0,
+        "feeder": 0.0,
+        "main_supply": 0.0,
+        "nozzle": 0.0,
+        "regulator": 0.0
+      },
+      "motion": {
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "status": {
+          "x_axis": {
+            "position": 0.0,
+            "in_position": true,
+            "moving": false,
+            "error": false,
+            "homed": true
+          },
+          "y_axis": {
+            "position": 0.0,
+            "in_position": true,
+            "moving": false,
+            "error": false,
+            "homed": true
+          },
+          "z_axis": {
+            "position": 0.0,
+            "in_position": true,
+            "moving": false,
+            "error": false,
+            "homed": true
+          },
+          "module_ready": true
+        }
+      },
+      "hardware": {
+        "motion_enabled": true,
+        "plc_connected": true,
+        "position_valid": true
+      },
+      "process": {
+        "gas_flow_stable": true,
+        "powder_feed_active": false,
+        "process_ready": true
+      },
+      "safety": {
+        "emergency_stop": false,
+        "interlocks_ok": true,
+        "limits_ok": true
       }
     }
   }
@@ -374,8 +422,45 @@ List available sequences.
   "sequences": [
     {
       "id": "sequence1",
-      "name": "Test Sequence",
-      "description": "A test sequence"
+      "metadata": {
+        "name": "Test Sequence",
+        "version": "1.0.0",
+        "created": "2024-01-01",
+        "author": "John Doe",
+        "description": "A test sequence"
+      },
+      "steps": [
+        {
+          "name": "Initialize",
+          "description": "Initialize system",
+          "action_group": "initialize",
+          "actions": null
+        },
+        {
+          "name": "Pattern 1",
+          "description": "First pattern",
+          "action_group": null,
+          "actions": [
+            {
+              "action_group": "move_to_start",
+              "parameters": {
+                "x": 0.0,
+                "y": 0.0,
+                "z": 50.0
+              }
+            },
+            {
+              "action_group": "execute_pattern",
+              "parameters": {
+                "pattern_id": "pattern1",
+                "passes": 3
+              }
+            }
+          ]
+        }
+      ],
+      "created_at": "2024-01-01T00:00:00.000Z",
+      "updated_at": "2024-01-01T00:00:00.000Z"
     }
   ]
 }
