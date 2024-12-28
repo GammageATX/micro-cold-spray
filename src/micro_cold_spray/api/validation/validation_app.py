@@ -3,8 +3,11 @@
 import os
 import yaml
 from typing import Dict, Any
-from fastapi import FastAPI, Depends
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from loguru import logger
 
 from micro_cold_spray.utils.errors import create_error
@@ -27,6 +30,40 @@ def load_config() -> Dict[str, Any]:
         return yaml.safe_load(f)
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Handle startup and shutdown events."""
+    try:
+        logger.info("Starting validation service...")
+        
+        # Initialize service
+        validation_service = ValidationService()
+        await validation_service.initialize()
+        await validation_service.start()
+        app.state.service = validation_service
+        
+        logger.info("Validation service started successfully")
+        
+        yield  # Server is running
+        
+        # Shutdown
+        if app.state.service.is_running:
+            await app.state.service.stop()
+            logger.info("Validation service stopped successfully")
+            
+    except Exception as e:
+        logger.error(f"Validation service startup failed: {e}")
+        # Don't raise here - let the service start in degraded mode
+        # The health check will show which components failed
+        yield
+        # Still try to stop service if it exists
+        if hasattr(app.state, "service") and app.state.service.is_running:
+            try:
+                await app.state.service.stop()
+            except Exception as stop_error:
+                logger.error(f"Failed to stop validation service: {stop_error}")
+
+
 def create_app() -> FastAPI:
     """Create validation service.
     
@@ -43,7 +80,8 @@ def create_app() -> FastAPI:
         version=version,
         docs_url="/docs",
         redoc_url="/redoc",
-        openapi_url="/openapi.json"
+        openapi_url="/openapi.json",
+        lifespan=lifespan
     )
     
     # Add CORS middleware
@@ -54,66 +92,26 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Add error handlers
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(request: Request, exc: RequestValidationError):
+        """Handle validation errors."""
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": exc.errors()},
+        )
     
-    # Initialize service
-    validation_service = ValidationService()
-    app.state.service = validation_service
-    app.state.config = config
-    
-    # Create dependency
-    async def get_service() -> ValidationService:
-        """Get validation service instance.
-        
-        Returns:
-            ValidationService: Validation service instance
-        """
-        return app.state.service
-    
-    # Add health check endpoint
     @app.get("/health", response_model=ServiceHealth)
-    async def health(service: ValidationService = Depends(get_service)) -> ServiceHealth:
+    async def health() -> ServiceHealth:
         """Get service health status.
         
         Returns:
             ServiceHealth: Health status
         """
-        return await service.health()
+        return await app.state.service.health()
     
     # Include validation router
     app.include_router(router)
-    
-    @app.on_event("startup")
-    async def startup():
-        """Start validation service."""
-        try:
-            logger.info("Starting validation service...")
-            
-            # Initialize and start service
-            service = app.state.service
-            await service.initialize()
-            await service.start()
-            
-            logger.info("Validation service started successfully")
-            
-        except Exception as e:
-            logger.error(f"Validation service startup failed: {e}")
-            # Don't raise here - let the service start in degraded mode
-            # The health check will show which components failed
-    
-    @app.on_event("shutdown")
-    async def shutdown():
-        """Stop validation service."""
-        try:
-            logger.info("Stopping validation service...")
-            
-            # Stop service if running
-            service = app.state.service
-            if service.is_running:
-                await service.stop()
-            
-            logger.info("Validation service stopped successfully")
-        except Exception as e:
-            logger.error(f"Failed to stop validation service: {e}")
-            # Don't raise during shutdown
     
     return app

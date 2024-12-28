@@ -1,8 +1,10 @@
 """Data collection API application."""
 
-from fastapi import FastAPI
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from loguru import logger
 
 from micro_cold_spray.api.data_collection.data_collection_router import router
@@ -10,6 +12,37 @@ from micro_cold_spray.api.data_collection.data_collection_service import DataCol
 from micro_cold_spray.api.data_collection.data_collection_storage import DataCollectionStorage
 from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.utils.health import ServiceHealth
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Handle startup and shutdown events."""
+    try:
+        # Initialize service
+        service = DataCollectionService()
+        await service.initialize()
+        await service.start()
+        app.state.service = service
+        
+        logger.info("Data collection service started successfully")
+        
+        yield  # Server is running
+        
+        # Shutdown
+        await app.state.service.stop()
+        logger.info("Data collection service stopped successfully")
+        
+    except Exception as e:
+        logger.error(f"Data collection service startup failed: {e}")
+        # Don't raise here - let the service start in degraded mode
+        # The health check will show which components failed
+        yield
+        # Still try to stop service if it exists
+        if hasattr(app.state, "service"):
+            try:
+                await app.state.service.stop()
+            except Exception as stop_error:
+                logger.error(f"Failed to stop data collection service: {stop_error}")
 
 
 def create_data_collection_app() -> FastAPI:
@@ -23,7 +56,8 @@ def create_data_collection_app() -> FastAPI:
         description="API for collecting spray data",
         docs_url="/docs",
         redoc_url="/redoc",
-        openapi_url="/openapi.json"
+        openapi_url="/openapi.json",
+        lifespan=lifespan
     )
     
     # Add CORS middleware
@@ -34,36 +68,18 @@ def create_data_collection_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    
-    # Initialize service
-    service = DataCollectionService()
-    app.state.service = service
+
+    # Add error handlers
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(request: Request, exc: RequestValidationError):
+        """Handle validation errors."""
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": exc.errors()},
+        )
     
     # Add routes
     app.include_router(router)
-    
-    @app.on_event("startup")
-    async def startup():
-        """Start service."""
-        try:
-            # Initialize and start service
-            await app.state.service.initialize()
-            await app.state.service.start()
-            
-        except Exception as e:
-            logger.error(f"Data collection service startup failed: {e}")
-            # Don't raise here - let the service start in degraded mode
-            # The health check will show which components failed
-    
-    @app.on_event("shutdown")
-    async def shutdown():
-        """Stop service."""
-        try:
-            await app.state.service.stop()
-            
-        except Exception as e:
-            logger.error(f"Data collection service shutdown failed: {e}")
-            # Don't raise during shutdown
     
     @app.get("/health", response_model=ServiceHealth)
     async def health() -> ServiceHealth:

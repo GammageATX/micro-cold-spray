@@ -94,23 +94,31 @@ function createServiceCard(name, service) {
 
 /**
  * Update services display
+ * @param {boolean} showLoading - Whether to show loading state
  */
-async function updateServices() {
+async function updateServices(showLoading = false) {
     const grid = document.getElementById('services-grid');
     
     try {
-        // Show loading state
-        grid.innerHTML = '';
-        grid.appendChild(mcsprayUI.domUtils.createSpinner());
+        // Only show loading on initial load or manual refresh
+        if (showLoading) {
+            grid.innerHTML = '';
+            grid.appendChild(mcsprayUI.domUtils.createSpinner());
+        }
         
         // Fetch services status
         const services = await mcsprayUI.apiUtils.fetchWithTimeout('/monitoring/services/status');
         
-        // Update display
-        grid.innerHTML = '';
+        // Create new cards
+        const newGrid = document.createElement('div');
         Object.entries(services).forEach(([name, service]) => {
-            grid.appendChild(createServiceCard(name, service));
+            newGrid.appendChild(createServiceCard(name, service));
         });
+        
+        // Only update DOM if content changed
+        if (grid.innerHTML !== newGrid.innerHTML) {
+            grid.innerHTML = newGrid.innerHTML;
+        }
     } catch (error) {
         const errorDetails = mcsprayUI.apiUtils.handleError(error, 'services-update');
         grid.innerHTML = '';
@@ -127,18 +135,18 @@ document.getElementById('refresh-btn').addEventListener('click', () => {
         clearInterval(updateTimer);
     }
     
-    // Perform immediate update
-    updateServices();
+    // Perform immediate update with loading indicator
+    updateServices(true);
     
     // Restart timer
-    updateTimer = setInterval(updateServices, UPDATE_INTERVAL);
+    updateTimer = setInterval(() => updateServices(false), UPDATE_INTERVAL);
 });
 
-// Initial update
-updateServices();
+// Initial update with loading indicator
+updateServices(true);
 
-// Start update timer
-updateTimer = setInterval(updateServices, UPDATE_INTERVAL);
+// Start update timer without loading indicator
+updateTimer = setInterval(() => updateServices(false), UPDATE_INTERVAL);
 
 // Cleanup on page unload
 window.addEventListener('unload', () => {

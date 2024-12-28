@@ -2,7 +2,115 @@
 
 ## 1. Service Class Structure
 
-### Initialization Pattern
+### FastAPI Application Creation Pattern
+
+```python
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Request, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from loguru import logger
+from pathlib import Path
+import yaml
+from typing import Dict, Any
+
+def load_config() -> Dict[str, Any]:
+    """Load service configuration.
+    
+    Returns:
+        Dict[str, Any]: Configuration dictionary
+        
+    Raises:
+        FileNotFoundError: If config file not found
+    """
+    config_path = Path("config/service.yaml")
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+        
+    with open(config_path) as f:
+        return yaml.safe_load(f)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Handle startup and shutdown events."""
+    try:
+        logger.info("Starting service...")
+        
+        # Get service from app state
+        service = app.state.service
+        
+        # Initialize and start service
+        await service.initialize()
+        await service.start()
+        
+        logger.info("Service started successfully")
+        
+        yield  # Server is running
+        
+        # Shutdown
+        if service.is_running:
+            await service.stop()
+            logger.info("Service stopped successfully")
+            
+    except Exception as e:
+        logger.error(f"Service startup failed: {e}")
+        # Don't raise here - let the service start in degraded mode
+        # The health check will show which components failed
+        yield
+        # Still try to stop service if it exists
+        if hasattr(app.state, "service") and app.state.service.is_running:
+            try:
+                await app.state.service.stop()
+            except Exception as stop_error:
+                logger.error(f"Failed to stop service: {stop_error}")
+
+def create_service() -> FastAPI:
+    """Create and configure the FastAPI application."""
+    # Load config
+    config = load_config()
+    version = config.get("version", "1.0.0")
+    
+    app = FastAPI(
+        title="Service Name",
+        description="Service description",
+        version=version,
+        lifespan=lifespan
+    )
+
+    # Add CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # Add error handlers
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(request: Request, exc: RequestValidationError):
+        """Handle validation errors."""
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": exc.errors()},
+        )
+
+    # Create service with config
+    service = ServiceClass(config)
+    app.state.service = service
+
+    # Add routes
+    app.include_router(service_router)
+
+    @app.get("/health", response_model=ServiceHealth)
+    async def health_check() -> ServiceHealth:
+        """Get service health status."""
+        return await app.state.service.health()
+
+    return app
+
+### Service Initialization Pattern
 
 - ****init****
   - Set basic properties only: _service_name, _version,_is_running,_start_time,_config
@@ -62,6 +170,7 @@
   ```
 
   **Key Points:**
+
   1. Check running state first (409 if not running)
   2. Clean up in reverse dependency order:
      - Unregister from external services first
@@ -168,23 +277,96 @@ except Exception as e:
 
 - 400 Bad Request: Service not initialized, invalid parameters
 - 409 Conflict: Service state conflicts (already running/not running)
+- 422 Unprocessable Entity: Validation errors
 - 503 Service Unavailable: Operation failed, service unhealthy
 
 ## 4. Component Management
 
 ### Component Initialization
 
-- Components initialized to None in **init**
-- Created and initialized in initialize()
-- Started in dependency order
-- Stopped in reverse order
+1. **Client Creation**
+   - Create external clients first (PLC, SSH, etc.)
+   - Handle mock/real client selection based on config
+   - Initialize with required credentials/settings
 
-### Component Health
+2. **Service Creation Order**
+   - Create services in dependency order
+   - Pass required dependencies in constructor
+   - Example:
 
-- Each component provides health status
-- Parent service aggregates component health
-- Use ComponentHealth model consistently
-- Status values: "ok" or "error" only
+     ```python
+     # Create clients first
+     plc_client = create_plc_client(config)
+     ssh_client = create_ssh_client(config)
+
+     # Create services in dependency order
+     tag_mapping = TagMappingService(config)
+     tag_cache = TagCacheService(config, plc_client, ssh_client, tag_mapping)
+     motion = MotionService(config, tag_cache)
+     equipment = EquipmentService(config, tag_cache)
+     ```
+
+3. **Initialization Flow**
+   - Initialize base service first
+   - Initialize components in dependency order
+   - Handle initialization failures gracefully
+   - Example:
+
+     ```python
+     async def initialize(self):
+         """Initialize service and components."""
+         try:
+             # Initialize base service
+             await self._load_config()
+             
+             # Initialize components in order
+             await self._tag_mapping.initialize()
+             await self._tag_cache.initialize()
+             await self._motion.initialize()
+             await self._equipment.initialize()
+             
+             logger.info(f"{self.service_name} initialized")
+             
+         except Exception as e:
+             error_msg = f"Failed to initialize {self.service_name}: {str(e)}"
+             logger.error(error_msg)
+             raise create_error(
+                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                 message=error_msg
+             )
+     ```
+
+4. **Dependency Management**
+   - Clear separation between required and optional dependencies
+   - Document dependencies in class docstring
+   - Handle missing optional dependencies gracefully
+   - Example:
+
+     ```python
+     class ServiceClass:
+         """Service class with dependencies.
+         
+         Required Dependencies:
+             - config: Service configuration
+             - tag_cache: Tag cache service for data access
+             
+         Optional Dependencies:
+             - ssh_client: SSH client for remote access
+             - metrics: Metrics collection service
+         """
+         
+         def __init__(
+             self,
+             config: Dict[str, Any],
+             tag_cache: TagCacheService,
+             ssh_client: Optional[SSHClient] = None,
+             metrics: Optional[MetricsService] = None
+         ):
+             self._config = config
+             self._tag_cache = tag_cache
+             self._ssh_client = ssh_client
+             self._metrics = metrics
+     ```
 
 ### Self-Healing Behavior
 

@@ -4,8 +4,11 @@
 import os
 import yaml
 from typing import Dict, Any
-from fastapi import FastAPI, status
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, status, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from loguru import logger
 
 from micro_cold_spray.utils.errors import create_error
@@ -43,16 +46,54 @@ async def load_real_data(service: ProcessService) -> None:
     logger.info(f"Found {len(sequence_files)} sequence files")
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Handle startup and shutdown events."""
+    try:
+        logger.info("Starting process service...")
+        
+        # Create and initialize service
+        process_service = ProcessService()
+        await process_service.initialize()
+        
+        # Load real data from data directory
+        await load_real_data(process_service)
+        
+        # Start the service
+        await process_service.start()
+        
+        # Store in app state and create router
+        app.state.process_service = process_service
+        app.include_router(create_process_router(process_service))
+        
+        logger.info("Process service started successfully")
+        
+        yield  # Server is running
+        
+        # Shutdown
+        await process_service.stop()
+        logger.info("Process service stopped")
+        
+    except Exception as e:
+        logger.error(f"Process service startup failed: {e}")
+        # Don't raise here - let the service start in degraded mode
+        # The health check will show which components failed
+        yield
+        # Still try to stop service if it exists
+        if hasattr(app.state, "process_service"):
+            try:
+                await app.state.process_service.stop()
+            except Exception as stop_error:
+                logger.error(f"Failed to stop process service: {stop_error}")
+
+
 def load_config() -> Dict[str, Any]:
-    """Load process configuration.
+    """Load configuration from file.
     
     Returns:
-        Dict[str, Any]: Configuration data
+        Dict[str, Any]: Configuration dictionary
     """
-    config_path = os.path.join("config", "process.yaml")
-    if os.path.exists(config_path):
-        with open(config_path, "r") as f:
-            return yaml.safe_load(f)
+    # TODO: Implement config loading
     return {"version": "1.0.0"}
 
 
@@ -72,7 +113,8 @@ def create_app() -> FastAPI:
         version=version,
         docs_url="/docs",
         redoc_url="/redoc",
-        openapi_url="/openapi.json"
+        openapi_url="/openapi.json",
+        lifespan=lifespan
     )
 
     # Add CORS middleware
@@ -84,42 +126,14 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Initialize service
-    process_service = ProcessService()
-    app.state.process_service = process_service
-    app.state.config = config
-
-    @app.on_event("startup")
-    async def startup():
-        """Start process service."""
-        try:
-            logger.info("Starting process service...")
-            
-            # Initialize service first
-            await app.state.process_service.initialize()
-            
-            # Load real data from data directory
-            await load_real_data(app.state.process_service)
-            
-            # Then start the service
-            await app.state.process_service.start()
-            
-            logger.info("Process service started successfully")
-            
-        except Exception as e:
-            logger.error(f"Process service startup failed: {e}")
-            # Don't raise here - let the service start in degraded mode
-            # The health check will show which components failed
-
-    @app.on_event("shutdown")
-    async def shutdown():
-        """Stop service on shutdown."""
-        try:
-            await app.state.process_service.stop()
-            logger.info("Process service stopped")
-        except Exception as e:
-            logger.error(f"Failed to stop process service: {str(e)}")
-            # Don't raise during shutdown
+    # Add error handlers
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(request: Request, exc: RequestValidationError):
+        """Handle validation errors."""
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": exc.errors()},
+        )
 
     @app.get("/health", response_model=ServiceHealth)
     async def health() -> ServiceHealth:
@@ -143,8 +157,5 @@ def create_app() -> FastAPI:
                     "sequence": {"status": "error", "error": error_msg}
                 }
             )
-
-    # Include process router with service instance
-    app.include_router(create_process_router(app.state.process_service))
 
     return app

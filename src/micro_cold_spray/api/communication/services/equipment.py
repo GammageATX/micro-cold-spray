@@ -180,12 +180,62 @@ class EquipmentService:
     async def health(self) -> ServiceHealth:
         """Get service health status."""
         try:
+            # Get current equipment state
+            equipment_state = await self.get_equipment_state()
+            
             # Check component health
             tag_cache_ok = self._tag_cache is not None and self._tag_cache.is_running
-            gas_ok = self.is_running
-            vacuum_ok = self.is_running
-            motion_ok = self.is_running
-            pressure_ok = self.is_running
+            
+            # Gas control health based on actual state
+            gas_ok = True
+            gas_error = None
+            if equipment_state and equipment_state.gas:
+                gas = equipment_state.gas
+                # Check if measured flows match setpoints within tolerance
+                main_flow_error = abs(gas.main_flow - gas.main_flow_measured) > 5.0
+                feeder_flow_error = abs(gas.feeder_flow - gas.feeder_flow_measured) > 2.0
+                if main_flow_error or feeder_flow_error:
+                    gas_ok = False
+                    gas_error = "Flow rates out of tolerance"
+            else:
+                gas_ok = False
+                gas_error = "Gas state not available"
+                
+            # Vacuum system health based on actual state
+            vacuum_ok = True
+            vacuum_error = None
+            if equipment_state and equipment_state.vacuum:
+                vacuum = equipment_state.vacuum
+                # Check vacuum system state
+                if vacuum.chamber_pressure > 100:  # Example threshold
+                    vacuum_ok = False
+                    vacuum_error = "Chamber pressure too high"
+            else:
+                vacuum_ok = False
+                vacuum_error = "Vacuum state not available"
+                
+            # Motion system health based on actual state
+            motion_ok = True
+            motion_error = None
+            if not self._tag_cache or not await self._tag_cache.get_state("motion"):
+                motion_ok = False
+                motion_error = "Motion state not available"
+                
+            # Pressure monitoring health based on actual state
+            pressure_ok = True
+            pressure_error = None
+            if equipment_state and equipment_state.pressures:
+                pressures = equipment_state.pressures
+                # Check if any pressures are out of safe range
+                if pressures.main_supply < 50 or pressures.main_supply > 150:
+                    pressure_ok = False
+                    pressure_error = "Main supply pressure out of range"
+                elif pressures.nozzle > 50:
+                    pressure_ok = False
+                    pressure_error = "Nozzle pressure too high"
+            else:
+                pressure_ok = False
+                pressure_error = "Pressure state not available"
             
             # Build component statuses
             components = {
@@ -195,19 +245,19 @@ class EquipmentService:
                 ),
                 "gas_control": ComponentHealth(
                     status="ok" if gas_ok else "error",
-                    error=None if gas_ok else "Gas control not initialized"
+                    error=gas_error
                 ),
                 "vacuum": ComponentHealth(
                     status="ok" if vacuum_ok else "error",
-                    error=None if vacuum_ok else "Vacuum control not initialized"
+                    error=vacuum_error
                 ),
                 "motion": ComponentHealth(
                     status="ok" if motion_ok else "error",
-                    error=None if motion_ok else "Motion control not initialized"
+                    error=motion_error
                 ),
                 "pressure": ComponentHealth(
                     status="ok" if pressure_ok else "error",
-                    error=None if pressure_ok else "Pressure monitoring not initialized"
+                    error=pressure_error
                 )
             }
             
