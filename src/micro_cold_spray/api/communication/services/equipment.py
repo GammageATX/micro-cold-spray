@@ -191,9 +191,17 @@ class EquipmentService:
             gas_error = None
             if equipment_state and equipment_state.gas:
                 gas = equipment_state.gas
-                # Check if measured flows match setpoints within tolerance
-                main_flow_error = abs(gas.main_flow - gas.main_flow_measured) > 10.0
-                feeder_flow_error = abs(gas.feeder_flow - gas.feeder_flow_measured) > 5.0
+                # Only check flows if they are active (non-zero setpoint)
+                if gas.main_flow > 0:
+                    main_flow_error = abs(gas.main_flow - gas.main_flow_measured) / gas.main_flow > 0.1  # 10% tolerance
+                else:
+                    main_flow_error = False
+                    
+                if gas.feeder_flow > 0:
+                    feeder_flow_error = abs(gas.feeder_flow - gas.feeder_flow_measured) / gas.feeder_flow > 0.1  # 10% tolerance
+                else:
+                    feeder_flow_error = False
+                    
                 if main_flow_error or feeder_flow_error:
                     gas_ok = False
                     gas_error = "Flow rates out of tolerance"
@@ -217,25 +225,28 @@ class EquipmentService:
             # Motion system health based on actual state
             motion_ok = True
             motion_error = None
-            if equipment_state and equipment_state.motion:
-                motion = equipment_state.motion
-                if not motion.enabled or motion.error:
+            if equipment_state and equipment_state.hardware:
+                hardware = equipment_state.hardware
+                if not hardware.motion_enabled:
                     motion_ok = False
-                    motion_error = "Motion system error or disabled"
+                    motion_error = "Motion system disabled"
+                elif not hardware.position_valid:
+                    motion_ok = False
+                    motion_error = "Position tracking invalid"
             else:
                 motion_ok = False
-                motion_error = "Motion state not available"
+                motion_error = "Hardware state not available"
                 
             # Pressure monitoring health based on actual state
             pressure_ok = True
             pressure_error = None
-            if equipment_state and equipment_state.pressures:
-                pressures = equipment_state.pressures
+            if equipment_state and equipment_state.pressure:
+                pressure = equipment_state.pressure
                 # Check if any pressures are out of safe range
-                if pressures.main_supply < 50 or pressures.main_supply > 150:
+                if pressure.main_supply < 50 or pressure.main_supply > 150:
                     pressure_ok = False
                     pressure_error = "Main supply pressure out of range"
-                elif pressures.nozzle > 1000:
+                elif pressure.nozzle > 1000:
                     pressure_ok = False
                     pressure_error = "Nozzle pressure too high"
             else:
