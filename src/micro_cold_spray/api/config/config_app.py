@@ -6,29 +6,86 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from loguru import logger
+import yaml
 
 from micro_cold_spray.api.config.config_service import ConfigService
 from micro_cold_spray.api.config.endpoints import router as config_router
 from micro_cold_spray.utils.health import ServiceHealth
 
 
+def load_config():
+    """Load service configuration."""
+    try:
+        with open("config/config.yaml", "r") as f:
+            return yaml.safe_load(f)
+    except Exception as e:
+        logger.error(f"Failed to load config, using defaults: {e}")
+        return {
+            "version": "1.0.0",
+            "service": {
+                "host": "0.0.0.0",
+                "port": 8001,
+                "log_level": "INFO"
+            },
+            "components": {
+                "file": {
+                    "version": "1.0.0",
+                    "base_path": "config"
+                },
+                "format": {
+                    "version": "1.0.0",
+                    "enabled_formats": ["yaml", "json"]
+                },
+                "schema": {
+                    "version": "1.0.0",
+                    "schema_path": "config/schemas"
+                }
+            }
+        }
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Handle startup and shutdown events."""
-    # Startup
-    config_service = ConfigService()
-    await config_service.start()
-    app.state.config_service = config_service
-    
-    yield  # Server is running
-    
-    # Shutdown
-    await config_service.stop()
+    try:
+        # Load config
+        config = load_config()
+        
+        # Create and initialize service
+        config_service = ConfigService(version=config["version"])
+        await config_service.initialize()
+        await config_service.start()
+        
+        # Store in app state
+        app.state.config_service = config_service
+        
+        logger.info("Configuration service started successfully")
+        yield
+        
+        # Shutdown
+        if config_service.is_running:
+            await config_service.stop()
+            logger.info("Configuration service stopped successfully")
+            
+    except Exception as e:
+        logger.error(f"Service startup failed: {e}")
+        yield
+        # Still try to stop service if it exists
+        if hasattr(app.state, "config_service") and app.state.config_service.is_running:
+            try:
+                await app.state.config_service.stop()
+            except Exception as stop_error:
+                logger.error(f"Failed to stop service: {stop_error}")
 
 
 def create_config_service() -> FastAPI:
     """Create and configure the FastAPI application for the configuration service."""
-    app = FastAPI(title="Configuration Service", lifespan=lifespan)
+    app = FastAPI(
+        title="Configuration Service",
+        description="Service for managing configurations",
+        version="1.0.0",
+        lifespan=lifespan
+    )
 
     # Add CORS middleware
     app.add_middleware(
