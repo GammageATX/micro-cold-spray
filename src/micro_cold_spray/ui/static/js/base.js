@@ -2,20 +2,25 @@
 
 // Service status colors
 const STATUS_COLORS = {
-    ok: {
+    running: {
         bg: 'bg-green-100',
         border: 'border-green-500',
         text: 'text-green-800'
+    },
+    starting: {
+        bg: 'bg-yellow-100',
+        border: 'border-yellow-500',
+        text: 'text-yellow-800'
     },
     error: {
         bg: 'bg-red-100',
         border: 'border-red-500',
         text: 'text-red-800'
     },
-    warning: {
-        bg: 'bg-yellow-100',
-        border: 'border-yellow-500',
-        text: 'text-yellow-800'
+    stopped: {
+        bg: 'bg-red-100',
+        border: 'border-red-500',
+        text: 'text-red-800'
     }
 };
 
@@ -42,17 +47,6 @@ const formatUtils = {
         return name.split('_')
             .map(word => word.charAt(0).toUpperCase() + word.slice(1))
             .join(' ');
-    },
-
-    /**
-     * Format timestamp for display
-     * @param {string} timestamp - ISO timestamp
-     * @returns {string} Formatted date string
-     */
-    formatTimestamp(timestamp) {
-        if (!timestamp) return '';
-        const date = new Date(timestamp);
-        return date.toLocaleString();
     }
 };
 
@@ -80,7 +74,8 @@ const apiUtils = {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             
-            return await response.json();
+            const data = await response.json();
+            return data;
         } catch (error) {
             if (error.name === 'AbortError') {
                 throw new Error('Request timed out');
@@ -124,20 +119,9 @@ const domUtils = {
      */
     createErrorMessage(message) {
         const error = document.createElement('div');
-        error.className = 'error-message';
+        error.className = 'error-message p-4 bg-red-100 border-2 border-red-500 rounded text-red-800';
         error.textContent = message;
         return error;
-    },
-
-    /**
-     * Add status indicator to element
-     * @param {HTMLElement} element - Target element
-     * @param {string} status - Status value
-     */
-    addStatusIndicator(element, status) {
-        const indicator = document.createElement('span');
-        indicator.className = `status-indicator status-${status}`;
-        element.insertBefore(indicator, element.firstChild);
     }
 };
 

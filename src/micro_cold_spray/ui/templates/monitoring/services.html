@@ -33,13 +33,33 @@ let updateTimer = null;
  */
 function createServiceCard(name, service) {
     const card = document.createElement('div');
-    card.className = `service-card p-6 rounded-lg border-2 ${mcsprayUI.STATUS_COLORS[service.status].border} ${mcsprayUI.STATUS_COLORS[service.status].bg}`;
+    
+    // Map status to display colors
+    let statusColor;
+    switch (service.status.toLowerCase()) {
+        case 'ok':
+            statusColor = 'success';
+            break;
+        case 'starting':
+            statusColor = 'warning';
+            break;
+        case 'error':
+            statusColor = 'error';
+            break;
+        case 'stopped':
+            statusColor = 'error';
+            break;
+        default:
+            statusColor = 'error';
+    }
+    
+    card.className = `service-card p-6 rounded-lg border-2 border-${statusColor} bg-${statusColor}/10`;
     
     card.innerHTML = `
         <div class="flex justify-between items-center mb-4">
             <h3 class="text-lg font-semibold">${mcsprayUI.formatUtils.formatServiceName(name)}</h3>
-            <span class="px-2 py-1 rounded text-sm text-white bg-${service.status === 'ok' ? 'success' : service.status === 'warning' ? 'warning' : 'error'}">
-                ${service.status.toUpperCase()}
+            <span class="px-2 py-1 rounded text-sm text-white bg-${statusColor}">
+                ${service.is_running ? 'RUNNING' : service.status.toUpperCase()}
             </span>
         </div>
         <div class="space-y-2">
@@ -52,38 +72,47 @@ function createServiceCard(name, service) {
                 </p>
             ` : ''}
             <p class="text-sm">
-                <span class="font-medium">Status:</span> ${service.is_running ? 'Running' : 'Stopped'}
-            </p>
-            <p class="text-sm">
                 <span class="font-medium">Uptime:</span> ${mcsprayUI.formatUtils.formatUptime(service.uptime)}
             </p>
-            ${service.timestamp ? `
-                <p class="text-sm">
-                    <span class="font-medium">Last Update:</span> ${mcsprayUI.formatUtils.formatTimestamp(service.timestamp)}
-                </p>
-            ` : ''}
             ${service.mode ? `
                 <p class="text-sm">
                     <span class="font-medium">Mode:</span> ${service.mode}
                 </p>
             ` : ''}
             ${service.error ? `
-                <div class="error-message mt-2">
+                <div class="error-message mt-2 text-sm text-red-600">
                     <span class="font-medium">Error:</span> ${service.error}
                 </div>
             ` : ''}
             ${service.components ? `
                 <div class="mt-4 border-t pt-2">
                     <p class="text-sm font-medium mb-2">Components:</p>
-                    ${Object.entries(service.components).map(([name, health]) => `
-                        <div class="component-status flex items-center justify-between mt-2 text-sm">
-                            <span class="font-medium">${mcsprayUI.formatUtils.formatServiceName(name)}:</span>
-                            <span class="px-2 py-0.5 rounded text-xs text-white bg-${health.status === 'ok' ? 'success' : health.status === 'warning' ? 'warning' : 'error'}">
-                                ${health.status.toUpperCase()}
-                            </span>
-                        </div>
-                        ${health.error ? `<p class="text-xs text-red-600 mt-1">${health.error}</p>` : ''}
-                    `).join('')}
+                    ${Object.entries(service.components).map(([name, health]) => {
+                        // Map component status to color
+                        let componentColor;
+                        switch (health.status.toLowerCase()) {
+                            case 'ok':
+                                componentColor = 'success';
+                                break;
+                            case 'warning':
+                                componentColor = 'warning';
+                                break;
+                            case 'error':
+                                componentColor = 'error';
+                                break;
+                            default:
+                                componentColor = 'error';
+                        }
+                        return `
+                            <div class="component-status flex items-center justify-between mt-2 text-sm">
+                                <span class="font-medium">${mcsprayUI.formatUtils.formatServiceName(name)}:</span>
+                                <span class="px-2 py-0.5 rounded text-xs text-white bg-${componentColor}">
+                                    ${health.status.toUpperCase()}
+                                </span>
+                            </div>
+                            ${health.error ? `<p class="text-xs text-red-600 mt-1">${health.error}</p>` : ''}
+                        `;
+                    }).join('')}
                 </div>
             ` : ''}
         </div>

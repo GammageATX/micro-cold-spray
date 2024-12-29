@@ -64,8 +64,8 @@ async def lifespan(app: FastAPI):
                 logger.error(f"Failed to stop validation service: {stop_error}")
 
 
-def create_app() -> FastAPI:
-    """Create validation service.
+def create_validation_service() -> FastAPI:
+    """Create validation service application.
     
     Returns:
         FastAPI: Application instance
@@ -104,12 +104,39 @@ def create_app() -> FastAPI:
     
     @app.get("/health", response_model=ServiceHealth)
     async def health() -> ServiceHealth:
-        """Get service health status.
-        
-        Returns:
-            ServiceHealth: Health status
-        """
-        return await app.state.service.health()
+        """Get service health status."""
+        try:
+            # Check if service exists and is initialized
+            if not hasattr(app.state, "service"):
+                return ServiceHealth(
+                    status="starting",
+                    service="validation",
+                    version=version,
+                    is_running=False,
+                    uptime=0.0,
+                    error="Service initializing",
+                    mode=config.get("mode", "normal"),
+                    components={}
+                )
+            
+            return await app.state.service.health()
+            
+        except Exception as e:
+            error_msg = f"Health check failed: {str(e)}"
+            logger.error(error_msg)
+            return ServiceHealth(
+                status="error",
+                service="validation",
+                version=version,
+                is_running=False,
+                uptime=0.0,
+                error=error_msg,
+                mode=config.get("mode", "normal"),
+                components={
+                    "validator": {"status": "error", "error": error_msg},
+                    "rules": {"status": "error", "error": error_msg}
+                }
+            )
     
     # Include validation router
     app.include_router(router)

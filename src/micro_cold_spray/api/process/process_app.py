@@ -53,19 +53,19 @@ async def lifespan(app: FastAPI):
         logger.info("Starting process service...")
         
         # Get service from app state
-        process_service = app.state.process_service
+        service = app.state.service
         
         # Initialize and start service
-        await process_service.initialize()
-        await process_service.start()
+        await service.initialize()
+        await service.start()
         
         logger.info("Process service started successfully")
         
         yield  # Server is running
         
         # Shutdown
-        if process_service.is_running:
-            await process_service.stop()
+        if hasattr(app.state, "service") and app.state.service.is_running:
+            await app.state.service.stop()
             logger.info("Process service stopped")
         
     except Exception as e:
@@ -73,14 +73,12 @@ async def lifespan(app: FastAPI):
         # Don't raise here - let the service start in degraded mode
         # The health check will show which components failed
         yield
-        # Still try to stop service if it exists and is running
-        if hasattr(app.state, "process_service"):
-            process_service = app.state.process_service
-            if process_service.is_running:
-                try:
-                    await process_service.stop()
-                except Exception as stop_error:
-                    logger.error(f"Failed to stop process service: {stop_error}")
+        # Still try to stop service if it exists
+        if hasattr(app.state, "service"):
+            try:
+                await app.state.service.stop()
+            except Exception as stop_error:
+                logger.error(f"Failed to stop process service: {stop_error}")
 
 
 def load_config() -> Dict[str, Any]:
@@ -118,17 +116,20 @@ def load_config() -> Dict[str, Any]:
     }
 
 
-def create_app() -> FastAPI:
-    """Create FastAPI application.
+def create_process_service() -> FastAPI:
+    """Create process service application.
     
     Returns:
         FastAPI: Application instance
     """
-    # Create FastAPI app
+    # Load config and create service
+    config = load_config()
+    service = ProcessService(config)
+    
     app = FastAPI(
         title="Process API",
         description="API for managing process execution",
-        version="1.0.0",
+        version=config["version"],
         lifespan=lifespan
     )
     
@@ -150,21 +151,31 @@ def create_app() -> FastAPI:
             content={"detail": exc.errors()},
         )
     
-    # Load config and create service
-    config = load_config()
-    process_service = ProcessService(config)
-    
     # Create router and mount it
-    app.include_router(create_process_router(process_service))
+    app.include_router(create_process_router(service))
     
     # Store service in app state
-    app.state.process_service = process_service
+    app.state.service = service
     
     @app.get("/health", response_model=ServiceHealth)
     async def health() -> ServiceHealth:
-        """Get API health status."""
+        """Get service health status."""
         try:
-            return await app.state.process_service.health()
+            # Check if service exists and is initialized
+            if not hasattr(app.state, "service"):
+                return ServiceHealth(
+                    status="starting",
+                    service="process",
+                    version=config["version"],
+                    is_running=False,
+                    uptime=0.0,
+                    error="Service initializing",
+                    mode=config.get("mode", "normal"),
+                    components={}
+                )
+            
+            return await app.state.service.health()
+            
         except Exception as e:
             error_msg = f"Health check failed: {str(e)}"
             logger.error(error_msg)

@@ -21,11 +21,12 @@ async def lifespan(app: FastAPI):
     try:
         logger.info("Starting state service...")
         
-        # Initialize service
-        state_service = StateService()
-        await state_service.initialize()
-        await state_service.start()
-        app.state.service = state_service
+        # Get service from app state
+        service = app.state.service
+        
+        # Initialize and start service
+        await service.initialize()
+        await service.start()
         
         logger.info("State service started successfully")
         
@@ -33,8 +34,9 @@ async def lifespan(app: FastAPI):
         
         # Shutdown
         logger.info("Stopping state service...")
-        await app.state.service.stop()
-        logger.info("State service stopped successfully")
+        if hasattr(app.state, "service") and app.state.service.is_running:
+            await app.state.service.stop()
+            logger.info("State service stopped successfully")
         
     except Exception as e:
         logger.error(f"State service startup failed: {e}")
@@ -50,7 +52,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_state_service() -> FastAPI:
-    """Create state service.
+    """Create state service application.
     
     Returns:
         FastAPI: Application instance
@@ -87,10 +89,46 @@ def create_state_service() -> FastAPI:
             content={"detail": exc.errors()},
         )
     
+    # Create service
+    service = StateService()
+    app.state.service = service
+    
     @app.get("/health", response_model=ServiceHealth)
     async def health() -> ServiceHealth:
         """Get service health status."""
-        return await app.state.service.health()
+        try:
+            # Check if service exists and is initialized
+            if not hasattr(app.state, "service"):
+                return ServiceHealth(
+                    status="starting",
+                    service="state",
+                    version=version,
+                    is_running=False,
+                    uptime=0.0,
+                    error="Service initializing",
+                    mode=config.get("mode", "normal"),
+                    components={}
+                )
+            
+            return await app.state.service.health()
+            
+        except Exception as e:
+            error_msg = f"Health check failed: {str(e)}"
+            logger.error(error_msg)
+            return ServiceHealth(
+                status="error",
+                service="state",
+                version=version,
+                is_running=False,
+                uptime=0.0,
+                error=error_msg,
+                mode=config.get("mode", "normal"),
+                components={
+                    "config": {"status": "error", "error": error_msg},
+                    "state_machine": {"status": "error", "error": error_msg},
+                    "state": {"status": "error", "error": error_msg}
+                }
+            )
     
     @app.post("/start")
     async def start():

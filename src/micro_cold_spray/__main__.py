@@ -28,9 +28,9 @@ class ServiceConfig:
         'config': "micro_cold_spray.api.config.config_app:create_config_service",
         'state': "micro_cold_spray.api.state.state_app:create_state_service",
         'communication': "micro_cold_spray.api.communication.communication_app:create_communication_service",
-        'process': "micro_cold_spray.api.process.process_app:create_app",
-        'data_collection': "micro_cold_spray.api.data_collection.data_collection_app:create_data_collection_app",
-        'validation': "micro_cold_spray.api.validation.validation_app:create_app",
+        'process': "micro_cold_spray.api.process.process_app:create_process_service",
+        'data_collection': "micro_cold_spray.api.data_collection.data_collection_app:create_data_collection_service",
+        'validation': "micro_cold_spray.api.validation.validation_app:create_validation_service",
         'ui': "micro_cold_spray.ui.router:create_app"
     }
 

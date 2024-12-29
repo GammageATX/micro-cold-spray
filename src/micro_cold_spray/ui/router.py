@@ -60,7 +60,21 @@ async def check_service_health(url: str, service_name: str = None) -> ServiceHea
             async with session.get(f"{url}/health", timeout=2) as response:
                 if response.status == 200:
                     data = await response.json()
-                    return ServiceHealth(**data)
+                    # Ensure we have a valid ServiceHealth object
+                    health = ServiceHealth(**data)
+                    
+                    # Update running status based on actual service state
+                    if health.status == "starting":
+                        health.is_running = True  # Service is alive but initializing
+                    elif health.status == "ok":
+                        health.is_running = True  # Service is fully operational
+                    elif health.status == "error":
+                        health.is_running = False  # Service has errors
+                    else:
+                        health.is_running = False  # Unknown state
+                        
+                    return health
+                    
                 return ServiceHealth(
                     status="error",
                     service=service_name or "unknown",
@@ -68,6 +82,7 @@ async def check_service_health(url: str, service_name: str = None) -> ServiceHea
                     is_running=False,
                     uptime=0.0,
                     error=f"Service returned status {response.status}",
+                    mode="normal",
                     components={"main": ComponentHealth(status="error", error="Service unavailable")}
                 )
     except aiohttp.ClientError as e:
@@ -79,6 +94,7 @@ async def check_service_health(url: str, service_name: str = None) -> ServiceHea
             is_running=False,
             uptime=0.0,
             error=f"Connection error: {str(e)}",
+            mode="normal",
             components={"main": ComponentHealth(status="error", error="Connection failed")}
         )
     except Exception as e:
@@ -90,6 +106,7 @@ async def check_service_health(url: str, service_name: str = None) -> ServiceHea
             is_running=False,
             uptime=0.0,
             error=str(e),
+            mode="normal",
             components={"main": ComponentHealth(status="error", error="Unexpected error")}
         )
 
@@ -259,10 +276,21 @@ def create_app() -> FastAPI:
                             for name, comp in health.components.items()
                         }
                     
+                    # Map service status to display status
+                    display_status = health.status
+                    if health.status == "ok" and health.is_running:
+                        display_status = "Running"
+                    elif health.status == "starting":
+                        display_status = "Starting"
+                    elif health.status == "error":
+                        display_status = "Error"
+                    else:
+                        display_status = "Stopped"
+                    
                     services[service_name] = ServiceStatus(
                         name=service_name,
                         port=port,
-                        status=health.status,
+                        status=display_status,
                         uptime=health.uptime,
                         version=health.version,
                         mode=health.mode,

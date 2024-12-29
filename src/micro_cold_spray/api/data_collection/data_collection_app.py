@@ -18,11 +18,12 @@ from micro_cold_spray.utils.health import ServiceHealth
 async def lifespan(app: FastAPI):
     """Handle startup and shutdown events."""
     try:
-        # Initialize service
-        service = DataCollectionService()
+        # Get service from app state
+        service = app.state.service
+        
+        # Initialize and start service
         await service.initialize()
         await service.start()
-        app.state.service = service
         
         logger.info("Data collection service started successfully")
         
@@ -45,7 +46,7 @@ async def lifespan(app: FastAPI):
                 logger.error(f"Failed to stop data collection service: {stop_error}")
 
 
-def create_data_collection_app() -> FastAPI:
+def create_data_collection_service() -> FastAPI:
     """Create data collection application.
     
     Returns:
@@ -78,12 +79,47 @@ def create_data_collection_app() -> FastAPI:
             content={"detail": exc.errors()},
         )
     
+    # Create service
+    service = DataCollectionService()
+    app.state.service = service
+    
     # Add routes
     app.include_router(router)
     
     @app.get("/health", response_model=ServiceHealth)
     async def health() -> ServiceHealth:
-        """Get service health status."""
-        return await app.state.service.health()
+        """Get API health status."""
+        try:
+            # Check if service exists and is initialized
+            if not hasattr(app.state, "service"):
+                return ServiceHealth(
+                    status="starting",
+                    service="data_collection",
+                    version="1.0.0",
+                    is_running=False,
+                    uptime=0.0,
+                    error="Service initializing",
+                    mode="normal",
+                    components={}
+                )
+            
+            return await app.state.service.health()
+            
+        except Exception as e:
+            error_msg = f"Health check failed: {str(e)}"
+            logger.error(error_msg)
+            return ServiceHealth(
+                status="error",
+                service="data_collection",
+                version="1.0.0",
+                is_running=False,
+                uptime=0.0,
+                error=error_msg,
+                mode="normal",
+                components={
+                    "storage": {"status": "error", "error": error_msg},
+                    "collector": {"status": "error", "error": error_msg}
+                }
+            )
     
     return app

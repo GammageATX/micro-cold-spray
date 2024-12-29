@@ -25,6 +25,7 @@ from micro_cold_spray.api.communication.services.tag_mapping import TagMappingSe
 from micro_cold_spray.api.communication.clients.mock import MockPLCClient
 from micro_cold_spray.api.communication.clients.plc import PLCClient
 from micro_cold_spray.api.communication.clients.ssh import SSHClient
+from micro_cold_spray.api.communication.communication_service import CommunicationService
 
 
 def setup_logging(log_level: str = "INFO") -> None:
@@ -89,78 +90,48 @@ async def lifespan(app: FastAPI):
     try:
         logger.info("Starting communication service...")
         
-        # Get services from app state
-        tag_mapping_service = app.state.tag_mapping_service
-        tag_cache_service = app.state.tag_cache_service
-        motion_service = app.state.motion_service
-        equipment_service = app.state.equipment_service
+        # Get service from app state
+        service = app.state.service
         
-        # Initialize and start services in order
-        await tag_mapping_service.initialize()
-        await tag_mapping_service.start()
-        
-        await tag_cache_service.initialize()
-        await tag_cache_service.start()
-        
-        # Set up motion service dependencies
-        motion_service.set_tag_cache(tag_cache_service)
-        await motion_service.initialize()
-        await motion_service.start()
-        
-        # Set up equipment service dependencies
-        equipment_service.set_tag_cache(tag_cache_service)
-        await equipment_service.initialize()
-        await equipment_service.start()
+        # Initialize and start service
+        await service.initialize()
+        await service.start()
         
         logger.info("Communication service started successfully")
         
         yield  # Server is running
         
-        # Shutdown - stop services in reverse order
-        await equipment_service.stop()
-        await motion_service.stop()
-        await tag_cache_service.stop()
-        await tag_mapping_service.stop()
-        
-        logger.info("Communication service stopped")
+        # Shutdown
+        logger.info("Stopping communication service...")
+        if hasattr(app.state, "service") and app.state.service.is_running:
+            await app.state.service.stop()
+            logger.info("Communication service stopped successfully")
         
     except Exception as e:
-        logger.error(f"Communication service startup failed: {str(e)}")
+        logger.error(f"Communication service startup failed: {e}")
         # Don't raise here - let the service start in degraded mode
         # The health check will show which components failed
         yield
-        # Still try to stop services if they exist
-        try:
-            if hasattr(app.state, "equipment_service"):
-                await app.state.equipment_service.stop()
-            if hasattr(app.state, "motion_service"):
-                await app.state.motion_service.stop()
-            if hasattr(app.state, "tag_cache_service"):
-                await app.state.tag_cache_service.stop()
-            if hasattr(app.state, "tag_mapping_service"):
-                await app.state.tag_mapping_service.stop()
-        except Exception as stop_error:
-            logger.error(f"Failed to stop communication service: {stop_error}")
+        # Still try to stop service if it exists
+        if hasattr(app.state, "service"):
+            try:
+                await app.state.service.stop()
+            except Exception as stop_error:
+                logger.error(f"Failed to stop communication service: {stop_error}")
 
 
-def create_communication_service(config: Optional[Dict[str, Any]] = None) -> FastAPI:
+def create_communication_service() -> FastAPI:
     """Create communication service application.
     
-    Args:
-        config: Optional configuration dictionary. If not provided, will load from file.
-    
     Returns:
-        FastAPI application instance
+        FastAPI: Application instance
     """
-    # Load configuration if not provided
-    if config is None:
-        config = load_config()
+    # Load config
+    config = load_config()
     
     # Setup logging
     setup_logging(config["service"]["log_level"])
-    logger.info("Starting communication service...")
-
-    # Create FastAPI app
+    
     app = FastAPI(
         title="Communication Service",
         description="Service for hardware communication",
@@ -174,97 +145,47 @@ def create_communication_service(config: Optional[Dict[str, Any]] = None) -> Fas
         allow_origins=["*"],
         allow_credentials=True,
         allow_methods=["*"],
-        allow_headers=["*"]
+        allow_headers=["*"],
     )
 
     # Add error handlers
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
         """Handle validation errors."""
-        error_msg = f"Validation error: {str(exc)}"
-        logger.error(error_msg)
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            content={
-                "status": "error",
-                "message": "Validation error",
-                "details": exc.errors()
-            }
+            content={"detail": exc.errors()},
         )
-
-    # Create clients first
-    force_mock = config["communication"]["hardware"]["network"]["force_mock"]
-    plc_client = MockPLCClient(config) if force_mock else PLCClient(config)
     
-    # Create SSH client if not in mock mode
-    ssh_client = None
-    if not force_mock:
-        ssh_config = config["communication"]["hardware"]["network"]["ssh"]
-        ssh_client = SSHClient(
-            host=ssh_config["host"],
-            port=ssh_config["port"],
-            username=ssh_config["username"],
-            password=ssh_config["password"]
-        )
-
-    # Create services in dependency order
-    tag_mapping_service = TagMappingService(config)
-    tag_cache_service = TagCacheService(config, plc_client, ssh_client, tag_mapping_service)
-    motion_service = MotionService(config)
-    equipment_service = EquipmentService(config)
-
-    # Store services in app state
-    app.state.config = config
-    app.state.tag_mapping_service = tag_mapping_service
-    app.state.tag_cache_service = tag_cache_service
-    app.state.motion_service = motion_service
-    app.state.equipment_service = equipment_service
-
-    # Add routes
+    # Create service
+    service = CommunicationService(config)
+    
+    # Add routers
     app.include_router(state_router)
     app.include_router(equipment_router)
     app.include_router(motion_router)
-
+    
+    # Store service in app state
+    app.state.service = service
+    
     @app.get("/health", response_model=ServiceHealth)
     async def health() -> ServiceHealth:
         """Get service health status."""
         try:
-            # Check health of all services
-            tag_mapping_health = await app.state.tag_mapping_service.health()
-            tag_cache_health = await app.state.tag_cache_service.health()
-            equipment_health = await app.state.equipment_service.health()
+            # Check if service exists and is initialized
+            if not hasattr(app.state, "service"):
+                return ServiceHealth(
+                    status="starting",
+                    service="communication",
+                    version=config["version"],
+                    is_running=False,
+                    uptime=0.0,
+                    error="Service initializing",
+                    mode=config.get("mode", "normal"),
+                    components={}
+                )
             
-            # Organize components by category
-            components = {
-                # Core components - these affect service health
-                "tag_mapping": tag_mapping_health.components.get("mapping", ComponentHealth(status="error", error="Not available")),
-                "tag_cache": tag_cache_health.components.get("cache", ComponentHealth(status="error", error="Not available")),
-                
-                # Equipment state components - these are warnings only
-                "gas_control": equipment_health.components.get("gas_control", ComponentHealth(status="error", error="Not available")),
-                "vacuum": equipment_health.components.get("vacuum", ComponentHealth(status="error", error="Not available")),
-                "motion": equipment_health.components.get("motion", ComponentHealth(status="error", error="Not available")),
-                "pressure": equipment_health.components.get("pressure", ComponentHealth(status="error", error="Not available"))
-            }
-            
-            # Service is healthy if core components are working
-            # Equipment state issues are warnings only
-            core_components = {"tag_mapping", "tag_cache"}
-            has_core_components = all(
-                components[comp].status == "ok"
-                for comp in core_components
-            )
-            
-            return ServiceHealth(
-                status="ok" if has_core_components else "error",
-                service="communication",
-                version=config["version"],
-                is_running=True,
-                uptime=0.0,  # TODO: Implement uptime tracking
-                error=None if has_core_components else "Core components unavailable",
-                mode="normal",
-                components=components
-            )
+            return await app.state.service.health()
             
         except Exception as e:
             error_msg = f"Health check failed: {str(e)}"
@@ -276,11 +197,11 @@ def create_communication_service(config: Optional[Dict[str, Any]] = None) -> Fas
                 is_running=False,
                 uptime=0.0,
                 error=error_msg,
-                mode="normal",
+                mode=config.get("mode", "normal"),
                 components={
-                    "tag_mapping": ComponentHealth(status="error", error=error_msg),
-                    "tag_cache": ComponentHealth(status="error", error=error_msg)
+                    "serial": {"status": "error", "error": error_msg},
+                    "protocol": {"status": "error", "error": error_msg}
                 }
             )
-
+    
     return app

@@ -28,44 +28,55 @@
                         error: '#ef4444'
                     }
                 }
-            }
-        }
+            },
+            safelist: [
+                'bg-success',
+                'bg-warning',
+                'bg-error',
+                'border-success',
+                'border-warning',
+                'border-error',
+                'text-success',
+                'text-warning',
+                'text-error',
+                'bg-success/10',
+                'bg-warning/10',
+                'bg-error/10'
+            ]
+        };
     </script>
 </head>
-<body class="bg-gray-50 min-h-screen flex flex-col">
+<body class="bg-gray-50 min-h-screen">
     <!-- Header -->
-    <header class="bg-white shadow">
+    <header class="bg-white shadow-sm">
         <div class="container mx-auto px-4 py-4">
-            <div class="flex items-center justify-between">
-                <div class="flex items-center space-x-2">
-                    <svg class="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                    <h1 class="text-2xl font-bold text-gray-800">{{ page_title }}</h1>
+            <div class="flex justify-between items-center">
+                <div class="flex items-center space-x-4">
+                    <a href="/" class="flex items-center space-x-2">
+                        <svg class="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        <span class="text-xl font-semibold text-gray-900">MicroColdSpray</span>
+                    </a>
                 </div>
-                <nav class="flex items-center space-x-4">
+                <div class="flex items-center space-x-4">
                     {% block nav_items %}{% endblock %}
-                </nav>
+                </div>
             </div>
         </div>
     </header>
 
     <!-- Main Content -->
-    <main class="flex-grow py-8">
+    <main class="py-8">
         {% block content %}{% endblock %}
     </main>
 
     <!-- Footer -->
-    <footer class="bg-white border-t mt-auto">
-        <div class="container mx-auto px-4 py-4">
-            <div class="flex items-center justify-between">
-                <p class="text-sm text-gray-500">
-                    MicroColdSpray Service Monitor &copy; {{ now().strftime('%Y') }}
-                </p>
-                <div class="text-sm text-gray-500">
-                    Version {{ version }}
-                </div>
+    <footer class="bg-white border-t mt-auto py-4">
+        <div class="container mx-auto px-4">
+            <div class="text-center text-sm text-gray-600">
+                <p>MicroColdSpray v{{ version }} - &copy; {{ now().year }}</p>
             </div>
         </div>
     </footer>
