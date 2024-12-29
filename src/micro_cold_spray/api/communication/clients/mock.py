@@ -11,11 +11,7 @@ class MockPLCClient:
     """Mock client that simulates PLC behavior."""
     
     def __init__(self, config: Dict[str, Any]):
-        """Initialize mock client.
-        
-        Args:
-            config: Client configuration
-        """
+        """Initialize mock client."""
         self._connected = False
         self._config = config
         
@@ -29,13 +25,10 @@ class MockPLCClient:
                 self._mock_data = yaml.safe_load(f)
             logger.info(f"Loaded mock data from {mock_data_path}")
             
-        # Initialize mock tag values
-        self._plc_tags = self._mock_data.get("plc_tags", {})
-        
-        # Add simulated behavior
-        self._update_task = None
-        self._running = False
+        # Initialize mock tag values from mock_data.yaml
+        self._plc_tags = self._mock_data.get("plc_tags", {}).copy()  # Make a copy
         logger.info(f"Mock client initialized with {len(self._plc_tags)} tags")
+        logger.debug(f"Initial mock tag values: {self._plc_tags}")
 
     async def connect(self) -> None:
         """Simulate connection."""
@@ -101,20 +94,22 @@ class MockPLCClient:
         return self._connected
 
     async def get(self, tags: List[str]) -> Dict[str, Any]:
-        """Read multiple mock tag values.
-        
-        Args:
-            tags: List of tag names to read
-            
-        Returns:
-            Dictionary mapping tag names to values
-        """
+        """Read multiple mock tag values."""
         if not self._connected:
             raise ConnectionError("Mock client not connected")
             
         # Return mock values for all requested tags
-        values = {tag: self._plc_tags.get(tag, 0) for tag in tags}
-        logger.debug(f"Read mock tags: {values}")
+        values = {}
+        for tag in tags:
+            value = self._plc_tags.get(tag)
+            if value is None:
+                logger.warning(f"No mock value found for tag: {tag}")
+                continue  # Skip missing tags instead of defaulting to 0
+            values[tag] = value
+            logger.debug(f"Read mock tag {tag} = {value}")
+            
+        logger.debug(f"Requested tags: {tags}")
+        logger.debug(f"Returning values: {values}")
         return values
 
     async def _simulate_updates(self) -> None:

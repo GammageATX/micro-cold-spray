@@ -80,36 +80,52 @@ class TagCacheService:
                     message=f"{self.service_name} service already running"
                 )
             
-            # Load config and version
+            # Initialize components
             self._config = self._init_config
             self._version = self._config["communication"]["services"]["tag_cache"]["version"]
             self._polling = self._config["communication"]["polling"]
-            
-            # Initialize components
             self._plc_client = self._init_plc_client
             self._ssh_client = self._init_ssh_client
             self._tag_mapping = self._init_tag_mapping
             
-            # Initialize tag list from mapping service
-            for tag in self._tag_mapping._tag_map.keys():
-                self._cache[tag] = None
+            # Initialize empty cache
+            self._cache = {}
+            
+            # Connect mock client if using mock mode
+            if isinstance(self._plc_client, MockPLCClient):
+                logger.info("Connecting mock client")
+                await self._plc_client.connect()
                 
-            # Initialize state cache
-            self._state_cache = {
-                "equipment": None,
-                "gas": None,
-                "vacuum": None,
-                "feeder": None,
-                "deagglomerator": None,
-                "nozzle": None,
-                "pressure": None,
-                "motion": None,
-                "hardware": None,
-                "process": None,
-                "safety": None
-            }
+                # Get all mapped PLC tags
+                plc_tags = []
+                for tag_info in self._tag_mapping._tag_map.values():
+                    if tag_info.get("mapped", False) and tag_info.get("plc_tag"):
+                        plc_tags.append(tag_info["plc_tag"])
                 
+                # Get initial values
+                if plc_tags:
+                    try:
+                        values = await self._plc_client.get(plc_tags)
+                        logger.debug(f"Initial mock values: {values}")
+                        
+                        # Store both PLC and internal tag values
+                        for internal_tag, tag_info in self._tag_mapping._tag_map.items():
+                            if tag_info.get("mapped", False):
+                                plc_tag = tag_info.get("plc_tag")
+                                if plc_tag in values:
+                                    raw_value = values[plc_tag]
+                                    # Store raw PLC tag value
+                                    self._cache[plc_tag] = raw_value
+                                    # Store scaled internal tag value
+                                    scaled_value = self._tag_mapping.scale_value(internal_tag, raw_value)
+                                    self._cache[internal_tag] = scaled_value
+                                    logger.debug(f"Initialized {internal_tag} = {scaled_value} (PLC: {plc_tag} = {raw_value})")
+                    except Exception as e:
+                        logger.error(f"Failed to get initial mock values: {e}")
+                        raise
+            
             logger.info(f"{self.service_name} service initialized")
+            logger.debug(f"Initial cache contents: {self._cache}")
             
         except Exception as e:
             error_msg = f"Failed to initialize {self.service_name} service: {str(e)}"

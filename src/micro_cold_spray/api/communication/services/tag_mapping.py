@@ -90,26 +90,38 @@ class TagMappingService:
             )
             
     def _process_tag_group(self, group_prefix: str, group_data: Dict[str, Any]) -> None:
-        """Process a group of tags recursively.
+        """Process a group of tags recursively."""
+        logger.debug(f"Processing tag group {group_prefix} with data: {group_data}")
         
-        Args:
-            group_prefix: Prefix for tag names in this group
-            group_data: Group configuration data
-        """
         for tag_name, tag_data in group_data.items():
+            # Skip if data is None
+            if tag_data is None:
+                logger.warning(f"Skipping None tag data for {tag_name} in {group_prefix}")
+                continue
+            
             # If tag_data is a dict but doesn't have a type field, it's a subgroup
-            if isinstance(tag_data, dict) and "type" not in tag_data:
-                self._process_tag_group(f"{group_prefix}.{tag_name}", tag_data)
+            if isinstance(tag_data, dict):
+                if "type" not in tag_data:
+                    logger.debug(f"Found subgroup {tag_name} in {group_prefix}")
+                    self._process_tag_group(f"{group_prefix}.{tag_name}", tag_data)
+                else:
+                    # It's a tag definition
+                    full_tag_name = f"{group_prefix}.{tag_name}"
+                    logger.debug(f"Processing tag {full_tag_name} with data: {tag_data}")
+                    
+                    self._tag_map[full_tag_name] = {
+                        "type": tag_data.get("type", "unknown"),
+                        "access": tag_data.get("access", "read"),
+                        "mapped": tag_data.get("mapped", True),  # Default to True if plc_tag exists
+                        "plc_tag": tag_data.get("plc_tag"),
+                        "description": tag_data.get("description", ""),
+                        "scaling": tag_data.get("scaling"),
+                        "range": tag_data.get("range"),
+                        "unit": tag_data.get("unit")
+                    }
+                    logger.debug(f"Added tag mapping: {full_tag_name} -> {self._tag_map[full_tag_name]}")
             else:
-                # It's a tag definition
-                full_tag_name = f"{group_prefix}.{tag_name}"
-                self._tag_map[full_tag_name] = {
-                    "type": tag_data.get("type", "unknown"),
-                    "access": tag_data.get("access", "read"),
-                    "mapped": tag_data.get("mapped", False),
-                    "plc_tag": tag_data.get("plc_tag"),
-                    "description": tag_data.get("description", "")
-                }
+                logger.warning(f"Unexpected tag data type for {tag_name} in {group_prefix}: {type(tag_data)}")
 
     async def initialize(self) -> None:
         """Initialize service."""

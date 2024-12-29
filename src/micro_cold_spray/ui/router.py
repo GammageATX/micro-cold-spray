@@ -265,37 +265,26 @@ def create_app() -> FastAPI:
                     health = await check_service_health(url, service_name)
                     port = int(url.split(":")[-1])
                     
-                    # Convert component health dictionaries to ComponentHealth objects
-                    components = None
-                    if health.components:
-                        components = {
-                            name: ComponentHealth(
-                                status=comp.get("status", "error"),
-                                error=comp.get("error")
-                            ) if isinstance(comp, dict) else comp
-                            for name, comp in health.components.items()
-                        }
-                    
                     # Map service status to display status
-                    display_status = health.status
-                    if health.status == "ok" and health.is_running:
-                        display_status = "Running"
+                    display_status = "ok"  # Default to ok
+                    if health.is_running:
+                        display_status = "ok"  # Use ok instead of "Running"
                     elif health.status == "starting":
-                        display_status = "Starting"
+                        display_status = "starting"
                     elif health.status == "error":
-                        display_status = "Error"
+                        display_status = "error"
                     else:
-                        display_status = "Stopped"
+                        display_status = "stopped"
                     
                     services[service_name] = ServiceStatus(
                         name=service_name,
                         port=port,
-                        status=display_status,
+                        status=display_status,  # Use the mapped status
                         uptime=health.uptime,
                         version=health.version,
                         mode=health.mode,
                         error=health.error,
-                        components=components
+                        components=health.components
                     )
 
                 return services

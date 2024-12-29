@@ -38,6 +38,7 @@ function createServiceCard(name, service) {
     let statusColor;
     switch (service.status.toLowerCase()) {
         case 'ok':
+        case 'running':
             statusColor = 'success';
             break;
         case 'starting':
