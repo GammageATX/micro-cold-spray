@@ -1,0 +1,12 @@
+id: test_pattern
+name: Test Pattern
+description: A test pattern for testing
+type: serpentine
+params:
+  direction: posX
+  length: 100.0
+  width: 50.0
+  spacing: 2.0
+  speed: 30.0
+  acceleration: 5.0
+  overlap: 0.5

@@ -1,122 +1,55 @@
-"""Process API main script for testing."""
+"""Process API main script."""
 
 import os
 import yaml
 import uvicorn
+from pathlib import Path
 from typing import Dict, Any
-from datetime import datetime
 from loguru import logger
-from fastapi import FastAPI
-
-from micro_cold_spray.api.process.process_app import create_app, load_config
-from micro_cold_spray.api.process.models.process_models import (
-    ProcessPattern,
-    ParameterSet,
-    SequenceStep,
-    SequenceMetadata
-)
-from micro_cold_spray.api.process.process_service import ProcessService
 
 
-async def create_test_data(service: ProcessService) -> None:
-    """Create test data for process service.
+def load_config() -> Dict[str, Any]:
+    """Load configuration from file.
     
-    Args:
-        service: Process service instance
+    Returns:
+        Dict[str, Any]: Configuration dictionary
+        
+    Raises:
+        FileNotFoundError: If config file not found
     """
-    # Create test patterns
-    pattern1 = ProcessPattern(
-        id="pattern1",
-        name="Test Pattern 1",
-        description="A test pattern for testing",
-        parameters={
-            "speed": 100,
-            "temperature": 200,
-            "pressure": 300
-        }
-    )
-    pattern2 = ProcessPattern(
-        id="pattern2",
-        name="Test Pattern 2",
-        description="Another test pattern",
-        parameters={
-            "speed": 150,
-            "temperature": 250,
-            "pressure": 350
-        }
-    )
-    await service._pattern.create_pattern(pattern1)
-    await service._pattern.create_pattern(pattern2)
-    logger.info("Created test patterns")
-
-    # Create test parameter sets
-    params1 = ParameterSet(
-        id="params1",
-        name="Test Parameters 1",
-        description="Test parameter set for testing",
-        parameters={
-            "speed": 120,
-            "temperature": 220,
-            "pressure": 320
-        }
-    )
-    params2 = ParameterSet(
-        id="params2",
-        name="Test Parameters 2",
-        description="Another test parameter set",
-        parameters={
-            "speed": 170,
-            "temperature": 270,
-            "pressure": 370
-        }
-    )
-    await service._parameter.create_parameter_set(params1)
-    await service._parameter.create_parameter_set(params2)
-    logger.info("Created test parameter sets")
-
-    # Create test sequence
-    sequence = SequenceMetadata(
-        id="sequence1",
-        name="Test Sequence",
-        description="A test sequence for testing",
-        steps=[
-            SequenceStep(
-                id="step1",
-                name="Step 1",
-                description="First test step",
-                pattern_id=pattern1.id,
-                parameter_set_id=params1.id,
-                order=1
-            ),
-            SequenceStep(
-                id="step2",
-                name="Step 2",
-                description="Second test step",
-                pattern_id=pattern2.id,
-                parameter_set_id=params2.id,
-                order=2
-            )
-        ]
-    )
-    # Add sequence directly to the service's sequence dictionary
-    service._sequence._sequences[sequence.id] = sequence
-    logger.info("Created test sequence")
+    config_path = Path("config/process.yaml")
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+        
+    with open(config_path) as f:
+        return yaml.safe_load(f)
 
 
-def main():
-    """Main function for testing process service."""
-    # Load config to verify it exists
-    load_config()
-    
-    # Configure uvicorn
-    uvicorn.run(
-        "micro_cold_spray.api.process.process_app:create_app",
-        host="0.0.0.0",
-        port=8004,
-        factory=True,
-        reload=True,
-        log_level="info"
-    )
+def main() -> None:
+    """Main function for running Process API service."""
+    try:
+        # Verify config exists and is valid
+        config = load_config()
+        logger.info(f"Loaded process configuration version {config.get('version', '1.0.0')}")
+        
+        # Configure uvicorn
+        uvicorn.run(
+            "micro_cold_spray.api.process.process_app:create_process_service",
+            host="0.0.0.0",
+            port=8004,
+            factory=True,
+            reload=True,
+            log_level="info",
+            lifespan="on",
+            timeout_keep_alive=60
+        )
+        
+    except FileNotFoundError as e:
+        logger.error(f"Configuration error: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Failed to start Process API service: {e}")
+        raise
 
 
 if __name__ == "__main__":

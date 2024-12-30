@@ -40,20 +40,6 @@ logs/
 *.log
 communication.log
 
-# Data directories - exclude all by default
-data/parameters/*
-data/patterns/*
-data/sequences/*
-data/runs/*
-data/powders/*
-
-# Keep test files
-!data/parameters/test/**
-!data/patterns/test/**
-!data/sequences/test/**
-!data/runs/test/**
-!data/powders/test/**
-
 # Exclude desktop.ini files
 *.ini
 

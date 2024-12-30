@@ -1,5 +1,0 @@
-nozzle:
-  name: "MCS-24"
-  manufacturer: "VRC"
-  type: "Cold Spray"
-  description: "Standard micro cold spray nozzle"
