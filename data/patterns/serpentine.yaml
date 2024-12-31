@@ -1,7 +1,7 @@
 pattern:
-  id: "test_pattern"
-  name: "Test Pattern"
-  description: "A test pattern"
+  id: "serpentine-100x50"
+  name: "Serpentine Pattern"
+  description: "Continuous serpentine pattern"
   type: "serpentine"
   params:
     width: 100.0

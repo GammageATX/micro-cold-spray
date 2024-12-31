@@ -7,6 +7,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 from fastapi import status
 from loguru import logger
+from pathlib import Path
 
 from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
@@ -365,3 +366,31 @@ class ParameterService:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg
             )
+
+    async def _load_nozzles(self) -> None:
+        """Load nozzle configurations."""
+        try:
+            # Update path to data/nozzles
+            nozzle_dir = Path("data/nozzles")
+            if not nozzle_dir.exists():
+                return
+            
+            for nozzle_file in nozzle_dir.glob("*.yaml"):
+                try:
+                    with open(nozzle_file, "r") as f:
+                        data = yaml.safe_load(f)
+                    
+                    if "nozzle" not in data:
+                        logger.error(f"Missing 'nozzle' root key in {nozzle_file}")
+                        continue
+                    
+                    nozzle_data = data["nozzle"]
+                    self._nozzles[nozzle_data["name"]] = nozzle_data
+                    logger.info(f"Loaded nozzle: {nozzle_data['name']}")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to load nozzle {nozzle_file}: {e}")
+                    continue
+                
+        except Exception as e:
+            logger.error(f"Failed to load nozzles: {e}")

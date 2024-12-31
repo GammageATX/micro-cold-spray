@@ -30,7 +30,7 @@ class PatternParameters(BaseModel):
     z_height: float = Field(..., description="Z height in mm", ge=0, le=100)
     velocity: float = Field(..., description="Motion velocity in mm/s", ge=0, le=500)
     line_spacing: float = Field(..., description="Line spacing in mm", ge=0.1, le=50)
-    direction: Optional[str] = Field("x", description="Primary motion axis (x/y)")
+    direction: str = Field(..., pattern="^[xy]$", description="Primary motion axis")
     start_point: Optional[Dict[str, float]] = Field(None, description="Starting coordinates")
     layers: Optional[int] = Field(1, description="Number of layers")
     layer_height: Optional[float] = Field(None, description="Z increment per layer")
@@ -66,40 +66,12 @@ class ParameterSet(BaseModel):
 
 
 class StepType(str, Enum):
-    """Atomic hardware operations."""
-    # Gas Flow Control
-    SET_MAIN_FLOW = "set_main_flow"      # Set main gas MFC flow rate
-    SET_FEEDER_FLOW = "set_feeder_flow"  # Set feeder gas MFC flow rate
-    
-    # Gas Valve Control
-    SET_MAIN_VALVE = "set_main_valve"      # Main gas valve open/close
-    SET_FEEDER_VALVE = "set_feeder_valve"  # Feeder gas valve open/close
-    
-    # Vacuum System
-    SET_GATE_VALVE = "set_gate_valve"    # Vacuum gate valve open/close
-    SET_VENT_VALVE = "set_vent_valve"    # Chamber vent valve open/close
-    SET_MECH_PUMP = "set_mech_pump"      # Mechanical pump on/off
-    SET_BOOSTER = "set_booster_pump"     # Booster pump on/off
-    
-    # Powder Feed System
-    SET_FEEDER = "set_feeder"            # Set feeder frequency
-    SET_DEAGG = "set_deagg"              # Set deagglomerator speed
-    SELECT_FEEDER = "select_feeder"      # Switch active feeder (1/2)
-    
-    # Nozzle Control
-    OPEN_SHUTTER = "open_shutter"        # Open nozzle shutter
-    CLOSE_SHUTTER = "close_shutter"      # Close nozzle shutter
-    SELECT_NOZZLE = "select_nozzle"      # Switch active nozzle (1/2)
-    
-    # Motion Control
-    LOAD_PATTERN = "load_pattern"        # Load and execute pattern
-    MOVE_TO = "move_to"                  # Move to absolute position
-    HOME = "home"                        # Home all axes
-    STOP_MOTION = "stop_motion"          # Emergency stop motion
-    SET_SPEED = "set_speed"              # Set motion speed
-    SET_ACCEL = "set_accel"              # Set acceleration
-    ENABLE_AXES = "enable_axes"          # Enable motion axes
-    DISABLE_AXES = "disable_axes"        # Disable motion axes
+    """Sequence step types."""
+    INITIALIZE = "initialize"  # System initialization
+    PATTERN = "pattern"       # Pattern execution
+    PARAMETER = "parameter"   # Parameter adjustment
+    WAIT = "wait"            # Time delay
+    CUSTOM = "custom"        # Custom action
 
 
 class ActionGroup(str, Enum):
@@ -157,24 +129,15 @@ class MotionParameters(StepParameters):
 
 
 class SequenceStep(BaseModel):
-    """Individual process step."""
+    """Sequence step model."""
     model_config = ConfigDict(strict=True)
     
     name: str = Field(..., description="Step name")
-    description: Optional[str] = Field(None, description="Step description")
-    step_type: StepType = Field(..., description="Atomic operation type")
-    parameters: Optional[Union[
-        FlowParameters,
-        ValveParameters,
-        PumpParameters,
-        FeederParameters,
-        DeaggParameters,
-        SelectionParameters,
-        MotionParameters,
-        Dict[str, Any]
-    ]] = Field(None, description="Step parameters")
-    pattern_id: Optional[str] = Field(None, description="Associated pattern ID")
-    parameter_id: Optional[str] = Field(None, description="Associated parameter set ID")
+    step_type: StepType = Field(..., description="Step type")
+    description: str = Field(..., description="Step description")
+    pattern_id: Optional[str] = Field(None, description="Pattern ID for pattern steps")
+    parameters: Optional[Dict[str, Any]] = Field(None, description="Step parameters")
+    wait_time: Optional[float] = Field(None, ge=0, description="Wait time in seconds")
 
 
 class Action(BaseModel):
@@ -251,3 +214,43 @@ class SequenceStatus(str, Enum):
     RUNNING = "running"      # Sequence is executing
     COMPLETED = "completed"  # Sequence finished successfully
     ERROR = "error"          # Sequence failed
+
+
+class ExecutionStatus(str, Enum):
+    """Sequence execution status."""
+    IDLE = "idle"            # No sequence loaded
+    READY = "ready"          # Sequence loaded and validated
+    RUNNING = "running"      # Sequence is executing
+    PAUSED = "paused"        # Sequence execution paused
+    COMPLETED = "completed"  # Sequence finished successfully
+    ERROR = "error"          # Sequence failed
+    ABORTED = "aborted"      # Sequence manually stopped
+
+
+class ActionStatus(str, Enum):
+    """Action execution status."""
+    IDLE = "idle"            # No action running
+    RUNNING = "running"      # Action in progress
+    COMPLETED = "completed"  # Action completed successfully
+    ERROR = "error"          # Action failed
+    ABORTED = "aborted"      # Action manually stopped
+
+
+class NozzleResponse(BaseResponse):
+    """Nozzle operation response."""
+    nozzle: Optional[Dict[str, Any]] = Field(None, description="Nozzle data")
+
+
+class NozzleListResponse(BaseResponse):
+    """Nozzle list response."""
+    nozzles: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class PowderResponse(BaseResponse):
+    """Powder operation response."""
+    powder: Optional[Dict[str, Any]] = Field(None, description="Powder data")
+
+
+class PowderListResponse(BaseResponse):
+    """Powder list response."""
+    powders: List[Dict[str, Any]] = Field(default_factory=list)

@@ -1,8 +1,8 @@
 pattern:
-  id: "test_pattern"
-  name: "Test Pattern"
-  description: "A test pattern"
-  type: "serpentine"
+  id: "linear-100x50"
+  name: "Linear Pattern"
+  description: "Back and forth linear pattern"
+  type: "linear"
   params:
     width: 100.0
     height: 50.0

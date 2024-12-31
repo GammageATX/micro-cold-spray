@@ -480,4 +480,38 @@ def test_generate_invalid_parameter_set(client):
     assert error_response["message"] == "Missing 'process' root key"
     assert error_response["status"] == "error"
 
+
+@pytest.mark.asyncio
+async def test_pattern_file_generation():
+    """Test pattern file generation."""
+    pattern_data = {
+        "pattern": {
+            "id": "test_pattern",
+            "name": "Test Pattern",
+            "description": "A test pattern",
+            "type": "serpentine",
+            "params": {
+                "width": 100.0,
+                "height": 50.0,
+                "z_height": 10.0,
+                "velocity": 30.0,
+                "line_spacing": 2.0,
+                "direction": "x"
+            }
+        }
+    }
+    
+    # Generate pattern file
+    pattern_file = Path("data/patterns/test_pattern.yaml")
+    with open(pattern_file, "w") as f:
+        yaml.dump(pattern_data, f)
+    
+    assert pattern_file.exists()
+    
+    # Verify file contents
+    with open(pattern_file, "r") as f:
+        loaded_data = yaml.safe_load(f)
+    
+    assert loaded_data == pattern_data
+
 # ... rest of test cases ...

@@ -7,6 +7,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 from fastapi import status
 from loguru import logger
+from pathlib import Path
 
 from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
@@ -83,78 +84,39 @@ class SequenceService:
             )
 
     async def _load_sequences(self) -> None:
-        """Load sequences from data directory."""
+        """Load sequences from files."""
         try:
-            # Load sequences from data directory
-            sequence_dir = os.path.join("data", "sequences")
-            if not os.path.exists(sequence_dir):
-                logger.warning(f"Sequence directory not found: {sequence_dir}")
+            sequence_dir = Path("data/sequences")
+            if not sequence_dir.exists():
                 return
-
-            # Load all .yaml files in the sequences directory
-            for filename in os.listdir(sequence_dir):
-                if filename.endswith(".yaml"):
-                    sequence_path = os.path.join(sequence_dir, filename)
-                    sequence_id = os.path.splitext(filename)[0]
+            
+            for sequence_file in sequence_dir.glob("*.yaml"):
+                try:
+                    with open(sequence_file, "r") as f:
+                        data = yaml.safe_load(f)
                     
-                    try:
-                        with open(sequence_path, "r") as f:
-                            sequence_data = yaml.safe_load(f)
-                            
-                        if "sequence" in sequence_data:
-                            sequence = sequence_data["sequence"]
-                            metadata = sequence.get("metadata", {})
-                            
-                            # Create sequence steps from YAML data
-                            steps = []
-                            for step_data in sequence.get("steps", []):
-                                # Create step with required name field
-                                step = SequenceStep(name=step_data["name"])
-                                
-                                # Add optional description if present
-                                if "description" in step_data:
-                                    step.description = step_data["description"]
-                                
-                                # Add action_group if present
-                                if "action_group" in step_data:
-                                    step.action_group = step_data["action_group"]
-                                
-                                # Add actions if present
-                                if "actions" in step_data:
-                                    step.actions = [Action(**action) for action in step_data["actions"]]
-                                
-                                steps.append(step)
-                            
-                            # Create sequence metadata
-                            sequence_metadata = SequenceMetadata(
-                                name=metadata.get("name", sequence_id),
-                                version=metadata.get("version", "1.0.0"),
-                                created=metadata.get("created", ""),
-                                author=metadata.get("author", ""),
-                                description=metadata.get("description", "")
-                            )
-                            
-                            # Create sequence
-                            self._sequences[sequence_id] = Sequence(
-                                id=sequence_id,
-                                metadata=sequence_metadata,
-                                steps=steps
-                            )
-                            
-                            # If sequence was previously failed, remove from failed list
-                            self._failed_sequences.pop(sequence_id, None)
-                            logger.info(f"Loaded sequence: {sequence_id}")
-                    except Exception as e:
-                        logger.error(f"Failed to load sequence {sequence_id}: {e}")
-                        self._failed_sequences[sequence_id] = str(e)
-                            
+                    if "sequence" not in data:
+                        logger.error(f"Missing 'sequence' root key in {sequence_file}")
+                        continue
+                    
+                    sequence_data = data["sequence"]
+                    steps = [SequenceStep(**step) for step in sequence_data["steps"]]
+                    metadata = SequenceMetadata(**sequence_data["metadata"])
+                    
+                    sequence = {
+                        "metadata": metadata,
+                        "steps": steps
+                    }
+                    
+                    self._sequences[metadata.name] = sequence
+                    logger.info(f"Loaded sequence: {metadata.name}")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to load sequence {sequence_file}: {e}")
+                    continue
+                
         except Exception as e:
-            error_msg = f"Failed to load sequences: {str(e)}"
-            logger.error(error_msg)
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=error_msg
-            )
+            logger.error(f"Failed to load sequences: {e}")
 
     async def _attempt_recovery(self) -> None:
         """Attempt to recover failed sequences."""

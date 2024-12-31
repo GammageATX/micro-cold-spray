@@ -1,25 +1,18 @@
 sequence:
   metadata:
-    name: Test Sequence
-    version: '1.0'
-    created: '2024-03-20'
-    author: Test User
-    description: A test sequence for testing
+    name: "Test Sequence"
+    version: "1.0"
+    created: "2024-03-20"
+    author: "Test User"
+    description: "Test sequence"
   steps:
-  - name: Initialize System
-    action_group: ready_system
-  - name: First Pattern
-    actions:
-    - action_group: move_to_trough
-    - action_group: apply_parameters
-      parameters:
-        file: mcs24_n2_low_flow.yaml
-    - action_group: execute_pattern
-      parameters:
-        file: serpentine_5mm_standard.yaml
-        passes: 3
-        modifications:
-          params:
-            origin:
-            - 10.0
-            - 10.0
+  - name: "Initialize"
+    step_type: "INITIALIZE"
+    description: "Initialize system"
+  - name: "Test Pattern"
+    step_type: "PATTERN"
+    description: "Run pattern"
+    pattern_id: "test_pattern"
+    parameters:
+      main_gas: 50.0
+      feeder_gas: 5.0

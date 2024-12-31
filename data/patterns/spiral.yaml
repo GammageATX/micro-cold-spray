@@ -1,8 +1,8 @@
 pattern:
-  id: "test_pattern"
-  name: "Test Pattern"
-  description: "A test pattern"
-  type: "serpentine"
+  id: "spiral-100x50"
+  name: "Spiral Pattern"
+  description: "Outward spiral pattern"
+  type: "spiral"
   params:
     width: 100.0
     height: 50.0

@@ -1,8 +1,0 @@
-root_key: sequence
-required_fields:
-- metadata
-- steps
-
-field_types:
-  metadata: object
-  steps: array

@@ -1,31 +1,19 @@
 """Process API endpoints."""
 
-from micro_cold_spray.api.process.endpoints.process_endpoints import create_process_router
-from micro_cold_spray.api.process.endpoints.list_endpoints import (
-    list_patterns,
-    list_parameters,
-    list_sequences,
-    list_nozzles,
-    list_powders
-)
-from micro_cold_spray.api.process.endpoints.generate_endpoints import (
-    generate_sequence,
-    generate_pattern,
-    generate_powder,
-    generate_nozzle,
-    generate_parameter
-)
+from fastapi import APIRouter
 
-__all__ = [
-    'create_process_router',
-    'list_patterns',
-    'list_parameters',
-    'list_sequences',
-    'list_nozzles',
-    'list_powders',
-    'generate_sequence',
-    'generate_pattern',
-    'generate_powder',
-    'generate_nozzle',
-    'generate_parameter'
-]
+from micro_cold_spray.api.process.endpoints.process_endpoints import router as process_router
+from micro_cold_spray.api.process.endpoints.pattern_endpoints import router as pattern_router
+from micro_cold_spray.api.process.endpoints.parameter_endpoints import router as parameter_router
+from micro_cold_spray.api.process.endpoints.sequence_endpoints import router as sequence_router
+
+# Create main router
+router = APIRouter()
+
+# Mount sub-routers
+router.include_router(process_router)
+router.include_router(pattern_router)
+router.include_router(parameter_router)
+router.include_router(sequence_router)
+
+__all__ = ["router"]

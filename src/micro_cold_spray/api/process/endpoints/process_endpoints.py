@@ -1,100 +1,59 @@
 """Process API endpoints."""
 
-from typing import List, Dict, Any
-from fastapi import APIRouter, status, Depends, HTTPException
+from fastapi import APIRouter, Depends, Request, status
 from loguru import logger
-import json
-from pathlib import Path
-import yaml
-import time
-from datetime import datetime
 
 from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.utils.health import ServiceHealth
 from micro_cold_spray.api.process.process_service import ProcessService
+from micro_cold_spray.api.process.dependencies import get_process_service
 from micro_cold_spray.api.process.models.process_models import (
-    ExecutionStatus, ActionStatus, ProcessPattern, ParameterSet,
-    SequenceMetadata, SequenceStep, Sequence, SequenceResponse,
-    SequenceListResponse, PatternResponse, PatternListResponse,
-    ParameterSetResponse, ParameterSetListResponse, NozzleListResponse,
-    PowderListResponse
+    PatternListResponse,
+    ParameterSetListResponse,
+    MessageResponse
 )
-from micro_cold_spray.api.process.endpoints.list_endpoints import (
-    list_patterns, list_parameters, list_sequences,
-    list_nozzles, list_powders
-)
-from micro_cold_spray.api.process.endpoints.generate_endpoints import (
-    generate_sequence, generate_pattern, generate_powder,
-    generate_nozzle, generate_parameter
-)
-from micro_cold_spray.api.process.endpoints.dependencies import get_service
-from micro_cold_spray.api.process.endpoints.sequence_endpoints import router as sequence_router
+
+router = APIRouter(prefix="/process", tags=["process"])
 
 
-def create_process_router(process_service: ProcessService) -> APIRouter:
-    """Create process router with endpoints."""
-    process_router = APIRouter()
-    
-    # List endpoints
-    process_router.add_api_route(
-        "/patterns/list",
-        list_patterns,
-        methods=["GET"],
-        response_model=PatternListResponse
-    )
-    process_router.add_api_route(
-        "/parameters/list",
-        list_parameters,
-        methods=["GET"],
-        response_model=ParameterSetListResponse
-    )
-    process_router.add_api_route(
-        "/sequences/list",
-        list_sequences,
-        methods=["GET"],
-        response_model=SequenceListResponse
-    )
-    process_router.add_api_route(
-        "/nozzles/list",
-        list_nozzles,
-        methods=["GET"],
-        response_model=NozzleListResponse
-    )
-    process_router.add_api_route(
-        "/powders/list",
-        list_powders,
-        methods=["GET"],
-        response_model=PowderListResponse
-    )
-    
-    # Generate endpoints
-    process_router.add_api_route(
-        "/sequences/generate",
-        generate_sequence,
-        methods=["POST"]
-    )
-    process_router.add_api_route(
-        "/patterns/generate",
-        generate_pattern,
-        methods=["POST"]
-    )
-    process_router.add_api_route(
-        "/powders/generate",
-        generate_powder,
-        methods=["POST"]
-    )
-    process_router.add_api_route(
-        "/nozzles/generate",
-        generate_nozzle,
-        methods=["POST"]
-    )
-    process_router.add_api_route(
-        "/parameters/generate",
-        generate_parameter,
-        methods=["POST"]
-    )
-    
-    # Add sequence execution endpoints
-    process_router.include_router(sequence_router)
-    
-    return process_router
+@router.get(
+    "/health",
+    response_model=ServiceHealth,
+    responses={
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service not available"}
+    }
+)
+async def health(
+    service: ProcessService = Depends(get_process_service)
+) -> ServiceHealth:
+    """Get service health status."""
+    try:
+        return await service.get_health()
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        raise create_error(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            message=str(e)
+        )
+
+
+@router.get(
+    "/patterns",
+    response_model=PatternListResponse,
+    responses={
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Failed to list patterns"}
+    }
+)
+async def list_patterns(
+    service: ProcessService = Depends(get_process_service)
+) -> PatternListResponse:
+    """List available patterns."""
+    try:
+        patterns = await service.pattern_service.list_patterns()
+        return PatternListResponse(patterns=patterns)
+    except Exception as e:
+        logger.error(f"Failed to list patterns: {e}")
+        raise create_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            message=f"Failed to list patterns: {str(e)}"
+        )
