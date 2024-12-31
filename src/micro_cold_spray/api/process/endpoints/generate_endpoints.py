@@ -10,6 +10,7 @@ from loguru import logger
 from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.api.process.process_service import ProcessService
 from micro_cold_spray.api.process.endpoints.dependencies import get_service
+from micro_cold_spray.api.process.validators.parameter_validator import validate_parameter
 
 
 async def generate_sequence(sequence_data: Dict[str, Any], service: ProcessService = Depends(get_service)) -> Dict[str, str]:
@@ -185,7 +186,7 @@ async def generate_nozzle(nozzle_data: Dict[str, Any], service: ProcessService =
         # Generate ID from name if not provided
         nozzle_id = f"{nozzle['type']}-{nozzle['name']}-{nozzle['manufacturer']}"
         nozzle_id = nozzle_id.lower().replace(" ", "_")
-        nozzle_path = Path(f"data/parameters/nozzles/{nozzle_id}.yaml")
+        nozzle_path = Path(f"data/nozzles/{nozzle_id}.yaml")
         nozzle_path.parent.mkdir(parents=True, exist_ok=True)
         
         with open(nozzle_path, 'w', encoding='utf-8') as f:
@@ -211,17 +212,25 @@ async def generate_nozzle(nozzle_data: Dict[str, Any], service: ProcessService =
         raise
 
 
-async def generate_parameter_set(parameter_data: Dict[str, Any], service: ProcessService = Depends(get_service)) -> Dict[str, str]:
-    """Generate parameter set file."""
-    # Validate first
-    if "process" not in parameter_data:
-        logger.error("Missing 'process' root key")
+async def generate_parameter(parameter_data: Dict[str, Any], service: ProcessService = Depends(get_service)) -> Dict[str, str]:
+    """Generate parameter file."""
+    # Validate data
+    is_valid, errors = validate_parameter(parameter_data)
+    if not is_valid:
         raise create_error(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            message="Missing 'process' root key"
+            message=f"Invalid parameter data: {errors}"
         )
-
+    
     try:
+        # Validate against schema first
+        validation_response = await service._validation.validate_parameter(parameter_data)
+        if not validation_response.valid:
+            raise create_error(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                message=f"Invalid parameter data: {validation_response.errors}"
+            )
+
         process = parameter_data["process"]
         required_fields = ["name", "created", "author", "description", "nozzle",
                            "main_gas", "feeder_gas", "frequency", "deagglomerator_speed"]
@@ -252,7 +261,7 @@ async def generate_parameter_set(parameter_data: Dict[str, Any], service: Proces
         
     except Exception as e:
         if not isinstance(e, HTTPException):
-            error_msg = f"Failed to generate parameter set: {str(e)}"
+            error_msg = f"Failed to generate parameter: {str(e)}"
             logger.error(error_msg)
             raise create_error(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

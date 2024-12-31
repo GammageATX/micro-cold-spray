@@ -1,0 +1,14 @@
+root_key: powder
+required_fields:
+- name
+- type
+- size
+- manufacturer
+- lot
+
+field_types:
+  name: string
+  type: string
+  size: string
+  manufacturer: string
+  lot: string

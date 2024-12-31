@@ -22,6 +22,9 @@ from micro_cold_spray.api.process.models.process_models import (
     SequenceStep,
     Sequence
 )
+from micro_cold_spray.api.process.validators.parameter_validator import validate_parameter
+from micro_cold_spray.api.process.validators.pattern_validator import validate_pattern
+from micro_cold_spray.api.process.validators.sequence_validator import validate_sequence
 
 
 async def load_real_data(service: ProcessService) -> None:

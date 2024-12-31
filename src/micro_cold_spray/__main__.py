@@ -30,7 +30,6 @@ class ServiceConfig:
         'communication': "micro_cold_spray.api.communication.communication_app:create_communication_service",
         'process': "micro_cold_spray.api.process.process_app:create_process_service",
         'data_collection': "micro_cold_spray.api.data_collection.data_collection_app:create_data_collection_service",
-        'validation': "micro_cold_spray.api.validation.validation_app:create_validation_service",
         'ui': "micro_cold_spray.ui.router:create_app"
     }
 
@@ -41,7 +40,6 @@ class ServiceConfig:
         'communication',     # Hardware communication service (port 8003)
         'process',          # Process control service (port 8004)
         'data_collection',  # Data collection service (port 8005)
-        'validation',       # Validation service (port 8006)
         'ui'               # Web interface (port 8000)
     ]
 
@@ -52,7 +50,6 @@ class ServiceConfig:
         'communication': 8003,
         'process': 8004,
         'data_collection': 8005,
-        'validation': 8006,
         'ui': 8000
     }
 
@@ -68,7 +65,6 @@ class ServiceConfig:
         'communication': ['config', 'state'],
         'process': ['config', 'state', 'communication'],
         'data_collection': ['config', 'state', 'communication'],
-        'validation': ['config'],
         'ui': []
     }
 
@@ -188,17 +184,9 @@ class ServiceManager:
             return None
 
     def _initialize_service_state(self, app_instance: Any, service_name: str) -> None:
-        """Initialize service state based on service type.
-        
-        Args:
-            app_instance: Application instance
-            service_name: Name of the service
-        """
+        """Initialize service state based on service type."""
         try:
-            if service_name == 'validation':
-                from micro_cold_spray.api.validation.validation_service import ValidationService
-                app_instance.state.validation_service = ValidationService()
-            elif service_name == 'process':
+            if service_name == 'process':
                 from micro_cold_spray.api.process.process_service import ProcessService
                 app_instance.state.process_service = ProcessService()
             elif service_name == 'communication':
