@@ -10,7 +10,7 @@ from loguru import logger
 
 from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
-from micro_cold_spray.api.process.models.process_models import ActionStatus
+from micro_cold_spray.api.process.models.process_models import StatusType
 
 
 class ActionService:
@@ -25,7 +25,7 @@ class ActionService:
         
         # Initialize components to None
         self._current_action = None
-        self._action_status = ActionStatus.IDLE
+        self._action_status = StatusType.IDLE
         
         logger.info(f"{self.service_name} service initialized")
 
@@ -114,7 +114,7 @@ class ActionService:
             
             # 2. Clear action state
             self._current_action = None
-            self._action_status = ActionStatus.IDLE
+            self._action_status = StatusType.IDLE
             
             # 3. Reset service state
             self._is_running = False
@@ -137,10 +137,10 @@ class ActionService:
             action_status = "ok"
             action_error = None
             
-            if self._action_status == ActionStatus.ERROR:
+            if self._action_status == StatusType.ERROR:
                 action_status = "error"
                 action_error = "Action in error state"
-            elif self._action_status == ActionStatus.RUNNING:
+            elif self._action_status == StatusType.RUNNING:
                 action_status = "degraded"
                 action_error = "Action in progress"
             
@@ -179,7 +179,7 @@ class ActionService:
                 components={"action": ComponentHealth(status="error", error=error_msg)}
             )
 
-    async def start_action(self, action_id: str) -> ActionStatus:
+    async def start_action(self, action_id: str) -> StatusType:
         """Start action execution."""
         try:
             if not self.is_running:
@@ -195,7 +195,7 @@ class ActionService:
                 )
                 
             self._current_action = action_id
-            self._action_status = ActionStatus.RUNNING
+            self._action_status = StatusType.RUNNING
             logger.info(f"Started action {action_id}")
             
             return self._action_status
@@ -203,13 +203,13 @@ class ActionService:
         except Exception as e:
             error_msg = f"Failed to start action {action_id}: {str(e)}"
             logger.error(error_msg)
-            self._action_status = ActionStatus.ERROR
+            self._action_status = StatusType.ERROR
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg
             )
 
-    async def stop_action(self, action_id: str) -> ActionStatus:
+    async def stop_action(self, action_id: str) -> StatusType:
         """Stop action execution."""
         try:
             if not self.is_running:
@@ -231,7 +231,7 @@ class ActionService:
                 )
                 
             self._current_action = None
-            self._action_status = ActionStatus.IDLE
+            self._action_status = StatusType.IDLE
             logger.info(f"Stopped action {action_id}")
             
             return self._action_status
@@ -239,13 +239,13 @@ class ActionService:
         except Exception as e:
             error_msg = f"Failed to stop action {action_id}: {str(e)}"
             logger.error(error_msg)
-            self._action_status = ActionStatus.ERROR
+            self._action_status = StatusType.ERROR
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg
             )
 
-    async def get_action_status(self, action_id: str) -> ActionStatus:
+    async def get_action_status(self, action_id: str) -> StatusType:
         """Get action execution status."""
         try:
             if not self.is_running:
@@ -255,7 +255,7 @@ class ActionService:
                 )
                 
             if not self._current_action:
-                return ActionStatus.IDLE
+                return StatusType.IDLE
                 
             if action_id != self._current_action:
                 raise create_error(

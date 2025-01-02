@@ -10,7 +10,7 @@ import yaml
 
 from micro_cold_spray.api.process.process_app import create_process_service
 from micro_cold_spray.api.process.models.process_models import (
-    ProcessPattern,
+    Pattern,
     ParameterSet,
     SequenceMetadata,
     SequenceStep,
@@ -55,7 +55,7 @@ async def test_data(client, data_dir):
     await service.start()
     
     # Create test patterns
-    pattern1 = ProcessPattern(
+    pattern1 = Pattern(
         id="pattern1",
         name="Test Pattern 1",
         description="A test pattern for testing",
@@ -68,7 +68,7 @@ async def test_data(client, data_dir):
             "z_height": 10.0
         }
     )
-    pattern2 = ProcessPattern(
+    pattern2 = Pattern(
         id="pattern2",
         name="Test Pattern 2",
         description="Another test pattern",

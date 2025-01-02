@@ -1,7 +1,5 @@
 """Sequence service implementation."""
 
-import os
-import time
 import yaml
 from typing import Dict, Any, List, Optional
 from datetime import datetime
@@ -12,11 +10,8 @@ from pathlib import Path
 from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
 from micro_cold_spray.api.process.models.process_models import (
-    ExecutionStatus,
-    SequenceMetadata,
-    SequenceStep,
-    Action,
-    Sequence
+    Sequence,
+    StatusType
 )
 
 
@@ -32,9 +27,9 @@ class SequenceService:
         
         # Initialize components to None
         self._sequences = None
-        self._failed_sequences = {}  # Track failed sequences
+        self._failed_sequences = {}
         self._active_sequence = None
-        self._sequence_status = ExecutionStatus.IDLE
+        self._sequence_status = StatusType.IDLE
         
         logger.info(f"{self.service_name} service initialized")
 
@@ -100,19 +95,13 @@ class SequenceService:
                         continue
                     
                     sequence_data = data["sequence"]
-                    steps = [SequenceStep(**step) for step in sequence_data["steps"]]
-                    metadata = SequenceMetadata(**sequence_data["metadata"])
-                    
-                    sequence = {
-                        "metadata": metadata,
-                        "steps": steps
-                    }
-                    
-                    self._sequences[metadata.name] = sequence
-                    logger.info(f"Loaded sequence: {metadata.name}")
+                    sequence = Sequence(**sequence_data)
+                    self._sequences[sequence.metadata.name] = sequence
+                    logger.info(f"Loaded sequence: {sequence.metadata.name}")
                     
                 except Exception as e:
                     logger.error(f"Failed to load sequence {sequence_file}: {e}")
+                    self._failed_sequences[sequence_file.stem] = str(e)
                     continue
                 
         except Exception as e:
@@ -165,7 +154,7 @@ class SequenceService:
             # 2. Clear sequence data
             self._sequences.clear()
             self._active_sequence = None
-            self._sequence_status = ExecutionStatus.IDLE
+            self._sequence_status = StatusType.IDLE
             
             # 3. Reset service state
             self._is_running = False
@@ -191,10 +180,10 @@ class SequenceService:
             sequence_status = "ok"
             sequence_error = None
             
-            if self._sequence_status == ExecutionStatus.ERROR:
+            if self._sequence_status == StatusType.ERROR:
                 sequence_status = "error"
                 sequence_error = "Sequence in error state"
-            elif self._sequence_status == ExecutionStatus.RUNNING:
+            elif self._sequence_status == StatusType.RUNNING:
                 sequence_status = "degraded"
                 sequence_error = "Sequence in progress"
             
@@ -309,7 +298,7 @@ class SequenceService:
                 message=error_msg
             )
 
-    async def start_sequence(self, sequence_id: str) -> ExecutionStatus:
+    async def start_sequence(self, sequence_id: str) -> StatusType:
         """Start sequence execution."""
         try:
             if not self.is_running:
@@ -331,7 +320,7 @@ class SequenceService:
                 )
                 
             self._active_sequence = sequence_id
-            self._sequence_status = ExecutionStatus.RUNNING
+            self._sequence_status = StatusType.RUNNING
             logger.info(f"Started sequence {sequence_id}")
             
             return self._sequence_status
@@ -339,13 +328,13 @@ class SequenceService:
         except Exception as e:
             error_msg = f"Failed to start sequence {sequence_id}"
             logger.error(f"{error_msg}: {str(e)}")
-            self._sequence_status = ExecutionStatus.ERROR
+            self._sequence_status = StatusType.ERROR
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg
             )
 
-    async def stop_sequence(self, sequence_id: str) -> ExecutionStatus:
+    async def stop_sequence(self, sequence_id: str) -> StatusType:
         """Stop sequence execution."""
         try:
             if not self.is_running:
@@ -367,7 +356,7 @@ class SequenceService:
                 )
                 
             self._active_sequence = None
-            self._sequence_status = ExecutionStatus.IDLE
+            self._sequence_status = StatusType.IDLE
             logger.info(f"Stopped sequence {sequence_id}")
             
             return self._sequence_status
@@ -375,13 +364,13 @@ class SequenceService:
         except Exception as e:
             error_msg = f"Failed to stop sequence {sequence_id}"
             logger.error(f"{error_msg}: {str(e)}")
-            self._sequence_status = ExecutionStatus.ERROR
+            self._sequence_status = StatusType.ERROR
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg
             )
 
-    async def get_sequence_status(self, sequence_id: str) -> ExecutionStatus:
+    async def get_sequence_status(self, sequence_id: str) -> StatusType:
         """Get sequence execution status."""
         try:
             if not self.is_running:
@@ -391,7 +380,7 @@ class SequenceService:
                 )
                 
             if not self._active_sequence:
-                return ExecutionStatus.IDLE
+                return StatusType.IDLE
                 
             if sequence_id != self._active_sequence:
                 raise create_error(

@@ -11,7 +11,11 @@ from pathlib import Path
 
 from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
-from micro_cold_spray.api.process.models.process_models import ParameterSet
+from micro_cold_spray.api.process.models.process_models import (
+    Parameter,
+    Nozzle,
+    Powder
+)
 
 
 class ParameterService:
@@ -25,7 +29,7 @@ class ParameterService:
         self._start_time = None
         
         # Initialize components to None
-        self._parameter_sets = None
+        self._parameters = None
         self._failed_parameters = {}  # Track failed parameter sets
         
         logger.info(f"{self.service_name} service initialized")
@@ -60,7 +64,7 @@ class ParameterService:
                 )
             
             # Initialize parameter sets
-            self._parameter_sets = {}
+            self._parameters = {}
             
             # Load config and parameter sets
             await self._load_parameters()
@@ -76,85 +80,33 @@ class ParameterService:
             )
 
     async def _load_parameters(self) -> None:
-        """Load parameter sets from data directory."""
+        """Load parameters from files."""
         try:
-            # Load parameters from data directory
-            param_dir = os.path.join("data", "parameters")
-            if not os.path.exists(param_dir):
-                logger.warning(f"Parameter directory not found: {param_dir}")
+            parameter_dir = Path("data/parameters")
+            if not parameter_dir.exists():
                 return
-
-            # Load all .yaml files in the parameters directory
-            for filename in os.listdir(param_dir):
-                if filename.endswith(".yaml"):
-                    param_path = os.path.join(param_dir, filename)
-                    param_id = os.path.splitext(filename)[0]
-                    
-                    try:
-                        with open(param_path, "r") as f:
-                            param_data = yaml.safe_load(f)
-                            
-                        if "process" in param_data:
-                            process = param_data["process"]
-                            # Map process fields to parameter set fields
-                            param_set = {
-                                "id": param_id,
-                                "name": process.get("name", param_id),
-                                "description": process.get("description", ""),
-                                "nozzle": process.get("nozzle", ""),
-                                "main_gas": process.get("main_gas", 0.0),
-                                "feeder_gas": process.get("feeder_gas", 0.0),
-                                "frequency": process.get("frequency", 0),
-                                "deagglomerator_speed": process.get("deagglomerator_speed", 0)
-                            }
-                            self._parameter_sets[param_id] = ParameterSet(**param_set)
-                            # If parameter set was previously failed, remove from failed list
-                            self._failed_parameters.pop(param_id, None)
-                            logger.info(f"Loaded parameter set: {param_id}")
-                    except Exception as e:
-                        logger.error(f"Failed to load parameter set {param_id}: {e}")
-                        self._failed_parameters[param_id] = str(e)
-
-            # Also check nozzles subdirectory
-            nozzle_dir = os.path.join(param_dir, "nozzles")
-            if os.path.exists(nozzle_dir):
-                for filename in os.listdir(nozzle_dir):
-                    if filename.endswith(".yaml"):
-                        nozzle_path = os.path.join(nozzle_dir, filename)
-                        nozzle_id = os.path.splitext(filename)[0]
+            
+            for param_file in parameter_dir.glob("*.yaml"):
+                try:
+                    with open(param_file, "r") as f:
+                        data = yaml.safe_load(f)
                         
-                        try:
-                            with open(nozzle_path, "r") as f:
-                                nozzle_data = yaml.safe_load(f)
-                                
-                            if "nozzle" in nozzle_data:
-                                nozzle = nozzle_data["nozzle"]
-                                # Map nozzle fields to parameter set fields
-                                param_set = {
-                                    "id": nozzle_id,
-                                    "name": nozzle.get("name", nozzle_id),
-                                    "description": nozzle.get("description", ""),
-                                    "nozzle": nozzle.get("name", ""),  # Use nozzle name as nozzle field
-                                    "main_gas": 0.0,  # Default values for required fields
-                                    "feeder_gas": 0.0,
-                                    "frequency": 0,
-                                    "deagglomerator_speed": 0
-                                }
-                                self._parameter_sets[nozzle_id] = ParameterSet(**param_set)
-                                # If parameter set was previously failed, remove from failed list
-                                self._failed_parameters.pop(nozzle_id, None)
-                                logger.info(f"Loaded nozzle parameter set: {nozzle_id}")
-                        except Exception as e:
-                            logger.error(f"Failed to load nozzle parameter set {nozzle_id}: {e}")
-                            self._failed_parameters[nozzle_id] = str(e)
-                            
+                    if "process" not in data:  # Check for "process" key
+                        logger.error(f"Missing 'process' root key in {param_file}")
+                        continue
+                        
+                    param_data = data["process"]  # Get data under "process" key
+                    parameter = Parameter(**param_data)
+                    self._parameters[parameter.name] = parameter  # Use name as key
+                    logger.info(f"Loaded parameter: {parameter.name}")
+                        
+                except Exception as e:
+                    logger.error(f"Failed to load parameter set {param_file}: {e}")
+                    self._failed_parameters[param_file.stem] = str(e)
+                    continue
+                
         except Exception as e:
-            error_msg = f"Failed to load parameters: {str(e)}"
-            logger.error(error_msg)
-            raise create_error(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                message=error_msg
-            )
+            logger.error(f"Failed to load parameters: {e}")
 
     async def _attempt_recovery(self) -> None:
         """Attempt to recover failed parameter sets."""
@@ -171,7 +123,7 @@ class ParameterService:
                     message=f"{self.service_name} service already running"
                 )
             
-            if self._parameter_sets is None:
+            if self._parameters is None:
                 raise create_error(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     message=f"{self.service_name} service not initialized"
@@ -201,7 +153,7 @@ class ParameterService:
                 )
             
             # 1. Clear parameter data
-            self._parameter_sets.clear()
+            self._parameters.clear()
             
             # 2. Reset service state
             self._is_running = False
@@ -225,9 +177,9 @@ class ParameterService:
             
             # Check component health
             components = {
-                "parameter_sets": ComponentHealth(
-                    status="ok" if self._parameter_sets is not None and len(self._parameter_sets) > 0 else "error",
-                    error=None if self._parameter_sets is not None and len(self._parameter_sets) > 0 else "No parameter sets loaded"
+                "parameters": ComponentHealth(
+                    status="ok" if self._parameters is not None and len(self._parameters) > 0 else "error",
+                    error=None if self._parameters is not None and len(self._parameters) > 0 else "No parameters loaded"
                 )
             }
             
@@ -239,8 +191,8 @@ class ParameterService:
                     error=f"Failed parameter sets: {failed_list}"
                 )
             
-            # Overall status is error only if no parameter sets loaded
-            overall_status = "error" if not self._parameter_sets or len(self._parameter_sets) == 0 else "ok"
+            # Overall status is error only if no parameters loaded
+            overall_status = "error" if not self._parameters or len(self._parameters) == 0 else "ok"
             if not self.is_running:
                 overall_status = "error"
             
@@ -264,11 +216,11 @@ class ParameterService:
                 is_running=False,
                 uptime=self.uptime,
                 error=error_msg,
-                components={"parameter_sets": ComponentHealth(status="error", error=error_msg)}
+                components={"parameters": ComponentHealth(status="error", error=error_msg)}
             )
 
-    async def list_parameter_sets(self) -> List[ParameterSet]:
-        """List available parameter sets."""
+    async def list_parameters(self) -> List[Parameter]:
+        """List available parameters."""
         try:
             if not self.is_running:
                 raise create_error(
@@ -276,18 +228,18 @@ class ParameterService:
                     message="Service not running"
                 )
                 
-            return list(self._parameter_sets.values())
+            return list(self._parameters.values())
             
         except Exception as e:
-            error_msg = "Failed to list parameter sets"
+            error_msg = "Failed to list parameters"
             logger.error(f"{error_msg}: {str(e)}")
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg
             )
 
-    async def get_parameter_set(self, param_id: str) -> ParameterSet:
-        """Get parameter set by ID."""
+    async def get_parameter(self, param_id: str) -> Parameter:
+        """Get parameter by ID."""
         try:
             if not self.is_running:
                 raise create_error(
@@ -295,24 +247,24 @@ class ParameterService:
                     message="Service not running"
                 )
                 
-            if param_id not in self._parameter_sets:
+            if param_id not in self._parameters:
                 raise create_error(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    message=f"Parameter set {param_id} not found"
+                    message=f"Parameter {param_id} not found"
                 )
                 
-            return self._parameter_sets[param_id]
+            return self._parameters[param_id]
             
         except Exception as e:
-            error_msg = f"Failed to get parameter set {param_id}"
+            error_msg = f"Failed to get parameter {param_id}"
             logger.error(f"{error_msg}: {str(e)}")
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg
             )
 
-    async def create_parameter_set(self, parameter_set: ParameterSet) -> ParameterSet:
-        """Create new parameter set."""
+    async def create_parameter(self, parameter: Parameter) -> Parameter:
+        """Create new parameter."""
         try:
             if not self.is_running:
                 raise create_error(
@@ -320,27 +272,27 @@ class ParameterService:
                     message="Service not running"
                 )
                 
-            if parameter_set.id in self._parameter_sets:
+            if parameter.id in self._parameters:
                 raise create_error(
                     status_code=status.HTTP_409_CONFLICT,
-                    message=f"Parameter set {parameter_set.id} already exists"
+                    message=f"Parameter {parameter.id} already exists"
                 )
                 
-            self._parameter_sets[parameter_set.id] = parameter_set
-            logger.info(f"Created parameter set {parameter_set.id}")
+            self._parameters[parameter.id] = parameter
+            logger.info(f"Created parameter {parameter.id}")
             
-            return parameter_set
+            return parameter
             
         except Exception as e:
-            error_msg = f"Failed to create parameter set {parameter_set.id}"
+            error_msg = f"Failed to create parameter {parameter.id}"
             logger.error(f"{error_msg}: {str(e)}")
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg
             )
 
-    async def update_parameter_set(self, parameter_set: ParameterSet) -> ParameterSet:
-        """Update existing parameter set."""
+    async def update_parameter(self, parameter: Parameter) -> Parameter:
+        """Update existing parameter."""
         try:
             if not self.is_running:
                 raise create_error(
@@ -348,19 +300,19 @@ class ParameterService:
                     message="Service not running"
                 )
                 
-            if parameter_set.id not in self._parameter_sets:
+            if parameter.id not in self._parameters:
                 raise create_error(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    message=f"Parameter set {parameter_set.id} not found"
+                    message=f"Parameter {parameter.id} not found"
                 )
                 
-            self._parameter_sets[parameter_set.id] = parameter_set
-            logger.info(f"Updated parameter set {parameter_set.id}")
+            self._parameters[parameter.id] = parameter
+            logger.info(f"Updated parameter {parameter.id}")
             
-            return parameter_set
+            return parameter
             
         except Exception as e:
-            error_msg = f"Failed to update parameter set {parameter_set.id}"
+            error_msg = f"Failed to update parameter {parameter.id}"
             logger.error(f"{error_msg}: {str(e)}")
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

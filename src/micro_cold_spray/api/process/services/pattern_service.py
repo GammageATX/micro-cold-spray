@@ -1,7 +1,6 @@
 """Pattern service implementation."""
 
 import os
-import time
 import yaml
 from typing import Dict, Any, List, Optional
 from datetime import datetime
@@ -11,7 +10,11 @@ from pathlib import Path
 
 from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
-from micro_cold_spray.api.process.models.process_models import ProcessPattern, PatternType
+from micro_cold_spray.api.process.models.process_models import (
+    Pattern,
+    StatusType,
+    PatternType
+)
 
 
 class PatternService:
@@ -26,6 +29,7 @@ class PatternService:
         
         # Initialize components to None
         self._patterns = None
+        self._failed_patterns = {}
         
         logger.info(f"{self.service_name} service initialized")
 
@@ -60,20 +64,11 @@ class PatternService:
             
             # Initialize patterns
             self._patterns = {}
-            self._failed_patterns = {}  # Track patterns that failed to load
-            
-            # Load config for version
-            config_path = os.path.join("config", "process.yaml")
-            if os.path.exists(config_path):
-                with open(config_path, "r") as f:
-                    config = yaml.safe_load(f)
-                    if "pattern" in config:
-                        self._version = config["pattern"].get("version", self._version)
             
             # Load patterns from data directory
             await self._load_patterns()
             
-            logger.info(f"{self.service_name} service initialized with {len(self._patterns)} patterns")
+            logger.info(f"{self.service_name} service initialized")
             
         except Exception as e:
             error_msg = f"Failed to initialize {self.service_name} service: {str(e)}"
@@ -104,7 +99,7 @@ class PatternService:
                     if "type" in pattern_data:
                         pattern_data["type"] = PatternType(pattern_data["type"])
                     
-                    pattern = ProcessPattern(**pattern_data)
+                    pattern = Pattern(**pattern_data)
                     self._patterns[pattern.id] = pattern
                     logger.info(f"Loaded pattern: {pattern.id}")
                         
@@ -227,7 +222,7 @@ class PatternService:
                 components={"patterns": ComponentHealth(status="error", error=error_msg)}
             )
 
-    async def list_patterns(self) -> List[ProcessPattern]:
+    async def list_patterns(self) -> List[Pattern]:
         """List available patterns."""
         if not self.is_running:
             raise create_error(
@@ -237,7 +232,7 @@ class PatternService:
         
         return list(self._patterns.values())
 
-    async def get_pattern(self, pattern_id: str) -> ProcessPattern:
+    async def get_pattern(self, pattern_id: str) -> Pattern:
         """Get pattern by ID."""
         try:
             if not self.is_running:
@@ -262,7 +257,7 @@ class PatternService:
                 message=error_msg
             )
 
-    async def create_pattern(self, pattern: ProcessPattern) -> ProcessPattern:
+    async def create_pattern(self, pattern: Pattern) -> Pattern:
         """Create new pattern."""
         try:
             if not self.is_running:
@@ -290,7 +285,7 @@ class PatternService:
                 message=error_msg
             )
 
-    async def update_pattern(self, pattern: ProcessPattern) -> ProcessPattern:
+    async def update_pattern(self, pattern: Pattern) -> Pattern:
         """Update existing pattern."""
         try:
             if not self.is_running:

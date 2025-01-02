@@ -3,10 +3,8 @@
 from micro_cold_spray.api.process.models.process_models import (
     # Enums
     NozzleType,
-    PowderMorphology,
     
     # Base Models
-    SizeRange,
     Nozzle,
     Powder,
     Pattern,
@@ -32,10 +30,8 @@ from micro_cold_spray.api.process.models.process_models import (
 __all__ = [
     # Enums
     "NozzleType",
-    "PowderMorphology",
     
     # Base Models
-    "SizeRange",
     "Nozzle",
     "Powder",
     "Pattern",

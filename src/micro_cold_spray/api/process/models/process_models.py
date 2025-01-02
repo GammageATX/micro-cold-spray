@@ -16,6 +16,24 @@ class NozzleType(str, Enum):
     DE_LAVAL = "de laval"
 
 
+class PatternType(str, Enum):
+    """Pattern types."""
+    LINEAR = "linear"
+    SERPENTINE = "serpentine"
+    SPIRAL = "spiral"
+
+
+# Add new enums
+class StepType(str, Enum):
+    """Sequence step types."""
+    INITIALIZE = "INITIALIZE"
+    TROUGH = "TROUGH"
+    PATTERN = "PATTERN"
+    PARAMETERS = "PARAMETERS"
+    SPRAY = "SPRAY"
+    SHUTDOWN = "SHUTDOWN"
+
+
 # Base Models
 class SizeRange(BaseModel):
     """Powder size range."""
@@ -27,6 +45,9 @@ class Nozzle(BaseModel):
     """Nozzle definition."""
     name: str
     type: NozzleType
+    throat_diameter: float
+    exit_diameter: float
+    length: float
 
 
 class Powder(BaseModel):
@@ -43,30 +64,46 @@ class Pattern(BaseModel):
     id: str
     name: str
     description: str
-    type: str
+    type: PatternType
     params: Dict[str, Any]
 
 
 class Parameter(BaseModel):
-    """Parameter set definition."""
-    id: str
+    """Process parameter definition."""
     name: str
+    created: str
+    author: str
     description: str
-    nozzle_id: str
-    powder_id: str
-    gas_params: Dict[str, float]
-    feeder_params: Dict[str, float]
-    deagg_params: Dict[str, float]
+    nozzle: str
+    main_gas: float
+    feeder_gas: float
+    frequency: int
+    deagglomerator_speed: int
+
+
+class SequenceMetadata(BaseModel):
+    """Sequence metadata."""
+    name: str
+    version: str
+    created: str
+    author: str
+    description: str
+
+
+class SequenceStep(BaseModel):
+    """Sequence step."""
+    name: str
+    step_type: StepType
+    description: Optional[str] = None
+    pattern_id: Optional[str] = None
+    parameters: Optional[str] = None
+    origin: Optional[List[float]] = None
 
 
 class Sequence(BaseModel):
     """Sequence definition."""
-    id: str
-    name: str
-    description: str
-    pattern_id: str
-    parameter_id: str
-    steps: List[Dict[str, Any]]
+    metadata: SequenceMetadata
+    steps: List[SequenceStep]
 
 
 # Response Models

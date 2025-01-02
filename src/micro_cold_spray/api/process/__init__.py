@@ -1,8 +1,15 @@
-"""Process API."""
+"""Process API package."""
 
-from micro_cold_spray.api.process.process_app import create_process_service
+from fastapi import Request
+from micro_cold_spray.api.process.process_service import ProcessService
+
+
+async def get_process_service(request: Request) -> ProcessService:
+    """Get process service instance from app state."""
+    return request.app.state.service
 
 
 __all__ = [
-    'create_process_service'
+    "ProcessService",
+    "get_process_service"
 ]
