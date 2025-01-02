@@ -14,7 +14,8 @@ from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
 from micro_cold_spray.api.process.models.process_models import (
     Parameter,
     Nozzle,
-    Powder
+    Powder,
+    NozzleType
 )
 
 
@@ -247,14 +248,17 @@ class ParameterService:
                     message="Service not running"
                 )
                 
-            if param_id not in self._parameters:
-                raise create_error(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    message=f"Parameter {param_id} not found"
-                )
+            # Case-insensitive lookup
+            param_id = param_id.lower()
+            for param in self._parameters.values():
+                if param.name.lower().replace(" ", "_") == param_id:
+                    return param
+                    
+            raise create_error(
+                status_code=status.HTTP_404_NOT_FOUND,
+                message=f"Parameter {param_id} not found"
+            )
                 
-            return self._parameters[param_id]
-            
         except Exception as e:
             error_msg = f"Failed to get parameter {param_id}"
             logger.error(f"{error_msg}: {str(e)}")
@@ -346,3 +350,52 @@ class ParameterService:
                 
         except Exception as e:
             logger.error(f"Failed to load nozzles: {e}")
+
+    async def list_nozzles(self) -> List[Dict[str, Any]]:
+        """List available nozzles."""
+        try:
+            # Load from data/nozzles directory
+            nozzles = []
+            nozzle_dir = Path("data/nozzles")
+            if nozzle_dir.exists():
+                for nozzle_file in nozzle_dir.glob("*.yaml"):
+                    try:
+                        with open(nozzle_file) as f:
+                            data = yaml.safe_load(f)
+                        if "nozzle" in data:
+                            nozzle_data = data["nozzle"]
+                            # Convert type string to enum value
+                            if "type" in nozzle_data:
+                                nozzle_type = nozzle_data["type"].replace("_", "-")
+                                nozzle_data["type"] = NozzleType(nozzle_type)
+                            nozzles.append(nozzle_data)
+                    except Exception as e:
+                        logger.error(f"Failed to load nozzle {nozzle_file}: {e}")
+            return nozzles
+        except Exception as e:
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=f"Failed to list nozzles: {str(e)}"
+            )
+
+    async def list_powders(self) -> List[Dict[str, Any]]:
+        """List available powders."""
+        try:
+            # Load from data/powders directory
+            powders = []
+            powder_dir = Path("data/powders")
+            if powder_dir.exists():
+                for powder_file in powder_dir.glob("*.yaml"):
+                    try:
+                        with open(powder_file) as f:
+                            data = yaml.safe_load(f)
+                        if "powder" in data:
+                            powders.append(data["powder"])
+                    except Exception as e:
+                        logger.error(f"Failed to load powder {powder_file}: {e}")
+            return powders
+        except Exception as e:
+            raise create_error(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                message=f"Failed to list powders: {str(e)}"
+            )

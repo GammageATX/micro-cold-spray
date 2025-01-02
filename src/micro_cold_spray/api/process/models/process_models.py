@@ -42,12 +42,11 @@ class SizeRange(BaseModel):
 
 
 class Nozzle(BaseModel):
-    """Nozzle definition."""
+    """Nozzle model."""
     name: str
+    manufacturer: str
     type: NozzleType
-    throat_diameter: float
-    exit_diameter: float
-    length: float
+    description: str
 
 
 class Powder(BaseModel):

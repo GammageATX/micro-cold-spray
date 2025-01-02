@@ -1,6 +1,6 @@
 nozzle:
   name: 0058
   manufacturer: VRC
-  type: CONVERGENT_DIVERGENT
+  type: convergent-divergent
   description: VRC 0058 WC nozzle
 

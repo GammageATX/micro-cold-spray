@@ -241,13 +241,16 @@ class PatternService:
                     message="Service not running"
                 )
                 
-            if pattern_id not in self._patterns:
-                raise create_error(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    message=f"Pattern {pattern_id} not found"
-                )
+            # Case-insensitive lookup
+            pattern_id = pattern_id.lower().replace("-", "_")  # Handle both - and _
+            for pattern_id_key, pattern in self._patterns.items():
+                if pattern_id_key.lower().replace("-", "_") == pattern_id:
+                    return pattern
                 
-            return self._patterns[pattern_id]
+            raise create_error(
+                status_code=status.HTTP_404_NOT_FOUND,
+                message=f"Pattern {pattern_id} not found"
+            )
             
         except Exception as e:
             error_msg = f"Failed to get pattern {pattern_id}"

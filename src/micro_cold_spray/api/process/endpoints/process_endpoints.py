@@ -13,7 +13,7 @@ from micro_cold_spray.api.process.models.process_models import (
     PowderListResponse
 )
 
-router = APIRouter(prefix="/process", tags=["process"])
+router = APIRouter(tags=["process"])
 
 
 @router.get(

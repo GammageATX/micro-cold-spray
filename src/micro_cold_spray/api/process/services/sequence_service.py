@@ -298,7 +298,7 @@ class SequenceService:
                 message=error_msg
             )
 
-    async def start_sequence(self, sequence_id: str) -> StatusType:
+    async def start_sequence(self, sequence_id: str) -> None:
         """Start sequence execution."""
         try:
             if not self.is_running:
@@ -307,28 +307,40 @@ class SequenceService:
                     message="Service not running"
                 )
                 
-            if sequence_id not in self._sequences:
+            # Case-insensitive lookup
+            sequence_id = sequence_id.lower().replace("-", "_")
+            sequence = None
+            for seq in self._sequences.values():
+                if seq.metadata.name.lower().replace(" ", "_") == sequence_id:
+                    sequence = seq
+                    break
+                
+            if not sequence:
                 raise create_error(
                     status_code=status.HTTP_404_NOT_FOUND,
                     message=f"Sequence {sequence_id} not found"
                 )
                 
-            if self._active_sequence:
+            # Check if already running
+            if sequence_id in self._running_sequences:
                 raise create_error(
                     status_code=status.HTTP_409_CONFLICT,
-                    message=f"Sequence {self._active_sequence} already in progress"
+                    message=f"Sequence {sequence_id} already running"
                 )
                 
-            self._active_sequence = sequence_id
-            self._sequence_status = StatusType.RUNNING
-            logger.info(f"Started sequence {sequence_id}")
+            # Start sequence execution
+            self._running_sequences[sequence_id] = {
+                "sequence": sequence,
+                "status": StatusType.RUNNING,
+                "current_step": 0,
+                "start_time": datetime.now()
+            }
             
-            return self._sequence_status
+            logger.info(f"Started sequence {sequence_id}")
             
         except Exception as e:
             error_msg = f"Failed to start sequence {sequence_id}"
             logger.error(f"{error_msg}: {str(e)}")
-            self._sequence_status = StatusType.ERROR
             raise create_error(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg

@@ -5,6 +5,7 @@ from fastapi import status
 from loguru import logger
 
 from micro_cold_spray.utils.errors import create_error
+from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
 from micro_cold_spray.api.process.services import (
     PatternService,
     ParameterService,
@@ -104,3 +105,72 @@ class ProcessService:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 message=error_msg
             )
+
+    async def health(self) -> ServiceHealth:
+        """Get service health status."""
+        try:
+            # Get component health status
+            pattern_health = await self.pattern_service.health()
+            parameter_health = await self.parameter_service.health()
+            sequence_health = await self.sequence_service.health()
+            schema_health = await self.schema_service.health()
+            
+            # Create components dict with ComponentHealth objects
+            components = {
+                "pattern": ComponentHealth(
+                    status=pattern_health.status,
+                    error=pattern_health.error
+                ),
+                "parameter": ComponentHealth(
+                    status=parameter_health.status,
+                    error=parameter_health.error
+                ),
+                "sequence": ComponentHealth(
+                    status=sequence_health.status,
+                    error=sequence_health.error
+                ),
+                "schema": ComponentHealth(
+                    status=schema_health.status,
+                    error=schema_health.error
+                )
+            }
+            
+            # Determine overall status
+            overall_status = "ok"
+            for comp in components.values():
+                if comp.status == "error":
+                    overall_status = "error"
+                    break
+                
+            return ServiceHealth(
+                status=overall_status,
+                service=self._service_name,
+                version=self._version,
+                is_running=self.is_running,
+                uptime=self.uptime,
+                error=None if overall_status == "ok" else "One or more components in error state",
+                components=components
+            )
+            
+        except Exception as e:
+            error_msg = f"Health check failed: {str(e)}"
+            logger.error(error_msg)
+            return ServiceHealth(
+                status="error",
+                service=self._service_name,
+                version=self._version,
+                is_running=False,
+                uptime=0.0,
+                error=error_msg,
+                components={
+                    "pattern": ComponentHealth(status="error", error=str(e)),
+                    "parameter": ComponentHealth(status="error", error=str(e)),
+                    "sequence": ComponentHealth(status="error", error=str(e)),
+                    "schema": ComponentHealth(status="error", error=str(e))
+                }
+            )
+
+    @property
+    def uptime(self) -> float:
+        """Get service uptime in seconds."""
+        return (datetime.now() - self._start_time).total_seconds() if self._start_time else 0.0

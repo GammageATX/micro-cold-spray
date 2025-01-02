@@ -72,7 +72,7 @@ def create_process_service() -> FastAPI:
     service = ProcessService()
     app.state.service = service
     
-    # Add endpoints
+    # Add endpoints without prefix
     app.include_router(process_router)
     app.include_router(pattern_router)
     app.include_router(parameter_router)
