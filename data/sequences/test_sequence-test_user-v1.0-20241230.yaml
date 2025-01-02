@@ -9,10 +9,27 @@ sequence:
   - name: "Initialize"
     step_type: "INITIALIZE"
     description: "Initialize system"
-  - name: "Test Pattern"
+  - name: "Trough"
+    step_type: "TROUGH"
+  - name: "Pattern 1"
     step_type: "PATTERN"
-    description: "Run pattern"
-    pattern_id: "test_pattern"
-    parameters:
-      main_gas: 50.0
-      feeder_gas: 5.0
+    pattern_id: "linear"
+    origin: [100, 100]
+  - name: "Parameter 1"
+    step_type: "PARAMETERS"
+    parameters: "mcs-24_n2_med_flow"
+  - name: "Spray 1"
+    step_type: "SPRAY"
+  - name: "Trough"
+    step_type: "TROUGH"
+  - name: "Pattern 2"
+    step_type: "PATTERN"
+    pattern_id: "spiral"
+    origin: [150, 100]
+  - name: "Parameter 2"
+    step_type: "PARAMETERS"
+    parameters: "mcs-24_n2_med_flow"
+  - name: "Spray 2"
+    step_type: "SPRAY"
+  - name: "Shutdown"
+    step_type: "SHUTDOWN"

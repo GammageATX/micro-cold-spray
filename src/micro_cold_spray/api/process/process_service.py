@@ -6,7 +6,7 @@ from fastapi import status
 from loguru import logger
 
 from micro_cold_spray.utils.errors import create_error
-from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth, get_uptime
+from micro_cold_spray.utils.health import ServiceHealth, ComponentHealth
 from micro_cold_spray.api.process.services.parameter_service import ParameterService
 from micro_cold_spray.api.process.services.pattern_service import PatternService
 from micro_cold_spray.api.process.services.action_service import ActionService

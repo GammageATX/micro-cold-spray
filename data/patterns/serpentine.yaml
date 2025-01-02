@@ -6,7 +6,6 @@ pattern:
   params:
     width: 100.0
     height: 50.0
-    z_height: 10.0
     velocity: 30.0
     line_spacing: 2.0
     direction: "x"

@@ -1,6 +1,6 @@
-"""Sequence control endpoints."""
+"""Sequence management endpoints."""
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPStatus, status, Depends
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, status
 from loguru import logger
 import asyncio
 
@@ -8,9 +8,12 @@ from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.api.process.process_service import ProcessService
 from micro_cold_spray.api.process.dependencies import get_process_service
 from micro_cold_spray.api.process.models.process_models import (
-    SequenceStatus,
-    MessageResponse,
-    SequenceListResponse
+    BaseResponse,
+    Sequence,
+    SequenceResponse,
+    SequenceListResponse,
+    StatusType,
+    StatusResponse
 )
 
 router = APIRouter(prefix="/sequences", tags=["sequences"])
@@ -40,7 +43,7 @@ async def list_sequences(
 
 @router.post(
     "/{sequence_id}/start",
-    response_model=MessageResponse,
+    response_model=BaseResponse,
     responses={
         status.HTTP_404_NOT_FOUND: {"description": "Sequence not found"},
         status.HTTP_409_CONFLICT: {"description": "Sequence already running"},
@@ -50,11 +53,11 @@ async def list_sequences(
 async def start_sequence(
     sequence_id: str,
     service: ProcessService = Depends(get_process_service)
-) -> MessageResponse:
+) -> BaseResponse:
     """Start sequence execution."""
     try:
         await service.sequence_service.start_sequence(sequence_id)
-        return MessageResponse(message=f"Sequence {sequence_id} started")
+        return BaseResponse(message=f"Sequence {sequence_id} started")
     except Exception as e:
         logger.error(f"Failed to start sequence {sequence_id}: {e}")
         raise create_error(
@@ -65,7 +68,7 @@ async def start_sequence(
 
 @router.post(
     "/{sequence_id}/stop",
-    response_model=MessageResponse,
+    response_model=BaseResponse,
     responses={
         status.HTTP_404_NOT_FOUND: {"description": "Sequence not found"},
         status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Failed to stop sequence"}
@@ -74,11 +77,11 @@ async def start_sequence(
 async def stop_sequence(
     sequence_id: str,
     service: ProcessService = Depends(get_process_service)
-) -> MessageResponse:
+) -> BaseResponse:
     """Stop sequence execution."""
     try:
         await service.sequence_service.stop_sequence(sequence_id)
-        return MessageResponse(message=f"Sequence {sequence_id} stopped")
+        return BaseResponse(message=f"Sequence {sequence_id} stopped")
     except Exception as e:
         logger.error(f"Failed to stop sequence {sequence_id}: {e}")
         raise create_error(
@@ -89,7 +92,7 @@ async def stop_sequence(
 
 @router.get(
     "/{sequence_id}/status",
-    response_model=SequenceStatus,
+    response_model=StatusResponse,
     responses={
         status.HTTP_404_NOT_FOUND: {"description": "Sequence not found"},
         status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Failed to get status"}
@@ -98,7 +101,7 @@ async def stop_sequence(
 async def get_status(
     sequence_id: str,
     service: ProcessService = Depends(get_process_service)
-) -> SequenceStatus:
+) -> StatusResponse:
     """Get sequence status."""
     try:
         return await service.sequence_service.get_status(sequence_id)
@@ -119,7 +122,7 @@ async def sequence_status(
     try:
         service = websocket.app.state.service
         if not service.is_running:
-            await websocket.close(code=HTTPStatus.SERVICE_UNAVAILABLE)
+            await websocket.close(code=status.WS_1013_TRY_AGAIN_LATER)
             return
 
         await websocket.accept()
@@ -129,7 +132,7 @@ async def sequence_status(
         status_queue = asyncio.Queue()
         
         # Subscribe to status updates
-        def status_changed(sequence_status: SequenceStatus):
+        def status_changed(sequence_status: StatusResponse):
             asyncio.create_task(status_queue.put(sequence_status))
         
         service.sequence_service.on_status_changed(sequence_id, status_changed)
@@ -149,4 +152,4 @@ async def sequence_status(
 
     except Exception as e:
         logger.error(f"Sequence WebSocket error: {str(e)}")
-        await websocket.close(code=HTTPStatus.INTERNAL_SERVER_ERROR)
+        await websocket.close(code=status.WS_1011_INTERNAL_ERROR)

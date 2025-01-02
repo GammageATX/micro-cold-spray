@@ -7,9 +7,10 @@ from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.api.process.process_service import ProcessService
 from micro_cold_spray.api.process.dependencies import get_process_service
 from micro_cold_spray.api.process.models.process_models import (
-    PatternRequest,
-    PatternListResponse,
-    MessageResponse
+    BaseResponse,
+    Pattern,
+    PatternResponse,
+    PatternListResponse
 )
 
 router = APIRouter(prefix="/patterns", tags=["patterns"])
@@ -39,20 +40,20 @@ async def list_patterns(
 
 @router.post(
     "/generate",
-    response_model=MessageResponse,
+    response_model=BaseResponse,
     responses={
         status.HTTP_422_UNPROCESSABLE_ENTITY: {"description": "Validation failed"},
         status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Failed to generate pattern"}
     }
 )
 async def generate_pattern(
-    pattern: PatternRequest,
+    pattern: Pattern,
     service: ProcessService = Depends(get_process_service)
-) -> MessageResponse:
+) -> BaseResponse:
     """Generate new pattern."""
     try:
         pattern_id = await service.pattern_service.generate_pattern(pattern)
-        return MessageResponse(message=f"Pattern {pattern_id} generated successfully")
+        return BaseResponse(message=f"Pattern {pattern_id} generated successfully")
     except Exception as e:
         logger.error(f"Failed to generate pattern: {e}")
         raise create_error(

@@ -5,13 +5,13 @@ import os
 import yaml
 from typing import Dict, Any
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
-from micro_cold_spray.utils.errors import ConfigError
+from micro_cold_spray.utils.errors import create_error
 from micro_cold_spray.api.process.process_service import ProcessService
-from micro_cold_spray.api.process.endpoints import create_process_router
+from micro_cold_spray.api.process.endpoints import router
 
 
 DEFAULT_CONFIG = {
@@ -39,7 +39,10 @@ def load_config() -> Dict[str, Any]:
             
     except Exception as e:
         logger.error(f"Failed to load config: {e}")
-        return DEFAULT_CONFIG
+        raise create_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            message=f"Failed to load configuration: {str(e)}"
+        )
 
 
 @asynccontextmanager
@@ -82,8 +85,7 @@ def create_process_service() -> FastAPI:
     # Store service in app state
     app.state.service = service
     
-    # Create and mount router
-    router = create_process_router(service)
+    # Mount router
     app.include_router(router, prefix="/process")
     
     return app

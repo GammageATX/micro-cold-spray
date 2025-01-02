@@ -9,10 +9,11 @@ from pydantic import BaseModel, Field
 class StepType(str, Enum):
     """Step types."""
     INITIALIZE = "initialize"
+    TROUGH = "trough"
     PATTERN = "pattern"
     PARAMETER = "parameter"
-    WAIT = "wait"
-    CUSTOM = "custom"
+    SPRAY = "spray"
+    SHUTDOWN = "shutdown"
 
 
 class SequenceMetadata(BaseModel):
